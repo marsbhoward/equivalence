@@ -219,7 +219,7 @@ namespace Convergence.Core
             /// Distinct from <see cref="Attack.GlobalTempo"/>, which it multiplies against: tempo
             /// is the designer's global feel dial for everyone, this is one character's stat.
             /// </summary>
-            public const float AttackSpeedPercent = 100f;
+            public const float AttackSpeedPercent = 120f;
 
             // Starting max HP. 100% is whichever of these the element uses.
             //
@@ -1870,7 +1870,7 @@ namespace Convergence.Core
             /// rows and nothing on it sits off the pixel grid. Perfect is +-45ms around its centre; a good press
             /// has 90ms either side of that. Was 0.075 (a 0.30s bar) - widened for room to read it.
             /// </summary>
-            public const float SegmentSeconds = 0.09f;
+            public const float SegmentSeconds = 0.1f;
             public const float BarSeconds = SegmentSeconds * 4f;
 
             /// <summary>The user's numbers: perfect +20%, good +10%, early or no press -5%.</summary>
