@@ -1,0 +1,63 @@
+# ---- Unity: generated, never committed ----
+/[Ll]ibrary/
+/[Tt]emp/
+/[Oo]bj/
+/[Bb]uild/
+/[Bb]uilds/
+/[Ll]ogs/
+/[Uu]ser[Ss]ettings/
+/[Mm]emoryCaptures/
+/[Rr]ecordings/
+
+# Asset .meta files stay tracked unless their asset is ignored too.
+!/[Aa]ssets/**/*.meta
+
+# Project files Unity and the IDE regenerate on their own.
+*.csproj
+*.sln
+*.slnx
+*.suo
+*.user
+*.userprefs
+*.pidb
+*.booproj
+*.svd
+*.pdb
+*.mdb
+*.opendb
+*.VC.db
+.vs/
+.idea/
+.gradle/
+ExportedObj/
+
+# Build and crash leftovers.
+sysinfo.txt
+crashlytics-buildid.txt
+*.apk
+*.aab
+*.unitypackage
+*.app
+*.tmp
+*.stackdump
+
+# ---- macOS ----
+.DS_Store
+
+# ---- Session scratch folders (screenshot and capture artefacts) ----
+/.claude-tmp/
+/.rigshots/
+/.tmp_shots/
+
+# ---- Web service: secrets and build output ----
+# The .env holds the Blockfrost key and the service wallet's seed - never commit it.
+**/.env
+**/.env.*
+!**/.env.example
+web/service/node_modules/
+web/service/dist/
+
+# ---- Unity's crash-recovery scene copies, and stray capture folders ----
+/[Aa]ssets/_Recovery/
+/[Aa]ssets/_Recovery.meta
+/m5/

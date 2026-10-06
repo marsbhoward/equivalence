@@ -44,6 +44,19 @@ namespace Convergence.Core
                  "5.6 = 10.5%.")]
         public float CameraSize = Tuning.Camera.Size;
 
+        /// <summary>DEV: use the phone's closer arena zoom on any device - to see it in the Editor.</summary>
+        public static bool DevPhoneZoom;
+
+        /// <summary>
+        /// The ARENA's zoom: <see cref="CameraSize"/>, brought in by Tuning.Camera.PhoneZoom on a
+        /// phone. A phone's short side is small enough that the character read at a fraction of
+        /// the size it does on a monitor (11.7% of the short side, against ~17% in the clear pixel
+        /// game the user compared it with). The hub keeps its own framing; PixelPerfectZoom still
+        /// snaps the result to a whole number of screen pixels per texel.
+        /// </summary>
+        float ArenaViewSize
+            => CameraSize / (Application.isMobilePlatform || DevPhoneZoom ? Tuning.Camera.PhoneZoom : 1f);
+
         [Tooltip("How tightly the camera holds the player. Higher is more locked.")]
         public float CameraFollow = Tuning.Camera.Follow;
 
@@ -75,18 +88,9 @@ namespace Convergence.Core
         public int XpPerPick = 150;
 
         [Header("Floors")]
-        public int BaseEnemiesPerFloor = 3;
+        [Tooltip("Every Nth floor guarantees one elite, paid for out of the wave's pool. When each " +
+                 "kind first appears is Tuning.Waves' - see Enemies.WaveComposer.")]
         public int EliteEveryNFloors = 3;
-        [Tooltip("First floor a ranged kiter can appear. Lets the player meet a plain chaser wave first.")]
-        public int RangedFromFloor = 2;
-        [Tooltip("First floor a stationary beam turret can appear.")]
-        public int TurretFromFloor = 4;
-        [Tooltip("First floor a hit-and-run dasher can appear.")]
-        public int DasherFromFloor = 3;
-        [Tooltip("First floor a stationary hazard gargoyle can appear.")]
-        public int GargoyleFromFloor = 5;
-        [Tooltip("First floor a shielding bubbles statue can appear.")]
-        public int BubblesFromFloor = 6;
 
         State _state = State.Hub;
 
@@ -149,9 +153,13 @@ namespace Convergence.Core
         public UI.ManualScreen ManualScreen { get; private set; }
         public UI.GearDisplayScreen GearDisplayScreen { get; private set; }
         public UI.RiftScreen RiftScreen { get; private set; }
+        public UI.StakeScreen StakeScreen { get; private set; }
         public UI.PauseScreen PauseScreen { get; private set; }
+        public UI.SettingsScreen SettingsScreen { get; private set; }
+        public UI.ControlsScreen ControlsScreen { get; private set; }
         public UI.InventoryScreen InventoryScreen { get; private set; }
         public UI.ExchangeScreen ExchangeScreen { get; private set; }
+        public UI.TransmuteScreen TransmuteScreen { get; private set; }
         public UI.TxScreen TxScreen { get; private set; }
         public UI.ConfirmDialog ConfirmDialog { get; private set; }
         /// <summary>
@@ -167,6 +175,31 @@ namespace Convergence.Core
         List<EnemyController> _alive = new();
 
         /// <summary>
+        /// A floor's enemies still waiting for room - the on-screen cap is pressure, see
+        /// NextSpawnFits. Rebuilt fresh every floor and drained by both the
+        /// initial trickle-in and HookDeath's Died handler, so a domain reload emptying it mid-
+        /// floor is the same "wave rebuilds anyway" story _alive already tells; non-readonly for
+        /// the same reason.
+        /// </summary>
+        Queue<PendingSpawn> _spawnQueue = new();
+
+        /// <summary>One enemy still queued for the current floor: which kind, whether it rolled
+        /// elite, and where to place it (evaluated at actual spawn time, not when queued, so a
+        /// late trickle-in still reads the player's CURRENT position).</summary>
+        readonly struct PendingSpawn
+        {
+            public readonly EnemyKind Kind;
+            public readonly bool Elite;
+            public readonly Func<Vector2> Position;
+            public PendingSpawn(EnemyKind kind, bool elite, Func<Vector2> position)
+            {
+                Kind = kind;
+                Elite = elite;
+                Position = position;
+            }
+        }
+
+        /// <summary>
         /// The boss holding the current floor, or null. A plain component reference, so it
         /// survives a domain reload the way an interface field would not.
         ///
@@ -174,7 +207,7 @@ namespace Convergence.Core
         /// check counts it, and a boss is neither an enemy archetype nor something a wave
         /// spawner should be able to add to. The floor asks about both separately.
         /// </summary>
-        Bosses.BossController _boss;
+        Bosses.Boss _boss;
 
         /// <summary>What this run is carrying, and what it has already got out. Rebuilt per run;
         /// nothing in it reaches the profile until a Rift or floor 100 banks it.</summary>
@@ -183,8 +216,50 @@ namespace Convergence.Core
         /// <summary>The Rift standing open on this floor, or null. Like the boss it is not in
         /// _alive and holds the floor on its own.</summary>
         Rifts.Rift _rift;
+
+        /// <summary>
+        /// A Red Rift's guard once the player has broken its seal, and whether they have. Kept
+        /// apart from _alive: a guard called AFTER the floor clears must not hold the floor, and
+        /// the Rift opens on these bodies alone. Non-readonly and null-guarded - a domain reload
+        /// can hand a collection back empty (see CLAUDE.md, Domain reload traps).
+        /// </summary>
+        List<Health> _redGuard = new();
+        bool _redSummoned;
         bool _spawning;
         bool _rewardTaken;
+
+        /// <summary>What each floor is - see Rifts.FloorPlanner. One per run, seeded at run start.</summary>
+        Rifts.FloorPlanner _planner;
+        Rifts.FloorPlan _plan;
+
+        /// <summary>When this floor's first wave arrived (scaled time), or -1 - the clear is timed
+        /// from here for the Collapsing Rift's clock.</summary>
+        float _fightStart = -1f;
+
+        /// <summary>Whether this run has cleared its stake's gate floor. Run state, reset at run
+        /// start; the stake itself lives on the profile.</summary>
+        bool _stakeGateCleared;
+
+        /// <summary>What the stake came to, for the run-over screen. Null with no stake.</summary>
+        string _stakeLine;
+
+        /// <summary>
+        /// A floor transition is in flight - from the moment the door is reached until the new
+        /// floor is built and the screen is back.
+        ///
+        /// This exists because _activeDoor and _spawning BOTH go quiet in the middle of a
+        /// transition and neither covers the gap between them. The door's callback clears
+        /// _activeDoor before it starts FloorTransition, and _spawning is not set until
+        /// NextFloor runs, which is on the far side of a 0.45s fade. For those frames the
+        /// floor-clear branch in Update saw an empty room with no door in it and started a
+        /// SECOND NextFloor of its own - so the floor advanced twice, floor 2 was skipped
+        /// outright, and two waves spawned into one room.
+        ///
+        /// It was invisible until the black-screen deadlock above it was fixed: both coroutines
+        /// simply hung, so the skip never got as far as being drawn. Worth knowing that one bug
+        /// was sitting on top of the other, if a third ever turns up here.
+        /// </summary>
+        bool _transitioning;
         System.Action<Combat.Health> _onPlayerDied;
 
         /// <summary>
@@ -238,6 +313,11 @@ namespace Convergence.Core
 
             Physics2D.gravity = Vector2.zero;
 
+            // Every wave is priced against simulated ledger curves (Player.PlayerPower), built on
+            // first use - about half a second. Built here, under the load, rather than as the first
+            // floor's enemies are due.
+            Enemies.WaveComposer.Pool(1);
+
             _canvas = UiKit.CreateCanvas("UI", 10);
             _canvas.transform.SetParent(transform, false);
 
@@ -257,9 +337,13 @@ namespace Convergence.Core
             ManualScreen = gameObject.AddComponent<UI.ManualScreen>();
             GearDisplayScreen = gameObject.AddComponent<UI.GearDisplayScreen>();
             RiftScreen = gameObject.AddComponent<UI.RiftScreen>();
+            StakeScreen = gameObject.AddComponent<UI.StakeScreen>();
             PauseScreen = gameObject.AddComponent<UI.PauseScreen>();
+            SettingsScreen = gameObject.AddComponent<UI.SettingsScreen>();
+            ControlsScreen = gameObject.AddComponent<UI.ControlsScreen>();
             InventoryScreen = gameObject.AddComponent<UI.InventoryScreen>();
             ExchangeScreen = gameObject.AddComponent<UI.ExchangeScreen>();
+            TransmuteScreen = gameObject.AddComponent<UI.TransmuteScreen>();
             TxScreen = gameObject.AddComponent<UI.TxScreen>();
 
             // Placeholder art until a wallet or backend implements IShowcaseSource. Assigning a
@@ -309,19 +393,23 @@ namespace Convergence.Core
             Controls.ReleaseReady = () =>
                 _player != null && (
                     (_player.Blade != null && _player.Blade.Airborne)
-                    || (_player.Resource != null && _player.Resource.CanRelease
-                        && (_player.Effects == null || _player.Effects.CanRelease(_player.Resource.Fill01))));
+                    || (_player.Resource != null && _player.Resource.CanRelease));
 
             // Same wiring, for the chest's defensive ability (GUARD).
             Controls.GuardReady = () => _player != null && _player.DefenseReady;
 
-            // Same wiring again, for an element's mastery-gated second ability. Reads false for
-            // every element that has not built one, which is what hides the button entirely
-            // rather than showing it permanently dim.
-            Controls.SecondAbilityReady = () =>
-                _player != null && _player.Resource != null && _player.Resource.CanReleaseSecond;
-            Controls.SecondAbilityUnlocked = () =>
-                _player != null && _player.Resource != null && _player.Resource.SecondAbilityUnlocked;
+            // The rings on those same buttons - how long, where the flags above only say whether.
+            // Each one hands back a number somebody else already owns; none of them keeps a
+            // clock of its own, for the reason GuardRing is written the way it is.
+            Controls.AttackProgress01 = () => _player != null ? _player.AttackCooldown01 : 0f;
+            Controls.GuardProgress01 = () => _player != null ? _player.DefenseCooldown01 : 0f;
+            // Full while a thrown blade is out, matching ReleaseReady above: the button recalls
+            // it then, and a ring drawing the (spent) meter would read as "not yet" at exactly
+            // the moment the press is most available.
+            Controls.ReleaseProgress01 = () =>
+                _player == null ? 0f
+                : _player.Blade != null && _player.Blade.Airborne ? 1f
+                : _player.Resource != null ? _player.Resource.Fill01 : 0f;
 
             _profile = await _store.LoadAsync("local-dev-0");
 
@@ -335,15 +423,19 @@ namespace Convergence.Core
             if (dropped > 0)
                 Debug.Log($"[ProfileStore] dropped {dropped} loadout entries that no longer match their slot.");
             RegisterMintedGear(_profile);
+            await ForfeitStaleStake();
             Mastery = new Progression.BoardState(_profile.Mastery);
 
-            // Same reason as the loadout prune above, one system over: mastery ids became
-            // element-scoped when the four-board model replaced the shared grid, so a profile
-            // saved before that carries entries no node answers to. Every read already ignores
-            // them - which is exactly why they went unnoticed - but the list only grows.
+            // A profile from an older board (the rebuild of 2026-10-05 changed every node id) has
+            // its purchases dropped and their levels returned, with a note for the mastery screen;
+            // then anything else no node answers to is pruned. Every read already ignores dead ids,
+            // which is why they once went unnoticed - but the list only grows.
+            if (Mastery.Migrate())
+                Debug.Log($"[ProfileStore] mastery boards moved to version {Progression.MasteryBoard.Version}: " +
+                          (string.IsNullOrEmpty(_profile.Mastery.BoardNotice) ? "nothing to return." : _profile.Mastery.BoardNotice));
             int staleNodes = Mastery.DropStale();
             if (staleNodes > 0)
-                Debug.Log($"[ProfileStore] dropped {staleNodes} mastery entries from the old board.");
+                Debug.Log($"[ProfileStore] dropped {staleNodes} mastery entries the board no longer has.");
             MasteryScreen.Init(() => _profile);
             if (EnsureStarterGear(_profile))
                 await _store.UnlockAsync(_profile);
@@ -405,39 +497,29 @@ namespace Convergence.Core
             {
                 var shown = Art.Gear.GearCatalog.Get(
                     _profile.Look.Resolve(_profile.Gear).Get(Art.Gear.GearSlot.Weapon));
-                if (shown != null && shown.HasElementGems && _player.Resource != null)
-                {
-                    var element = _player.Resource.Element;
-                    // SetWeaponSprite FIRST, WeaponAnchor read AFTER - SetWeaponSprite calls
-                    // EnsureLayers internally and WeaponAnchor's own getter does not, so reading
-                    // the anchor first can catch _pivots empty following a domain reload. Same
-                    // ordering BuildPlayer's own wiring already relies on.
-                    _player.Rig?.SetWeaponSprite(shown.BladeFor(element));
-                    var prismAnchor = _player.Rig?.WeaponAnchor;
-                    if (prismAnchor != null)
-                        Art.Gear.PrismGlow.Attach(prismAnchor, shown.GemAlong(element),
-                                                  ElementInfo.Tint(element), _player.Rig.WeaponRenderer)
-                                          .SetShown(true);
-                }
-                // Swapped AWAY from a gemmed weapon - the glow is parented to the shared weapon
-                // anchor, not to the item, so it survives the swap unless told to hide.
-                else _player.Rig?.WeaponAnchor?.GetComponentInChildren<Art.Gear.PrismGlow>(true)
-                                              ?.SetShown(false);
+                // Prism's lit gem (or, swapped away from it, the glow hidden) - see Attunement.
+                var element = _player.Resource != null ? _player.Resource.Element : Art.Gear.Attunement.Current;
+                Art.Gear.CharacterRigFactory.ApplyAttunement(_player.Rig, shown, element);
 
                 // Phantom's poof re-synced the same way - a plain bool read fresh from whatever
                 // is drawn now, no glow object to hide, just the flag flipping either way.
                 _player.PhantomFlicker = shown != null && shown.HasPhantomFlicker;
                 _player.SheatheDrawn   = shown != null && shown.HasSheathAnimation;
+                if (_player.Split != null) _player.Split.Blades = shown?.SplitBlades;
+                _player.CombinedFrames = shown?.CombinedFrames;          // Quintessence's overhead picture
+                if (shown != null) _player.CombinedFrameSeconds = shown.IdleFrameSeconds;
 
                 // Phantom's haze animation, same re-sync. RepaintLive (above) already reset the
                 // weapon layer to the new item's own base sprite, so hiding the ticker here is
                 // enough - nothing needs to restore a sprite the repaint didn't already fix.
-                if (shown != null && shown.PhantomHazeFrames != null && shown.PhantomHazeFrames.Length > 0)
+                // Also the Pacemaker's bead (GearItem.IdleFrames), through the same ticker.
+                var (flipbook, flipSeconds) = shown != null ? shown.WeaponFlipbook : (null, 0f);
+                if (flipbook != null)
                 {
-                    _player.Rig?.SetWeaponSprite(shown.PhantomHazeFrames[0]);
+                    _player.Rig?.SetWeaponSprite(flipbook[0]);
                     var hazeAnchor = _player.Rig?.WeaponAnchor;
                     if (hazeAnchor != null)
-                        Art.Gear.PhantomHaze.Attach(hazeAnchor, _player.Rig, shown.PhantomHazeFrames)
+                        Art.Gear.PhantomHaze.Attach(hazeAnchor, _player.Rig, flipbook, flipSeconds)
                                             .SetShown(true);
                 }
                 else _player.Rig?.WeaponAnchor?.GetComponentInChildren<Art.Gear.PhantomHaze>(true)
@@ -470,7 +552,27 @@ namespace Convergence.Core
         void RegisterMintedGear(CharacterProfile profile)
         {
             foreach (var record in profile.MintedGear)
+            {
+                // Rolls made against older gear tables move to the same place in the current
+                // ranges FIRST - a backfilled sub-stat below is already current.
+                GearForge.Migrate(record);
+                // Anything minted before sub-stats existed gets its tier's worth rolled now.
+                GearForge.EnsureSubStats(record);
                 Art.Gear.GearCatalog.Register(record.ToGearItem());
+            }
+        }
+
+        /// <summary>
+        /// A stake still on the profile at load is from a run that never reached its run-end
+        /// checkpoint, so it is lost - see GearStake.ForfeitStale for why a crash counts.
+        /// </summary>
+        async System.Threading.Tasks.Task ForfeitStaleStake()
+        {
+            var lost = GearStake.ForfeitStale(_profile);
+            if (lost == null) return;
+            Debug.Log($"[Stake] {lost.DisplayName} ({lost.InstanceId}) was staked on a run that never " +
+                      "ended - destroyed.");
+            await _store.UnlockAsync(_profile);
         }
 
         /// <summary>
@@ -485,7 +587,8 @@ namespace Convergence.Core
 
             _profile.PendingGearVouchers--;
             string instanceId = $"GEAR-{slot}-{Guid.NewGuid():N}";
-            var (tier, grants, ability, finisher) = Art.Gear.GearRoller.RollItem(slot, instanceId.GetHashCode());
+            var (tier, grants, primary, subs, ability, finisher) =
+                Art.Gear.GearRoller.RollItem(slot, instanceId.GetHashCode());
 
             var record = new MintedGearRecord
             {
@@ -494,7 +597,12 @@ namespace Convergence.Core
                 Slot = slot,
                 Tier = tier,
                 Grants = grants,
+                PrimaryStat = primary,
+                SubStats = subs,
                 DefensiveAbility = ability,
+                Finisher = finisher,
+                Class = Art.Gear.WeaponClass.Greatsword,
+                StatsVersion = Art.Gear.GearRoller.TablesVersion,
             };
             _profile.MintedGear.Add(record);
             Art.Gear.GearCatalog.Register(record.ToGearItem());
@@ -502,6 +610,240 @@ namespace Convergence.Core
             Debug.Log($"[Forge] redeemed {record.DisplayName} ({instanceId}), " +
                       $"{_profile.PendingGearVouchers} voucher(s) remaining");
 
+            if (CharacterScreen != null) CharacterScreen.Refresh();
+            _hub?.FlashForge();
+            _hub?.RefreshForge();
+            await _store.UnlockAsync(_profile);
+        }
+
+        /// <summary>
+        /// Spend a box of a given tier at the Forge for a RANDOM slot - the cheap, common path.
+        /// Guarantees the box's own tier (unlike a voucher, which rolls Silver/Gold via
+        /// GearRoller.RollTier) - see RollItem's fixed-tier overload.
+        /// </summary>
+        public async void RedeemForgeBoxRandom(Art.Gear.LootTier boxTier)
+        {
+            if (!TrySpendBoxes(boxTier, Tuning.GearRoll.ForgeRandomRedeemBoxCost)) return;
+
+            // Diamond and Black Diamond are DESIGNS, drawn from every eligible piece of the tier
+            // at once rather than slot-first - a slot with one design and a slot with ten are not
+            // equally likely places for "any Diamond" to land.
+            if (DesignDrops.IsDesignTier(boxTier))
+            {
+                await MintDesignBox(DesignDrops.Pool(boxTier), boxTier, Tuning.GearRoll.ForgeRandomRedeemBoxCost);
+                return;
+            }
+
+            var slots = UI.ForgeScreen.RedeemableSlots;
+            var slot = slots[UnityEngine.Random.Range(0, slots.Length)];
+            await MintForgeBoxItem(slot, boxTier, Art.Gear.WeaponClass.Greatsword);
+        }
+
+        /// <summary>
+        /// Spend a box of a given tier at the Forge for a CHOSEN slot (and weapon class, if the
+        /// slot is Weapon) - costs more than the random path because the player is paying to
+        /// remove the randomness from which slot they get, not from what it rolls.
+        /// </summary>
+        public async void RedeemForgeBoxTargeted(
+            Art.Gear.GearSlot slot, Art.Gear.LootTier boxTier,
+            Art.Gear.WeaponClass weaponClass = Art.Gear.WeaponClass.Greatsword)
+        {
+            if (!TrySpendBoxes(boxTier, Tuning.GearRoll.ForgeTargetedRedeemBoxCost)) return;
+            if (DesignDrops.IsDesignTier(boxTier))
+            {
+                var classFilter = slot == Art.Gear.GearSlot.Weapon ? weaponClass : (Art.Gear.WeaponClass?)null;
+                await MintDesignBox(DesignDrops.Pool(boxTier, slot, classFilter), boxTier,
+                                    Tuning.GearRoll.ForgeTargetedRedeemBoxCost);
+                return;
+            }
+            await MintForgeBoxItem(slot, boxTier, weaponClass);
+        }
+
+        /// <summary>
+        /// A Diamond / Black Diamond box's payout: one design from <paramref name="pool"/>, plus
+        /// its relic if it is a Black Diamond weapon (DesignDrops.Mint). The boxes are already
+        /// spent; an empty pool - which the Forge never offers - hands them back.
+        /// </summary>
+        async System.Threading.Tasks.Task MintDesignBox(List<Art.Gear.GearItem> pool,
+                                                         Art.Gear.LootTier tier, int spent)
+        {
+            var design = DesignDrops.Pick(pool, Guid.NewGuid().GetHashCode());
+            if (design == null)
+            {
+                _profile.Boxes.Add(tier, spent);
+                Debug.LogWarning($"[Forge] no {tier} design to redeem into - box refunded");
+                return;
+            }
+
+            foreach (var record in DesignDrops.Mint(design, "BOX"))
+            {
+                _profile.MintedGear.Add(record);
+                Art.Gear.GearCatalog.Register(record.ToGearItem());
+                Debug.Log($"[Forge] box-redeemed {record.DisplayName} ({record.InstanceId})");
+            }
+
+            if (CharacterScreen != null) CharacterScreen.Refresh();
+            _hub?.FlashForge();
+            _hub?.RefreshForge();
+            await _store.UnlockAsync(_profile);
+        }
+
+        async System.Threading.Tasks.Task MintForgeBoxItem(
+            Art.Gear.GearSlot slot, Art.Gear.LootTier tier, Art.Gear.WeaponClass weaponClass)
+        {
+            string instanceId = $"BOX-{slot}-{Guid.NewGuid():N}";
+            var (_, grants, primary, subs, ability, finisher) =
+                Art.Gear.GearRoller.RollItem(slot, tier, instanceId.GetHashCode(), weaponClass);
+
+            var record = new MintedGearRecord
+            {
+                InstanceId = instanceId,
+                DisplayName = $"{tier} {slot}",
+                Slot = slot,
+                Tier = tier,
+                Grants = grants,
+                PrimaryStat = primary,
+                SubStats = subs,
+                DefensiveAbility = ability,
+                Finisher = finisher,
+                Class = weaponClass,
+                StatsVersion = Art.Gear.GearRoller.TablesVersion,
+            };
+
+            _profile.MintedGear.Add(record);
+            Art.Gear.GearCatalog.Register(record.ToGearItem());
+
+            Debug.Log($"[Forge] box-redeemed {record.DisplayName} ({instanceId})");
+
+            if (CharacterScreen != null) CharacterScreen.Refresh();
+            _hub?.FlashForge();
+            _hub?.RefreshForge();
+            await _store.UnlockAsync(_profile);
+        }
+
+        /// <summary>
+        /// Drains a box of the given tier, falling back to Rift Boxes ONLY for Silver - the one
+        /// tier close enough to Rift Boxes' own "untiered, common/mid" spirit that treating one
+        /// as the other isn't an arbitrary call. Bronze/Gold/Diamond/BlackDiamond accept only
+        /// their own box.
+        /// </summary>
+        bool TrySpendBoxes(Art.Gear.LootTier tier, int amount)
+        {
+            if (amount <= 0) return true;
+            if (_profile.Boxes.Get(tier) >= amount)
+            {
+                _profile.Boxes.Add(tier, -amount);
+                return true;
+            }
+            if (tier == Art.Gear.LootTier.Silver && _profile.RiftBoxes >= amount)
+            {
+                _profile.RiftBoxes -= amount;
+                return true;
+            }
+            return false;
+        }
+
+        /// <summary>
+        /// Combine two owned, unequipped pieces that share a GearForge.MatchKey into one: the next
+        /// star level, or - from three stars - the next tier at base. Costs no boxes; the two
+        /// pieces are the price.
+        ///
+        /// Returns the new piece so the Forge can show what actually rolled. Everything random in
+        /// it is drawn here, at commit, never at preview (see GearForge's own header).
+        /// </summary>
+        public MintedGearRecord CombineGear(string instanceIdA, string instanceIdB)
+        {
+            var a = _profile.MintedGear.Find(r => r.InstanceId == instanceIdA);
+            var b = _profile.MintedGear.Find(r => r.InstanceId == instanceIdB);
+            if (IsEquipped(instanceIdA) || IsEquipped(instanceIdB)) return null;
+            var plan = GearForge.Plan(a, b);
+            if (plan == null) return null;
+
+            var record = GearForge.Execute(plan, new System.Random(Guid.NewGuid().GetHashCode()));
+            _profile.MintedGear.Remove(a);
+            _profile.MintedGear.Remove(b);
+            _profile.MintedGear.Add(record);
+            Art.Gear.GearCatalog.Register(record.ToGearItem());
+
+            Debug.Log($"[Forge] combined into {record.DisplayName} level {record.UpgradeLevel} ({record.InstanceId})");
+            AfterForgeChange();
+            return record;
+        }
+
+        /// <summary>
+        /// Re-roll one sub-stat of a piece, paid in boxes of the piece's OWN tier: one box for a
+        /// new value, two to change which stat it is. The result can be worse - the player makes
+        /// the gamble. Works on equipped pieces too (it changes the item in place, not its id).
+        /// </summary>
+        public MintedGearRecord RerollSubStat(string instanceId, int index, bool changeStat)
+        {
+            var record = _profile.MintedGear.Find(r => r.InstanceId == instanceId);
+            if (!GearForge.CanReroll(record, index)) return null;
+
+            int cost = changeStat ? Tuning.GearRoll.ForgeRerollStatBoxCost : Tuning.GearRoll.ForgeRerollValueBoxCost;
+            if (!TrySpendBoxes(record.Tier, cost)) return null;
+
+            GearForge.Reroll(record, index, changeStat, new System.Random(Guid.NewGuid().GetHashCode()));
+            Art.Gear.GearCatalog.Register(record.ToGearItem());
+
+            Debug.Log($"[Forge] re-rolled sub-stat {index} of {record.DisplayName} ({instanceId})");
+            AfterForgeChange();
+            return record;
+        }
+
+        /// <summary>
+        /// Burn the three pieces a fusion names and mint its weapon and relic. Returns the weapon,
+        /// or null if refused (a piece missing, or equipped). No boxes: the three swords are the
+        /// price, the same "the inputs are the cost" rule combining lives by.
+        /// </summary>
+        public MintedGearRecord FuseGear(string fusionId)
+        {
+            if (_profile == null) return null;
+            var fusion = GearForge.FusionById(fusionId);
+            if (!GearForge.CanFuse(fusion, _profile.MintedGear, IsEquipped)) return null;
+
+            var burned = GearForge.FusionInputs(fusion, _profile.MintedGear, IsEquipped);
+            var (weapon, relic) = GearForge.ExecuteFusion(fusion);
+
+            foreach (var r in burned) _profile.MintedGear.Remove(r);
+            _profile.MintedGear.Add(weapon);
+            Art.Gear.GearCatalog.Register(weapon.ToGearItem());
+            if (relic != null)                  // null for a set whose finisher is not built yet
+            {
+                _profile.MintedGear.Add(relic);
+                Art.Gear.GearCatalog.Register(relic.ToGearItem());
+            }
+
+            Debug.Log($"[Forge] fused {string.Join(" + ", Array.ConvertAll(burned, r => r.DisplayName))} " +
+                      $"into {weapon.DisplayName} ({weapon.InstanceId})" +
+                      (relic != null ? $" and {relic.DisplayName}" : ""));
+            AfterForgeChange();
+            return weapon;
+        }
+
+        /// <summary>
+        /// DEV: mint an instance of an authored design straight into the profile, no box spent -
+        /// the way to hand yourself the three Diamond parts to test the fusion from `eval`:
+        /// <c>FindAnyObjectByType&lt;GameBootstrap&gt;().DevMintDesign("mercury_reactor")</c>.
+        /// </summary>
+        public MintedGearRecord DevMintDesign(string itemId)
+        {
+            var design = Art.Gear.GearCatalog.Get(itemId);
+            if (_profile == null || design == null) return null;
+            var record = DesignDrops.RecordFor(design, $"DEV-{design.Slot}-{Guid.NewGuid():N}");
+            _profile.MintedGear.Add(record);
+            Art.Gear.GearCatalog.Register(record.ToGearItem());
+            AfterForgeChange();
+            return record;
+        }
+
+        bool IsEquipped(string instanceId)
+            => _profile != null && _profile.Gear.Equipped.Exists(e => e.ItemId == instanceId);
+
+        /// <summary>The refresh-and-checkpoint tail every Forge write shares. Fire-and-forget
+        /// save, so combine and re-roll can hand their result straight back to the screen.</summary>
+        async void AfterForgeChange()
+        {
             if (CharacterScreen != null) CharacterScreen.Refresh();
             _hub?.FlashForge();
             _hub?.RefreshForge();
@@ -627,6 +969,7 @@ namespace Convergence.Core
         {
             Art.Gear.CharacterRigFactory.Paint(LiveRig(), _profile);
             if (_player != null) _player.Echoes?.Repaint();
+            if (_player != null) _player.Split?.Repaint();
         }
 
         /// <summary>
@@ -663,8 +1006,10 @@ namespace Convergence.Core
                 floor.transform.SetParent(_arenaRoot, false);
                 var fsr = floor.AddComponent<SpriteRenderer>();
                 bool authored = art.FloorSprite != null;
-                fsr.sprite = authored ? art.FloorSprite : Spr.Square;
-                fsr.color = authored ? Color.white : new Color(0.10f, 0.11f, 0.14f);
+                // No authored floor: the procedural BRICK floor (Art/FloorArt) - warm, mid-value,
+                // low contrast, so what stands on it reads. It replaced a near-black square.
+                fsr.sprite = authored ? art.FloorSprite : Art.FloorArt.Bricks;
+                fsr.color = Color.white;
                 fsr.sortingOrder = -10;
 
                 // Oversized on purpose - see FloorMargin. The WALLS still sit at HalfWidth; this
@@ -683,8 +1028,11 @@ namespace Convergence.Core
                 }
                 else
                 {
-                    fsr.drawMode = SpriteDrawMode.Simple;
-                    floor.transform.localScale = new Vector3(fw, fh, 1f);
+                    // TILED at the brick sprite's own density, so a brick is one size on screen
+                    // however big the arena is (the sprite is FullRect for exactly this).
+                    fsr.drawMode = SpriteDrawMode.Tiled;
+                    fsr.tileMode = SpriteTileMode.Continuous;
+                    fsr.size = new Vector2(fw, fh);
                 }
             }
 
@@ -693,7 +1041,10 @@ namespace Convergence.Core
             // This used to `return` here, which took the WALLS and Arena.HalfExtents with it -
             // turning on HideGrid, or dropping in a floor sprite, silently produced an arena with
             // no collision and stale published bounds.
-            if (!art.HideGrid && art.FloorSprite == null)
+            // The brick floor shows movement itself, so there is no longer a floor the grid is
+            // drawn over - MakeLine is kept for the day the fallback goes back to a flat colour.
+            bool flatFloor = false;
+            if (flatFloor && !art.HideGrid && art.FloorSprite == null)
             {
                 for (int x = -(int)HalfWidth; x <= (int)HalfWidth; x += 2)
                     MakeLine(new Vector3(x, 0, 0), new Vector3(0.03f, HalfHeight * 2f, 1f));
@@ -757,7 +1108,9 @@ namespace Convergence.Core
             var wallArt = Art.GameArt.I.WallSprite;
             var sr = go.AddComponent<SpriteRenderer>();
             sr.sprite = wallArt != null ? wallArt : Spr.Square;
-            sr.color = wallArt != null ? Color.white : new Color(0.24f, 0.26f, 0.32f);
+            // A warm dark stone, to sit with the brick floor - the old cold grey read as a
+            // different, unlit material next to it.
+            sr.color = wallArt != null ? Color.white : new Color(0.21f, 0.17f, 0.13f);
             sr.sortingOrder = -8;
 
             go.AddComponent<BoxCollider2D>();
@@ -797,7 +1150,7 @@ namespace Convergence.Core
             if (_hub != null) { _hub.Teardown(); Destroy(_hub); }
             _hub = gameObject.AddComponent<Hub.HubRoom>();
             _hub.Build(transform, _canvas.transform, _cam, _profile, _order, _roster,
-                       StartRun,
+                       EnterGate,
                        () => TransmutationScreen.Open(_canvas.transform, _profile.LastElement),
                        () => MasteryScreen.Open(_canvas.transform),
                        SwitchCharacter,
@@ -818,7 +1171,20 @@ namespace Convergence.Core
         void OpenForge()
         {
             if (_profile == null) return;
-            ForgeScreen.Open(_canvas.transform, _profile.PendingGearVouchers, RedeemGearVoucher);
+            ForgeScreen.Open(_canvas.transform, new UI.ForgeScreen.Context
+            {
+                VoucherCount = _profile.PendingGearVouchers,
+                Boxes = _profile.Boxes,
+                RiftBoxes = () => _profile.RiftBoxes,
+                MintedGear = _profile.MintedGear,
+                IsEquipped = IsEquipped,
+                OnPickVoucher = RedeemGearVoucher,
+                OnRedeemRandom = RedeemForgeBoxRandom,
+                OnRedeemTargeted = RedeemForgeBoxTargeted,
+                OnCombine = CombineGear,
+                OnReroll = RerollSubStat,
+                OnFuse = FuseGear,
+            });
         }
 
         /// <summary>Opens the Manual Shrine's book. Pure reading - no profile, no chain, nothing
@@ -839,13 +1205,8 @@ namespace Convergence.Core
         void DressArmoury(bool weapons)
         {
             if (_hub == null) return;
-            GearDisplayScreen.Open(
-                _canvas.transform,
-                weapons ? UI.GearDisplayScreen.Kind.Weapons : UI.GearDisplayScreen.Kind.Armour,
-                id => _hub.SpotShowing(id, weapons),
-                _hub.ArmouryCapacity(weapons),
-                _hub.ArmouryInUse(weapons),
-                (item, spot) => _hub.ToggleDisplayed(item, spot, weapons));
+            if (weapons) GearDisplayScreen.OpenWeapons(_canvas.transform, _hub.RackShown, _hub.SetRackShown);
+            else GearDisplayScreen.OpenArmour(_canvas.transform, _hub.StandShown, _hub.SetStandShown);
         }
 
         /// <summary>Re-read the saved characters, minus the one being played.</summary>
@@ -920,6 +1281,7 @@ namespace Convergence.Core
                 _profile = next;
                 _profile.Gear.DropStale();
                 RegisterMintedGear(_profile);
+                await ForfeitStaleStake();
                 Mastery = new Progression.BoardState(_profile.Mastery);
                 if (EnsureStarterGear(_profile)) await _store.UnlockAsync(_profile);
 
@@ -990,6 +1352,12 @@ namespace Convergence.Core
             // rather than leaving it to whatever comes next, because TrackCamera only ever writes
             // .position - a rotation left over from the hub would silently ride along into combat.
             if (_cam) _cam.transform.rotation = Quaternion.identity;
+
+            // And the armoury's zoom, in case the hub was left from inside it - back to the
+            // ARENA's, which is closer on a phone (ArenaViewSize).
+            _armouryView = false;
+            var zoom = _cam ? _cam.GetComponent<PixelPerfectZoom>() : null;
+            if (zoom != null) zoom.TargetSize = ArenaViewSize;
         }
 
         /// <summary>
@@ -1012,6 +1380,11 @@ namespace Convergence.Core
             float lookAtY = (top + bottom) * 0.5f;
             const float distance = 10f;
 
+            // Back to the game's own zoom - the armoury is the one room that changes it.
+            _armouryView = false;
+            var zoom = _cam.GetComponent<PixelPerfectZoom>();
+            if (zoom != null) zoom.TargetSize = CameraSize;
+
             _cam.transform.rotation = Quaternion.Euler(Tuning.Hub.CameraTiltDegrees, 0f, 0f);
             _cam.transform.position = new Vector3(
                 0f,
@@ -1021,6 +1394,11 @@ namespace Convergence.Core
 
         void Update()
         {
+            // Unconditional and first - Hitstop is what's driving Time.timeScale, so it has to
+            // tick on unscaled time regardless of anything below being ready yet.
+            Hitstop.Tick();
+            CameraKick.Tick();
+
             // This used to open with `if (kb == null) return;`. On a device with no keyboard -
             // which is every phone - that returned before the floor-clear check, the camera track
             // and every screen toggle, so the game came up, drew itself, and then did nothing at
@@ -1035,33 +1413,41 @@ namespace Convergence.Core
             // a NullReference once a frame on every launch.
             if (CharacterScreen == null || _profile == null || _canvas == null ||
                 ConfirmDialog == null || TransmutationScreen == null ||
-                ShowcasePicker == null || ExchangeScreen == null || TxScreen == null ||
+                ShowcasePicker == null || ExchangeScreen == null || TransmuteScreen == null || TxScreen == null ||
                 MasteryScreen == null || FloorRewardScreen == null || ForgeScreen == null ||
                 ManualScreen == null || GearDisplayScreen == null || RiftScreen == null ||
-                PauseScreen == null || InventoryScreen == null) return;
+                StakeScreen == null ||
+                PauseScreen == null || SettingsScreen == null || ControlsScreen == null ||
+                InventoryScreen == null) return;
 
             // ONE owner for which buttons are on screen. The room could set this itself while
             // carrying a trophy, and did at first - but then two Updates were writing the same
             // field in an undefined order and the button set flickered between them every frame.
             // Ask the room what it is doing instead.
-            bool modal = MasteryScreen.IsOpen || ConfirmDialog.IsOpen || FloorRewardScreen.IsOpen
+            bool screenOpen = MasteryScreen.IsOpen || ConfirmDialog.IsOpen || FloorRewardScreen.IsOpen
                       || TransmutationScreen.IsOpen || ShowcasePicker.IsOpen || ExchangeScreen.IsOpen
+                      || TransmuteScreen.IsOpen
                       || TxScreen.IsOpen || CharacterScreen.IsOpen || ForgeScreen.IsOpen
-                      || ManualScreen.IsOpen || GearDisplayScreen.IsOpen || RiftScreen.IsOpen
-                      || PauseScreen.IsOpen || InventoryScreen.IsOpen
-                      || (_hub != null && _hub.Blocking);
+                      || ManualScreen.IsOpen || GearDisplayScreen.IsOpen || RiftScreen.IsOpen || StakeScreen.IsOpen
+                      || PauseScreen.IsOpen || SettingsScreen.IsOpen || ControlsScreen.IsOpen
+                      || InventoryScreen.IsOpen;
+            bool modal = screenOpen || (_hub != null && _hub.Blocking);
+
+            // A carry blocks the room like a modal, but it has its OWN button set - checked
+            // first, or the Blocking half of `modal` swallowed it and PLACE never showed.
+            bool placing = _state == State.Hub && !screenOpen && _hub != null && _hub.Placing;
 
             // A screen that must be ANSWERED gets no back button. Everything else does, and it
             // means exactly what Escape means there.
             bool dismissible = !(FloorRewardScreen.IsOpen && !FloorRewardScreen.CanDismiss)
-                            && !(ExchangeScreen.IsOpen && !ExchangeScreen.CanDismiss);
+                            && !(ExchangeScreen.IsOpen && !ExchangeScreen.CanDismiss)
+                            && !TransmuteScreen.IsOpen;
 
             Controls.Screen =
-                  modal ? (dismissible ? Controls.Context.Modal : Controls.Context.Hidden)
+                  placing ? Controls.Context.Placing
+                : modal ? (dismissible ? Controls.Context.Modal : Controls.Context.Hidden)
                 : _state == State.Playing ? Controls.Context.Arena
-                : _state == State.Hub ? (_hub != null && _hub.Placing
-                                             ? Controls.Context.Placing
-                                             : Controls.Context.Hub)
+                : _state == State.Hub ? Controls.Context.Hub
                 : Controls.Context.Hidden;
 
             // The mastery grid is a MAIN MENU screen. Spending mastery mid-run would let a player
@@ -1077,14 +1463,41 @@ namespace Convergence.Core
                 return;
             }
 
+            // Settings, from the hub only. BOTH directions go through GameBootstrap rather than
+            // letting SettingsScreen close itself on Cancel: Escape drives both
+            // Controls.SettingsTapped (open) and Controls.CancelTapped (close - shared by every
+            // other screen), and script execution order between two independently-built
+            // MonoBehaviours is undefined. That used to produce two symptoms from one cause -
+            // opening Settings raced whatever screen was already open for the very keypress that
+            // was meant to close IT (this ran first and returned, so e.g. CharacterScreen never
+            // saw its own Escape), and closing Settings could immediately reopen it on the same
+            // frame when SettingsScreen.Update happened to run before this block did, since by
+            // then IsOpen already read false while SettingsTapped was still true. Gating the open
+            // on `!modal` (so it never fires while anything else, Settings and Controls included,
+            // is already up) and owning the close here removes both races.
+            if (_state == State.Hub && !(_hub != null && _hub.Blocking))
+            {
+                if (SettingsScreen.IsOpen)
+                {
+                    if (Controls.CancelTapped) { SettingsScreen.Close(); return; }
+                }
+                else if (!modal && Controls.SettingsTapped)
+                {
+                    SettingsScreen.Open(_canvas.transform, OpenControlsScreen);
+                    return;
+                }
+            }
+
             // Everything below drives the game itself, and a modal is by definition covering it.
             // Without this, a click meant for the mastery grid fell through to the element cards
             // underneath and started a run, and Esc aimed at a confirm prompt re-opened it.
             if (MasteryScreen.IsOpen || ConfirmDialog.IsOpen || FloorRewardScreen.IsOpen ||
                 TransmutationScreen.IsOpen || ShowcasePicker.IsOpen || ExchangeScreen.IsOpen ||
+                TransmuteScreen.IsOpen ||
                 TxScreen.IsOpen || ForgeScreen.IsOpen || ManualScreen.IsOpen ||
-                GearDisplayScreen.IsOpen || RiftScreen.IsOpen ||
-                PauseScreen.IsOpen || InventoryScreen.IsOpen) return;
+                GearDisplayScreen.IsOpen || RiftScreen.IsOpen || StakeScreen.IsOpen ||
+                PauseScreen.IsOpen || SettingsScreen.IsOpen || ControlsScreen.IsOpen ||
+                InventoryScreen.IsOpen) return;
 
             // Loadout screen. From the HUB it opens on its own key. MID-RUN it lives behind the
             // pause menu (opened in the Playing branch below), so the same key there only closes
@@ -1105,8 +1518,11 @@ namespace Convergence.Core
 
             // Backstop: time stopped with nothing holding the pause is always a bug. Asking
             // GamePause rather than listing every screen means a new screen cannot be forgotten
-            // here and silently strand the player in a frozen game.
-            if (Time.timeScale == 0f && !GamePause.IsPaused)
+            // here and silently strand the player in a frozen game. Hitstop is excluded - it
+            // deliberately drives Time.timeScale without registering as a GamePause holder, and
+            // Tick() (already run above) is what hands it back; this backstop firing mid-freeze
+            // would resume time a frame after Hitstop just stopped it.
+            if (Time.timeScale == 0f && !GamePause.IsPaused && !Hitstop.IsActive)
             {
                 Debug.LogWarning("[Convergence] time was stopped with no screen holding it - resuming.");
                 Time.timeScale = 1f;
@@ -1147,7 +1563,7 @@ namespace Convergence.Core
 
                 // Telemetry only - never resolves anything. See StuckWatch for why a detector
                 // exists alongside player reports rather than instead of them.
-                bool settled = !dummyHoldsFloor && !_spawning && !FloorRewardScreen.IsOpen
+                bool settled = !dummyHoldsFloor && !_spawning && _puzzle == null && _boss == null && !FloorRewardScreen.IsOpen
                                && !MasteryScreen.IsOpen && !ConfirmDialog.IsOpen && !ExchangeScreen.IsOpen;
                 if (_stuckWatch != null)
                 {
@@ -1162,20 +1578,32 @@ namespace Convergence.Core
                 }
 
                 if (_boss != null && _boss.Health != null)
-                    _hud?.SetBoss(_boss.Health.Current / Mathf.Max(1f, _boss.Health.Max),
-                                  _boss.Phase.ToString().ToUpper(), _boss.Enraged, _boss.Health.Immune);
-                else _hud?.SetBoss(-1f, null, false, false);
+                    _hud?.SetBoss(_boss.Health.Current / Mathf.Max(1f, _boss.Health.Max), _boss.DisplayName,
+                                  _boss.PhaseLabel, _boss.Enraged, _boss.Health.Immune);
+                else _hud?.SetBoss(-1f, null, null, false, false);
 
                 // A BOSS HOLDS ITS FLOOR ON ITS OWN. It is not in _alive (see the field), so
                 // without this the floor would read as cleared the instant the last minion died
                 // and the reward screen would open over a fight still in progress.
-                // A RIFT HOLDS ITS FLOOR the same way a boss does, and for the same reason: it is
-                // not in _alive, so without this the floor would advance out from under the choice.
-                if (_rift != null)
-                {
-                    if (_rift.PlayerInside && !RiftScreen.IsOpen) OpenRift();
-                }
                 //
+                // A Rift stands BESIDE the exit door rather than holding the floor: the door is
+                // pushing on, the Rift is getting out. It is checked on its own, not in the chain
+                // below - a Collapsing Rift exists DURING the fight, and inside that chain it
+                // stopped the floor from ever clearing.
+                // ASKED FOR, never walked into: a player who wants to keep going should be able to
+                // cross the floor past an open tear without a screen stopping them.
+                if (_rift != null && _rift.Usable && _rift.PlayerInside && !RiftScreen.IsOpen
+                    && Controls.InteractTapped) OpenRift();
+                // A dormant Red Rift breaks open only on the player's word: [ E ] at the tear, then
+                // a confirmation. Walking past it never starts anything.
+                else if (_rift != null && _rift.Sealed && !_redSummoned && _plan.Rift == Rifts.RiftKind.Red
+                         && _rift.PlayerNear && Controls.InteractTapped) AskBreakRedSeal();
+                TryOpenRedRift();
+                if (_rift != null && _rift.Unstable) _hud?.SetRiftTimer(_rift.Remaining);
+                if (_puzzle != null) TickPuzzle();
+                if (_spire != null) TickSpire();
+                if (_circle != null) TickCircle();
+
                 // _activeDoor == null is load-bearing: once the reward is taken, OpenFloorDoor
                 // spawns a door and the walk-to-it callback is the ONLY thing allowed to advance
                 // the floor from here on. Without this guard, _rewardTaken stays true and the
@@ -1187,21 +1615,96 @@ namespace Convergence.Core
                 // actually reached. Two floors' worth of hazards and enemies for one door: the
                 // room visibly re-rolls once when the stray call lands and again when the door's
                 // own legitimate call does.
-                else if (!dummyHoldsFloor && _boss == null && _activeDoor == null &&
-                    !_spawning && _alive.Count == 0 && !FloorRewardScreen.IsOpen && !MasteryScreen.IsOpen &&
+                // A puzzle floor never clears this way - it has no wave. Solving it calls
+                // OfferFloorReward itself; giving up builds the adjacent room's fight, which does.
+                if (!dummyHoldsFloor && _boss == null && _activeDoor == null && _puzzle == null &&
+                    !_transitioning && !_spawning && _alive.Count == 0 && _spawnQueue.Count == 0 &&
+                    !FloorRewardScreen.IsOpen && !MasteryScreen.IsOpen &&
                     !ConfirmDialog.IsOpen && !ExchangeScreen.IsOpen)
                 {
                     if (_floor > 0 && !_rewardTaken) OfferFloorReward();
-                    else if (_floor > 0 && IsRiftFloor(_floor)) OpenRiftOnFloor();
                     else StartCoroutine(NextFloor());
                 }
 
-                if (_player && _cam) TrackCamera();
             }
             else if (_state == State.RunOver)
             {
                 if (Controls.AnyDismiss) ReturnToHub();
             }
+        }
+
+        /// <summary>
+        /// The camera follows in LateUpdate, after everything that can move the player has moved
+        /// it.
+        ///
+        /// It ran at the tail of the Playing branch in Update, which is one ordering bet stacked
+        /// on another: that no other component's Update moves the player (nothing guarantees
+        /// that - execution order between MonoBehaviours is unspecified unless declared), and
+        /// that the branch is actually reached. It is not, on any frame taking one of the early
+        /// returns above - opening the pause menu returns before it, so the camera simply held
+        /// still for that frame. LateUpdate is the one place where the frame's movement is
+        /// finished and nothing is left to race.
+        ///
+        /// CameraKick.Tick() still runs first: it is unconditional at the top of Update, so the
+        /// offset this reads is the one already advanced this frame, exactly as when the call sat
+        /// at the bottom of the same method. Only the WAIT changed, not the order.
+        ///
+        /// While paused the follow is a no-op rather than a special case - GamePause zeroes
+        /// timeScale, deltaTime with it, and `1 - exp(0)` is 0, so the anchor stays where it is
+        /// without this needing to know that a screen is open.
+        /// </summary>
+        void LateUpdate()
+        {
+            if (_state == State.Playing && _player && _cam) TrackCamera();
+            else if (_state == State.Hub && _cam && _hub != null) UpdateHubCamera();
+        }
+
+        /// <summary>True while the camera is framing the armoury rather than the hub.</summary>
+        bool _armouryView;
+
+        /// <summary>
+        /// The hub's camera is fixed; the armoury's follows the player along its wall, zoomed in
+        /// to menu density and untilted - see Tuning.Armoury for why each. The room says where the
+        /// player is; moving the camera stays here, with every other camera decision.
+        /// </summary>
+        void UpdateHubCamera()
+        {
+            bool want = _hub.InArmoury;
+            if (want != _armouryView)
+            {
+                if (want)
+                {
+                    _armouryView = true;
+                    _cam.transform.rotation = Quaternion.identity;
+                    TrackArmouryCamera(snap: true);
+                    return;
+                }
+                SetHubCamera();
+            }
+            if (_armouryView) TrackArmouryCamera(snap: false);
+        }
+
+        void TrackArmouryCamera(bool snap)
+        {
+            // Every frame rather than once on entry, so a window resized while inside re-snaps.
+            // PixelPerfectZoom only recomputes when this actually changes.
+            var zoom = _cam.GetComponent<PixelPerfectZoom>();
+            if (zoom != null) zoom.TargetSize = Tuning.Armoury.ViewHalfHeight(Screen.height);
+            else _cam.orthographicSize = Tuning.Armoury.ViewHalfHeight(Screen.height);
+
+            // Clamped to what is drawn, centred on any axis the room is smaller than the view.
+            float hh = zoom != null ? zoom.TargetSize : _cam.orthographicSize;
+            float hw = hh * _cam.aspect;
+            var b = _hub.ArmouryBounds;
+            var p = _hub.AvatarPosition;
+            float x = b.width <= hw * 2f ? b.center.x : Mathf.Clamp(p.x, b.xMin + hw, b.xMax - hw);
+            float y = b.height <= hh * 2f ? b.center.y : Mathf.Clamp(p.y, b.yMin + hh, b.yMax - hh);
+
+            var target = new Vector3(x, y, -10f);
+            _cam.transform.position = snap
+                ? target
+                : Vector3.Lerp(_cam.transform.position, target,
+                               1f - Mathf.Exp(-Tuning.Camera.Follow * Time.unscaledDeltaTime));
         }
 
         /// <summary>
@@ -1230,23 +1733,60 @@ namespace Convergence.Core
                 Mathf.Clamp(_player.transform.position.y, -maxY, maxY),
                 -10f);
 
+            // The follow runs on the camera's UNKICKED position, recovered by subtracting exactly
+            // what was added last frame. Lerping the kicked position toward the target instead
+            // would feed the kick back into the follow, which both eats the shove (the follow
+            // chases it away) and leaves a residue behind once it decays - the camera would end
+            // every fight framed slightly off centre.
+            //
+            // Remembered rather than recomputed because CameraKick.Offset has already moved on by
+            // the time this runs; the value that has to come back off is the one that went on.
+            // A domain reload zeroes it and the camera is out by one kick for a single frame.
+            var anchor = _cam.transform.position - _camKick;
+
             // Framerate-independent, and tight: a soft follow reads as the camera lagging behind
             // the player rather than carrying them.
-            _cam.transform.position = Vector3.Lerp(
-                _cam.transform.position, want, 1f - Mathf.Exp(-CameraFollow * Time.deltaTime));
+            anchor = Vector3.Lerp(
+                anchor, want, 1f - Mathf.Exp(-CameraFollow * Time.deltaTime));
+
+            _camKick = CameraKick.Offset;
+            _cam.transform.position = anchor + _camKick;
         }
+
+        /// <summary>
+        /// The camera offset written last frame - see TrackCamera. Not the kick's current value:
+        /// this is what has to be subtracted back off to recover where the follow actually was.
+        /// </summary>
+        Vector3 _camKick;
 
         // ------------------------------------------------------------------ run lifecycle
 
-        async void StartRun(ElementType element)
+        /// <summary>
+        /// The sigil door. Asks the stake question first when there is one to ask - a character
+        /// wearing no stakeable piece walks straight through. Backing out of the question stays
+        /// in the hub. The number-key shortcut skips this and runs unstaked.
+        /// </summary>
+        void EnterGate(ElementType element)
+        {
+            if (_state != State.Hub || StakeScreen == null || StakeScreen.IsOpen) return;
+            var candidates = GearStake.Candidates(_profile);
+            if (candidates.Count == 0) { StartRun(element); return; }
+            StakeScreen.Open(_canvas.transform, candidates,
+                onChoose: chosen => StartRun(element, chosen),
+                onCancel: null);
+        }
+
+        void StartRun(ElementType element) => StartRun(element, null);
+
+        async void StartRun(ElementType element, MintedGearRecord stake)
         {
             // async void swallows exceptions into the sync context, where Unity reports them with
             // useless line numbers from the state machine. Catch here so failures are legible.
-            try { await StartRunAsync(element); }
+            try { await StartRunAsync(element, stake); }
             catch (Exception e) { Debug.LogError($"[Convergence] StartRun failed: {e}"); }
         }
 
-        async System.Threading.Tasks.Task StartRunAsync(ElementType element)
+        async System.Threading.Tasks.Task StartRunAsync(ElementType element, MintedGearRecord stake)
         {
             // Start() is async, so nothing it creates is guaranteed to exist on the first frames.
             // Everything StartRunAsync touches before its await is checked here, by name, because
@@ -1259,6 +1799,8 @@ namespace Convergence.Core
               : FloorRewardScreen == null ? "FloorRewardScreen"
               : CharacterScreen == null   ? "CharacterScreen"
               : PauseScreen == null       ? "PauseScreen"
+              : SettingsScreen == null    ? "SettingsScreen"
+              : ControlsScreen == null    ? "ControlsScreen"
               : InventoryScreen == null   ? "InventoryScreen"
               : Mastery == null           ? "Mastery"
               : null;
@@ -1285,9 +1827,13 @@ namespace Convergence.Core
             if (ManualScreen.IsOpen) ManualScreen.Close();
             if (GearDisplayScreen.IsOpen) GearDisplayScreen.Close();
             if (ExchangeScreen.IsOpen) ExchangeScreen.Close();
+            if (TransmuteScreen.IsOpen) TransmuteScreen.Close();
             if (TxScreen.IsOpen) TxScreen.Close();
+            if (StakeScreen.IsOpen) StakeScreen.Close();
             if (ConfirmDialog.IsOpen) ConfirmDialog.Close();
             if (PauseScreen.IsOpen) PauseScreen.Close();
+            if (SettingsScreen.IsOpen) SettingsScreen.Close();
+            if (ControlsScreen.IsOpen) ControlsScreen.Close();
             if (InventoryScreen.IsOpen) InventoryScreen.Close();
             HideHub();
             if (_arenaRoot) _arenaRoot.gameObject.SetActive(true);
@@ -1300,14 +1846,32 @@ namespace Convergence.Core
             _pendingGearVouchers = 0;
             _runStartTime = Time.time;
             _floor = 0;
+            // A LOCAL stand-in for the server's sticky run seed - the day the service issues
+            // seeds, this is the one line that changes.
+            _planner = new Rifts.FloorPlanner(Guid.NewGuid().GetHashCode());
             _alive.Clear();
+            _spawnQueue.Clear();
             _loot.Clear();
 
             // The safe reserve comes into the run with the player. Spending is tracked on the run
             // and written back at the checkpoint, so a run abandoned mid-flight cannot half-spend
             // the profile's count.
             _loot.SetBankedBoxes(_profile.RiftBoxes);
+            _loot.SetBankedTieredBoxes(_profile.Boxes);
             Modifiers.Clear();
+
+            // The stake is placed BEFORE the run-start checkpoint so the datum carries it - see
+            // CharacterProfile.StakedInstanceId. Placing overwrites; a superseded start's stake
+            // is replaced by this one's rather than forfeited, since that run never began.
+            _stakeGateCleared = false;
+            _stakeLine = null;
+            if (stake != null && GearStake.Place(_profile, stake))
+                Debug.Log($"[Stake] {stake.DisplayName} +{stake.UpgradeLevel} staked, gate floor {_profile.StakeGateFloor}");
+            else
+            {
+                _profile.StakedInstanceId = "";
+                _profile.StakeGateFloor = 0;
+            }
 
             // CHECKPOINT 1 of 2 - the only writes this prototype makes.
             await _store.BeginRunAsync(_profile, _runId, element);
@@ -1332,6 +1896,9 @@ namespace Convergence.Core
                 () => _player.IncomingDamageMultiplier?.Invoke() ?? 1f,
                 () => _bonusXp);
             _hud.Build(_player, _canvas.transform);
+            var staked = GearStake.Staked(_profile);
+            if (staked != null)
+                _hud.Flash($"{staked.DisplayName} staked  -  clear floor {_profile.StakeGateFloor}, then extract");
 
             await RunAsTask(_fade.FadeIn(DoorFadeSeconds));
             _state = State.Playing;
@@ -1428,10 +1995,13 @@ namespace Convergence.Core
             // that's the identity DamageNumbers compares against to tell "you hit something"
             // from every other kind of damage in the game.
             DamageNumbers.SetPlayer(go);
+            Hitstop.SetPlayer(go);
+            CameraKick.SetPlayer(go);
 
             // The player is a humanoid paper-doll, not a flat sprite: gear has to be visible and
             // swappable per the economy design. An authored full-character prefab still wins.
             var rig = Art.Gear.CharacterRigFactory.Build(go, element, 10);
+            rig.SetVisualScale(Tuning.Player.ArenaVisualScale);
 
 
             var col = go.AddComponent<CircleCollider2D>();
@@ -1439,8 +2009,25 @@ namespace Convergence.Core
 
             var rb = go.AddComponent<Rigidbody2D>();
             rb.gravityScale = 0f;
-            rb.linearDamping = 6f;
+            rb.linearDamping = Tuning.Player.BodyDamping;
             rb.freezeRotation = true;
+
+            // Physics runs at 50Hz; the game renders at the display rate. Without this the body
+            // is only written on a physics step, so at 120fps roughly three frames in five draw
+            // the character at EXACTLY the position of the frame before - motion arrives in 20ms
+            // jumps that do not divide evenly into the frame interval. That is judder, and it is
+            // worst on the one thing the player is always looking at.
+            //
+            // It matters more here than smoothness alone: the finisher timing meter is a 75ms-a-
+            // segment read standing beside the body, and it is computed in Update off an honest
+            // clock - the body carrying it was the part being quantised.
+            //
+            // Interpolate, not Extrapolate: extrapolation guesses forward and overshoots on every
+            // direction change, which in a twin-stick is most of the input. The cost is that the
+            // DRAWN pose trails the physics pose by up to one step - so anything wanting physics
+            // truth reads rb.position, not transform.position (see FixedUpdate and the
+            // Physics2D.SyncTransforms note in CLAUDE.md).
+            rb.interpolation = RigidbodyInterpolation2D.Interpolate;
 
             float baseHp = element == ElementType.Air ? Tuning.Player.HpAir
                          : element == ElementType.Earth ? Tuning.Player.HpEarth
@@ -1452,31 +2039,59 @@ namespace Convergence.Core
             // the Tuning.Player baselines; mastery is authored in fractions (0.05 = +5%) so it is
             // converted at this single boundary rather than by re-authoring every node.
             var stats = _profile.Gear.TotalStats();
-            stats.Damage      += Mastery.Get(element, Progression.MasteryStat.AllDamage) * 100f;
-            stats.MoveSpeed   += Mastery.Get(element, Progression.MasteryStat.MoveSpeed) * 100f;
-            stats.AttackSpeed += Mastery.Get(element, Progression.MasteryStat.AttackSpeed) * 100f;
-            // The grid's node is still named Armor (only the int VALUE is serialised, so the C#
-            // name is free to disagree) but it has always been a flat damage reduction - gear's
-            // Resilience stat is the one that does that job, not gear's own pool-sized Armor.
-            stats.Resilience  += Mastery.Get(element, Progression.MasteryStat.Armor) * 100f;
+            // The board speaks gear's language since the 2026-10-05 rebuild: its points join the
+            // loadout's here and are bent with them. Range's secondary reads as Pierce on a bow.
+            stats.Add(Mastery.Points(element, WeaponClassOf(_profile)));
+
+            // The CHARACTER layer bent through its diminishing returns, once, here - so every
+            // reader of the stat block gets the effective value (Art.Gear.StatCurves). The meter's
+            // growth is bent further down instead, after the board's meter node joins it.
+            var raw = stats;
+            stats = Art.Gear.StatCurves.Character(raw);
+
+            // The RUN layer's thresholds - the Vessel - are sized by this element's mastery level,
+            // so boons cannot carry an unlevelled character past what gear and the board give.
+            // The ledger also learns who the run is: element and weapon entries are offered only
+            // to their own, and an entry that would change nothing (Short Chain on a one-basic
+            // chain under Multiplication) is never offered.
+            bool shortened = false;
+            foreach (var n in Mastery.Notables(element))
+                if (n == Progression.Notable.Multiplication) shortened = true;
+            Modifiers.SetCharacter(element, WeaponClassOf(_profile), _profile.Mastery.For(element).Level,
+                                   shortened ? -1 : 0);
 
             // Max health is read once, here. Thickened Hide and Thin Blood taken later in the run
             // re-apply through OnLedgerChanged rather than being polled - a max that moved every
             // frame would fight Health's own clamping of Current against it.
             //
-            // The PERCENTAGE scales the element's own baseline; mastery and the ledger add FLAT
-            // health on top. Mastery's MaxHp nodes are authored as flat HP (40f, not 0.4) and are
-            // left that way deliberately - as a percentage the same node would be worth +47% to
-            // Air and +28% to Earth, which quietly rewrites the durability spread that is those
-            // elements' whole identity.
+            // The PERCENTAGE - gear's and the board's Max HP alike - scales the element's own
+            // baseline, so Air and Earth keep the same RATIO of health whatever is invested; the
+            // ledger's Max Health is a run-layer percentage on top (the layers multiply).
             hp.Configure(Mathf.Max(1f, Art.Gear.StatPercents.Apply(baseHp, stats.MaxHp)
-                                       + Mastery.Get(element, Progression.MasteryStat.MaxHp)
-                                       + Modifiers.Current.BonusMaxHp));
+                                       * Modifiers.Current.MaxHpMul));
+
+            // A hit landing on the player shoves the DRAWING for a moment - see
+            // PrimitiveCharacterRig.PlayHitReaction. The white flash was the only tell a hit ever
+            // had, and a flash alone is easy to miss in the middle of a crowd.
+            //
+            // The direction comes from where the attacker stood, NOT from DamageInfo.Knockback:
+            // enemies never knock the player back (Tuning.Enemy.AttackKnockback is 0), so that
+            // vector is zero on almost every hit the player actually takes. A source that has
+            // already been destroyed, or a hazard that is nowhere in particular, leaves it zero
+            // and the rig simply does not move.
+            if (rig is Art.Gear.PrimitiveCharacterRig primitive)
+                hp.Damaged += info =>
+                {
+                    if (info.Amount <= 0f || info.Source == null || primitive == null) return;
+                    primitive.PlayHitReaction(
+                        (Vector2)(go.transform.position - info.Source.transform.position));
+                };
 
             // Added before the controller so its Awake finds it.
             var targeting = go.AddComponent<PlayerTargeting>();
             targeting.ModsSource = () => Modifiers.Current;
             var pc = go.AddComponent<PlayerController>();
+            FinisherHits.SetPlayer(pc);   // the perfect streak hears its finisher hits
 
             // The weapon class is read ONCE, here, from what is equipped as the run begins. See
             // PlayerController.Weapon for why it does not track later swaps.
@@ -1503,6 +2118,11 @@ namespace Convergence.Core
                 var granted = source.GrantedFinisher;
                 if (granted != null) pc.SeedThirdSlot(granted);
             }
+
+            // Re-applied once more: a real black-diamond signature just locked a slot above, and
+            // the test harness's whole point is that nothing - including that - should be able to
+            // move a slot off the pinned moveset. See PlayerController.ApplyForceMovesetOverride.
+            pc.ApplyForceMovesetOverride();
 
             // A weapon that carries a heat cycle gets the component that tracks it. Added only
             // when the weapon asks for one, so every other sword in the game pays nothing.
@@ -1553,17 +2173,16 @@ namespace Convergence.Core
                 rig?.SetWeaponSprite(shown.BladeFor(pc.Vial.Fill));
             }
 
-            // The shadow duplicates. Built whenever the run has the finisher OR the passive at
-            // all - the finisher's ring is where its damage lives and must always be visible -
-            // but the TRAILING after-image is gated on the blade being the one on screen, which
-            // is the same drawn-versus-source split the heat repaint above lives by.
+            // The shadow duplicate. Built whenever the run has the chain passive, but the
+            // TRAILING after-image is gated on the blade being the one on screen, which is the
+            // same drawn-versus-source split the heat repaint above lives by.
             //
             // Two of the three rows in that table apply here unchanged: wield Shadow and you get
             // both halves; skin Shadow over another sword and socket it and you still get both,
             // because you ARE holding a shadow blade. Socket it without the skin and every swing
             // still lands twice, with nothing following you - the cost of not wielding the thing,
             // and the same cost a socketed heat cycle pays by not repainting anything.
-            if (source?.HasEchoChain == true || source?.Signature?.Finisher?.SummonsEchoes == true)
+            if (source?.HasEchoChain == true)
             {
                 var chorus = go.AddComponent<Combat.EchoChorus>();
                 chorus.Owner = pc;
@@ -1573,37 +2192,102 @@ namespace Convergence.Core
                 pc.Echoes = chorus;
             }
 
+            // Separatio's three figures - built whenever the run HAS the finisher (the relic
+            // alone grants it), holding the drawn weapon's parts if it has any. Same drawn-versus-
+            // source split as the echoes above: the move always lands, the picture follows what
+            // is on screen.
+            if (source?.Signature?.Finisher?.SplitsThreeWays == true)
+            {
+                var split = go.AddComponent<Combat.SeparatioFigures>();
+                split.Owner = pc;
+                split.Element = element;
+                split.Paint = r => Art.Gear.CharacterRigFactory.Paint(r, _profile);
+                split.Blades = shown?.SplitBlades;
+                pc.Split = split;
+            }
+
+            // Quintessence's overhead picture: the DRAWN weapon's whole armillary, if it has one -
+            // the relic alone grants the move, and the move always lands; the picture follows
+            // what is on screen.
+            pc.CombinedFrames = shown?.CombinedFrames;
+            if (shown != null) pc.CombinedFrameSeconds = shown.IdleFrameSeconds;
+
             // The arena sorts by depth now, same as the hub. The bias is the concession to
             // readability: honest sorting means a crowd closing from below covers you exactly
             // when you most need to see yourself, so the player sorts as if a little nearer and
             // wins close calls, while still going properly behind anything clearly in front.
             DepthSorted.Attach(go, rig, bias: 0.35f);
 
-            // Reach ring on the ground, so "is that enemy actually in the arc" is answerable.
-            Player.RangeRings.Attach(pc);
+            // What the reach rings used to say, each on the thing it is about: a rim on the locked
+            // target (does a press land, and how), a glint on the weapon (a finisher is banked),
+            // and - kept as a ring because it is a warning, not a readout - a leap's landing zone.
+            Player.TargetHighlight.Attach(pc);
+            Combat.FinisherGlint.Attach(pc);
+            Player.LandingZone.Attach(pc);
+
+            // The parry window's own tell, shared by all four defensive abilities. Attached once
+            // for the run like the rings above, rather than spawned per activation - see GuardRing.
+            Player.GuardRing.Attach(pc);
+
+            // What each ability adds ON TOP of that shared window. Attached only for the one the
+            // chest actually granted, which the lock above has already made a run-long fact:
+            // Dash's figures cost a rig apiece, and a Barrier build should not build them to
+            // never drop one. Parry Stance appears here deliberately as nothing at all - it has
+            // no fallback to draw, which is exactly what buys its short cooldown.
+            switch (pc.EquippedDefensiveAbility)
+            {
+                case Art.Gear.DefensiveAbility.Dash:
+                    pc.Trail = Player.DashTrail.Attach(pc);
+                    break;
+                case Art.Gear.DefensiveAbility.Bulwark:
+                    pc.Aura = Player.BulwarkAura.Attach(pc);
+                    break;
+            }
 
             pc.Stats = stats;
+            // The unbent block too: the element's head starts are bent together with it, live.
+            pc.RawStats = raw;
 
             // Worn weapons hit softer; the stat block hits harder.
+            // The element's damage is a head start bent together with the character's own
+            // (PlayerController.DamagePointsNow) - not a separate factor at each hit site.
             pc.DamageDealtMultiplier = () =>
                 _profile.Wear.DamageDealtMultiplier(_profile.Gear)
-                * Art.Gear.StatPercents.Apply(1f, pc.Stats.Damage);
+                * Art.Gear.StatPercents.Apply(1f, pc.DamagePointsNow);
 
             // Worn armour hits back harder; Resilience blunts every hit regardless of condition;
-            // Barrier layers a flat reduction on top while it is active. Three independent
+            // Bulwark layers a flat reduction on top while it is active. Three independent
             // effects, composed here into the one number both Health and the HUD read - see
             // IncomingDamageMultiplier's own doc for why that matters.
+            //
+            // Graze and Brace are the two sides of one coin: mitigation earned by MOVING, and
+            // mitigation earned by STANDING STILL. Asked of the body's real state (IsMoving), so a
+            // finisher's lock counts as standing still.
+            //
+            // The run layer joins here too: the ledger's Graze and Brace as factors of their own,
+            // Patina (worn armour stops counting against you) and Lightfoot (Graze counts double
+            // at full speed).
             pc.IncomingDamageMultiplier = () =>
-                _profile.Wear.DamageTakenMultiplier(_profile.Gear, pc.Stats.Armor)
-                * Art.Gear.StatPercents.ReductionFactor(pc.Stats.Resilience)
-                * (pc.BarrierActive ? Tuning.Defense.BarrierDamageMultiplier : 1f);
+            {
+                var m = Modifiers.Current;
+                float wear = m.ArmourWearIgnored ? 1f : _profile.Wear.DamageTakenMultiplier(_profile.Gear, pc.Stats.Armor);
+                float graze = pc.Stats.Graze * (pc.Effects != null && pc.Effects.GrazeDoubled ? 2f : 1f);
+                return wear
+                       * Art.Gear.StatPercents.ReductionFactor(pc.Stats.Resilience)
+                       * (pc.IsMoving ? Art.Gear.StatPercents.ReductionFactor(graze) * m.GrazeFactor
+                                      : Art.Gear.StatPercents.ReductionFactor(pc.Stats.Brace) * m.BraceFactor)
+                       * (pc.BulwarkActive ? Tuning.Defense.BulwarkDamageMultiplier : 1f);
+            };
             pc.MoveSpeed = Art.Gear.StatPercents.Apply(pc.MoveSpeed, pc.Stats.MoveSpeed);
 
-            // Lifesteal comes from the grid, and only from THIS element's nodes - a fire build's
+            // Combo Time: how long a PARTIAL chain survives between swings.
+            pc.ComboResetSeconds = Art.Gear.StatPercents.Apply(pc.ComboResetSeconds, pc.Stats.ComboTime);
+
+            // Lifesteal comes from the board, and only from THIS element's board - a fire build's
             // investment does nothing on a water run. Read through a lambda rather than captured
             // once, so buying a node mid-session takes effect without restarting the run.
-            var lifestealStat = Progression.MasteryStats.Lifesteal(element);
-            pc.LifestealFraction = () => Mastery.Get(element, lifestealStat) + Modifiers.Current.BonusLifesteal;
+            pc.LifestealFraction = () => Mastery.Extra(element, Progression.BoardStat.Lifesteal)
+                                         + Modifiers.Current.BonusLifesteal;
 
             // The ledger, read live. Not captured: it changes between floors.
             pc.ModsSource = () => Modifiers.Current;
@@ -1611,13 +2295,12 @@ namespace Convergence.Core
             // The conditional half. Bound through a narrow facade rather than handed the whole
             // controller, so it can read what it needs and cannot drive anything it should not.
             var effects = go.AddComponent<Exchange.RunEffects>();
-            effects.Bind(Modifiers, new Exchange.RunEffects.PlayerController_Facade
-            {
-                Health = () => hp,
-                MeterFill01 = () => pc.Resource != null ? pc.Resource.Fill01 : 0f,
-                RefundFinisher = pc.RefundFinisher,
-            });
+            effects.Bind(Modifiers, pc);
             pc.Effects = effects;
+
+            // The element trap boons: the hazards ask, and know nothing of the exchange.
+            Hazards.FloorPits.PlayerImmune = kind => effects.ImmuneTo(kind);
+            Hazards.Tornado.PlayerImmune = () => effects.ImmuneToTornadoes;
 
             // The principle chains, scoped to the element being played - see PrincipleEffects.
             // Read ONCE here: mastery is spent in the main menu and never mid-run, so a chain
@@ -1630,23 +2313,52 @@ namespace Convergence.Core
                 new Progression.PrincipleEffects.Facade
                 {
                     Health = () => hp,
-                    Resilience = () => Mastery.Get(element, Progression.MasteryStat.Armor),
+                    Resilience = () => pc.Stats.Resilience / 100f,
                     Position = () => pc.transform.position,
+                    HitUnit = () => pc.HitUnit,
                 });
             pc.Principles = principles;
+
+            // The board's rules - Tinctures, Opuses, the humours - and its status power, scoped to
+            // the element being played and read ONCE, like the chains above.
+            var board = go.AddComponent<Progression.BoardEffects>();
+            board.Bind(Mastery.Notables(element),
+                Mastery.Extra(element, Progression.BoardStat.BurnPower),
+                Mastery.Extra(element, Progression.BoardStat.SoakPower),
+                Mastery.Extra(element, Progression.BoardStat.BleedPower),
+                Mastery.Extra(element, Progression.BoardStat.StaggerPower),
+                new Progression.BoardEffects.Facade
+                {
+                    Health = () => hp,
+                    Position = () => pc.transform.position,
+                    IsMoving = () => pc.IsMoving,
+                    Resource = () => pc.Resource,
+                    HitUnit = () => pc.HitUnit,
+                    AreaScale = () => pc.AreaScaleNow,
+                });
+            pc.Board = board;
 
             // CHAINED, NOT ASSIGNED. Health.ModifyIncoming is a single delegate rather than an
             // event, so the second system to claim it silently deletes the first - and the two
             // that want it here are the exchange ledger and Salt's Ward, neither of which is
             // optional. Composed explicitly so the order is visible: the ledger's own reductions
             // resolve first, then Ward and Guard reduce what is left.
-            hp.ModifyIncoming = a => principles.ModifyIncoming(effects.ModifyIncoming(a));
+            hp.ModifyIncoming = a => board.ModifyIncoming(principles.ModifyIncoming(effects.ModifyIncoming(a)));
+            // Solution: a soaked enemy's blows land lighter - asked with the hit, since it needs
+            // to know who struck.
+            // The ledger's own (Senescence, Acetum) needs to know who struck too.
+            hp.ScaleIncoming = info => board.ScaleIncoming(info) * effects.ScaleIncoming(info);
             hp.ModifyHeal = effects.ModifyHeal;
             hp.SurviveLethal = effects.SurviveLethal;
 
             // Salt reads the hit AFTER it resolved, so the stack that fills the Ward is itself
             // reduced by the stacks already held - see PrincipleEffects.OnDamaged.
-            hp.Damaged += info => principles.OnDamaged(info.Amount);
+            hp.Damaged += info => { if (!info.Price) principles.OnDamaged(info.Amount); };
+
+            // The transmutation circle counts the blows an ENEMY lands while the player stands in
+            // it; the player's own landed swings and throws come through the ledger's hook.
+            hp.Damaged += info => { if (!info.Price && Exchange.RunEffects.FromEnemy(info, go)) CircleContact(); };
+            effects.Contact = CircleContact;
 
             // OnWeaponUsed is deliberately left unhooked: weapon degradation is off (see
             // Durability.DamageDealtMultiplier). Wearing the weapon while nothing reads the
@@ -1655,10 +2367,10 @@ namespace Convergence.Core
             // Worn armour means taking more; being hit is what wears it. DamageResistance slows
             // the drain the same way the ledger's own ArmourWearMul already does - composed here
             // rather than threaded into Durability, since Durability stays ignorant of stats.
-            hp.Damaged += _ =>
+            hp.Damaged += info =>
             {
                 var m = Modifiers.Current;
-                if (m.ArmourNeverWears) return;
+                if (m.ArmourNeverWears || info.Price) return;   // a price the run charges is not a blow
                 float resistFactor = Art.Gear.StatPercents.ReductionFactor(pc.Stats.DamageResistance);
                 _profile.Wear.Wear(_profile.Gear, Art.Gear.SlotKind.Armor,
                                    ArmorWearPerHit * m.ArmourWearMul * resistFactor,
@@ -1674,6 +2386,12 @@ namespace Convergence.Core
             };
             pc.Equip(resource);
 
+            // Everything a release does, scaled by the ledger (Twin Spark) and by gear's
+            // Elemental Power. Read live: the ledger changes between floors.
+            resource.ReleaseScale = () =>
+                effects.ReleaseScale * Art.Gear.StatPercents.Apply(1f, pc.Stats.ElementalEffectiveness);
+            ApplyLedgerReadouts();
+
             // Prism's four gems - purely cosmetic, unlike the heat cycle above: which element is
             // being played is fixed for the whole run, so this is a one-time swap rather than
             // something that needs a Changed subscription. Same DRAWN-not-SOURCE rule as the heat
@@ -1681,89 +2399,76 @@ namespace Convergence.Core
             // sword lights up exactly as a wielded one does, and a plain sword drawn while a
             // Prism sits in the relic socket has no gems to paint - BladeFor returns null and
             // nothing changes, which is correct.
-            if (shown != null && shown.HasElementGems)
-            {
-                rig?.SetWeaponSprite(shown.BladeFor(element));
-                var prismAnchor = rig?.WeaponAnchor;
-                if (prismAnchor != null)
-                    Art.Gear.PrismGlow.Attach(prismAnchor, shown.GemAlong(element),
-                                              ElementInfo.Tint(element), rig.WeaponRenderer)
-                                      .SetShown(true);
-            }
+            Art.Gear.Attunement.Set(element);
+            Art.Gear.CharacterRigFactory.ApplyAttunement(rig, shown, element);
 
             // Phantom's poof - also DRAWN, not SOURCE, and also a one-time read: which weapon is
             // on screen does not change mid-run any more than which element is being played does,
             // so this needs no Changed-style subscription either.
             pc.PhantomFlicker = shown != null && shown.HasPhantomFlicker;
+
+            // The Sniper's idle flourish: after a finisher, if no attack follows, the gun is held
+            // out and the cylinder turns. DRAWN, not SOURCE, like everything here: a Sniper skin
+            // brings its cylinder with it.
+            var spinAnchor = rig?.WeaponAnchor;
+            if (spinAnchor != null)
+            {
+                if (shown != null && shown.SpinFrames is { Length: > 0 })
+                {
+                    var spin = Art.Gear.CylinderSpin.Attach(spinAnchor, rig, shown.SpinFrames, pc);
+                    spin.SetShown(true);
+                    pc.AttackStarted += spin.OnAttack;
+                }
+                else spinAnchor.GetComponentInChildren<Art.Gear.CylinderSpin>(true)?.SetShown(false);
+            }
             pc.SheatheDrawn   = shown != null && shown.HasSheathAnimation;
 
             // Phantom's haze animation. SetWeaponSprite first (establishes frame 0 immediately,
             // and calls EnsureLayers internally), WeaponAnchor read after - the same ordering
             // Prism's own wiring above already learned the hard way.
-            if (shown != null && shown.PhantomHazeFrames != null && shown.PhantomHazeFrames.Length > 0)
+            // Also the Pacemaker's bead (GearItem.IdleFrames), through the same ticker.
+            var (flipbook, flipSeconds) = shown != null ? shown.WeaponFlipbook : (null, 0f);
+            if (flipbook != null)
             {
-                rig?.SetWeaponSprite(shown.PhantomHazeFrames[0]);
+                rig?.SetWeaponSprite(flipbook[0]);
                 var hazeAnchor = rig?.WeaponAnchor;
                 if (hazeAnchor != null)
-                    Art.Gear.PhantomHaze.Attach(hazeAnchor, rig, shown.PhantomHazeFrames).SetShown(true);
+                    Art.Gear.PhantomHaze.Attach(hazeAnchor, rig, flipbook, flipSeconds).SetShown(true);
             }
 
             // None of these four mastery nodes were being read before this pass. Fire's own is
             // FireStackLife rather than a gain rate - see GainRateMultiplier's doc for why that is
             // the right lever for a discrete, one-stack-per-swing resource. Composed with gear's
             // ElementGrowth into one multiplier, same as every other stat's mastery+gear boundary.
-            float gainRatePoints = (element switch
-            {
-                ElementType.Fire  => Mastery.Get(element, Progression.MasteryStat.FireStackLife),
-                ElementType.Water => Mastery.Get(element, Progression.MasteryStat.WaterMeterGain),
-                ElementType.Earth => Mastery.Get(element, Progression.MasteryStat.EarthChargeRate),
-                _                 => Mastery.Get(element, Progression.MasteryStat.AirMomentumGain),
-            }) * 100f + stats.ElementGrowth;
-            resource.GainRateMultiplier = Art.Gear.StatPercents.Apply(1f, gainRatePoints);
+            // The board's Element Growth is already in raw (it joined the stat block above).
+            float gainRatePoints = raw.ElementGrowth;
+            // Bent as ONE sum - the board's meter node and gear's Element Growth are the same stat.
+            resource.GainRateMultiplier = Art.Gear.StatPercents.Apply(1f,
+                Art.Gear.StatCurves.Character(Art.Gear.StatKind.ElementGrowth, gainRatePoints));
 
-            // Read once, same as everything else off Mastery here - see BoardState.HasSecondAbility.
-            resource.SecondAbilityUnlocked = Mastery.HasSecondAbility(element);
+            // Read once, same as everything else off Mastery here - see BoardState.UsesSecondAbility.
+            resource.UseSecondAbility = Mastery.UsesSecondAbility(element);
 
             return pc;
         }
 
-        /// <summary>
-        /// Which archetypes may carry the elite tier. Turret is excluded deliberately: it cannot
-        /// move, so displacement resistance grants it nothing, and doubling the HP of a thing that
-        /// already holds an angle across the room makes it a chore rather than a threat. Booster
-        /// is excluded for the same underlying reason from the opposite direction: its Elite is
-        /// permanently None (see Tuning.Enemy's own Booster notes), so the tier would have nothing
-        /// to grant it at all.
-        ///
-        /// Gargoyle joins despite its BASIC form being just as stationary as Turret's, because the
-        /// elite tier is what makes it move at all (see ElitePattern.Descent) - the exact opposite
-        /// of Turret's case, where the tier would grant nothing a Basic doesn't already have.
-        ///
-        /// Bubbles joins too: its elite grants a more resilient bubble (BubblesEliteCharges) - a
-        /// real difference, just read straight off the Elite bool rather than declared as an
-        /// ElitePattern (see Tuning.Enemy's own note on why).
-        /// </summary>
-        static readonly EnemyKind[] EliteCapableKinds =
-            { EnemyKind.Chaser, EnemyKind.Bomb, EnemyKind.Ranged, EnemyKind.Dasher,
-              EnemyKind.Gargoyle, EnemyKind.Bubbles };
 
         IEnumerator NextFloor()
         {
-            // The floor just finished pays out - carried, not banked. Skipped for floor 0 -> 1,
-            // which is entering the arena rather than clearing anything.
-            if (_floor > 0)
-            {
-                var drop = Rifts.RunLoot.Roll(_floor);
-                _loot.Add(drop);
-                Debug.Log($"[Rift] floor {_floor} dropped {drop.DisplayName} " +
-                          $"(carrying {_loot.CarriedCount}, secured {_loot.SecuredCount}, " +
-                          $"boxes {_loot.TotalBoxes})");
-            }
-
             _spawning = true;
+            CloseRift();   // a Rift left unanswered closes behind the player
+            ClearPuzzle();
             _floor++;
             _rewardTaken = false;
+            // A spire's boon is the floor's, not the run's: it ends at the door - unless Lodestone
+            // carries it a floor further.
+            if (_floorBoonFloorsLeft > 0) _floorBoonFloorsLeft--;
+            else Modifiers.SetFloorBoon(null);
             _stuckWatch?.NotifyFloorChanged();
+            _fightStart = -1f;
+            _plan = _planner != null ? _planner.Plan(_floor)
+                                     : new Rifts.FloorPlan(_floor, Rifts.FloorCategory.Combat, Rifts.RiftKind.None, false);
+            Debug.Log($"[Floor] plan {_plan}");
 
             // The floor decides which of a kind's two looks is on screen, once, before any of
             // this floor's enemies of that kind spawn - see Enemies.EnemyLooks. Same enemy either
@@ -1777,10 +2482,27 @@ namespace Convergence.Core
             Enemies.EnemyLooks.Roll(Enemies.EnemyKind.Gargoyle);
             Enemies.EnemyLooks.Roll(Enemies.EnemyKind.Booster);
             Enemies.EnemyLooks.Roll(Enemies.EnemyKind.Bubbles);
+            Enemies.EnemyLooks.Roll(Enemies.EnemyKind.Mortar);
 
 
             int token = _runToken;
-            yield return new WaitForSeconds(_floor == 1 ? 0.6f : 1.4f);
+            // REALTIME, AND THAT IS LOAD-BEARING RATHER THAN A PREFERENCE. FloorTransition runs
+            // this coroutine underneath its own GamePause.Hold, so Time.timeScale is 0 for the
+            // whole of it - and a scaled WaitForSeconds never completes at timeScale 0. Scaled,
+            // this deadlocked: NextFloor hung here forever, FloorTransition never reached its
+            // FadeIn, and the pause it was holding was never released. The screen stayed black
+            // and the game stayed frozen, with no error anywhere to say why.
+            //
+            // It only ever showed up on the step to FLOOR 2, which is what made it look like a
+            // content bug rather than a timing one: floor 0 -> 1 starts NextFloor from
+            // StartRunAsync with no pause held, so the door into floor 2 is the first time this
+            // wait is ever measured against a clock that the caller has already stopped.
+            //
+            // The general rule, for anything added here later: the waits in NextFloor pace the
+            // BUILDING of a room, not anything happening inside it. Construction must not be
+            // governed by a clock that the construction itself stopped. Enemy behaviour stays
+            // scaled and so stays frozen behind the black screen, which is what the Hold is for.
+            yield return new WaitForSecondsRealtime(_floor == 1 ? 0.6f : 1.4f);
             if (token != _runToken || _state != State.Playing || _player == null)
             {
                 _spawning = false;
@@ -1796,13 +2518,60 @@ namespace Convergence.Core
                 yield break;
             }
 
+            // A PUZZLE FLOOR has no wave and no hazards - pits under the stones would make every
+            // step a second question. Its fight, if it comes to one, is built by AdjacentRoom.
+            if (_plan.Category == Rifts.FloorCategory.Puzzle)
+            {
+                if (_hazardRoot != null)
+                    foreach (Transform child in _hazardRoot) Destroy(child.gameObject);
+                Hazards.RoomWalls.Apply(null, _hazardRoot);
+                BuildPuzzleRoom();
+                _spawning = false;
+                yield break;
+            }
+
+            yield return BuildFight(token);
+        }
+
+        /// <summary>
+        /// The floor's room and fight: hazards, then the boss or the wave. Split out of NextFloor
+        /// so a puzzle floor's ADJACENT ROOM builds exactly the fight the floor would have had.
+        /// Expects _spawning set by the caller; clears it.
+        /// </summary>
+        IEnumerator BuildFight(int token)
+        {
             // Room layout is rerolled fresh every floor, the same "a fresh room each floor" idea
             // the enemy wave already lives by - last floor's columns/fields/lava are cleared
             // first, since unlike enemies they never clear themselves out on their own.
+            // Which boss, decided once per floor before the room is built - Medusa brings her own
+            // room (a ring of pillars) and the floor's usual hazards would argue with it.
+            var bossKind = IsBossFloor(_floor) ? _planner.BossFor(_floor) : Bosses.BossKind.Cantor;
+            bool ownRoom = IsBossFloor(_floor) && bossKind == Bosses.BossKind.Medusa;
+
             if (_hazardRoot != null)
             {
                 foreach (Transform child in _hazardRoot) Destroy(child.gameObject);
-                HazardBuilder.Populate(_floor, Arena.HalfExtents, _player.transform, _hazardRoot);
+            }
+            if (ownRoom) _spire = null;
+
+            // The room's SHAPE first: everything placed after this - pits, columns, the spire, the
+            // wave's arrival points, a Rift - asks Arena.OnFloor, so the walls must already be in
+            // the mask. Never on a boss floor: every boss is built round the open rectangle.
+            Hazards.RoomWalls.Apply(IsBossFloor(_floor) ? null : _planner?.ShapeFor(_floor), _hazardRoot);
+
+            if (_hazardRoot != null && !ownRoom)
+            {
+                bool hurt = _player.Health.Current < _player.Health.Max - 0.5f;
+                bool worn = _profile.Wear.Condition01(_profile.Gear, Art.Gear.SlotKind.Armor,
+                                                      _player.Stats?.Armor ?? 0f) < 0.995f;
+                _spirePool = 0f;   // set once the wave is queued; 0 holds the spire down
+                bool circle = CircleDue();
+                _spire = HazardBuilder.Populate(_floor, Arena.HalfExtents, _player.transform, _hazardRoot,
+                                                spireAllowed: !IsBossFloor(_floor), hurt, worn,
+                                                stormAllowed: !IsBossFloor(_floor), circle: circle);
+                _circle = HazardBuilder.LastRing;
+                if (_circle != null)
+                    _hud?.Flash("a transmutation circle is drawn  -  land or take three blows inside it");
             }
 
             // A BOSS FLOOR IS THE BOSS AND NOTHING ELSE. Adding a wave underneath it would put a
@@ -1811,152 +2580,191 @@ namespace Convergence.Core
             // and the stun window would be spent fighting minions instead of the boss.
             if (IsBossFloor(_floor))
             {
-                SpawnBoss();
+                SpawnBoss(bossKind);
+                BeginLedgerFloor();
                 _spawning = false;
                 yield break;
             }
 
-            // Capped - see Enemies.FloorDifficulty.Count. Uncapped this reached 53 bodies on
-            // floor 100, which is where a forty-minute clear came from.
-            int count = Enemies.FloorDifficulty.Count(_floor);
-            Debug.Log($"[Floor] {Enemies.FloorDifficulty.Describe(_floor)}");
-            bool eliteFloor = _floor % EliteEveryNFloors == 0;
+            // THE WAVE IS A BUDGET - see Enemies.WaveComposer. The floor's effective-HP pool is
+            // spent on a random mix of every kind the floor has unlocked: which mix is the seed's,
+            // how much killing it takes is the pool's. It replaced a count with each kind
+            // subtracted from it in turn, which starved every kind introduced late - floors from
+            // about 35 down were thirteen Ranged and a Chaser.
+            var wave = ComposeWave(_floor);
+            Debug.Log($"[Floor] {Enemies.FloorDifficulty.Describe(_floor)} | pool {wave.Pool:0} ehp, " +
+                      $"{wave.Spawns.Count} bodies: {wave.Roster()}");
 
-            // Ranged, Turret and Dasher all eat into the chaser count rather than adding on top of
-            // it, so a floor's total pressure doesn't spike the moment a new archetype is
-            // introduced - each is a different fight, not a harder one.
-            int rangedCount = _floor >= RangedFromFloor ? 1 + (_floor - RangedFromFloor) / 3 : 0;
-            rangedCount = Mathf.Min(rangedCount, count - 1);
-            int turretCount = _floor >= TurretFromFloor ? 1 + (_floor - TurretFromFloor) / 4 : 0;
-            turretCount = Mathf.Min(turretCount, count - rangedCount - 1);
-            int dasherCount = _floor >= DasherFromFloor ? 1 + (_floor - DasherFromFloor) / 3 : 0;
-            dasherCount = Mathf.Min(dasherCount, count - rangedCount - turretCount - 1);
-            int gargoyleCount = _floor >= GargoyleFromFloor ? 1 + (_floor - GargoyleFromFloor) / 5 : 0;
-            gargoyleCount = Mathf.Min(gargoyleCount, count - rangedCount - turretCount - dasherCount - 1);
+            // Every enemy this floor will ever field is decided now and queued rather than spawned
+            // outright - the on-screen cap is PRESSURE (WaveComposer.Fits), so a swarm fits a dozen
+            // and elites arrive two or three at a time. Only the ACTUAL position is deferred (a
+            // closure evaluated at spawn time), so a body that trickles in three kills later still
+            // places against the player's CURRENT spot rather than one frozen when the floor started.
+            _spawnQueue.Clear();
+            foreach (var s in wave.Spawns)
+                _spawnQueue.Enqueue(new PendingSpawn(s.Kind, s.Elite, PlacementFor(s.Kind)));
 
-            // BOOSTER: gated on ACCOUNT progression, not floor depth - see Tuning.Enemy's own
-            // notes. BestFloor is "how far has this character ever proven they can go", so a
-            // brand-new account's early floors stay exactly as tuned; this curveball only shows up
-            // for a player who has already been deeper finding a fresh run's early floors trivial.
-            // At most one per floor, and not guaranteed even then - a floor-level chance roll, the
-            // same "does this feature appear at all" shape Hazards.ColumnsFloorChance uses.
-            bool boosterEligible = _profile != null
-                                 && _profile.BestFloor >= Tuning.Enemy.BoosterUnlockBestFloor
-                                 && _floor <= Tuning.Enemy.BoosterMaxFloor;
-            int boosterCount = boosterEligible && UnityEngine.Random.value < Tuning.Enemy.BoosterFloorChance ? 1 : 0;
-            boosterCount = Mathf.Min(boosterCount, count - rangedCount - turretCount - dasherCount - gargoyleCount - 1);
+            // The whole wave is decided: the spire rises against its cost (see TickSpire).
+            _spirePool = wave.Spent;
+            _spireKilled = 0f;
+            _spireRaised = false;
 
-            // BUBBLES: ordinary floor-depth introduction, same shape as Gargoyle's own - nothing
-            // about this one was asked to be reserved for veteran accounts.
-            int bubblesCount = _floor >= BubblesFromFloor ? 1 + (_floor - BubblesFromFloor) / 5 : 0;
-            bubblesCount = Mathf.Min(bubblesCount,
-                count - rangedCount - turretCount - dasherCount - gargoyleCount - boosterCount - 1);
-
-            int chaserCount = count - rangedCount - turretCount - dasherCount
-                             - gargoyleCount - boosterCount - bubblesCount;
-
-            for (int i = 0; i < chaserCount; i++)
+            // Fill up to the on-screen cap now; whatever's left waits in _spawnQueue and is
+            // drained one at a time by HookDeath's Died handler as slots open.
+            while (NextSpawnFits())
             {
-                var pos = RandomEdgePoint();
                 if (token != _runToken || _player == null) { _spawning = false; yield break; }
-                var e = EnemyFactory.Spawn(pos, EnemyKind.Chaser, _floor, _player.transform, _enemyRoot,
-                                           elite: UnityEngine.Random.value < Tuning.Enemy.EliteChance);
-                HookDeath(e);
-                _alive.Add(e);
-                yield return new WaitForSeconds(0.12f);
+                SpawnQueuedEnemy();
+                // Realtime for the same reason as the wait above, and it would have deadlocked
+                // here next had only that one been fixed.
+                yield return new WaitForSecondsRealtime(0.12f);
             }
 
-            for (int i = 0; i < rangedCount; i++)
-            {
-                var pos = RandomEdgePoint();
-                if (token != _runToken || _player == null) { _spawning = false; yield break; }
-                var e = EnemyFactory.Spawn(pos, EnemyKind.Ranged, _floor, _player.transform, _enemyRoot,
-                                           elite: UnityEngine.Random.value < Tuning.Enemy.EliteChance);
-                HookDeath(e);
-                _alive.Add(e);
-                yield return new WaitForSeconds(0.12f);
-            }
-
-            // Turret spawns anywhere on the floor, not just the edge - it never has to close a
-            // gap the way the other two do, so there is no reason to hold it at the boundary.
-            for (int i = 0; i < turretCount; i++)
-            {
-                var pos = RandomFloorPoint(Tuning.Enemy.TurretMinPlayerDistance);
-                if (token != _runToken || _player == null) { _spawning = false; yield break; }
-                var e = EnemyFactory.Spawn(pos, EnemyKind.Turret, _floor, _player.transform, _enemyRoot,
-                                           elite: UnityEngine.Random.value < Tuning.Enemy.EliteChance);
-                HookDeath(e);
-                _alive.Add(e);
-                yield return new WaitForSeconds(0.12f);
-            }
-
-            for (int i = 0; i < dasherCount; i++)
-            {
-                var pos = RandomEdgePoint();
-                if (token != _runToken || _player == null) { _spawning = false; yield break; }
-                var e = EnemyFactory.Spawn(pos, EnemyKind.Dasher, _floor, _player.transform, _enemyRoot,
-                                           elite: UnityEngine.Random.value < Tuning.Enemy.EliteChance);
-                HookDeath(e);
-                _alive.Add(e);
-                yield return new WaitForSeconds(0.12f);
-            }
-
-            // Placed like a Turret - anywhere on the floor, never walked in from the edge, since
-            // a stationary watcher never has to close a gap to matter.
-            for (int i = 0; i < gargoyleCount; i++)
-            {
-                var pos = RandomFloorPoint(Tuning.Enemy.GargoyleMinPlayerDistance);
-                if (token != _runToken || _player == null) { _spawning = false; yield break; }
-                var e = EnemyFactory.Spawn(pos, EnemyKind.Gargoyle, _floor, _player.transform, _enemyRoot,
-                                           elite: UnityEngine.Random.value < Tuning.Enemy.EliteChance);
-                HookDeath(e);
-                _alive.Add(e);
-                yield return new WaitForSeconds(0.12f);
-            }
-
-            // Placed like a Turret or a Gargoyle - never walked in from the edge. ALWAYS common:
-            // this kind has no elite variant of its own, so the per-spawn elite roll every other
-            // loop here makes is deliberately skipped rather than passed a chance that would only
-            // ever come back false anyway (see EnemyTypes' Booster row, Elite = None).
-            for (int i = 0; i < boosterCount; i++)
-            {
-                var pos = RandomFloorPoint(Tuning.Enemy.BoosterMinPlayerDistance);
-                if (token != _runToken || _player == null) { _spawning = false; yield break; }
-                var e = EnemyFactory.Spawn(pos, EnemyKind.Booster, _floor, _player.transform, _enemyRoot,
-                                           elite: false);
-                HookDeath(e);
-                _alive.Add(e);
-                yield return new WaitForSeconds(0.12f);
-            }
-
-            // Placed like the rest of this family - never walked in from the edge. UNLIKE
-            // Booster's own loop, this one DOES roll for elite - a resilient bubble is a real
-            // difference worth meeting at random, not just on a guaranteed elite floor.
-            for (int i = 0; i < bubblesCount; i++)
-            {
-                var pos = RandomFloorPoint(Tuning.Enemy.BubblesMinPlayerDistance);
-                if (token != _runToken || _player == null) { _spawning = false; yield break; }
-                var e = EnemyFactory.Spawn(pos, EnemyKind.Bubbles, _floor, _player.transform, _enemyRoot,
-                                           elite: UnityEngine.Random.value < Tuning.Enemy.EliteChance);
-                HookDeath(e);
-                _alive.Add(e);
-                yield return new WaitForSeconds(0.12f);
-            }
-
-            // The guaranteed elite of an elite floor. Now a TIER on a randomly chosen archetype
-            // rather than a fixed melee brawler - an elite Ranged or an elite Dasher is a
-            // genuinely different fight, and neither was expressible while Elite occupied its own
-            // EnemyKind slot.
-            if (eliteFloor && _player != null && token == _runToken)
-            {
-                var eliteKind = EliteCapableKinds[UnityEngine.Random.Range(0, EliteCapableKinds.Length)];
-                var e = EnemyFactory.Spawn(RandomEdgePoint(), eliteKind, _floor, _player.transform, _enemyRoot,
-                                           elite: true);
-                HookDeath(e);
-                _alive.Add(e);
-            }
+            // The first wave is in: the clear is timed from here (scaled time, so a pause or
+            // the door's fade is not counted), and a Collapsing Rift's clock starts with it.
+            _fightStart = Time.time;
+            BeginLedgerFloor();
+            if (_plan.Rift == Rifts.RiftKind.Collapsing) OpenCollapsingRift();
+            if (_plan.Rift == Rifts.RiftKind.Red) OpenRedRift();
 
             _spawning = false;
+        }
+
+        /// <summary>A floor's fight begins: the ledger's per-floor memories start again, and the
+        /// hazards it draws are priced at this floor's depth like every other hazard.</summary>
+        void BeginLedgerFloor()
+        {
+            Hazards.ProjectionLines.DamageScale = Enemies.FloorDifficulty.Damage(_floor);
+            _player?.Effects?.OnFloorStarted();
+        }
+
+        /// <summary>Floors a captured spire's boon still has to run past its own (Lodestone).</summary>
+        int _floorBoonFloorsLeft;
+
+        // ---------------------------------------------------------------- transmutation circles
+
+        Hazards.TransmutationRing _circle;
+
+        /// <summary>
+        /// Whether THIS floor draws a transmutation circle (the user's rules, 2026-10-05). Only
+        /// while the run holds a Nigredo, and only on a combat floor: if the next Rift is RED, the
+        /// circle is on that Red Rift's floor; otherwise on the LAST combat floor before the next
+        /// Rift - walking back past a boss or a puzzle floor to the one before it. A player who
+        /// only became eligible after that floor passed waits for the Rift after.
+        /// </summary>
+        bool CircleDue()
+        {
+            if (_planner == null || !Modifiers.HoldsNigredo) return false;
+            if (IsBossFloor(_floor) || _plan.Category == Rifts.FloorCategory.Puzzle) return false;
+            return CircleFloorFrom(_floor) == _floor;
+        }
+
+        int CircleFloorFrom(int floor)
+        {
+            var plans = new List<Rifts.FloorPlan> { _plan };
+            plans.AddRange(_planner.PeekAhead(floor, 30));
+            int searchFrom = floor;
+            for (int i = 0; i < plans.Count; i++)
+            {
+                var rift = plans[i];
+                if (rift.Rift == Rifts.RiftKind.None) continue;
+                int candidate = -1;
+                if (rift.Rift == Rifts.RiftKind.Red) candidate = rift.Floor;
+                else
+                    for (int j = i - 1; j >= 0 && plans[j].Floor >= searchFrom; j--)
+                        if (plans[j].Category == Rifts.FloorCategory.Combat && plans[j].Rift == Rifts.RiftKind.None)
+                        { candidate = plans[j].Floor; break; }
+                if (candidate >= searchFrom) return candidate;
+                searchFrom = rift.Floor + 1;   // too late for this Rift: wait for the next one
+            }
+            return -1;
+        }
+
+        /// <summary>A combat contact for the circle: a landed swing or throw, or a blow taken.</summary>
+        void CircleContact() => _circle?.Contact();
+
+        /// <summary>Polled while playing: the circle lit - transmute, asking which when several wait.</summary>
+        void TickCircle()
+        {
+            if (_circle == null || !_circle.TryActivate()) return;
+            var nigredos = Modifiers.Nigredos();
+            if (nigredos.Count == 0) { _circle.Complete(); return; }
+            if (nigredos.Count == 1) { Transmute(nigredos[0]); return; }
+            TransmuteScreen.Show(_canvas.transform, nigredos, Modifiers, cost => Transmute(cost ?? nigredos[0]));
+        }
+
+        void Transmute(Exchange.ExchangeEntry cost)
+        {
+            var albedo = Modifiers.Transmute(cost);
+            ApplyLedgerToPlayer();
+            _circle?.Complete();
+            if (albedo != null)
+            {
+                _hud?.Flash($"{cost.Name} transmuted  -  {albedo.Name}: {albedo.Effect}");
+                Debug.Log($"[Circle] {cost.Name} -> {albedo.Name} on floor {_floor}");
+            }
+        }
+
+        /// <summary>
+        /// The wave for <paramref name="floor"/>, from the planner's seed. The ONE place a wave
+        /// is composed - BuildFight and the Augury preview both call it, so what the preview
+        /// shows is what arrives.
+        /// </summary>
+        Enemies.Wave ComposeWave(int floor)
+        {
+            // BOOSTER: gated on ACCOUNT progression, not floor depth - see Tuning.Enemy's own
+            // notes. BestFloor is "how far has this character ever proven they can go", so a
+            // brand-new account's early floors stay exactly as tuned.
+            bool boosterEligible = _profile != null
+                                 && _profile.BestFloor >= Tuning.Enemy.BoosterUnlockBestFloor
+                                 && floor <= Tuning.Enemy.BoosterMaxFloor;
+            int seed = _planner != null ? _planner.WaveSeed(floor)
+                                        : UnityEngine.Random.Range(int.MinValue, int.MaxValue);
+            return Enemies.WaveComposer.Compose(floor, seed, floor % EliteEveryNFloors == 0, boosterEligible);
+        }
+
+        /// <summary>Where a kind arrives. The stationary kinds are placed anywhere on the floor,
+        /// never walked in from the edge - they never have to close a gap to matter.</summary>
+        Func<Vector2> PlacementFor(EnemyKind kind) => kind switch
+        {
+            EnemyKind.Turret   => () => RandomFloorPoint(Tuning.Enemy.TurretMinPlayerDistance),
+            EnemyKind.Gargoyle => () => RandomFloorPoint(Tuning.Enemy.GargoyleMinPlayerDistance),
+            EnemyKind.Booster  => () => RandomFloorPoint(Tuning.Enemy.BoosterMinPlayerDistance),
+            EnemyKind.Bubbles  => () => RandomFloorPoint(Tuning.Enemy.BubblesMinPlayerDistance),
+            _                  => () => RandomEdgePoint(),
+        };
+
+        /// <summary>
+        /// Whether the queue's next body may come on screen now: the PRESSURE of what is alive
+        /// plus its own under the floor's cap (Enemies.WaveComposer.Fits). Strictly in queue
+        /// order - an elite at the head waits for room rather than letting cheaper bodies past.
+        /// Everything alive counts, Red Rift guards included.
+        /// </summary>
+        bool NextSpawnFits()
+        {
+            if (_spawnQueue.Count == 0) return false;
+            var next = _spawnQueue.Peek();
+            float pressure = 0f;
+            int bodies = 0;
+            foreach (var e in _alive)
+            {
+                if (e == null) continue;
+                pressure += Enemies.WaveComposer.Pressure(e.Kind, e.Elite);
+                bodies++;
+            }
+            return Enemies.WaveComposer.Fits(new Enemies.WaveSpawn(next.Kind, next.Elite),
+                                             pressure, bodies, _floor);
+        }
+
+        /// <summary>Dequeues and spawns one PendingSpawn. Caller's job to have already checked
+        /// there's room (NextSpawnFits).</summary>
+        void SpawnQueuedEnemy()
+        {
+            var next = _spawnQueue.Dequeue();
+            var e = EnemyFactory.Spawn(next.Position(), next.Kind, _floor, _player.transform, _enemyRoot,
+                                       elite: next.Elite);
+            HookDeath(e);
+            _alive.Add(e);
         }
 
         /// <summary>
@@ -2009,6 +2817,24 @@ namespace Convergence.Core
         {
             _rewardTaken = true;
 
+            // The spire sinks into the floor, taken or not - see Spire.Sink.
+            if (_spire != null) _spire.Sink();
+            // An unlit transmutation circle fades with the fight; its Nigredo waits for another.
+            if (_circle != null && !_circle.Spent) _circle.Fade();
+            _circle = null;
+            // No enemies left: the storm stops forming and its funnels die away, harmless.
+            TornadoStorm.CalmAll();
+
+            // The stake's gate. Counted as a CLEARED floor here rather than read off _floor at run
+            // end, because _floor is the floor the run ended ON, which a death leaves uncleared -
+            // and whatever system ends a run extracted, a floor cleared is a floor cleared.
+            if (!_stakeGateCleared && _profile.StakeGateFloor > 0 && _floor >= _profile.StakeGateFloor)
+            {
+                _stakeGateCleared = true;
+                _hud?.Flash("stake gate cleared  -  extract to claim the matching piece");
+                Debug.Log($"[Stake] gate floor {_profile.StakeGateFloor} cleared");
+            }
+
             // The exit door goes up HERE rather than after the deal/reward flow finishes - it
             // used to spawn only once ApplyFloorReward ran, so the player never saw it until both
             // screens had already come and gone. GamePause holds timeScale for the whole exchange
@@ -2017,13 +2843,42 @@ namespace Convergence.Core
             // pause, but the door is standing there the moment the floor actually cleared instead
             // of popping in afterward.
             OpenFloorDoor();
+            RollFloorDrop();
+            SettleFloorRift();
 
             // Floor-clear costs settle FIRST, so the exchange row is read against the health you
             // actually have left rather than the health you had a moment before Toll took its cut.
+            // The ledger's own counters move with the floor (Withering, Viriditas, Senescence).
             if (_player != null) _player.Effects?.OnFloorCleared();
+            Modifiers.FloorCleared();
+            ApplyLedgerToPlayer();
 
-            var offer = Exchange.ExchangeOffers.Build(Modifiers, _floor);
-            if (offer.Pairs.Count == 0) { OfferFloorRewardCards(); return; }
+            // Mend: worn gear knits a little back together every floor (Corrosion halves it).
+            if (_player != null && _player.Stats.Mend > 0f)
+                _profile.Wear.Repair(_profile.Gear, _player.Stats.Mend / 100f * Modifiers.Current.RepairMul,
+                                     _player.Stats.Armor);
+
+            // Scrying Glass. Read HERE, after SettleFloorRift: the floor below's plan depends on
+            // whether this floor's Rift was reached, and nothing between now and the door moves it.
+            string scry = Modifiers.StacksOf("scrying_glass") > 0 ? ScryNextFloor() : null;
+            if (scry != null) Debug.Log($"[Exchange] Scrying Glass: {scry}");
+
+            // A deal after the first floor and every second floor after it (50 a run) - see
+            // Tuning.Exchange.DealEvery. Drawn from the run's seed for this floor, so a restart
+            // meets the same deals.
+            if (!Exchange.ExchangeOffers.DealAfter(_floor) || _planner == null)
+            {
+                if (scry != null) _hud?.Flash(scry);
+                OfferFloorRewardCards();
+                return;
+            }
+            var offer = Exchange.ExchangeOffers.Build(Modifiers, _floor, new System.Random(_planner.DealSeed(_floor)));
+            if (offer.Pairs.Count == 0)
+            {
+                if (scry != null) _hud?.Flash(scry);
+                OfferFloorRewardCards();
+                return;
+            }
 
             // Transmuter's Eye. The reward is rolled ONCE, here, and the same roll is both
             // previewed and later handed to the reward screen - a preview that re-rolled would
@@ -2032,6 +2887,12 @@ namespace Convergence.Core
             string preview = Modifiers.StacksOf("transmuters_eye") > 0
                 ? $"next: {_pendingReward.RestoreText}" +
                   (_pendingReward.Offered != null ? $"  or  {_pendingReward.Offered.DisplayName}" : "")
+                : null;
+
+            // Oracle: each slate shows the deal that would follow it - built on a copy of the ledger
+            // with the seed the real one will use.
+            var oracle = Modifiers.StacksOf("oracle") > 0
+                ? Exchange.ExchangeOffers.PreviewNext(Modifiers, offer, _floor, f => _planner.DealSeed(f))
                 : null;
 
             ExchangeScreen.Show(_canvas.transform, offer, Modifiers, _floor, preview, pair =>
@@ -2045,10 +2906,35 @@ namespace Convergence.Core
                     ApplyLedgerToPlayer();
                     Debug.Log($"[Exchange] took {pair.Boon?.Name ?? "nothing"} / {pair.Cost?.Name ?? "nothing"}");
                 }
-                else Debug.Log("[Exchange] refused");
+                else
+                {
+                    if (offer.CanRefuse) Modifiers.Refuse();
+                    Debug.Log($"[Exchange] refused ({Modifiers.RefusalsLeft} refusals left)");
+                }
 
                 OfferFloorRewardCards();
-            });
+            }, scry, oracle);
+        }
+
+        /// <summary>
+        /// What Scrying Glass shows: the floor below's kind, and its whole roster when it is a
+        /// fight. Both come from the same calls that will BUILD that floor - FloorPlanner.Peek
+        /// (the plan, drawn on a copy so nothing moves) and ComposeWave (the same seed) - so the
+        /// preview cannot drift from what arrives. A boss is not named: which boss is a shuffle
+        /// bag that a peek would have to draw from.
+        /// </summary>
+        string ScryNextFloor()
+        {
+            int next = _floor + 1;
+            if (_planner == null || next > Player.PlayerPower.LastFloor) return null;
+            var plan = _planner.Peek(next);
+            string rift = plan.Rift != Rifts.RiftKind.None ? $"  -  and a {plan.Rift} Rift" : "";
+            return plan.Category switch
+            {
+                Rifts.FloorCategory.Boss   => $"below: a boss{rift}",
+                Rifts.FloorCategory.Puzzle => "below: a puzzle",
+                _                          => $"below: {ComposeWave(next).Roster()}{rift}",
+            };
         }
 
         /// <summary>
@@ -2067,12 +2953,10 @@ namespace Convergence.Core
                 : Tuning.Player.HpFireWater;
 
             // Same shape as the initial Configure above: percentage on the element's baseline,
-            // flat from mastery and the ledger. If one moves, move both.
+            // the ledger's percentage on top. If one moves, move both.
             float want = Mathf.Max(1f,
                 Art.Gear.StatPercents.Apply(baseHp, _player.Stats?.MaxHp ?? 0f)
-                + Mastery.Get(_player.Resource?.Element ?? _profile.LastElement,
-                              Progression.MasteryStat.MaxHp)
-                + Modifiers.Current.BonusMaxHp);
+                * Modifiers.Current.MaxHpMul);
             _player.Health.SetMax(want);
 
             // The wheel is the other value that is read once rather than polled. Derived from the
@@ -2080,6 +2964,25 @@ namespace Convergence.Core
             // so a second Extra Sigil has to arrive as arithmetic, not as a one-shot that already
             // fired.
             _player.SyncSlotCount(Modifiers.Current.ExtraFinisherSlots);
+            ApplyLedgerReadouts();
+        }
+
+        /// <summary>
+        /// What the ledger hides or dims, pushed to the systems that draw it: Fog III's readouts,
+        /// Murk's telegraphs, Sol Niger's dark and Lucid's outlines. Statics on the drawers, set
+        /// whenever the ledger changes and reset when a run ends.
+        /// </summary>
+        void ApplyLedgerReadouts()
+        {
+            var m = Modifiers.Current;
+            DamageNumbers.Hidden = m.HideEnemyReadouts;
+            ArmorRing.Hidden = m.HideEnemyReadouts;
+            Enemies.EnemyController.TelegraphStrength = m.TelegraphStrength;
+            if (_player != null)
+            {
+                Exchange.SolNiger.Set(_player.transform, m.SilhouetteBeyond);
+                Player.LucidRims.Set(_player, Modifiers.StacksOf("lucid") > 0);
+            }
         }
 
         /// <summary>
@@ -2095,10 +2998,18 @@ namespace Convergence.Core
 
         RolledReward _pendingReward;
 
+        /// <summary>The Repair card's fraction with Repair Received applied - that card only.</summary>
+        float RepairFractionNow => RepairFraction
+            * Art.Gear.StatPercents.Apply(1f, _player != null ? _player.Stats.RepairReceived : 0f)
+            * Modifiers.Current.RepairMul;   // Corrosion
+
         RolledReward RollFloorReward()
         {
             var restore = PickRestoreKind();
-            float healAmount = _player != null ? _player.Health.Max * HealFraction : 0f;
+            // Heal Received boosts THIS card and nothing else - not lifesteal, not boons.
+            float healAmount = _player != null
+                ? _player.Health.Max * HealFraction * Art.Gear.StatPercents.Apply(1f, _player.Stats.HealReceived)
+                : 0f;
             return new RolledReward
             {
                 Offered = _player != null
@@ -2108,7 +3019,7 @@ namespace Convergence.Core
                 HealAmount = healAmount,
                 RestoreText = restore == UI.FloorReward.Heal
                     ? $"+{Mathf.RoundToInt(healAmount)} HP"
-                    : $"+{Mathf.RoundToInt(RepairFraction * 100f)}% condition",
+                    : $"+{Mathf.RoundToInt(RepairFractionNow * 100f)}% condition",
             };
         }
 
@@ -2128,7 +3039,7 @@ namespace Convergence.Core
                 taper = Tuning.Taper.Multiplier(_account.FloorsClearedToday);
             }
 
-            _pendingMastery += Mathf.RoundToInt(MasteryXpPerFloor * Modifiers.Current.MasteryXpMul * taper);
+            _pendingMastery += Mathf.RoundToInt(MasteryXpPerFloor * taper);
             _pendingGearVouchers += Tuning.GearRoll.VouchersPerFloor;
 
             // Reuses the roll the exchange row may already have shown. Rolling again here would
@@ -2140,13 +3051,21 @@ namespace Convergence.Core
             string xpBlurb = "Account experience, kept whether you survive or not. " +
                              $"You are level {_profile.Level} with {_profile.Xp} XP.";
 
+            // Curator: one more card - the restore the roll did not pick, beside the one it did.
+            string otherRestore = Modifiers.Current.ExtraRewardOptions > 0
+                ? (r.Restore == UI.FloorReward.Heal
+                    ? $"+{Mathf.RoundToInt(RepairFractionNow * 100f)}% condition"
+                    : $"+{Mathf.RoundToInt(r.HealAmount)} HP")
+                : null;
+
             FloorRewardScreen.Show(
                 _canvas.transform, _floor, r.Offered,
                 _player != null ? _player.Slots : System.Array.Empty<Combat.Moveset>(),
                 _player != null ? _player.SlotLocked : _ => false,
                 _player != null ? _player.RotationIndex : 0,
                 r.Restore, r.RestoreText, xpText, xpBlurb,
-                (outcome, slot) => ApplyFloorReward(outcome, slot, r.Offered, r.HealAmount));
+                (outcome, slot) => ApplyFloorReward(outcome, slot, r.Offered, r.HealAmount),
+                otherRestore);
         }
 
         /// <summary>
@@ -2187,7 +3106,7 @@ namespace Convergence.Core
                     break;
 
                 case UI.FloorOutcome.Repair:
-                    int repaired = _profile.Wear.Repair(_profile.Gear, RepairFraction,
+                    int repaired = _profile.Wear.Repair(_profile.Gear, RepairFractionNow,
                                                          _player?.Stats.Armor ?? 0f);
                     Debug.Log($"[Convergence] repaired {repaired} piece(s) of gear");
                     break;
@@ -2234,9 +3153,11 @@ namespace Convergence.Core
         /// <see cref="OpenFloorDoor"/> mirrors off the north one, so a player always arrives
         /// facing into open room rather than into whatever the door itself last stood in front
         /// of. Shared by <see cref="FloorTransition"/> and by the run's very first floor, or the
-        /// two would drift the moment either one's offset was retuned.
+        /// two would drift the moment either one's offset was retuned. Backed by
+        /// <see cref="Arena.SouthSpawnPoint"/> so HazardBuilder can exclude the same spot from the
+        /// column lattice rather than only ever protecting wherever the player happens to stand.
         /// </summary>
-        static Vector3 SouthSpawnPoint() => new(0f, -Arena.HalfExtents.y + 1.6f, 0f);
+        static Vector3 SouthSpawnPoint() => Arena.SouthSpawnPoint;
 
         /// <summary>
         /// The door was already open and correctly detected touch - see DoorFadeSeconds. This is
@@ -2252,18 +3173,52 @@ namespace Convergence.Core
 
         IEnumerator FloorTransition()
         {
-            _player?.Rig?.SetFacingAway(true);
-            yield return _fade.FadeOut(DoorFadeSeconds);
+            // Held for the whole transition so enemies/physics can't simulate behind the black
+            // screen - ScreenFade itself doesn't freeze anything (see its own note), and without
+            // this the new floor's enemies were spawning and acting in real time under NextFloor,
+            // landing hits before the fade-in had even finished revealing the room to the player.
+            // ScreenFade runs on unscaled time for exactly this reason, so the fade itself still
+            // animates while paused.
+            // Set BEFORE the first yield, so there is never a frame between the door being
+            // reached and this being true - the whole point of it is to close a gap measured in
+            // frames. See the field's own note.
+            _transitioning = true;
+            GamePause.Hold(this);
 
-            if (_player != null)
+            // try/finally, because EVERYTHING BETWEEN THE FADE OUT AND THE FADE IN HAPPENS WITH
+            // THE SCREEN BLACK AND THE GAME FROZEN, and this coroutine holds the only handle to
+            // undoing either. Anything that stops it partway - an exception out of NextFloor,
+            // StopAllCoroutines during teardown - otherwise leaves the black screen up and the
+            // pause held with nothing left running that could release them, which is not a bug
+            // the player can recover from without relaunching.
+            //
+            // This is a backstop and not a fix for anything in particular: the deadlock that
+            // prompted it is fixed at its cause (see the realtime waits in NextFloor). It is here
+            // because the COST of this failure is total, so it should not depend on every future
+            // line of NextFloor being correct. A floor that fails to build now drops the player
+            // into a half-built room, which is survivable and reportable; a black screen is not.
+            try
             {
-                _player.transform.position = SouthSpawnPoint();
-                Physics2D.SyncTransforms();   // see the physics-read trap this file already documents
-                _player.Rig?.SetFacingAway(false);
-            }
+                _player?.Rig?.SetFacingAway(true);
+                yield return _fade.FadeOut(DoorFadeSeconds);
 
-            yield return NextFloor();
-            yield return _fade.FadeIn(DoorFadeSeconds);
+                if (_player != null)
+                {
+                    _player.transform.position = SouthSpawnPoint();
+                    Physics2D.SyncTransforms();   // see the physics-read trap this file already documents
+                    _player.Rig?.SetFacingAway(false);
+                }
+
+                yield return NextFloor();
+                yield return _fade.FadeIn(DoorFadeSeconds);
+            }
+            finally
+            {
+                _transitioning = false;
+                GamePause.Release(this);
+                // A no-op on the normal path - FadeIn has already run and the panel is clear.
+                _fade.Clear();
+            }
         }
 
         void OpenFloorDoor()
@@ -2272,7 +3227,7 @@ namespace Convergence.Core
             if (_player == null) { StartCoroutine(NextFloor()); return; }
 
             int token = _runToken;
-            var pos = new Vector2(0f, Arena.HalfExtents.y - 1.6f);
+            var pos = Arena.NorthDoorPoint;
             _activeDoor = FloorDoor.Spawn(pos, _player.transform, _enemyRoot, ScreenElement(), () =>
             {
                 _activeDoor = null;
@@ -2284,43 +3239,34 @@ namespace Convergence.Core
         /// <summary>
         /// Floors that hold a boss: every mini-boss interval, plus the avatar floors.
         ///
-        /// THE CANTOR STANDS IN FOR ALL OF THEM. It is the only boss that exists, so it currently
-        /// answers for every mini-boss and for all four reincarnation avatars - deliberately, as a
-        /// placeholder, so the run's SHAPE (a boss every ten floors, a Rift after it, avatars at
-        /// the quarters) can be played and felt while the individual boss patterns are still being
-        /// worked out.
-        ///
-        /// What that means for anyone reading this later: a floor-10 fight and a floor-75 fight
-        /// are currently the same fight. Mini-bosses are meant to be RANDOMISED, each with its own
-        /// tactics and phases, and the avatars are meant to be four distinct set-pieces. None of
-        /// that exists. `BossController` is written as one boss rather than as a framework, so
-        /// giving it siblings is a real piece of work and not a table of numbers.
+        /// WHICH boss is Rifts.FloorPlanner.BossFor: mini-boss floors draw from a pool (the Cantor
+        /// and Medusa so far) as a seeded shuffle bag; the four avatars are all still the Cantor,
+        /// standing in until they are their own set-pieces. A new boss is a Bosses.Boss subclass,
+        /// a BossKind, and a case in Boss.Spawn.
         /// </summary>
-        static bool IsBossFloor(int floor)
-        {
-            if (floor <= 0) return false;
-            if (IsAvatarFloor(floor)) return true;
-            return floor % Tuning.Boss.RiftInterval == 0;
-        }
+        static bool IsBossFloor(int floor) => Rifts.FloorPlanner.IsBossFloor(floor);
 
         /// <summary>The reincarnation avatars. Separate from IsBossFloor because the run economy
         /// keys the loot bands and the Black Diamond roll off these four specifically.</summary>
-        static bool IsAvatarFloor(int floor)
-            => floor == 25 || floor == 50 || floor == 75 || floor == 100;
+        static bool IsAvatarFloor(int floor) => Rifts.FloorPlanner.IsAvatarFloor(floor);
 
-        void SpawnBoss()
+        void SpawnBoss(Bosses.BossKind kind)
         {
             if (_player == null) return;
 
             // Spawned at the centre so the fight opens where it will later be vulnerable - the
             // middle of the room has to mean one thing all fight, and the player should have seen
             // it there once before being asked to run to it.
-            _boss = Bosses.BossController.Spawn(Vector2.zero, _player.transform, _enemyRoot);
+            _boss = Bosses.Boss.Spawn(kind, Vector2.zero, _player.transform, _enemyRoot, _floor);
+            Debug.Log($"[Floor] Boss floor {_floor}: {_boss.DisplayName}");
 
             var hp = _boss.Health;
             hp.Died += h =>
             {
                 if (_player) _player.RegisterKill();
+                // The board hears every death, whatever caused it - a hit, a burn, a fall.
+                if (_player && _player.Board) _player.Board.OnEnemyDied(h);
+                if (_player && _player.Effects) _player.Effects.OnEnemyDied(h);
                 Spr.Flash(h.transform.position, 3.2f, new Color(1f, 0.95f, 0.8f), 0.9f);
 
                 // Cease BEFORE destroying, so the fight's coroutine and any lit slice stop on the
@@ -2333,44 +3279,209 @@ namespace Convergence.Core
             };
         }
 
-        /// <summary>
-        /// Floors that end at a Rift: the ten-floor cadence, plus the floor before an avatar boss
-        /// and the floor after one. See Tuning.Boss.RiftInterval.
-        /// </summary>
-        static bool IsRiftFloor(int floor)
-        {
-            if (floor <= 0) return false;
-            if (floor % Tuning.Boss.RiftInterval == 0) return true;
-            if (IsBossFloor(floor + 1)) return true;                 // the warning before an avatar
-
-            // Floor 100 needs no Rift after it - clearing it banks everything and ends the run, so
-            // the tear the final avatar leaves behind IS the way out.
-            return IsBossFloor(floor - 1) && floor - 1 < 100;
-        }
-
         /// <summary>How many pieces a Rift will take. The capacity domain is on the mastery board
         /// and is read live, so a point spent between runs is felt on the next one.</summary>
         int RiftCapacity()
             => Tuning.Boss.BaseRiftCapacity
-             + Mathf.RoundToInt(Mastery.Get(_profile.LastElement, Progression.MasteryStat.RiftCapacity));
+             + Mathf.RoundToInt(Mastery.Extra(_profile.LastElement, Progression.BoardStat.RiftCapacity));
 
         void OpenRiftOnFloor()
         {
-            if (_rift != null || _player == null) return;
+            if (!TearRift()) return;
+            _hud?.SetRiftPrompt(true);
+        }
+
+        bool TearRift(float distance = 4.5f)
+        {
+            if (_rift != null || _player == null) return false;
 
             // Torn where the player is NOT, so walking to it is a real decision rather than
             // something that happens to them - the whole fixture is a question and they should
             // have to go and answer it.
             var at = Arena.Clamp((Vector2)_player.transform.position
-                                 + UnityEngine.Random.insideUnitCircle.normalized * 4.5f, 2f);
+                                 + UnityEngine.Random.insideUnitCircle.normalized * distance, 2f);
+            // Never inside a spire's ring: the Rift's [ E ] and the capture would fight over
+            // the same ground. Pushed straight out past the rim.
+            if (_spire != null)
+            {
+                var off = at - _spire.Centre;
+                float need = Tuning.Spire.CaptureRadius + 1.2f;
+                if (off.magnitude < need)
+                    at = Arena.Clamp(_spire.Centre + (off.sqrMagnitude > 0.0001f ? off.normalized : Vector2.up) * need, 2f);
+            }
+            // Off the room's walls - a tear half inside one could not be reached to answer.
+            at = Arena.NearestFloor(at, 1.2f);
             _rift = Rifts.Rift.Open(at, _arenaRoot, _player.transform);
+            return true;
+        }
+
+        /// <summary>
+        /// A Collapsing Rift, torn as the floor's first wave arrives, on the clock the planner
+        /// fits to this player. It does NOT reset the planner's Rift count here - only reaching
+        /// it does (SettleFloorRift), so a collapse is followed by better odds, not a reset.
+        /// </summary>
+        void OpenCollapsingRift()
+        {
+            if (!TearRift()) return;
+            float seconds = _planner.CollapseSeconds(_floor);
+            Debug.Log($"[Floor] Collapsing Rift on floor {_floor}: {seconds:0.0}s " +
+                      $"(estimate {Rifts.FloorPlanner.EstimateSeconds(_floor):0.0}s, " +
+                      $"{_planner.PaceRatios.Count} clears timed)");
+            _rift.BeginCollapse(seconds, () =>
+            {
+                _rift = null;
+                _hud?.SetRiftTimer(-1f);
+                _hud?.Flash("the Rift collapsed");
+                _planner?.MarkRiftCollapsed(_floor);
+                Debug.Log($"[Floor] Collapsing Rift on floor {_floor} ran out - " +
+                          $"no Rift for {_planner?.QuietFloors} floor(s)");
+            });
+        }
+
+        /// <summary>
+        /// A Red Rift: torn SHUT as the first wave arrives, and DORMANT. Nothing comes for the
+        /// player until they break the seal at the tear and confirm (AskBreakRedSeal); then its
+        /// guard of elites arrives, and the Rift opens once that guard has fallen. Never touched, it
+        /// stays shut - no exit on this floor, and nothing lost. Torn farther off than an open Rift
+        /// so a guard called mid-fight does not arrive on top of the player.
+        /// </summary>
+        void OpenRedRift()
+        {
+            if (!TearRift(Tuning.Floors.RedTearDistance)) return;
+            _rift.Seal();
+            _redSummoned = false;
+            _redGuard ??= new();
+            _redGuard.Clear();
+            _hud?.SetRedRiftPrompt(true);
+            Debug.Log($"[Floor] Red Rift on floor {_floor}, sealed until the player breaks it");
+        }
+
+        int RedGuardCount => Tuning.Floors.RedGuards + (_floor >= Tuning.Floors.RedGuardsExtraFloor ? 1 : 0);
+
+        void AskBreakRedSeal()
+        {
+            int guards = RedGuardCount;
+            ConfirmDialog.Show(_canvas.transform, "Break the seal?",
+                $"Its guard of {guards} elite{(guards == 1 ? "" : "s")} will come for you. " +
+                "The Rift opens once they fall. Leave it shut and nothing comes.",
+                "Break it", "Not now", SummonRedGuard);
+        }
+
+        /// <summary>
+        /// The seal broken: the guard comes. Called BEFORE the floor clears, it joins _alive and
+        /// holds the floor like any enemy - the reward cannot open over a fight still going. Called
+        /// AFTER, the exit door is already up and the guard is optional: walking out through the
+        /// door leaves the Rift shut, and CloseRift takes the guard with it.
+        /// </summary>
+        void SummonRedGuard()
+        {
+            if (_rift == null || !_rift.Sealed || _redSummoned || _player == null) return;
+            _redSummoned = true;
+            _redGuard ??= new();
+            _hud?.SetRedRiftPrompt(false);
+
+            int guards = RedGuardCount;
+            Vector2 at = _rift.transform.position;
+            for (int i = 0; i < guards; i++)
+            {
+                // Spread round the tear, a little in front of it.
+                float a = (i + 0.5f) / guards * Mathf.PI * 2f;
+                var pos = Arena.NearestFloor(at + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * 1.6f, 0.8f);
+                var kind = Enemies.WaveComposer.EliteKinds[UnityEngine.Random.Range(0, Enemies.WaveComposer.EliteKinds.Length)];
+                var e = EnemyFactory.Spawn(pos, kind, _floor, _player.transform, _enemyRoot, elite: true);
+                HookDeath(e);
+                _redGuard.Add(e.GetComponent<Health>());
+                if (!_rewardTaken) _alive.Add(e);
+            }
+            _hud?.Flash("THE SEAL BREAKS  -  its guard must fall before the Rift opens");
+            Debug.Log($"[Floor] Red Rift on floor {_floor}: seal broken, {guards} elite guard(s)" +
+                      (_rewardTaken ? " after the clear" : ""));
+        }
+
+        /// <summary>
+        /// Opens a Red Rift whose guard has fallen. Polled, so a guard called after the clear opens
+        /// it the moment the last one drops; and only once the floor is clear, so a guard called
+        /// mid-fight opens it with the clear, like every other exit. Only an opened one counts as
+        /// an exit reached.
+        /// </summary>
+        void TryOpenRedRift()
+        {
+            if (_plan.Rift != Rifts.RiftKind.Red || _rift == null || !_rift.Sealed || !_redSummoned || !_rewardTaken)
+                return;
+            if (_redGuard != null)
+                foreach (var g in _redGuard)
+                    if (g != null && !g.IsDead) return;
+
+            _rift.Unseal();
             _hud?.SetRiftPrompt(true);
+            _planner?.MarkRiftReached();
+            Debug.Log($"[Floor] Red Rift on floor {_floor} opened - its guard has fallen");
+        }
+
+        /// <summary>
+        /// The floor just cleared pays out - carried, not banked. AT THE CLEAR, not when the next
+        /// floor starts: it used to be rolled at the top of NextFloor, so a player who extracted at
+        /// this floor's Rift left without the drop they had just earned.
+        /// </summary>
+        void RollFloorDrop()
+        {
+            if (_floor <= 0) return;
+            var drop = _loot.Roll(_floor);
+            if (drop != null)
+            {
+                _loot.Add(drop);
+                Debug.Log($"[Rift] floor {_floor} dropped {drop.DisplayName} " +
+                          $"(carrying {_loot.CarriedCount}, secured {_loot.SecuredCount}, " +
+                          $"boxes {_loot.TotalBoxes})");
+            }
+            else
+            {
+                Debug.Log($"[Rift] floor {_floor} dropped a loot box instead of an item " +
+                          $"(carrying {_loot.CarriedCount}, secured {_loot.SecuredCount})");
+            }
+        }
+
+        /// <summary>
+        /// The floor just cleared: time the clear for the Collapsing clock, then give the floor its
+        /// exit if it has one. Reaching an exit - any Blue, a Collapsing Rift beaten in time, the
+        /// avatar's guaranteed one - is what resets the planner's Rift count.
+        /// </summary>
+        void SettleFloorRift()
+        {
+            if (_planner == null) return;
+            if (!IsBossFloor(_floor) && _fightStart >= 0f)
+                _planner.RecordClear(_floor, Time.time - _fightStart);
+            _fightStart = -1f;
+
+            switch (_plan.Rift)
+            {
+                case Rifts.RiftKind.Blue:
+                    OpenRiftOnFloor();
+                    _planner.MarkRiftReached();
+                    break;
+                case Rifts.RiftKind.Collapsing:
+                    if (_rift != null && _rift.Unstable)
+                    {
+                        _rift.Stabilise();
+                        _hud?.SetRiftTimer(-1f);
+                        _hud?.SetRiftPrompt(true);
+                        _planner.MarkRiftReached();
+                        Debug.Log($"[Floor] Collapsing Rift on floor {_floor} held with {_rift.Remaining:0.0}s left");
+                    }
+                    break;
+                case Rifts.RiftKind.Red:
+                    // A guard called before the clear was part of the wave, so a cleared floor is a
+                    // fallen guard and the Rift opens now. Never called, the tear stays shut and
+                    // can still be broken after the clear (see SummonRedGuard).
+                    TryOpenRedRift();
+                    break;
+            }
         }
 
         void OpenRift()
         {
             _hud?.SetRiftPrompt(false);
-            RiftScreen.Open(_canvas.transform, _loot, RiftCapacity(), _floor,
+            RiftScreen.Open(_canvas.transform, _loot, RiftCapacity(), _floor, _rift,
                 onExtract: () =>
                 {
                     // Extraction: everything carried comes out, and the run ends on the player's
@@ -2381,16 +3492,202 @@ namespace Convergence.Core
                 },
                 onPushOn: () =>
                 {
-                    // Whatever was not secured stays carried, and stays at risk.
-                    CloseRift();
-                    StartCoroutine(NextFloor());
+                    // NOT YET: whatever was secured stays secured, the rest stays carried and at
+                    // risk, and the tear stays open - the exit door is how the run goes on, and
+                    // until the player takes it they may come back and leave after all.
+                    if (_rift != null) _hud?.SetRiftPrompt(true);
                 });
         }
 
         void CloseRift()
         {
             if (_rift != null) { Destroy(_rift.gameObject); _rift = null; }
+
+            // A Red Rift's guard goes with it. One called after the clear is not in _alive, and
+            // enemies never clear themselves out, so it would follow the player to the next floor.
+            if (_redGuard != null)
+            {
+                foreach (var g in _redGuard)
+                    if (g != null && !g.IsDead) Destroy(g.gameObject);
+                _redGuard.Clear();
+            }
+            _redSummoned = false;
+
             _hud?.SetRiftPrompt(false);
+            _hud?.SetRedRiftPrompt(false);
+            _hud?.SetRiftTimer(-1f);
+        }
+
+        // ------------------------------------------------------------------ puzzle floors
+
+        /// <summary>This floor's puzzle, while it is a puzzle floor and the player is still in
+        /// the puzzle room. Like the boss and the Rift it is not in _alive and holds the floor on
+        /// its own. See Tuning.Puzzle.</summary>
+        Puzzles.PuzzleRoom _puzzle;
+
+        /// <summary>This floor's spire, or null. A UnityEngine.Object reference, so it survives a
+        /// domain reload; destroyed with the hazard root when the next room is built.</summary>
+        Hazards.Spire _spire;
+
+        /// <summary>The floor's wave cost and how much of it has been killed - what the spire's
+        /// rise is measured against. Set when the wave is queued; a share of the COST rather
+        /// than of the bodies, so a floor of five elites is not one kill from its spire.</summary>
+        float _spirePool, _spireKilled;
+        bool _spireRaised;
+
+        /// <summary>
+        /// POLLED, not called back (the puzzle's reason). Heal and Repair land once, here; every
+        /// other boon is folded into the ledger for the rest of the floor via SetFloorBoon, which
+        /// NextFloor drops.
+        /// </summary>
+        void TickSpire()
+        {
+            // THE FLOOR EVENT: it rises once a share of the floor's enemies are dead - mid-fight,
+            // so taking it is a choice made with a pack still on the floor, not a stroll after.
+            // Named as it rises: colour is what draws the player there, and the name is what
+            // tells a colourblind player the same thing.
+            if (!_spireRaised && _spirePool > 0f && _player != null)
+            {
+                if (_spireKilled > 0f && _spireKilled >= _spirePool * Tuning.Spire.RiseAtDefeatedFraction)
+                {
+                    _spireRaised = true;
+                    _spire.Rise();
+                    _hud?.Flash($"a spire of {Hazards.SpireBoons.NameOf(_spire.Boon)} rises  -  " +
+                                Hazards.SpireBoons.Describe(_spire.Boon));
+                }
+            }
+
+            if (!_spire.TryClaim(out var boon) || _player == null) return;
+
+            switch (boon)
+            {
+                case Hazards.SpireBoon.Heal:
+                    _player.Health.Heal(_player.Health.Max * Tuning.Spire.HealFraction * Modifiers.Current.SpireBoonMul);
+                    break;
+                case Hazards.SpireBoon.Repair:
+                    _profile.Wear.Repair(_profile.Gear,
+                                         Tuning.Spire.RepairFraction * Modifiers.Current.SpireBoonMul * Modifiers.Current.RepairMul,
+                                         _player.Stats?.Armor ?? 0f);
+                    break;
+                default:
+                    Modifiers.SetFloorBoon(Hazards.SpireBoons.Apply(boon));
+                    _floorBoonFloorsLeft = Modifiers.Current.SpireExtraFloors;   // Lodestone
+                    break;
+            }
+            _hud?.Flash($"spire of {Hazards.SpireBoons.NameOf(boon)} taken  -  {Hazards.SpireBoons.Describe(boon)}");
+            Debug.Log($"[Spire] captured {boon} on floor {_floor}");
+        }
+        /// <summary>The floor's exit, SHUT until the puzzle is solved. Becomes _activeDoor then.</summary>
+        FloorDoor _puzzleDoor;
+        /// <summary>The way to the adjacent room - giving up and failing both end here.</summary>
+        FloorDoor _sideDoor;
+        bool _puzzleSettled;
+
+        void BuildPuzzleRoom()
+        {
+            if (_player == null || _planner == null) return;
+            int token = _runToken;
+            var kind = _planner.PickPuzzle(_floor);
+            _puzzle = Puzzles.PuzzleRoom.Build(kind, _enemyRoot, _player.transform, _floor,
+                                               _planner.PuzzleSeed(_floor));
+            _puzzleSettled = false;
+
+            // The exit stands where every floor's exit stands, shut. Its walk-through is the
+            // ordinary one - only solving the puzzle can open it.
+            _puzzleDoor = FloorDoor.Spawn(Arena.NorthDoorPoint, _player.transform, _enemyRoot,
+                ScreenElement(), () =>
+                {
+                    _activeDoor = null;
+                    _puzzleDoor = null;
+                    if (token != _runToken) return;
+                    StartCoroutine(FloorTransition());
+                }, shut: true);
+
+            // Far left or right, from the seed, OPEN from the moment the room is entered: the
+            // player may decline the puzzle at any point, before trying it or after failing it.
+            float side = (_planner.PuzzleSeed(_floor) & 1) == 0 ? -1f : 1f;
+            var sideAt = new Vector2(side * (Arena.HalfExtents.x - Tuning.Puzzle.SideDoorInset),
+                                     Arena.NorthDoorPoint.y);
+            _sideDoor = FloorDoor.Spawn(sideAt, _player.transform, _enemyRoot, ScreenElement(), () =>
+            {
+                _sideDoor = null;
+                if (token != _runToken) return;
+                StartCoroutine(AdjacentRoom());
+            });
+
+            _hud?.Flash("solve it and the door opens  -  or take the side door and fight");
+            Debug.Log($"[Floor] puzzle floor {_floor}: {kind}, side door {(side < 0 ? "west" : "east")}");
+        }
+
+        /// <summary>Reads the puzzle's state once per frame and answers it ONCE.</summary>
+        void TickPuzzle()
+        {
+            _hud?.SetPuzzle(_puzzle.Title, _puzzle.Body);
+            if (_puzzleSettled || _puzzle.State == Puzzles.PuzzleState.Active) return;
+            _puzzleSettled = true;
+
+            if (_puzzle.State == Puzzles.PuzzleState.Solved)
+            {
+                // The side door goes - there is no fight to decline any more. The shut door IS the
+                // floor's exit, so it becomes _activeDoor before the reward flow, whose own
+                // OpenFloorDoor then finds a door already standing and leaves it alone.
+                if (_sideDoor != null) { Destroy(_sideDoor.gameObject); _sideDoor = null; }
+                _puzzleDoor?.Open();
+                _activeDoor = _puzzleDoor;
+                Debug.Log($"[Floor] puzzle floor {_floor} solved");
+                OfferFloorReward();
+            }
+            else
+            {
+                _puzzleDoor?.Seal();
+                _hud?.Flash("the sigil door is sealed  -  take the side door");
+                Debug.Log($"[Floor] puzzle floor {_floor} failed");
+            }
+        }
+
+        /// <summary>
+        /// Through the side door: the same floor's ordinary fight, in a fresh room. Built under
+        /// the black screen like any floor change (see FloorTransition for why the pause and the
+        /// try/finally), but the floor number does not move - this is the room NEXT to the
+        /// puzzle, not the one after it.
+        /// </summary>
+        IEnumerator AdjacentRoom()
+        {
+            _transitioning = true;
+            GamePause.Hold(this);
+            try
+            {
+                _player?.Rig?.SetFacingAway(true);
+                yield return _fade.FadeOut(DoorFadeSeconds);
+
+                ClearPuzzle();
+                if (_player != null)
+                {
+                    _player.transform.position = SouthSpawnPoint();
+                    Physics2D.SyncTransforms();
+                    _player.Rig?.SetFacingAway(false);
+                }
+
+                _spawning = true;
+                yield return BuildFight(_runToken);
+                yield return _fade.FadeIn(DoorFadeSeconds);
+            }
+            finally
+            {
+                _transitioning = false;
+                GamePause.Release(this);
+                _fade.Clear();
+            }
+        }
+
+        void ClearPuzzle()
+        {
+            if (_puzzle != null) { Destroy(_puzzle.gameObject); _puzzle = null; }
+            if (_sideDoor != null) { Destroy(_sideDoor.gameObject); _sideDoor = null; }
+            // Only while still shut: once solved it is _activeDoor and the walk-through owns it.
+            if (_puzzleDoor != null && _puzzleDoor != _activeDoor) Destroy(_puzzleDoor.gameObject);
+            _puzzleDoor = null;
+            _hud?.SetPuzzle(null, null);
         }
 
         /// <summary>
@@ -2408,7 +3705,9 @@ namespace Convergence.Core
         {
             if (_profile?.Look == null || _profile.Gear == null) return false;
             var drawn = _profile.Look.Resolve(_profile.Gear);
-            return drawn.Get(Art.Gear.GearSlot.Weapon) == "rift_blade";
+            // A flag now, not the Rift Blade's id - the Rift Disc implodes its kills too.
+            var item = Art.Gear.GearCatalog.Get(drawn.Get(Art.Gear.GearSlot.Weapon));
+            return item != null && item.ImplodesKills;
         }
 
         /// <summary>
@@ -2431,6 +3730,9 @@ namespace Convergence.Core
             hp.Died += h =>
             {
                 if (_player) _player.RegisterKill();
+                // The board hears every death, whatever caused it - a hit, a burn, a fall.
+                if (_player && _player.Board) _player.Board.OnEnemyDied(h);
+                if (_player && _player.Effects) _player.Effects.OnEnemyDied(h);
 
                 // BASIC AND ELITE ONLY. This is HookDeath, which is the wave path - a boss has its
                 // own Died handler and its own set-piece, and a weapon's cosmetic has no business
@@ -2443,17 +3745,31 @@ namespace Convergence.Core
                 else
                     Spr.Flash(h.transform.position, 0.9f, new Color(1f, 0.9f, 0.7f), 0.3f);
 
-                TryDropRiftBox(h.transform.position);
+                // What this body was worth against the floor's pool - the spire rises on it and
+                // a Rift Box drops in proportion to it.
+                float cost = Enemies.WaveComposer.Cost(enemy.Kind, enemy.Elite, _floor);
+                _spireKilled += cost;
+                TryDropRiftBox(h.transform.position, cost / Enemies.WaveComposer.Ehp(EnemyKind.Chaser, false, _floor));
                 _alive.Remove(enemy);
                 Destroy(h.gameObject);
+
+                // Room just opened - let the next queued bodies in, as many as now fit (an elite
+                // leaving frees room for two or three). Guarded the same way the initial
+                // trickle-in is: a death arriving after the run/floor moved on (teardown, a fresh
+                // NextFloor) must not spawn into a room nobody's fighting in any more.
+                if (_state == State.Playing && _player != null)
+                    while (NextSpawnFits()) SpawnQueuedEnemy();
             };
         }
 
         /// <summary>
-        /// A Rift Box, from any enemy, at Tuning.Boss.RiftBoxDropChance.
+        /// A Rift Box, from any enemy, at Tuning.Boss.RiftBoxDropChance per basic Chaser it was
+        /// worth (<paramref name="chasers"/>, its wave cost over a Chaser's on this floor) - an
+        /// elite is likelier to drop one than a Bubbles, and a floor pays in proportion to its
+        /// pool whatever mix it rolled.
         ///
         /// PER ENEMY RATHER THAN PER FLOOR, so the yield scales with how deep the run went on its
-        /// own - enemy counts already grow with depth, so nothing has to say "deeper pays better"
+        /// own - pools already grow with depth, so nothing has to say "deeper pays better"
         /// a second time. It also makes the box a thing that DROPS off a body in front of the
         /// player rather than a number that appears between floors, which is the whole reason it
         /// is worth being a physical pickup.
@@ -2462,10 +3778,10 @@ namespace Convergence.Core
         /// on the floor with it - a consumable surviving into the next run would be loot the
         /// player never carried.
         /// </summary>
-        void TryDropRiftBox(Vector2 at)
+        void TryDropRiftBox(Vector2 at, float chasers)
         {
             if (_player == null) return;
-            if (UnityEngine.Random.value >= Tuning.Boss.RiftBoxDropChance) return;
+            if (UnityEngine.Random.value >= Tuning.Boss.RiftBoxDropChance * chasers) return;
 
             Rifts.RiftBoxPickup.Drop(at, _enemyRoot, _player.transform, () =>
             {
@@ -2478,8 +3794,18 @@ namespace Convergence.Core
         Vector2 RandomEdgePoint()
         {
             var angle = UnityEngine.Random.value * Mathf.PI * 2f;
-            return new Vector2(Mathf.Cos(angle) * (HalfWidth - 1.4f),
-                               Mathf.Sin(angle) * (HalfHeight - 1.4f));
+            var p = new Vector2(Mathf.Cos(angle) * (HalfWidth - 1.4f),
+                                Mathf.Sin(angle) * (HalfHeight - 1.4f));
+            if (Arena.OnFloor(p, 0.6f)) return p;
+            // The room's shape walled this stretch of edge (a corner block, a hall's flank):
+            // walk in toward the middle until there is floor - the pack still arrives from that
+            // side of the room, just from the inside face of the wall.
+            for (float t = 0.1f; t < 1f; t += 0.1f)
+            {
+                var q = Vector2.Lerp(p, Vector2.zero, t);
+                if (Arena.OnFloor(q, 0.6f)) return q;
+            }
+            return Arena.NearestFloor(p, 0.6f);
         }
 
         /// <summary>
@@ -2494,6 +3820,7 @@ namespace Convergence.Core
                 var p = new Vector2(
                     UnityEngine.Random.Range(-HalfWidth + 1.4f, HalfWidth - 1.4f),
                     UnityEngine.Random.Range(-HalfHeight + 1.4f, HalfHeight - 1.4f));
+                if (!Arena.OnFloor(p, 0.6f)) continue;
                 if (_player == null ||
                     Vector2.Distance(p, _player.transform.position) >= minDistanceFromPlayer)
                     return p;
@@ -2561,6 +3888,23 @@ namespace Convergence.Core
             if (banked > 0 || lost > 0)
                 Debug.Log($"[Rift] banked {banked} piece(s), lost {lost} carried");
 
+            // THE STAKE SETTLES ON THE SAME CHECKPOINT, keyed on `survived` - which is to say on
+            // EXTRACTION: a run only ends survived when the player took it out. Whatever system
+            // ends a run extracted has to keep passing that, and the stake follows on its own.
+            var (stakeOutcome, stakeItem, payout) =
+                GearStake.Resolve(_profile, extracted: survived, gateCleared: _stakeGateCleared,
+                                  new System.Random());
+            if (payout != null) Art.Gear.GearCatalog.Register(payout.ToGearItem());
+            _stakeLine = stakeOutcome switch
+            {
+                GearStake.Outcome.Paid     => $"stake        {stakeItem.DisplayName} kept, matching piece claimed",
+                GearStake.Outcome.Returned => $"stake        {stakeItem.DisplayName} came home (gate not cleared)",
+                GearStake.Outcome.Lost     => $"stake        {stakeItem.DisplayName} DESTROYED",
+                _ => null,
+            };
+            if (_stakeLine != null) Debug.Log($"[Stake] {stakeOutcome}: {stakeItem.InstanceId}" +
+                                              (payout != null ? $" -> {payout.InstanceId}" : ""));
+
             // CHECKPOINT 2 of 2.
             await _store.CommitRunAsync(_profile, summary);
 
@@ -2614,6 +3958,21 @@ namespace Convergence.Core
         }
 
         /// <summary>
+        /// Closes SettingsScreen and opens ControlsScreen; ControlsScreen's own BACK button closes
+        /// it and reopens SettingsScreen through this same method - the same closes-this-opens-
+        /// that hand-off OpenPauseMenu's three points already use, never nested.
+        /// </summary>
+        void OpenControlsScreen()
+        {
+            if (SettingsScreen.IsOpen) SettingsScreen.Close();
+            ControlsScreen.Open(_canvas.transform, () =>
+            {
+                ControlsScreen.Close();
+                SettingsScreen.Open(_canvas.transform, OpenControlsScreen);
+            });
+        }
+
+        /// <summary>
         /// Confirm before throwing a run away. Names what is actually lost: the floor in progress
         /// yields nothing, while mastery from floors already cleared was banked as they finished
         /// and is kept. Backing out returns to the pause menu it was opened from.
@@ -2633,6 +3992,8 @@ namespace Convergence.Core
                 $"Floor {_floor} is not complete, so it pays nothing.\n\n" +
                 $"You keep the {kills} kill{(kills == 1 ? "" : "s")} and the mastery from floors " +
                 "you already cleared." + carriedLine;
+            var staked = GearStake.Staked(_profile);
+            if (staked != null) body += $" Your staked {staked.DisplayName} is destroyed.";
 
             ConfirmDialog.Show(_canvas.transform, "ABANDON RUN?", body,
                 "ABANDON", "KEEP PLAYING",
@@ -2646,12 +4007,19 @@ namespace Convergence.Core
             _runToken++;
             StopAllCoroutines();   // in-flight NextFloor would spawn against a destroyed player
             _spawning = false;
+            // FloorTransition's own finally already clears this when StopAllCoroutines disposes
+            // it. Cleared again here for the same reason _spawning is: a run boundary is where
+            // this class asserts its state rather than inferring it, and a _transitioning stuck
+            // true would silently stop every floor after it from ever advancing.
+            _transitioning = false;
 
             // A run can end with a screen still up - abandoning from the confirm dialog, or dying
             // while one is open. Those screens are about to be closed or destroyed and would never
             // release their hold, leaving the menu frozen.
             FloorRewardScreen?.Close();
             ExchangeScreen?.Close();
+            TransmuteScreen?.Close();
+            _circle = null;
             CharacterScreen?.Close();
             InventoryScreen?.Close();
             PauseScreen?.Close();
@@ -2659,6 +4027,7 @@ namespace Convergence.Core
 
             foreach (var e in _alive) if (e) Destroy(e.gameObject);
             _alive.Clear();
+            _spawnQueue.Clear();
             Enemies.EnemyRegistry.Prune();
 
             // The boss owns a coroutine and a hazard layer, neither of which is a child of
@@ -2667,7 +4036,20 @@ namespace Convergence.Core
             // lifecycle bugs, and here it would leave slices erupting on the main menu.
             if (_boss != null) { _boss.Cease(); Destroy(_boss.gameObject); _boss = null; }
             CloseRift();
+            ClearPuzzle();
             DamageNumbers.Teardown();
+            DamageNumbers.Hidden = false;
+            ArmorRing.Hidden = false;
+            Enemies.EnemyController.TelegraphStrength = 1f;
+            Hazards.FloorPits.PlayerImmune = null;
+            Hazards.Tornado.PlayerImmune = null;
+            Hazards.ProjectionLines.CalmAll();
+            Exchange.SolNiger.Clear();
+            Player.LucidRims.Clear();
+            _floorBoonFloorsLeft = 0;
+            Hitstop.Teardown();
+            CameraKick.Teardown();
+            FinisherHits.Teardown();
 
             // Deactivate before destroying: Destroy is deferred to end of frame, so without this
             // the outgoing player keeps taking hits from the outgoing enemies and its death
@@ -2730,7 +4112,8 @@ namespace Convergence.Core
                 $"element      {s.Element.ToString().ToUpper()}\n" +
                 $"floors       {s.Floors}\n" +
                 $"kills        {s.Kills}\n" +
-                $"duration     {s.DurationSeconds:0}s\n\n" +
+                $"duration     {s.DurationSeconds:0}s\n" +
+                (_stakeLine != null ? _stakeLine + "\n" : "") + "\n" +
                 $"profile      lvl {_profile.Level}   {_profile.TotalRuns} runs   best {_profile.BestKills}\n" +
                 $"checkpoint   committed to IProfileStore",
                 21, new Color(0.78f, 0.80f, 0.86f), TextAnchor.UpperLeft);

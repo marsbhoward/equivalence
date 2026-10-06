@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <!-- viewport-fit=cover is what makes env(safe-area-inset-*) resolve to real numbers on a
+       notched iPhone. Without it the insets are all 0 and the canvas runs under the Dynamic
+       Island and the home indicator. -->
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <title>%UNITY_WEB_NAME%</title>
+  <style>
+    html, body { margin: 0; padding: 0; height: 100%; background: #0b0b10; overflow: hidden;
+                 overscroll-behavior: none; }
+    /* Screen.safeArea is unreliable on WebGL, so the inset is applied to the CANVAS here rather
+       than compensated for inside Unity. The game keeps drawing to its full viewport and simply
+       never occupies the cut-out. */
+    #unity-container {
+      position: fixed; inset: 0;
+      padding: env(safe-area-inset-top) env(safe-area-inset-right)
+               env(safe-area-inset-bottom) env(safe-area-inset-left);
+      box-sizing: border-box;
+    }
+    #unity-canvas { width: 100%; height: 100%; display: block; background: #0b0b10;
+                    /* the game has its own touch handling; the browser must not also pan/zoom */
+                    touch-action: none; }
+    #unity-loading { position: absolute; inset: 0; display: flex; align-items: center;
+                     justify-content: center; color: #6d6d84; font: 14px/1.4 system-ui, sans-serif;
+                     letter-spacing: .18em; text-transform: uppercase; }
+    #unity-rotate { position: fixed; inset: 0; display: none; align-items: center;
+                    justify-content: center; background: #0b0b10; color: #8a8aa4;
+                    font: 14px/1.6 system-ui, sans-serif; text-align: center; z-index: 10;
+                    letter-spacing: .1em; }
+    /* Landscape only, for the reason the project already documents: the arena is 24 x 14 world
+       units against a camera showing ~17 x 9.6, so portrait shows a third of the fight. */
+    @media (orientation: portrait) {
+      #unity-rotate { display: flex; }
+    }
+  </style>
+</head>
+<body>
+  <div id="unity-container">
+    <canvas id="unity-canvas" tabindex="-1"></canvas>
+    <div id="unity-loading">loading</div>
+  </div>
+  <div id="unity-rotate">rotate your device to play</div>
+
+  <!-- The chain connector. Loaded BEFORE the Unity instance so StoreFactory, which decides once,
+       sees window.CoalescenceChain on its first look. Absent or failed, the game falls back to
+       local storage and stays playable. -->
+  <script>window.COALESCENCE_SERVICE = "/api";</script>
+  <script src="connector/coalescence-chain.js" onerror="console.warn('[Coalescence] no chain connector; running on local storage')"></script>
+
+  <script src="Build/%UNITY_WEBGL_LOADER_URL%"></script>
+  <script>
+    createUnityInstance(document.querySelector("#unity-canvas"), {
+      dataUrl: "Build/%UNITY_WEBGL_DATA_URL%",
+      frameworkUrl: "Build/%UNITY_WEBGL_FRAMEWORK_URL%",
+      codeUrl: "Build/%UNITY_WEBGL_CODE_URL%",
+      streamingAssetsUrl: "StreamingAssets",
+      companyName: "%UNITY_COMPANY_NAME%",
+      productName: "%UNITY_PRODUCT_NAME%",
+      productVersion: "%UNITY_PRODUCT_VERSION%",
+      // Retina matters here: the project's pixel-perfect snap works in real device pixels, and
+      // at dpr 1 a texel would land on a fraction of a physical pixel on every phone.
+      devicePixelRatio: window.devicePixelRatio || 1,
+      matchWebGLToCanvasSize: true,
+    }).then(function (instance) {
+      document.querySelector("#unity-loading").style.display = "none";
+      window.unityInstance = instance;      // the connector may need it for host -> game calls
+    }).catch(function (e) {
+      document.querySelector("#unity-loading").textContent = "failed to load";
+      console.error(e);
+    });
+  </script>
+</body>
+</html>

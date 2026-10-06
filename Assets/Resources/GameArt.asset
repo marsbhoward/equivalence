@@ -1,0 +1,151 @@
+%YAML 1.1
+%TAG !u! tag:unity3d.com,2011:
+--- !u!114 &11400000
+MonoBehaviour:
+  m_ObjectHideFlags: 0
+  m_CorrespondingSourceObject: {fileID: 0}
+  m_PrefabInstance: {fileID: 0}
+  m_PrefabAsset: {fileID: 0}
+  m_GameObject: {fileID: 0}
+  m_Enabled: 1
+  m_EditorHideFlags: 0
+  m_Script: {fileID: 11500000, guid: 4abeeaca5ed194384846be41662c59fa, type: 3}
+  m_Name: GameArt
+  m_EditorClassIdentifier: Convergence.Runtime::Convergence.Art.GameArt
+  Elements:
+  - Element: 0
+    Prefab: {fileID: 0}
+    RigPrefab: {fileID: 0}
+    Sprite: {fileID: 0}
+    WorldHeight: 0.85
+    Tint: {r: 1, g: 1, b: 1, a: 1}
+  - Element: 1
+    Prefab: {fileID: 0}
+    RigPrefab: {fileID: 0}
+    Sprite: {fileID: 0}
+    WorldHeight: 0.85
+    Tint: {r: 1, g: 1, b: 1, a: 1}
+  - Element: 2
+    Prefab: {fileID: 0}
+    RigPrefab: {fileID: 0}
+    Sprite: {fileID: 0}
+    WorldHeight: 0.95
+    Tint: {r: 1, g: 1, b: 1, a: 1}
+  - Element: 3
+    Prefab: {fileID: 0}
+    RigPrefab: {fileID: 0}
+    Sprite: {fileID: 0}
+    WorldHeight: 0.8
+    Tint: {r: 1, g: 1, b: 1, a: 1}
+  BombConstruct:
+    Element: 0
+    Prefab: {fileID: 0}
+    RigPrefab: {fileID: 0}
+    Sprite: {fileID: 0}
+    WorldHeight: 0.72
+    Tint: {r: 1, g: 1, b: 1, a: 1}
+  BombAutomaton:
+    Element: 0
+    Prefab: {fileID: 0}
+    RigPrefab: {fileID: 0}
+    Sprite: {fileID: 0}
+    WorldHeight: 0.72
+    Tint: {r: 1, g: 1, b: 1, a: 1}
+  ChaserConstruct:
+    Element: 0
+    Prefab: {fileID: 0}
+    RigPrefab: {fileID: 0}
+    Sprite: {fileID: 0}
+    WorldHeight: 1.15
+    Tint: {r: 1, g: 1, b: 1, a: 1}
+  ChaserAutomaton:
+    Element: 0
+    Prefab: {fileID: 0}
+    RigPrefab: {fileID: 0}
+    Sprite: {fileID: 0}
+    WorldHeight: 1.15
+    Tint: {r: 1, g: 1, b: 1, a: 1}
+  RangedConstruct:
+    Element: 0
+    Prefab: {fileID: 0}
+    RigPrefab: {fileID: 0}
+    Sprite: {fileID: 0}
+    WorldHeight: 0.62
+    Tint: {r: 1, g: 1, b: 1, a: 1}
+  RangedAutomaton:
+    Element: 0
+    Prefab: {fileID: 0}
+    RigPrefab: {fileID: 0}
+    Sprite: {fileID: 0}
+    WorldHeight: 0.62
+    Tint: {r: 1, g: 1, b: 1, a: 1}
+  TurretConstruct:
+    Element: 0
+    Prefab: {fileID: 0}
+    RigPrefab: {fileID: 0}
+    Sprite: {fileID: 0}
+    WorldHeight: 0.85
+    Tint: {r: 1, g: 1, b: 1, a: 1}
+  TurretAutomaton:
+    Element: 0
+    Prefab: {fileID: 0}
+    RigPrefab: {fileID: 0}
+    Sprite: {fileID: 0}
+    WorldHeight: 0.85
+    Tint: {r: 1, g: 1, b: 1, a: 1}
+  DasherConstruct:
+    Element: 0
+    Prefab: {fileID: 0}
+    RigPrefab: {fileID: 0}
+    Sprite: {fileID: 0}
+    WorldHeight: 0.58
+    Tint: {r: 1, g: 1, b: 1, a: 1}
+  DasherAutomaton:
+    Element: 0
+    Prefab: {fileID: 0}
+    RigPrefab: {fileID: 0}
+    Sprite: {fileID: 0}
+    WorldHeight: 0.58
+    Tint: {r: 1, g: 1, b: 1, a: 1}
+  ColumnSmall:
+    Element: 0
+    Prefab: {fileID: 0}
+    RigPrefab: {fileID: 0}
+    Sprite: {fileID: 0}
+    WorldHeight: 1
+    Tint: {r: 1, g: 1, b: 1, a: 1}
+  ColumnMedium:
+    Element: 0
+    Prefab: {fileID: 0}
+    RigPrefab: {fileID: 0}
+    Sprite: {fileID: 0}
+    WorldHeight: 1
+    Tint: {r: 1, g: 1, b: 1, a: 1}
+  ColumnLarge:
+    Element: 0
+    Prefab: {fileID: 0}
+    RigPrefab: {fileID: 0}
+    Sprite: {fileID: 0}
+    WorldHeight: 1
+    Tint: {r: 1, g: 1, b: 1, a: 1}
+  ForceField:
+    Element: 0
+    Prefab: {fileID: 0}
+    RigPrefab: {fileID: 0}
+    Sprite: {fileID: 0}
+    WorldHeight: 1
+    Tint: {r: 1, g: 1, b: 1, a: 1}
+  LavaTile:
+    Element: 0
+    Prefab: {fileID: 0}
+    RigPrefab: {fileID: 0}
+    Sprite: {fileID: 0}
+    WorldHeight: 1
+    Tint: {r: 1, g: 1, b: 1, a: 1}
+  FloorSprite: {fileID: 0}
+  TileFloor: 0
+  FloorTileSize: 2
+  WallSprite: {fileID: 0}
+  HideGrid: 0
+  BurstSprite: {fileID: 0}
+  HitSprite: {fileID: 0}

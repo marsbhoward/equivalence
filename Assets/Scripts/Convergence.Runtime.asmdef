@@ -1,0 +1,19 @@
+{
+    "name": "Convergence.Runtime",
+    "rootNamespace": "Convergence",
+    "references": [
+        "Unity.InputSystem",
+        "UnityEngine.UI",
+        "Unity.2D.Animation.Runtime",
+        "Unity.RenderPipelines.Universal.2D.Runtime"
+    ],
+    "includePlatforms": [],
+    "excludePlatforms": [],
+    "allowUnsafeCode": false,
+    "overrideReferences": false,
+    "precompiledReferences": [],
+    "autoReferenced": true,
+    "defineConstraints": [],
+    "versionDefines": [],
+    "noEngineReferences": false
+}
