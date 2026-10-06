@@ -61,3 +61,7 @@ web/service/dist/
 /[Aa]ssets/_Recovery/
 /[Aa]ssets/_Recovery.meta
 /m5/
+
+# ---- Markdown: design notes and docs stay local ----
+*.md
+*.MD
