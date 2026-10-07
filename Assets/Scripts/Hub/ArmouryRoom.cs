@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using UnityEngine;
 using Convergence.Art;
 using Convergence.Art.Gear;
+using Convergence.Chain;
 using Convergence.Core;
 
 namespace Convergence.Hub
@@ -37,6 +38,7 @@ namespace Convergence.Hub
             public string ItemId;
             public float X;
             public SpriteRenderer Main, Off, Glow;
+            public HubInteractable Point;
         }
 
         // Not readonly - see the domain reload rule on collections in CLAUDE.md.
@@ -46,6 +48,8 @@ namespace Convergence.Hub
         Doorway _exit;
         Func<string> _rackShown;
         Action<string> _setRack;
+        Func<CharacterProfile> _profile;
+        Action _lookChanged;
 
         static readonly Color Floor = new(0.105f, 0.10f, 0.12f);
         static readonly Color WallFace = new(0.155f, 0.16f, 0.20f);
@@ -74,7 +78,8 @@ namespace Convergence.Hub
         public int Total => _bays.Count;
 
         public static ArmouryRoom Build(Transform parent, Action onExit,
-                                        Func<string> rackShown, Action<string> setRack)
+                                        Func<string> rackShown, Action<string> setRack,
+                                        Func<CharacterProfile> profile, Action lookChanged)
         {
             var go = new GameObject("Armoury");
             go.transform.SetParent(parent, false);
@@ -83,6 +88,8 @@ namespace Convergence.Hub
             var r = go.AddComponent<ArmouryRoom>();
             r._rackShown = rackShown;
             r._setRack = setRack;
+            r._profile = profile;
+            r._lookChanged = lookChanged;
             r.BuildRoom(onExit);
             r.Refresh();
             return r;
@@ -204,6 +211,7 @@ namespace Convergence.Hub
                 var point = HubInteractable.Attach(bayGo, anchor, pitch * 0.55f,
                     () => Describe(b), () => Take(b), on => Focus(b, on));
                 point.BlocksPlacement = false;
+                bay.Point = point;
                 _points.Add(point);
             }
         }
@@ -288,14 +296,83 @@ namespace Convergence.Hub
                 };
 
             bool onRack = _rackShown?.Invoke() == item.ItemId;
+            var look = LookFor(item, out string lookNote);
+            string body = onRack ? "Also on the rack in the hall." : "Yours.";
+            if (!string.IsNullOrEmpty(lookNote)) body += "\n" + lookNote;
+
+            string key = onRack ? "" : "[ E ]  hang it on the rack in the hall";
+            string lookKey = look switch
+            {
+                LookAction.Use => "[ Q ]  use its appearance",
+                LookAction.Stop => "[ Q ]  stop using its appearance",
+                _ => "",
+            };
+            if (lookKey.Length > 0) key = key.Length > 0 ? key + "     " + lookKey : lookKey;
+
             return new Prompt
             {
                 Title = item.DisplayName.ToUpperInvariant(),
                 Sub = $"{tier} {kind}",
-                Body = onRack ? "Also on the rack in the hall." : "Yours.",
-                Key = onRack ? "" : "[ E ]  hang it on the rack in the hall",
+                Body = body,
+                Key = key,
                 Accent = Gold,
             };
+        }
+
+        enum LookAction { None, Use, Stop }
+
+        /// <summary>
+        /// What [ Q ] would do to the character's weapon appearance at this bay, and a line saying
+        /// why when it can do nothing. Asks the same questions <see cref="Appearance.Resolve"/>
+        /// does - same class and handedness as the weapon HELD - so the wall never offers a look
+        /// the resolver would quietly refuse.
+        /// </summary>
+        LookAction LookFor(GearItem item, out string note)
+        {
+            note = null;
+            var p = _profile?.Invoke();
+            if (p == null || item == null) return LookAction.None;
+
+            var held = GearCatalog.Get(p.Gear.Get(GearSlot.Weapon));
+            if (held == null) { note = "Nothing in hand to wear its look."; return LookAction.None; }
+            if (item.Class != held.Class || item.TwoHanded != held.TwoHanded)
+            {
+                note = $"Held differently from your {held.Class.ToString().ToLowerInvariant()} - its look can't be worn.";
+                return LookAction.None;
+            }
+
+            bool disguised = p.Look.IsTransmogged(GearSlot.Weapon, p.Gear);
+            string shown = p.Look.Resolve(p.Gear).Get(GearSlot.Weapon);
+            if (shown != item.ItemId) return LookAction.Use;
+            if (!disguised) { note = "In your hand."; return LookAction.None; }
+            note = $"Your {held.DisplayName} wears its look.";
+            return LookAction.Stop;
+        }
+
+        /// <summary>
+        /// [ Q ] at a bay: wear that design's look on the weapon in hand, or take it off again.
+        /// HubRoom asks every focused point; false means the point isn't a bay here, or there is
+        /// nothing to do at it. Picking the held weapon's OWN design clears the disguise rather
+        /// than storing a transmog that names what is already equipped.
+        /// </summary>
+        public bool TryUseLook(HubInteractable point)
+        {
+            if (point == null || _bays == null) return false;
+            var bay = _bays.Find(b => b != null && b.Point == point);
+            if (bay == null) return false;
+
+            var item = GearCatalog.Get(bay.ItemId);
+            if (!GearOwnership.Owns(item)) return false;
+            var action = LookFor(item, out _);
+            if (action == LookAction.None) return false;
+
+            var p = _profile();
+            if (action == LookAction.Stop || p.Gear.Get(GearSlot.Weapon) == item.ItemId)
+                p.Look.Transmog.Clear(GearSlot.Weapon);
+            else
+                p.Look.Transmog.Set(GearSlot.Weapon, item.ItemId);
+            _lookChanged?.Invoke();
+            return true;
         }
 
         void Take(Bay bay)

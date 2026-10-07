@@ -2441,7 +2441,8 @@ namespace Convergence.Art.Gear
         /// plate too big for the cloth poking out past it. By forceRenderingOff, not enabled -
         /// enabled is what Apply, HideGearLayer and FollowPauldron read as "is a pauldron worn",
         /// so the plates keep following their arms and come back the moment the shroud comes off.
-        /// Keyed off the LAYER, so any shroud does it.
+        /// Keyed off the LAYER, so any shroud does it. A one-shoulder cloak's drape hides the one
+        /// pauldron under it by the same rule.
         /// </summary>
         void SyncShroudSide()
         {
@@ -2456,13 +2457,24 @@ namespace Convergence.Art.Gear
                 sr.flipX = mirrored;
             }
 
-            ShroudCovers(RigLayer.Shoulders);
-            ShroudCovers(RigLayer.ShouldersBack);
+            // A one-shoulder drape (a Back item with a DrapeBack - the Wraithguard's, Tepes' fur)
+            // covers the plate on ITS shoulder the same way: that pauldron is under the cloth, so
+            // hiding it only stops one too big for the drape poking out past it. The drape sits
+            // opposite the carry, at +X exactly when the carry is in arm.front (SyncDrapeSide).
+            // Asked of the layer's ENABLED, not its rendering - a drape swinging with the cape is
+            // drawn by its ClothBend with the layer's own renderer switched off.
+            bool drape = _drapeBack != null
+                         && _layers.TryGetValue(RigLayer.BackOver, out var drapeSr) && drapeSr != null
+                         && drapeSr.enabled && drapeSr.sprite != null;
+            bool drapeOnPlus = !CarryInBackArm;
 
-            void ShroudCovers(RigLayer layer)
+            ShroudCovers(RigLayer.Shoulders, _shouldersRest);
+            ShroudCovers(RigLayer.ShouldersBack, _shouldersBackRest);
+
+            void ShroudCovers(RigLayer layer, Vector3 rest)
             {
                 if (!_layers.TryGetValue(layer, out var plate) || plate == null) return;
-                plate.forceRenderingOff = shroud;
+                plate.forceRenderingOff = shroud || (drape && (rest.x > 0f) == drapeOnPlus);
             }
         }
 

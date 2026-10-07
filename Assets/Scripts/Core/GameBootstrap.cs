@@ -1163,7 +1163,8 @@ namespace Convergence.Core
                        TakePortrait,
                        OpenForge,
                        OpenManual,
-                       DressArmoury);
+                       DressArmoury,
+                       SaveLook);
         }
 
         /// <summary>Opens the Forge's slot picker. Reachable only through the fixture's own

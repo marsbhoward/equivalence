@@ -104,6 +104,7 @@ namespace Convergence.Art.Gear
                     DyeChannel.Of("Cloth", DyeMaterial.Cloth, cloth, farF));
 
             AddAetherGreatsword(items);
+            AddPrimaMateria(items);         // the set's bow - DemoGear.PrimaMateria.cs
         }
 
         /// <summary>Stamp a piece as carrying marks the Secret Fire lights (GearItem.Kindled).</summary>

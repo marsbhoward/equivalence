@@ -96,6 +96,7 @@ namespace Convergence.Hub
         System.Action _onOpenForge;
         System.Action _onOpenManual;
         System.Action _onLayoutChanged;
+        System.Action _onLookChanged;
         CharacterProfile _profile;
 
         /// <summary>
@@ -195,7 +196,7 @@ namespace Convergence.Hub
                           System.Action onLayoutChanged, RoomLayout room,
                           System.Action onOpenTerminal, System.Action onTakePortrait,
                           System.Action onOpenForge, System.Action onOpenManual,
-                          System.Action<bool> onDressArmoury)
+                          System.Action<bool> onDressArmoury, System.Action onLookChanged)
         {
             _canvas = canvas;
             _profile = profile;
@@ -210,6 +211,7 @@ namespace Convergence.Hub
             _onOpenManual = onOpenManual;
             _onDressArmoury = onDressArmoury;
             _onLayoutChanged = onLayoutChanged;
+            _onLookChanged = onLookChanged;
             _onEnter = onEnter;
             _onTransmute = onTransmute;
             _onMastery = onMastery;
@@ -1034,7 +1036,9 @@ namespace Convergence.Hub
         {
             // Refocused after a pick so the card re-reads "also on the rack" at once.
             _armoury = ArmouryRoom.Build(_root, LeaveArmoury, RackShown,
-                                         id => { SetRackShown(id); SetFocus(null); });
+                                         id => { SetRackShown(id); SetFocus(null); },
+                                         () => _profile,
+                                         () => { _onLookChanged?.Invoke(); SetFocus(null); });
             foreach (var p in _armoury.Points) _points.Add(p);
         }
 
@@ -1765,6 +1769,9 @@ namespace Convergence.Hub
 
                 var frame = _focused.GetComponent<Frame>();
                 if (frame != null) { PickUp(frame.Id); return; }
+
+                // A weapon bay in the armoury: wear (or stop wearing) that design's look.
+                if (InArmoury && _armoury.TryUseLook(_focused)) return;
             }
 
             // The couch in and out of the crate, on the button the enlarged view uses outside edit
