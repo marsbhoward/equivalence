@@ -511,6 +511,31 @@ namespace Convergence.Art.Gear
         public LayerSprite OffhandFor(bool menu)
             => menu && OffhandMenuLayer?.Sprite != null ? OffhandMenuLayer : OffhandLayer;
 
+        /// <summary>
+        /// How the piece is POSED when it is hung up to be looked at - the rack, the armoury wall,
+        /// a gear card - where that differs from how it is held. The King and Queen are held with
+        /// its heads at 135/45 deg (the strut level for the fist) but hangs turned so the two lions
+        /// face each other across the pair. Null for everything else: a display shows the held
+        /// picture. Same grid, ppu and pivot as the held layer.
+        /// </summary>
+        public LayerSprite DisplayLayer;
+        /// <summary>The display pose at menu density - see <see cref="DisplayLayer"/>.</summary>
+        public LayerSprite DisplayMenuLayer;
+        /// <summary>The off-hand half's display pose - see <see cref="DisplayLayer"/>.</summary>
+        public LayerSprite OffhandDisplayLayer;
+        /// <summary>The off-hand half's display pose at menu density.</summary>
+        public LayerSprite OffhandDisplayMenuLayer;
+
+        /// <summary>The display pose to draw, or null when the piece hangs as it is held.</summary>
+        public LayerSprite DisplayFor(bool menu)
+            => menu && DisplayMenuLayer?.Sprite != null ? DisplayMenuLayer
+             : DisplayLayer?.Sprite != null ? DisplayLayer : null;
+
+        /// <summary>The off-hand half's display pose, or null.</summary>
+        public LayerSprite OffhandDisplayFor(bool menu)
+            => menu && OffhandDisplayMenuLayer?.Sprite != null ? OffhandDisplayMenuLayer
+             : OffhandDisplayLayer?.Sprite != null ? OffhandDisplayLayer : null;
+
         [Header("Authored rig (SpriteLibraryCharacterRig)")]
         [Tooltip("SpriteResolver category this item resolves - normally the slot name, e.g. \"Helmet\".")]
         public string Category;

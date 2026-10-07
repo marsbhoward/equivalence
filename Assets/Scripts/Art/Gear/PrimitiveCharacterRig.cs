@@ -4718,6 +4718,9 @@ namespace Convergence.Art.Gear
             var go = new GameObject("WeaponOffhand");
             go.transform.SetParent(_elbowBack, false);
             _offhand = go.AddComponent<SpriteRenderer>();
+            // A kindled pair's second disc burns too (the King and Queen's lioness). SyncKindled
+            // only reaches _layers; the overlay draws nothing over a disc with no marks.
+            KindledMarks.On(_offhand);
             return _offhand;
         }
 

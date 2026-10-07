@@ -190,9 +190,12 @@ namespace Convergence.UI
                     Mathf.Round(midY - h * 0.5f + shift.y * k));
 
                 if (pair)
-                    Piece(Corner(new Vector2(r.width * 0.175f, -r.height * 0.125f)), w, h, scale,
+                {
+                    var twin = Piece(Corner(new Vector2(r.width * 0.175f, -r.height * 0.125f)), w, h, scale,
                           (Hub.GearDisplay.RepresentOffhand(item, menu: true) ?? layer).Sprite,
                           new Color(0.72f, 0.72f, 0.72f, 1f));
+                    KindledImage.On(twin, item);    // a kindled pair burns in BOTH halves (the King and Queen)
+                }
                 var at = pair ? new Vector2(-r.width * 0.175f, r.height * 0.125f) : Vector2.zero;
                 var main = Piece(Corner(at), w, h, scale, layer.Sprite, layer.Tint);
                 WeaponExtras.AddHalo(main, item, layer.Sprite);             // Saint's halo

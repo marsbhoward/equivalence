@@ -1274,6 +1274,10 @@ namespace Convergence.Art.Gear
             // The disc Forge set: four element bands and the Armillary - DemoGear.Armillary.cs.
             AddArmillary(items);
 
+            // King and Queen: a red lion and a white lioness, each an ouroboros, cracked with the
+            // Secret Fire - DemoGear.LionOuroboros.cs.
+            items.Add(LionOuroboros());
+
             // ---- bow: the third weapon class, pure ranged ----
             //
             // First-pass silhouette, not yet iterated against a live render the way the discs
@@ -5094,6 +5098,9 @@ namespace Convergence.Art.Gear
             // itself is here for its main hand - the Rising half, which carries the fire.
             ["ignis_band"] = "flames past the ring",
             ["armillary_discs"] = "flames past the ring (the Rising half)",
+            // The ring is 36 cells - the size the user moved discs to - and the mane breaks past
+            // it by the user's call (DemoGear.LionOuroboros). Drop this once the standard is 36.
+            ["king_and_queen_discs"] = "a 36-cell ring, the mane past it",
         };
 
         /// <summary>

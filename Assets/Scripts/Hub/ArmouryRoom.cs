@@ -251,6 +251,8 @@ namespace Convergence.Hub
                     bay.Off.color = new Color(bay.Off.color.r * 0.72f, bay.Off.color.g * 0.72f,
                                               bay.Off.color.b * 0.72f, bay.Off.color.a);
                 GearDisplay.ApplyEffects(bay.Main, item);
+                // A kindled pair burns in BOTH halves (the King and Queen's lioness).
+                if (pair && item.Kindled) KindledMarks.On(bay.Off);
             }
             else
             {
