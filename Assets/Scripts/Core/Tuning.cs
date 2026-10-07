@@ -43,7 +43,7 @@ namespace Convergence.Core
             /// switch whose entire purpose is to be flipped. This keeps the toggle honest while
             /// still needing a recompile, same as everything else here.
             /// </remarks>
-            public static readonly bool PracticeDummy = false;
+            public static readonly bool PracticeDummy = true;
 
             /// <summary>How far in front of the player the dummy is parked, in world units.</summary>
             public const float DummyDistance = 2.2f;
@@ -2091,6 +2091,94 @@ namespace Convergence.Core
             /// <summary>An element change: the marks go out over the first half and come back in the
             /// new colour over the second.</summary>
             public const float SwapSeconds = 0.5f;
+        }
+
+        /// <summary>
+        /// The MAGNUM OPUS: the reactive weapons' weapon art (Art.Gear.MagnumOpusGlow for the light,
+        /// Combat.CrescentBeam for the shot, Combat.Disintegration for a body it kills). Seconds are
+        /// measured from the moment the gather begins, in SCALED time - a screen opening mid-art
+        /// pauses it with everything else.
+        /// </summary>
+        public static class MagnumOpus
+        {
+            /// <summary>The whole gather, press to strike - the step's ChargeSeconds, which the
+            /// timing bar and the lead-in checks read. Long enough for the light to make its trip.</summary>
+            public const float GatherSeconds = 1.2f;
+
+            /// <summary>The armour's and weapon's marks go out over this, from wherever the beat had them.</summary>
+            public const float DrainSeconds = 0.30f;
+
+            /// <summary>The relic swells to full over this, starting with the drain.</summary>
+            public const float SwellSeconds = 0.45f;
+
+            /// <summary>When the relic lets go: the flash leaves it and runs out through the armour.</summary>
+            public const float FlashAt = 0.50f;
+
+            /// <summary>How fast the flash runs from the relic through the armour to the weapon,
+            /// in world units a second. The figure is ~1.4 tall, so head to foot takes ~0.3s.</summary>
+            public const float FlashSpeed = 4.5f;
+
+            /// <summary>When the flash reaches the WEAPON: its last stop, after it has run through all
+            /// the armour. Fixed rather than measured - the blade is held beside the hip, so by
+            /// distance it lit together with the chest and the trip read as one flash.</summary>
+            public const float WeaponLitAt = 0.84f;
+
+            /// <summary>One piece's flash as the light passes through it: up, then back out.</summary>
+            public const float FlashUpSeconds = 0.06f, FlashDownSeconds = 0.20f;
+
+            /// <summary>The relic's own glow drains after it lets go.</summary>
+            public const float RelicFadeSeconds = 0.30f;
+
+            /// <summary>
+            /// How far the arms may tilt toward the aim during the art (the rig's own limit is 45):
+            /// the slash has to sweep THROUGH the crescent's line, and an aim straight up or down is
+            /// 90 away from level. Short of 90 so the blade never lies flat along the arm.
+            /// </summary>
+            public const float AimRangeDegrees = 80f;
+
+            /// <summary>The crescent's size as it leaves the blade and at the end of its range,
+            /// times its drawn size - it GROWS as it travels (the user's call, 2026-10-07). Its hit
+            /// strip grows with it.</summary>
+            public const float BeamGrowFrom = 0.65f, BeamGrowTo = 1.6f;
+
+            /// <summary>
+            /// The SLASH's share of the art's damage (the user's call, 2026-10-07: the swing shares
+            /// the damage, but only where it lands). A body the slash strikes takes this much from
+            /// the blade and the rest from the crescent when it passes; a body the slash never
+            /// touched takes the crescent's whole hit. So a whiffed swing costs nothing, and no body
+            /// takes more than one art's worth.
+            /// </summary>
+            public const float SlashShare = 0.35f;
+
+            /// <summary>The weapon's glow drains with the shot, over this.</summary>
+            public const float WeaponDrainSeconds = 0.35f;
+
+            /// <summary>Everything blends back onto the Secret Fire's own beat over this, after the drain.</summary>
+            public const float RecoverSeconds = 0.6f;
+
+            /// <summary>The crescent's flight, in world units a second, and how far it goes before it
+            /// is spent (scaled by the Range stat and the ledger's range, like a reach).</summary>
+            public const float BeamSpeed = 17f, BeamRange = 8f;
+
+            /// <summary>The crescent's span ACROSS its flight - the width of the line it clears, tip
+            /// to tip - and the depth of the strip it strikes each frame, in world units. Widened
+            /// from 2.3 with the brush-stroke picture (the user's reference, 2026-10-07).</summary>
+            public const float BeamSpan = 3.0f, BeamDepth = 0.6f;
+
+            /// <summary>The brush stroke: how much of a circle the arc covers, tip to tip, and how
+            /// thick the stroke is at its fullest, in world units.</summary>
+            public const float BeamArcDegrees = 165f, BeamThickness = 0.55f;
+
+            /// <summary>The crescent's pixel density: the body's own, so it sits on the character's grid.</summary>
+            public const float BeamPpu = 37.5f;
+
+            /// <summary>The crescent fades out over the last share of its range rather than vanishing.</summary>
+            public const float BeamFadeFraction = 0.25f;
+
+            /// <summary>A body coming apart: how long its texels take to drift off, the spread
+            /// across the body the beam crosses it in, and how far they drift.</summary>
+            public const float DisintegrateSeconds = 0.95f, DisintegrateSweepSeconds = 0.22f,
+                               DisintegrateDrift = 0.9f;
         }
 
         /// <summary>Framing. See also GameBootstrap's FloorMargin note about the pan room outside the walls.</summary>

@@ -3725,6 +3725,19 @@ namespace Convergence.Core
             return drawn.Get(Art.Gear.GearSlot.Weapon) == "zanmato_blade";
         }
 
+        /// <summary>
+        /// Is the blade being DRAWN one of the reactive weapons (anything Kindled - the Aether
+        /// Greatsword, Prima Materia, the King and Queen), for whether a Magnum Opus kill comes
+        /// apart into texels? Same "picture follows the picture" rule as <see cref="KatanaDrawn"/>:
+        /// the relic grants the art to any weapon of its class, the death is the reactive weapon's.
+        /// </summary>
+        bool ReactiveWeaponDrawn()
+        {
+            if (_profile?.Look == null || _profile.Gear == null) return false;
+            var drawn = _profile.Look.Resolve(_profile.Gear);
+            return Art.Gear.GearCatalog.Get(drawn.Get(Art.Gear.GearSlot.Weapon)) is { Kindled: true };
+        }
+
         void HookDeath(EnemyController enemy)
         {
             var hp = enemy.GetComponent<Health>();
@@ -3743,6 +3756,8 @@ namespace Convergence.Core
                     Rifts.RiftImplosion.At(h.transform.position, 0.85f);
                 else if (h.LastDamage.Bisects && KatanaDrawn())
                     Combat.Bisection.At(h.transform, Tuning.Katana.Tint);
+                else if (h.LastDamage.Disintegrates && ReactiveWeaponDrawn())
+                    Combat.Disintegration.At(h.transform, h.LastDamage);
                 else
                     Spr.Flash(h.transform.position, 0.9f, new Color(1f, 0.9f, 0.7f), 0.3f);
 

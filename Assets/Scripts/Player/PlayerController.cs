@@ -2270,6 +2270,17 @@ namespace Convergence.Player
                 return;
             }
 
+            // The Magnum Opus gathers like a charge (its ChargeSeconds is the gather - StrikeDelay's
+            // charge line answers for it) and then fires a crescent instead of resolving an arc.
+            if (step.MagnumOpus)
+            {
+                _cooldown = step.ChargeSeconds + SlashCrossSeconds(step, swingWindow)
+                            + AttackMotions.CooldownFor(swingWindow);
+                StartCoroutine(MagnumOpusStrike(step, swingWindow));
+                AdvanceCombo(isFinisher);
+                return;
+            }
+
             // A charged strike winds up first: hold the pose, root the player, resolve later.
             if (step.ChargeSeconds > 0f)
             {
@@ -2382,6 +2393,131 @@ namespace Convergence.Player
 
             Spr.Flash(transform.position, 1.4f, Color.white, 0.3f);
             ResolveArc(step, isFinisher, advanceCombo: false);
+        }
+
+        /// <summary>
+        /// The MAGNUM OPUS (AttackStep.MagnumOpus). Gather as a charge does - the held pose, the
+        /// tightening ring, still moving and aiming - while the light makes its trip
+        /// (Art.Gear.MagnumOpusGlow: out of the armour and the blade, into the relic, back through
+        /// the armour and into the blade, swelling); then the big slash, and on its downstroke the
+        /// crescent leaves the blade and the blade's glow drains with it.
+        ///
+        /// The light runs off whatever is worn: the Aether set lights piece by piece, a plain
+        /// sword with the stone socketed has only the stone to swell and nothing to flash through -
+        /// the move and its damage are the same either way.
+        /// </summary>
+        IEnumerator MagnumOpusStrike(AttackStep step, float swingWindow)
+        {
+            var glow = Art.Gear.MagnumOpusGlow.Begin(Rig);
+            // The arms may carry nearly all the aim for this move, so the slash sweeps THROUGH the
+            // crescent's line even aimed up or down. Set at the gather, so the hold eases onto it.
+            Rig?.SetAimRange(Core.Tuning.MagnumOpus.AimRangeDegrees);
+            yield return WindUp(step.ChargeSeconds);
+            SettleStrike();   // the slash is the strike
+
+            // The line is fixed as the slash starts - the rig freezes its mirror and its aim for the
+            // swing at this same moment, so the blade and the crescent cannot disagree.
+            var line = Facing;
+            float swing = AttackMotions.SwingSeconds(swingWindow);
+            _lockTimer = swing * Mods.LockMul;
+            _visual?.PlayAttack(step.Motion, swingWindow);
+            Rig?.SetSwingHop(0f);
+            Rig?.PlayAttack(step.Motion, swingWindow, alt: false);
+            Combat.WeaponTrail.Play(Rig, swing);
+            SmearSwing(swingWindow, isFinisher: true);
+
+            // The crescent leaves the moment the DRAWN blade points straight down its line -
+            // mid-sweep, not on the cock - so the slash visibly throws it. Watched on the weapon
+            // layer itself rather than timed off the motion's keyframes: the entry blend and the
+            // two-handed wrist move the real blade off the authored angle by a few frames, and by
+            // a different amount for every aim. The motion's own crossing time is the backstop.
+            float cross = 0f, prev = float.NaN;
+            float latest = Mathf.Max(SlashCrossSeconds(step, swingWindow) * 1.5f, 0.05f);
+            while (cross < latest)
+            {
+                var blade = Rig?.WeaponRenderer;
+                if (blade == null) break;
+                float off = Vector2.SignedAngle(line, blade.transform.up);
+                if (Mathf.Abs(off) < 4f) break;
+                if (!float.IsNaN(prev) && Mathf.Sign(off) != Mathf.Sign(prev) && Mathf.Abs(off - prev) < 90f) break;
+                prev = off;
+                yield return null;
+                cross += Time.deltaTime;
+            }
+            glow?.Fire();
+            FireCrescent(step, Slash(step, line), line);
+
+            yield return new WaitForSeconds(Mathf.Max(0f, swing - cross));
+            Rig?.SetAimRange(0f);
+        }
+
+        /// <summary>Seconds into the slash at which the blade points straight down the aim (its arm
+        /// angle, before the aim is added, passing -90).</summary>
+        static float SlashCrossSeconds(AttackStep step, float swingWindow)
+            => AttackMotions.SwingSeconds(swingWindow)
+               * Art.Gear.PrimitiveCharacterRig.CrossingK(step.Motion, -90f, false);
+
+        /// <summary>
+        /// The slash's own hit, on the downstroke: the step's strike along the facing for
+        /// Tuning.MagnumOpus.SlashShare of its damage. Through ResolveEcho so the once-per-swing
+        /// effects (wear, heat, the chain passive) leave the crescent to fire them once. Returns
+        /// the bodies it struck - the crescent owes each of them only the rest.
+        /// </summary>
+        /// <summary>
+        /// Where the crescent leaves from: the TIP of the drawn blade (the user's call - the swing
+        /// throws it off the point, not the hilt). The crescent is judged on the ground plane and
+        /// drawn <see cref="Combat.CrescentBeam.Lift"/> above it, so the point under the picture is
+        /// the tip less that lift. With no blade drawn, a sword's length down the line.
+        /// </summary>
+        Vector2 CrescentOrigin(Vector2 line)
+        {
+            var blade = Rig?.WeaponRenderer;
+            if (blade == null || blade.sprite == null)
+                return (Vector2)transform.position + line * BaseRange * 0.8f;
+            Vector2 tip = blade.transform.TransformPoint(new Vector3(0f, blade.sprite.bounds.max.y, 0f));
+            return tip - new Vector2(0f, Combat.CrescentBeam.Lift);
+        }
+
+        HashSet<Health> Slash(AttackStep step, Vector2 line)
+        {
+            ResolveEcho(step, transform.position, line, Core.Tuning.MagnumOpus.SlashShare);
+            var struck = new HashSet<Health>();
+            foreach (var (hp, _, _) in _ordered) if (hp != null) struck.Add(hp);
+            return struck;
+        }
+
+        /// <summary>
+        /// The crescent itself: damage rolled ONCE here and carried, as the thrown blade's is, then
+        /// scaled per body by the board and the ledger and heard by both on every hit.
+        /// </summary>
+        void FireCrescent(AttackStep step, HashSet<Health> slashed, Vector2 facing)
+        {
+            float dmg = (BaseDamage + Mods.BonusDamage) * step.DamageMultiplier;
+            dmg *= DamageRoll();
+            dmg *= RollCritFor(true, out bool crit);
+            dmg *= Mods.FinisherDamageMul * FinisherPowerMul * _strikeMul;
+            if (DamageDealtMultiplier != null) dmg *= DamageDealtMultiplier();
+
+            // Heavy: it moves what it hits, and Finisher Knockback throws it further.
+            float kick = step.Knockback * Art.Gear.StatPercents.Apply(1f, Stats.FinisherKnockback);
+            float range = Core.Tuning.MagnumOpus.BeamRange * Mods.RangeMul
+                          * Art.Gear.StatPercents.Apply(1f, Stats.Range);
+            var element = Resource?.Element ?? ElementType.Fire;
+
+            OnWeaponUsed?.Invoke();   // one swing's wear, not one per body
+            bool first = true;
+            Combat.CrescentBeam.Fire(gameObject, CrescentOrigin(facing), facing, dmg, kick,
+                range, CleaveFalloff(step.ChainFalloff), MinChainFraction, crit, element,
+                slashed, 1f - Core.Tuning.MagnumOpus.SlashShare, transform.position,
+                onHit: (hp, info) =>
+                {
+                    Resource?.OnHitLanded(Health, new DamageInfo(info.Amount, element, gameObject));
+                    float reach = Vector2.Distance(transform.position, hp.transform.position) / Mathf.Max(0.01f, range);
+                    NotifyThrownHit(hp, info, Mathf.Clamp01(reach), first);
+                    first = false;
+                },
+                scaleHit: (hp, d) => ScaleThrownHit(hp, d, true, crit,
+                    Mathf.Clamp01(Vector2.Distance(transform.position, hp.transform.position) / Mathf.Max(0.01f, range))));
         }
 
         /// <summary>
@@ -3373,6 +3509,9 @@ namespace Convergence.Player
                     // two. Read by Combat.Bisection from GameBootstrap.HookDeath - a picture,
                     // nothing about the hit.
                     Bisects = step.SheathDraw,
+
+                    // A Magnum Opus kill comes apart, whether the slash or the crescent made it.
+                    Disintegrates = step.MagnumOpus,
 
                     // See DamageInfo's own doc - this is what lets Bubbles' shield tell a
                     // finisher apart from a basic without Health knowing anything about movesets.

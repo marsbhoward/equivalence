@@ -49,6 +49,10 @@ namespace Convergence.Combat
         /// <summary>Four cones round one point, widest at the middle - the Armillary's
         /// Quintessence. Appended, for the reason above.</summary>
         Quintessence,
+
+        /// <summary>A crescent flying right with a small stone behind it - the Magnum Opus's shot.
+        /// Appended, for the reason above.</summary>
+        MagnumOpus,
     }
 
     /// <summary>
@@ -198,6 +202,11 @@ namespace Convergence.Combat
                                  bool vertical = ay <= 0.86f && ax <= 0.30f * (1f - ay / 0.86f);
                                  return horizontal || vertical;
                              }),
+
+            // The crescent, bowed toward its flight, and the stone it came from behind it.
+            Glyph.MagnumOpus => Render((x, y) =>
+                                 (Disc(x, y, 0.10f, 0f, 0.82f) && !Disc(x, y, -0.22f, 0f, 0.82f) && x > -0.2f) ||
+                                 (Mathf.Abs(x + 0.55f) / 0.13f + Mathf.Abs(y) / 0.32f <= 1f)),
 
             _              => Render((x, y) =>
                                  RotRect(x, y, 0f, 0f, 0.80f, 0.12f, 45f) ||

@@ -996,7 +996,55 @@ namespace Convergence.Art.Gear
                        pivotTexel: AetherGrip, ppu: FinePpu, upscale2x: true)),
                 Pixels(RigLayer.Weapon, "gear.weapon.aether_greatsword.menu", AetherDetail, pal, 0f, -10f,
                        pivotTexel: AetherDetailGrip, ppu: MenuPpu));
+            sword.SignatureFinisher = MagnumOpusId;
             items.Add(Kindle(sword));
+            AddAetherStone(items);
+        }
+
+        // ------------------------------------------------------------------ the stone
+        //
+        // The Aether Greatsword's RELIC: a Philosopher's Stone, the CRACKED SHARD (the user's pick
+        // for the sword, 2026-10-07 - the geode is the King and Queen's, the liquid Prima Materia's).
+        // A tall red crystal pointed at both ends, at the body's density beside the pouch (HipRelic).
+        // Its cracks are the Secret Fire's CREVICES: lit on the one beat in the attuned element,
+        // and at rest only dark red lines in the red stone - a stone loses its glow, never goes
+        // black. It carries the MAGNUM OPUS; the light the art drains from the armour swells here.
+
+        public const string MagnumOpusId = "magnum_opus";
+        public const string AetherStoneId = "aether_stone";
+
+        // 8 x 14, 1-4 the stone dark to light, h its highlight, ~ a crevice. The cracks are
+        // CONNECTED lines - at belt size, scattered texels read as a checkerboard.
+        static readonly string[] AetherStoneRows =
+        {
+            "....4...",
+            "...~4...",
+            "...~h3..",
+            "..44h~..",
+            "..4h3~2.",
+            ".4~h33~.",
+            ".4h~322.",
+            ".4h3~21.",
+            ".43h3~1.",
+            "..3h3~1.",
+            "..3h~1..",
+            "...321..",
+            "...21...",
+            "...1....",
+        };
+
+        static void AddAetherStone(List<GearItem> items)
+        {
+            static Color Hex(string hex) => ColorUtility.TryParseHtmlString(hex, out var c) ? c : Color.magenta;
+            var pal = SecretFire.Kindle(new Dictionary<char, Color>
+            {
+                ['1'] = Hex("#3a0c12"), ['2'] = Hex("#6e1420"), ['3'] = Hex("#a8202e"),
+                ['4'] = Hex("#d63a44"), ['h'] = Hex("#ff8a86"),
+            });
+            var stone = Make(AetherStoneId, "Cracked Stone", GearSlot.Relic, LootTier.BlackDiamond, 0f,
+                HipRelic("gear.trinket.aether_stone", AetherStoneRows, pal));
+            stone.SignatureFinisher = MagnumOpusId;
+            items.Add(Kindle(stone));
         }
 
         /// <summary>The whole sword sampled at <paramref name="k"/> texels per authored cell.</summary>

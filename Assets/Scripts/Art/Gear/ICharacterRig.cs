@@ -235,6 +235,14 @@ namespace Convergence.Art.Gear
         void SetFacing(UnityEngine.Vector2 aim);
 
         /// <summary>
+        /// How far the ARMS may tilt toward the aim, in degrees, for a move that has to point the
+        /// blade straight down its line - the Magnum Opus's slash, which must sweep THROUGH the
+        /// crescent's direction even aimed up or down. 0 restores the rig's own limit (ArmAimRange,
+        /// 45). A rig with no arms to tilt may ignore this.
+        /// </summary>
+        void SetAimRange(float degrees);
+
+        /// <summary>
         /// Turn the figure to show its BACK - for a scripted beat (walking through a door) or for
         /// ordinary untargeted movement toward the top of the screen (see
         /// <c>PlayerController.UpdateTravelFacingAway</c>), never for combat. This is deliberately

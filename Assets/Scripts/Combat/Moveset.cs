@@ -261,6 +261,17 @@ namespace Convergence.Combat
         public bool ReverseCones;
 
         /// <summary>
+        /// The MAGNUM OPUS, the reactive weapons' weapon art: gather for <see cref="ChargeSeconds"/>
+        /// while the light drains out of the armour and the weapon, swells in the relic and
+        /// flashes back through the armour into the blade (Art.Gear.MagnumOpusGlow), then a big
+        /// slash that fires a crescent of the weapon's own light down the facing
+        /// (Combat.CrescentBeam) and drains the blade. Handled by
+        /// <c>PlayerController.MagnumOpusStrike</c>. The gather IS a charge - ChargeSeconds, so the
+        /// timing bar and the lead-in checks read it as one - it only looks different.
+        /// </summary>
+        public bool MagnumOpus;
+
+        /// <summary>
         /// This step does NOT freeze movement or facing, even though it sits in a finisher slot.
         ///
         /// Exactly one move has it - Shadow's Echo - and it is half of a matched pair with that
@@ -1226,6 +1237,36 @@ namespace Convergence.Combat
                     Weight = FinisherWeight.Medium, Motion = AttackMotion.Chop,
                     ArcDot = -1f, Knockback = 3f, RangeBonus = 0.5f, CleavesAll = true,
                     ReverseCones = true,
+                },
+            },
+            new Moveset
+            {
+                FinisherDescription = "Gathers for one great slash while the light drains from your armour into the stone at your hip, flashes back through you and floods the blade - then cuts it loose as a crescent that flies straight out, through everything in its path. What it kills comes apart.",
+                Id = Art.Gear.DemoGear.MagnumOpusId, FinisherGlyph = Glyph.MagnumOpus, DisplayName = "Magnum Opus",
+
+                // The Aether Greatsword's, through its stone - a Black Diamond ceiling privilege,
+                // same reasoning as Conflagration and the rest above.
+                SignatureOnly = true,
+                Flavor = "The work in four stages, and the last is the light let go.",
+
+                // The opus's stages, the last one the weapon art. Ruin's shape: heavy swings into
+                // a held gather, the lead-in rising toward the hold.
+                Basics = new[]
+                {
+                    Basic("Nigredo",    1.1f, 1.0f, 0.2f, 3.6f, AttackMotion.Chop),
+                    Basic("Albedo",     1.1f, 1.0f, 0.2f, 3.6f, AttackMotion.Rise),
+                    Basic("Citrinitas", 1.2f, 1.05f, 0.2f, 4.0f, AttackMotion.Chop),
+                },
+                Finisher = new AttackStep
+                {
+                    // HEAVY: the whole damage rides the crescent, which crosses the room - a line
+                    // through a crowd rather than Skyfall's cone. Each body past the first takes
+                    // a swing's falloff, so the reach is not free damage.
+                    Name = "Magnum Opus", DamageMultiplier = 6.5f, IntervalMultiplier = 2.5f,
+                    Weight = FinisherWeight.Heavy,
+                    Motion = AttackMotion.Slam, ChargeSeconds = Core.Tuning.MagnumOpus.GatherSeconds,
+                    Knockback = 9f, CleavesAll = true,
+                    MagnumOpus = true,
                 },
             },
             new Moveset

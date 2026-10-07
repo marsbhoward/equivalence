@@ -30,6 +30,16 @@ namespace Convergence.Art.Gear
         [SerializeField] SpriteRenderer _source;
         [SerializeField] SpriteRenderer _glow;
 
+        /// <summary>White-hot marks over the ordinary ones, while a Magnum Opus runs them past full.</summary>
+        [SerializeField] SpriteRenderer _hot;
+
+        /// <summary>The same marks near white, over the hot ones, as the heat nears its top.</summary>
+        [SerializeField] SpriteRenderer _sear;
+
+        /// <summary>The Magnum Opus on this renderer's character, found only while one is running
+        /// somewhere (<see cref="MagnumOpusGlow.Live"/>).</summary>
+        [SerializeField] MagnumOpusGlow _opus;
+
         /// <summary>Burn the marks of whatever <paramref name="source"/> shows. Idempotent.</summary>
         public static KindledMarks On(SpriteRenderer source)
         {
@@ -49,10 +59,20 @@ namespace Convergence.Art.Gear
             bool drawn = src != null && src.enabled && !src.forceRenderingOff && src.sprite != null;
             var overlay = drawn ? SecretFire.Overlay(src.sprite) : null;
             float alpha = overlay != null ? SecretFire.Alpha : 0f;
+            float heat = 0f;
+
+            // The character performing the Magnum Opus answers for its own marks while it does.
+            if (overlay != null && MagnumOpusGlow.Live > 0)
+            {
+                if (_opus == null) _opus = src.GetComponentInParent<MagnumOpusGlow>();
+                if (_opus != null && _opus.Running) _opus.Sample(src, alpha, out alpha, out heat);
+            }
 
             if (overlay == null || alpha <= 0.001f)
             {
                 if (_glow != null && _glow.enabled) _glow.enabled = false;
+                if (_hot != null && _hot.enabled) _hot.enabled = false;
+                if (_sear != null && _sear.enabled) _sear.enabled = false;
                 return;
             }
 
@@ -75,11 +95,48 @@ namespace Convergence.Art.Gear
             var c = src.color;
             _glow.color = new Color(c.r, c.g, c.b, c.a * alpha);
             _glow.enabled = true;
+
+            // Past full the marks burn HOT, and near the top of the heat they SEAR toward white -
+            // the blade's inner light at its most luminous (the Magnum Opus, gathered to strike).
+            float sear = Mathf.Clamp01((heat - 0.45f) / 0.55f);
+            _hot = Layer(_hot, "marks.hot", 2f, heat > 0.001f ? SecretFire.HotOverlay(src.sprite) : null, alpha * heat);
+            _sear = Layer(_sear, "marks.sear", 3f, sear > 0.001f ? SecretFire.SearOverlay(src.sprite) : null, alpha * sear);
+        }
+
+        /// <summary>One more picture of the marks over the overlay, <paramref name="depth"/> nudges
+        /// toward the camera. Off when there is nothing to draw.</summary>
+        SpriteRenderer Layer(SpriteRenderer sr, string name, float depth, Sprite sprite, float a)
+        {
+            var src = _source;
+            if (sprite == null || a <= 0.001f)
+            {
+                if (sr != null && sr.enabled) sr.enabled = false;
+                return sr;
+            }
+            if (sr == null)
+            {
+                var go = new GameObject(name);
+                go.transform.SetParent(src.transform, false);
+                go.transform.localPosition = new Vector3(0f, 0f, -Nudge * depth);
+                sr = go.AddComponent<SpriteRenderer>();
+            }
+            sr.sprite = sprite;
+            sr.sharedMaterial = src.sharedMaterial;
+            sr.flipX = src.flipX;
+            sr.flipY = src.flipY;
+            sr.sortingLayerID = src.sortingLayerID;
+            sr.sortingOrder = src.sortingOrder;
+            var c = src.color;
+            sr.color = new Color(c.r, c.g, c.b, c.a * a);
+            sr.enabled = true;
+            return sr;
         }
 
         void OnDisable()
         {
             if (_glow != null) _glow.enabled = false;
+            if (_hot != null) _hot.enabled = false;
+            if (_sear != null) _sear.enabled = false;
         }
     }
 }

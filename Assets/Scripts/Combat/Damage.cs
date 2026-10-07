@@ -39,6 +39,14 @@ namespace Convergence.Combat
         public bool Bisects;
 
         /// <summary>
+        /// This is a Magnum Opus hit (the reactive weapons' weapon art). Read only by the death VFX:
+        /// a non-boss it kills comes apart into its own texels (Combat.Disintegration) while a
+        /// reactive weapon is drawn. A picture, nothing about the hit - same footing as
+        /// <see cref="Bisects"/>.
+        /// </summary>
+        public bool Disintegrates;
+
+        /// <summary>
         /// This hit is a FINISHER - basic or not, Light through Heavy, however it was delivered
         /// (a swing, a thrown blade, a disc volley, an echo of one). Nothing in the game read
         /// finisher-ness at the DamageInfo level before Bubbles needed it: EnemyController.Health
@@ -71,6 +79,7 @@ namespace Convergence.Combat
             Displaces = false;
             Thrown = false;
             Bisects = false;
+            Disintegrates = false;
             IsFinisher = false;
             SuppressHitstop = false;
             Price = false;

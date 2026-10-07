@@ -52,12 +52,24 @@ namespace Convergence.Art.Gear
         /// <summary>The dimmest: a tendril's last texels, where it dies out into the plate or cloth.</summary>
         public const char Ember = '+';
 
+        /// <summary>
+        /// A CREVICE: a crack in a Philosopher's Stone (the Magnum Opus relics). Lit it burns as a
+        /// vein does; dark it is NOT black - the stone only loses its glow, so the crack rests as a
+        /// deep red line in the red stone (the user's rule for the stones, 2026-10-07). Matched to
+        /// the byte like the other three, so its resting colour is one nothing else paints.
+        /// </summary>
+        public const char Crevice = '~';
+
         static readonly Color32[] Unlit =
         {
             new(6, 1, 2, 255),     // Core
             new(9, 2, 3, 255),     // Vein
             new(12, 3, 4, 255),    // Ember
+            new(71, 9, 17, 255),   // Crevice - a dark red, not a black
         };
+
+        /// <summary>Which of the element's three tones each reserved colour burns in.</summary>
+        static readonly int[] LitTone = { 0, 1, 2, 1 };
 
         /// <summary>
         /// Add the three mark letters to a palette, in their unlit colours. Call it LAST, after any
@@ -69,6 +81,7 @@ namespace Convergence.Art.Gear
             palette[Core] = Unlit[0];
             palette[Vein] = Unlit[1];
             palette[Ember] = Unlit[2];
+            palette[Crevice] = Unlit[3];
             return palette;
         }
 
@@ -168,7 +181,11 @@ namespace Convergence.Art.Gear
 
         // ------------------------------------------------------------------ the overlay
 
-        static readonly Dictionary<(Sprite, ElementType), Sprite> _overlays = new();
+        static readonly Dictionary<(Sprite, ElementType, int), Sprite> _overlays = new();
+
+        /// <summary>The three pictures of a mark: its own tones, all core (hot), and the core run
+        /// most of the way to white (searing).</summary>
+        const int Plain = 0, Hot = 1, Sear = 2;
         static readonly HashSet<Sprite> _unmarked = new();
 
         /// <summary>Whether <paramref name="src"/> carries any reserved mark texel.</summary>
@@ -185,10 +202,25 @@ namespace Convergence.Art.Gear
         /// art) or one whose texture is not readable. Cached per (source, element); the no-marks
         /// answer is cached too, since the world asks every frame.
         /// </summary>
-        public static Sprite Overlay(Sprite src, ElementType element)
+        public static Sprite Overlay(Sprite src, ElementType element) => Overlay(src, element, Plain);
+
+        /// <summary>
+        /// The same marks all in the element's CORE tone - the white-hot picture a mark shows past
+        /// full brightness, drawn over the ordinary overlay by how far past it is (the Magnum Opus's
+        /// weapon, gathered to strike). Same cache, same no-marks answer.
+        /// </summary>
+        public static Sprite HotOverlay(Sprite src) => Overlay(src, Shown, Hot);
+
+        /// <summary>
+        /// The marks SEARING - the core run most of the way to white: the inner light at its most
+        /// luminous, drawn over the hot overlay as the Magnum Opus's blade nears the strike.
+        /// </summary>
+        public static Sprite SearOverlay(Sprite src) => Overlay(src, Shown, Sear);
+
+        static Sprite Overlay(Sprite src, ElementType element, int mode)
         {
             if (src == null || _unmarked.Contains(src)) return null;
-            if (_overlays.TryGetValue((src, element), out var cached) && cached != null) return cached;
+            if (_overlays.TryGetValue((src, element, mode), out var cached) && cached != null) return cached;
 
             var st = src.texture;
             if (st == null || !st.isReadable) { _unmarked.Add(src); return null; }
@@ -197,13 +229,14 @@ namespace Convergence.Art.Gear
             int w = (int)r.width, h = (int)r.height;
             var px = st.GetPixels((int)r.x, (int)r.y, w, h);
             var tones = Tones(element);
+            var sear = Color.Lerp(tones[0], Color.white, 0.75f);
             var outPx = new Color[w * h];
             bool any = false;
             for (int i = 0; i < px.Length; i++)
             {
                 int tone = ToneOf(px[i]);
                 if (tone < 0) continue;
-                outPx[i] = tones[tone];
+                outPx[i] = mode == Sear ? sear : tones[mode == Hot ? 0 : LitTone[tone]];
                 any = true;
             }
             if (!any) { _unmarked.Add(src); return null; }
@@ -219,8 +252,8 @@ namespace Convergence.Art.Gear
 
             var pivot01 = new Vector2(src.pivot.x / w, src.pivot.y / h);
             var made = Sprite.Create(tex, new Rect(0, 0, w, h), pivot01, src.pixelsPerUnit);
-            made.name = src.name + ".fire." + element;
-            _overlays[(src, element)] = made;
+            made.name = src.name + (mode == Sear ? ".fire.sear." : mode == Hot ? ".fire.hot." : ".fire.") + element;
+            _overlays[(src, element, mode)] = made;
             return made;
         }
     }

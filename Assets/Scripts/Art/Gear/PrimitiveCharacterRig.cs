@@ -6050,6 +6050,25 @@ namespace Convergence.Art.Gear
                                fist.y + AuthoredArmToGrip * Mathf.Cos(r), 0f);
         }
 
+        /// <summary>
+        /// How far through <paramref name="motion"/> (0..1 of its swing) the arm first passes
+        /// <paramref name="angle"/> - before the aim is added, so -90 is the moment the blade points
+        /// straight down the aim, whatever the aim is. 0 if it never does.
+        /// </summary>
+        public static float CrossingK(AttackMotion motion, float angle, bool alt)
+        {
+            float prev = Mathf.DeltaAngle(angle, ArmAngleAt(motion, 0f, alt));
+            for (int i = 1; i <= 200; i++)
+            {
+                float k = i / 200f;
+                float now = Mathf.DeltaAngle(angle, ArmAngleAt(motion, k, alt));
+                if (Mathf.Sign(now) != Mathf.Sign(prev) && Mathf.Abs(now - prev) < 180f)
+                    return Mathf.Lerp((i - 1) / 200f, k, Mathf.Abs(prev) / Mathf.Max(0.0001f, Mathf.Abs(prev) + Mathf.Abs(now)));
+                prev = now;
+            }
+            return 0f;
+        }
+
         /// <summary>The arm angle on a motion's first frame - where it wants the swing before it to end.</summary>
         public static float StartArmAngle(AttackMotion motion, bool alt) => ArmAngleAt(motion, 0f, alt);
 
@@ -6883,6 +6902,12 @@ namespace Convergence.Art.Gear
         /// <summary>Explicit aim for a rig with no controller and no body. See SetFacing.</summary>
         Vector2? _facingOverride;
 
+        /// <summary>The arms' tilt limit while a move asks for more than ArmAimRange - see
+        /// ICharacterRig.SetAimRange. 0 = the rig's own.</summary>
+        float _aimRangeOverride;
+
+        public void SetAimRange(float degrees) => _aimRangeOverride = Mathf.Max(0f, degrees);
+
         public void SetFacing(Vector2 aim)
         {
             if (aim.sqrMagnitude < 0.0001f) { _facingOverride = null; return; }
@@ -6895,6 +6920,8 @@ namespace Convergence.Art.Gear
             if (Mathf.Abs(_facingOverride.Value.x) > MirrorDeadzone)
                 _facingLeft = _facingOverride.Value.x < 0f;
         }
+
+        float AimRangeNow => _aimRangeOverride > 0f ? _aimRangeOverride : ArmAimRange;
 
         void FaceAim()
         {
@@ -6957,7 +6984,7 @@ namespace Convergence.Art.Gear
             float elevation = Mathf.Asin(Mathf.Clamp(aim.y, -1f, 1f)) * Mathf.Rad2Deg;
             if (!swinging)
                 _aimResidual = Mathf.LerpAngle(_aimResidual,
-                                               Mathf.Clamp(elevation, -ArmAimRange, ArmAimRange),
+                                               Mathf.Clamp(elevation, -AimRangeNow, AimRangeNow),
                                                1f - Mathf.Exp(-TurnSharpness * Dt));
 
             // Explicitly cleared, not merely left alone: both carried a lean until now, and a

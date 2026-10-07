@@ -196,6 +196,7 @@ namespace Convergence.Art.Gear
 
         /// <summary>No-op: an authored rig faces where its animator says it does.</summary>
         public void SetFacing(Vector2 aim) { }
+        public void SetAimRange(float degrees) { }
 
         /// <summary>No-op: no back-facing art authored for this rig yet.</summary>
         public void SetFacingAway(bool away) { }
