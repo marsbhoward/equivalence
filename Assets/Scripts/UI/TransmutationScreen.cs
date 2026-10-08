@@ -209,7 +209,7 @@ namespace Convergence.UI
                 "click to change    -    [ESC] or [E] to leave the circle    -    changes are saved as you make them",
                 "tap to change    -    BACK to leave the circle    -    changes are saved as you make them",
                 17, new Color(0.42f, 0.45f, 0.53f), TextAnchor.MiddleCenter,
-                UI.GamepadGlyphs.Cursor + " to aim, " + UI.GamepadGlyphs.Confirm + " to change    -    "
+                UI.GamepadGlyphs.Navigate + " to choose, " + UI.GamepadGlyphs.Confirm + " to change    -    "
                 + UI.GamepadGlyphs.Cancel + " to leave the circle    -    changes are saved as you make them");
         }
 
@@ -741,13 +741,18 @@ namespace Convergence.UI
 
             _focusRects.Clear();
             foreach (var (rect, _) in _tabs) _focusRects.Add(rect);
+            // EVERY row, scrolled or not - a row below the fold is still a choice, and the D-pad
+            // landing on it scrolls it into the pane below.
             foreach (var h in _hits)
-            {
-                if (h.Rect == null) continue;
-                if (!RectTransformUtility.RectangleContainsScreenPoint(_pane, h.Rect.position, null)) continue;
-                _focusRects.Add(h.Rect);
-            }
+                if (h.Rect != null) _focusRects.Add(h.Rect);
             Core.Controls.SetFocusCandidates(_focusRects);
+
+            var focused = Core.Controls.Focused;
+            if (focused != null && _content != null && focused.IsChildOf(_content))
+            {
+                float d = UiKit.ScrollToShow(_pane, focused);
+                if (d != 0f) { _scroll += d; ApplyScroll(); }
+            }
 
             // COMMITTED ON RELEASE, not on press, and that is forced by the page scrolling.
             //

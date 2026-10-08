@@ -54,12 +54,12 @@ namespace Convergence.Chain.Web
     public static class WebChainBridge
     {
 #if UNITY_WEBGL && !UNITY_EDITOR
-        [DllImport("__Internal")] static extern int CoalescenceChainAvailable();
-        [DllImport("__Internal")] static extern void CoalescenceChainCall(string reqId, string method, string payload);
+        [DllImport("__Internal")] static extern int EquivalenceChainAvailable();
+        [DllImport("__Internal")] static extern void EquivalenceChainCall(string reqId, string method, string payload);
 #else
         // Editor and native builds compile against stubs rather than #if-ing every call site.
-        static int CoalescenceChainAvailable() => 0;
-        static void CoalescenceChainCall(string reqId, string method, string payload) { }
+        static int EquivalenceChainAvailable() => 0;
+        static void EquivalenceChainCall(string reqId, string method, string payload) { }
 #endif
 
         /// <summary>
@@ -93,7 +93,7 @@ namespace Convergence.Chain.Web
         {
             get
             {
-                try { return CoalescenceChainAvailable() != 0; }
+                try { return EquivalenceChainAvailable() != 0; }
                 catch (Exception e)
                 {
                     // EntryPointNotFoundException if the jslib did not link - worth one line,
@@ -124,7 +124,7 @@ namespace Convergence.Chain.Web
 
             try
             {
-                CoalescenceChainCall(id, method, JsonUtility.ToJson(args ?? new ChainArgs()));
+                EquivalenceChainCall(id, method, JsonUtility.ToJson(args ?? new ChainArgs()));
             }
             catch (Exception e)
             {

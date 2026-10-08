@@ -29,15 +29,17 @@ namespace Convergence.Combat
     /// </summary>
     public static class StrikeJudge
     {
-        /// <summary>Where a press <paramref name="intoBar"/> seconds after the bar appeared
-        /// lands. Past the end of the bar is a miss - the strike has already happened.</summary>
-        public static StrikeVerdict Judge(float intoBar)
+        /// <summary>Where a press <paramref name="untilStrike"/> seconds before the strike lands.
+        /// Measured from the STRIKE back, because the judged segments are the same on every bar
+        /// and only the lead before them changes length. Past the strike is a miss - it has
+        /// already happened.</summary>
+        public static StrikeVerdict Judge(float untilStrike)
         {
             float seg = T.SegmentSeconds;
-            if (intoBar < seg) return StrikeVerdict.Early;
-            if (intoBar < seg * 2f) return StrikeVerdict.Good;
-            if (intoBar < seg * 3f) return StrikeVerdict.Perfect;
-            if (intoBar <= seg * 4f) return StrikeVerdict.Good;
+            if (untilStrike > seg * 3f) return StrikeVerdict.Early;
+            if (untilStrike > seg * 2f) return StrikeVerdict.Good;
+            if (untilStrike > seg) return StrikeVerdict.Perfect;
+            if (untilStrike >= 0f) return StrikeVerdict.Good;
             return StrikeVerdict.Missed;
         }
 

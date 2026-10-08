@@ -53,6 +53,10 @@ namespace Convergence.Core
         /// <summary>The finisher timing meter beside the player (Combat.StrikeBar). An overlay:
         /// a body standing in front must never hide it.</summary>
         public const int StrikeBar = StatusOverlay + 60;
+
+        /// <summary>Riposte's ward in front of the player (Combat.RiposteWard). An overlay for the
+        /// meter's reason, just under it.</summary>
+        public const int RiposteWard = StatusOverlay + 55;
         public const int Reticle       = 24100;
         public const int Fx            = 24200;
 

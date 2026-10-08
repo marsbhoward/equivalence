@@ -131,6 +131,7 @@ namespace Convergence.Core
         UI.ScreenFade _fade;
 
         GameObject _overScreen;
+        int _overScreenFrame = -1;
 
         /// <summary>
         /// The main menu, as a walkable room. Null while a run is live - it is torn down on
@@ -1505,12 +1506,13 @@ namespace Convergence.Core
             // it - and closing it hands back to that menu via CharacterScreen's onClosed.
             if (_state == State.Hub)
             {
+                // Cancel is the gear grid's while it is up - it backs out of the grid only.
                 bool toggle = Controls.LoadoutTapped
-                           || (CharacterScreen.IsOpen && Controls.CancelTapped);
+                           || (CharacterScreen.IsOpen && !CharacterScreen.PickerOpen && Controls.CancelTapped);
                 if (toggle) { CharacterScreen.Toggle(_canvas.transform, ScreenElement()); return; }
             }
             else if (_state == State.Playing && CharacterScreen.IsOpen
-                     && (Controls.LoadoutTapped || Controls.CancelTapped))
+                     && (Controls.LoadoutTapped || (!CharacterScreen.PickerOpen && Controls.CancelTapped)))
             {
                 CharacterScreen.Close();
                 return;
@@ -1526,7 +1528,7 @@ namespace Convergence.Core
             if (Time.timeScale == 0f && !GamePause.IsPaused && !Hitstop.IsActive)
             {
                 Debug.LogWarning("[Convergence] time was stopped with no screen holding it - resuming.");
-                Time.timeScale = 1f;
+                Time.timeScale = GamePause.BaseScale;
             }
 
             if (_state == State.Hub)
@@ -1630,7 +1632,12 @@ namespace Convergence.Core
             }
             else if (_state == State.RunOver)
             {
-                if (Controls.AnyDismiss) ReturnToHub();
+                // Only once the screen is UP. EndRun sets RunOver and then awaits two writes before
+                // building it, and a press in that gap (the ABANDON click itself, a swing) went
+                // to the hub early - the screen then landed over the hub, where nothing dismisses
+                // it. Not on the frame it is built either, or the press that built it closes it.
+                if (_overScreen && Time.frameCount != _overScreenFrame && Controls.AnyDismiss)
+                    ReturnToHub();
             }
         }
 
@@ -3014,7 +3021,7 @@ namespace Convergence.Core
             return new RolledReward
             {
                 Offered = _player != null
-                    ? Combat.MovesetLibrary.RandomExcluding(_player.EarnedMovesets, _player.Weapon)
+                    ? Combat.MovesetLibrary.RandomOffer(_player.Slots, _player.SlotLocked, _player.Weapon)
                     : null,
                 Restore = restore,
                 HealAmount = healAmount,
@@ -3727,7 +3734,7 @@ namespace Convergence.Core
 
         /// <summary>
         /// Is the blade being DRAWN one of the reactive weapons (anything Kindled - the Aether
-        /// Greatsword, Prima Materia, the King and Queen), for whether a Magnum Opus kill comes
+        /// Greatsword, the Aether Longbow, the Aether Dual Discs), for whether a Magnum Opus kill comes
         /// apart into texels? Same "picture follows the picture" rule as <see cref="KatanaDrawn"/>:
         /// the relic grants the art to any weapon of its class, the death is the reactive weapon's.
         /// </summary>
@@ -4109,6 +4116,7 @@ namespace Convergence.Core
             TeardownRun();
 
             _overScreen = new GameObject("RunOver", typeof(RectTransform));
+            _overScreenFrame = Time.frameCount;
             _overScreen.transform.SetParent(_canvas.transform, false);
             var full = (RectTransform)_overScreen.transform;
             full.anchorMin = Vector2.zero; full.anchorMax = Vector2.one;

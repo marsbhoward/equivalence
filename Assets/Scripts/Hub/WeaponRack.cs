@@ -146,7 +146,7 @@ namespace Convergence.Hub
                                  GearDisplay.FitScale(layer, PieceHeight));
                 _off.color = new Color(_off.color.r * 0.72f, _off.color.g * 0.72f,
                                        _off.color.b * 0.72f, _off.color.a);
-                // A kindled pair burns in BOTH halves (the King and Queen's lioness).
+                // A kindled pair burns in BOTH halves (the Aether Dual Discs' lioness).
                 if (item.Kindled) KindledMarks.On(_off);
             }
             else _off.sprite = null;

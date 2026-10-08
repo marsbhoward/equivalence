@@ -19,7 +19,7 @@ namespace Convergence.Chain.Web
     ///
     /// A wallet is a browser-injected object (CIP-30) or a peer session that resolves to the same
     /// interface (CIP-45). Nothing here assumes an extension, or a particular browser - only that
-    /// the page put something at window.CoalescenceChain. Outside a browser build Available is
+    /// the page put something at window.EquivalenceChain. Outside a browser build Available is
     /// false and the game runs unconnected, which AccountProfile.LocalId already treats as
     /// normal.
     /// </summary>

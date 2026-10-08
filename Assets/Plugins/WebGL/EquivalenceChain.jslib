@@ -6,16 +6,16 @@
 // one-way pattern back into the `async Task` shape IProfileStore already declares, so no
 // gameplay code has to know the store is now a browser round trip.
 //
-// The page supplies window.CoalescenceChain. See web/connector/coalescence-chain.d.ts for the
+// The page supplies window.EquivalenceChain. See web/connector/equivalence-chain.d.ts for the
 // contract; anything not implemented there fails loudly rather than silently resolving.
 
 mergeInto(LibraryManager.library, {
 
-  CoalescenceChainAvailable: function () {
-    return (typeof window !== 'undefined' && window.CoalescenceChain) ? 1 : 0;
+  EquivalenceChainAvailable: function () {
+    return (typeof window !== 'undefined' && window.EquivalenceChain) ? 1 : 0;
   },
 
-  CoalescenceChainCall: function (reqIdPtr, methodPtr, payloadPtr) {
+  EquivalenceChainCall: function (reqIdPtr, methodPtr, payloadPtr) {
     var reqId   = UTF8ToString(reqIdPtr);
     var method  = UTF8ToString(methodPtr);
     var payload = UTF8ToString(payloadPtr);
@@ -27,8 +27,8 @@ mergeInto(LibraryManager.library, {
       var fn = (typeof SendMessage === 'function') ? SendMessage
              : (typeof Module !== 'undefined' && Module.SendMessage) ? Module.SendMessage
              : null;
-      if (!fn) { console.error('[CoalescenceChain] no SendMessage available; request ' + reqId + ' will time out'); return; }
-      fn('CoalescenceChainBridge', 'OnChainResult', json);
+      if (!fn) { console.error('[EquivalenceChain] no SendMessage available; request ' + reqId + ' will time out'); return; }
+      fn('EquivalenceChainBridge', 'OnChainResult', json);
     }
 
     function ok(value) {
@@ -45,8 +45,8 @@ mergeInto(LibraryManager.library, {
     }
 
     try {
-      var api = window.CoalescenceChain;
-      if (!api) { fail('no connector: window.CoalescenceChain is undefined'); return; }
+      var api = window.EquivalenceChain;
+      if (!api) { fail('no connector: window.EquivalenceChain is undefined'); return; }
 
       var fn = api[method];
       if (typeof fn !== 'function') { fail('connector has no method "' + method + '"'); return; }

@@ -4,7 +4,7 @@ namespace Convergence.Chain.Web
 {
     /// <summary>
     /// The GameObject the jslib calls back into. Its NAME IS THE ADDRESS - SendMessage resolves
-    /// by name, so "CoalescenceChainBridge" is duplicated in CoalescenceChain.jslib and must not
+    /// by name, so "EquivalenceChainBridge" is duplicated in EquivalenceChain.jslib and must not
     /// be renamed on one side alone. A rename does not error; the reply simply never arrives and
     /// every request times out.
     ///
@@ -13,7 +13,7 @@ namespace Convergence.Chain.Web
     /// </summary>
     public class ChainBridgeReceiver : MonoBehaviour
     {
-        public const string ObjectName = "CoalescenceChainBridge";
+        public const string ObjectName = "EquivalenceChainBridge";
 
         static ChainBridgeReceiver _instance;
 

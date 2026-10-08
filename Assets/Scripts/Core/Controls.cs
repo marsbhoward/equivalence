@@ -217,45 +217,96 @@ namespace Convergence.Core
         // else a MonoBehaviour reference might outlive the thing it pointed at.
 
         static readonly List<RectTransform> _focusCandidates = new();
-        static RectTransform _focused;
+        static RectTransform _focused, _focusedBefore;
+        static int _candidatesFrame = -10;
+
+        /// <summary>True once the right stick has moved the free cursor since the last D-pad
+        /// press. While set, nothing is focused and nothing is auto-focused - the stick is the
+        /// player saying "I am pointing myself".</summary>
+        static bool _freeAim;
 
         /// <summary>Called by whichever screen is open, every frame, with its own current list of
         /// clickable rects. Replaces the previous list outright - only one screen is ever open at
-        /// a time in this project's modal model, so there is nothing to merge.</summary>
+        /// a time in this project's modal model, so there is nothing to merge.
+        ///
+        /// ORDER MATTERS: the first live entry is what a freshly opened screen focuses, so a
+        /// screen lists its main choice first (and a destructive dialog its safe answer).</summary>
         public static void SetFocusCandidates(List<RectTransform> candidates)
         {
             _focusCandidates.Clear();
             if (candidates != null) _focusCandidates.AddRange(candidates);
+            _candidatesFrame = Time.frameCount;
         }
 
-        /// <summary>The rect D-pad navigation last landed on, or null if nothing has been
-        /// navigated to yet (or the stick/mouse/touch has taken over since). Read by
-        /// <see cref="UI.GamepadCursor"/> to draw a highlight instead of the free-aim dot.</summary>
-        public static RectTransform Focused => _focused;
+        /// <summary>The rect the D-pad has selected, or null while a gamepad isn't the device in
+        /// use, the stick is free-aiming, or no screen has registered candidates in the last
+        /// frame (a closed screen's list goes stale rather than lingering as a phantom
+        /// highlight). Read by <see cref="UI.GamepadCursor"/> to draw the highlight, and by the
+        /// scrolling screens to keep it in view.</summary>
+        public static RectTransform Focused
+        {
+            get
+            {
+                Sync();
+                return _gamepadMode && CandidatesLive && Valid(_focused) ? _focused : null;
+            }
+        }
+
+        // Screens register from their own Update, which can run before or after the first Sync of
+        // a frame - so last frame's list still counts.
+        static bool CandidatesLive => Time.frameCount - _candidatesFrame <= 1;
+
+        static bool Valid(RectTransform rt)
+            => rt != null && rt.gameObject.activeInHierarchy && _focusCandidates.Contains(rt);
+
+        static RectTransform FirstValid()
+        {
+            foreach (var c in _focusCandidates) if (c != null && c.gameObject.activeInHierarchy) return c;
+            return null;
+        }
 
         static void SyncFocusNavigation(Gamepad pad)
         {
-            if (pad == null || _focusCandidates.Count == 0) return;
+            if (pad == null) return;
+            // No menu open: the right stick is aiming in play, which must not leave the next menu
+            // opened believing the player is free-aiming it.
+            if (!CandidatesLive) { _freeAim = false; return; }
+            if (_focusCandidates.Count == 0) return;
 
             Vector2 dir = Vector2.zero;
             if (pad.dpad.up.wasPressedThisFrame) dir = Vector2.up;
             else if (pad.dpad.down.wasPressedThisFrame) dir = Vector2.down;
             else if (pad.dpad.left.wasPressedThisFrame) dir = Vector2.left;
             else if (pad.dpad.right.wasPressedThisFrame) dir = Vector2.right;
-            if (dir == Vector2.zero) return;
 
-            var from = (_focused != null && _focusCandidates.Contains(_focused))
-                ? _focused : Nearest(_gamepadCursor, _focusCandidates);
-            var next = from != null ? NearestInDirection(from, dir, _focusCandidates) : null;
-            _focused = next ?? from;
-            if (_focused == null) return;
+            if (dir != Vector2.zero)
+            {
+                // A D-pad press is unambiguous gamepad activity, and it ends free aim.
+                _touchMode = false;
+                _gamepadMode = true;
+                _freeAim = false;
+            }
+            if (!_gamepadMode || _freeAim) return;
 
-            // A D-pad press is unambiguous gamepad activity - the same rule every other gamepad
-            // control already gets in DetectDevice, applied here too since this runs from Sync
-            // rather than from that method.
-            _touchMode = false;
-            _gamepadMode = true;
-            _gamepadCursor = RectCenter(_focused);
+            // AUTO-FOCUS. A menu opened on a gamepad has something selected from its first frame -
+            // otherwise the first press of A clicks wherever the free cursor was left, and the
+            // first D-pad press has nothing to move FROM. When the focused rect goes away (a
+            // picker closing, a screen rebuilding) the one focused before it is tried first, so
+            // coming back from the gear grid lands on the slot that opened it.
+            if (!Valid(_focused))
+            {
+                var fallback = Valid(_focusedBefore) ? _focusedBefore : FirstValid();
+                if (_focused != null && _focused != fallback) _focusedBefore = _focused;
+                _focused = fallback;
+                if (_focused == null) return;
+                if (dir != Vector2.zero) return;   // the press that woke the menu only selects
+            }
+
+            if (dir != Vector2.zero)
+            {
+                var next = NearestInDirection(_focused, dir, _focusCandidates);
+                if (next != null) _focused = next;
+            }
         }
 
         static readonly Vector3[] _corners = new Vector3[4];
@@ -264,19 +315,6 @@ namespace Convergence.Core
         {
             rt.GetWorldCorners(_corners);
             return (Vector2)(_corners[0] + _corners[2]) * 0.5f;
-        }
-
-        static RectTransform Nearest(Vector2 point, List<RectTransform> candidates)
-        {
-            RectTransform best = null;
-            float bestDist = float.MaxValue;
-            foreach (var c in candidates)
-            {
-                if (c == null) continue;
-                float d = ((Vector2)c.position - point).sqrMagnitude;
-                if (d < bestDist) { bestDist = d; best = c; }
-            }
-            return best;
         }
 
         /// <summary>
@@ -293,7 +331,7 @@ namespace Convergence.Core
             float bestScore = float.MaxValue;
             foreach (var c in candidates)
             {
-                if (c == null || c == from) continue;
+                if (c == null || c == from || !c.gameObject.activeInHierarchy) continue;
                 Vector2 delta = RectCenter(c) - fromPos;
                 float along = Vector2.Dot(delta, dir);
                 if (along <= 1f) continue;   // must be meaningfully IN that direction, not beside it
@@ -439,12 +477,12 @@ namespace Convergence.Core
                  || (loadoutBtn != null && loadoutBtn.isPressed)
                  || VirtualLoadout);
 
-            // Confirm shares Attack's own button rather than a rebindable slot of its own - the
-            // two have always been one physical press, and giving Confirm an independent binding
-            // would let a player separate them into two buttons neither menu is built to expect.
+            // Keyboard only. A gamepad's A used to be Confirm too, and that is what made two-answer
+            // dialogs unanswerable on a pad: A confirmed the destructive answer whichever button
+            // the D-pad had selected. On a pad, A is a CLICK on the focused rect (the pointer
+            // pipeline below), which picks whichever answer is selected.
             Edge(ref _confirm, ref _confirmPrev,
-                 (kb != null && (kb.enterKey.isPressed || kb.numpadEnterKey.isPressed))
-                 || (attackBtn != null && attackBtn.isPressed));
+                 kb != null && (kb.enterKey.isPressed || kb.numpadEnterKey.isPressed));
 
             Edge(ref _mastery, ref _masteryPrev,
                  (kb != null && kb.mKey.isPressed) || (masteryBtn != null && masteryBtn.isPressed));
@@ -474,11 +512,22 @@ namespace Convergence.Core
                 var stick = ApplyDeadzone(pad.rightStick.ReadValue(), StickDeadzone);
                 if (stick != Vector2.zero)
                 {
+                    // The stick takes over from the D-pad: start from where the highlight was.
+                    if (!_freeAim && _focused != null && _gamepadMode) _gamepadCursor = RectCenter(_focused);
+                    _freeAim = true;
                     _gamepadCursor += stick * (UnityEngine.Screen.height * GamepadCursorSpeed * Time.unscaledDeltaTime);
                     _gamepadCursor.x = Mathf.Clamp(_gamepadCursor.x, 0f, UnityEngine.Screen.width);
                     _gamepadCursor.y = Mathf.Clamp(_gamepadCursor.y, 0f, UnityEngine.Screen.height);
                 }
             }
+
+            // Focus is resolved BEFORE the pointer, so the press of A on the frame a D-pad press
+            // lands clicks the rect it landed on. While something is focused the pad's pointer
+            // sits on its CURRENT centre - read every frame, not copied once at the D-pad press,
+            // because the mastery board pans and the lists scroll the focused rect under it.
+            SyncFocusNavigation(pad);
+            if (pad != null && _gamepadMode && !_freeAim && CandidatesLive && Valid(_focused))
+                _gamepadCursor = RectCenter(_focused);
 
             // ---- pointer: a mouse click, a finger tap and a gamepad's cursor click are the same event ----
             bool mouseDown = mouse != null && mouse.leftButton.wasPressedThisFrame;
@@ -518,6 +567,12 @@ namespace Convergence.Core
                      : fingerHeld ? FreePointer.Value
                      : mouseHeld || mouseDown ? mouse.position.ReadValue()
                      : padHeld || padDown ? _gamepadCursor
+                     // On a pad the HOVER is the pad's cursor too. Left to the resting mouse, the
+                     // release of A read wherever the mouse happened to be - so every screen that
+                     // commits on release (the lists, the mastery board) took the press for a
+                     // drag - and a mouse parked over the loadout preview held that screen's
+                     // gesture forever.
+                     : _gamepadMode ? _gamepadCursor
                      : mouse != null ? mouse.position.ReadValue()
                      : prev;
 
@@ -544,8 +599,6 @@ namespace Convergence.Core
                   + PinchDelta / Mathf.Log(NotchRatio)
                   + padZoom;
             PinchDelta = 0f;
-
-            SyncFocusNavigation(pad);
         }
 
         /// <summary>
@@ -662,6 +715,14 @@ namespace Convergence.Core
         public static bool CancelHeld { get { Sync(); return _cancel; } }
         public static bool LoadoutHeld { get { Sync(); return _loadout; } }
         public static bool AltHeld { get { Sync(); return _alt; } }
+
+        /// <summary>
+        /// Spend this frame's Cancel press: <see cref="CancelTapped"/> reads false for the rest of
+        /// the frame. For a screen stacked over another (the gear grid over the loadout, the
+        /// armour stand, the circle) - nothing here consumes input, so without this whichever
+        /// Update ran second saw the same press and closed the screen underneath as well.
+        /// </summary>
+        public static void ConsumeCancel() { Sync(); _cancelPrev = _cancel; }
 
         /// <summary>The third option, where one exists. Only trophy placement has one.</summary>
         public static bool AltTapped { get { Sync(); return _alt && !_altPrev; } }

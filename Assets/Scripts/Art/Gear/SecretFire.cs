@@ -66,10 +66,59 @@ namespace Convergence.Art.Gear
             new(9, 2, 3, 255),     // Vein
             new(12, 3, 4, 255),    // Ember
             new(71, 9, 17, 255),   // Crevice - a dark red, not a black
+            // The LIQUID (a Philosopher's Stone that is all light - see KindleLiquid): five tones,
+            // near-black with a cool cast, so none of them is any of the four above.
+            new(5, 3, 10, 255),    // liquid highlight
+            new(7, 4, 13, 255),    // liquid light
+            new(9, 5, 16, 255),    // liquid body
+            new(11, 6, 19, 255),   // liquid shade
+            new(13, 7, 22, 255),   // liquid deep
         };
 
-        /// <summary>Which of the element's three tones each reserved colour burns in.</summary>
-        static readonly int[] LitTone = { 0, 1, 2, 1 };
+        /// <summary>The first liquid tone's index in <see cref="Unlit"/>.</summary>
+        const int LiquidFirst = 4;
+
+        /// <summary>
+        /// How lit a LIQUID ever goes dark: a fraction of full, never black. The user's rule for
+        /// the liquid stone (2026-10-07) - it ebbs and flows on the beat with a floor of light.
+        /// </summary>
+        public const float LiquidFloor = 0.35f;
+
+        /// <summary>A reserved colour lit in <paramref name="element"/>'s tones (core, vein, ember).
+        /// The liquid's five come off the same three, the stone's ramp from the user's mock-up.</summary>
+        static Color Lit(int tone, Color[] t) => tone switch
+        {
+            0 => t[0], 1 => t[1], 2 => t[2], 3 => t[1],            // core, vein, ember; crevice as vein
+            4 => t[0],                                             // liquid highlight
+            5 => t[1],                                             // liquid light
+            6 => Color.Lerp(t[2], t[1], 0.6f),                     // liquid body
+            7 => t[2] * 0.8f,                                      // liquid shade
+            _ => t[2] * 0.45f,                                     // liquid deep
+        };
+
+        /// <summary>
+        /// Paint a LIQUID: the grid letters <paramref name="highlight"/>, <paramref name="light"/>,
+        /// <paramref name="body"/>, <paramref name="shade"/> and <paramref name="deep"/> become the
+        /// liquid's reserved tones, so the whole shape is light in the attuned element. A sprite
+        /// with any of them never goes below <see cref="LiquidFloor"/> (<see cref="FloorOf"/>).
+        /// </summary>
+        public static Dictionary<char, Color> KindleLiquid(Dictionary<char, Color> palette, char highlight,
+                                                           char light, char body, char shade, char deep)
+        {
+            palette[highlight] = Unlit[LiquidFirst];
+            palette[light] = Unlit[LiquidFirst + 1];
+            palette[body] = Unlit[LiquidFirst + 2];
+            palette[shade] = Unlit[LiquidFirst + 3];
+            palette[deep] = Unlit[LiquidFirst + 4];
+            return palette;
+        }
+
+        static readonly Dictionary<Sprite, float> _floors = new();
+
+        /// <summary>The lowest a sprite's marks ever burn: <see cref="LiquidFloor"/> for one with any
+        /// liquid in it, else 0. Known once its overlay has been built.</summary>
+        public static float FloorOf(Sprite src)
+            => src != null && _floors.TryGetValue(src, out var f) ? f : 0f;
 
         /// <summary>
         /// Add the three mark letters to a palette, in their unlit colours. Call it LAST, after any
@@ -231,15 +280,17 @@ namespace Convergence.Art.Gear
             var tones = Tones(element);
             var sear = Color.Lerp(tones[0], Color.white, 0.75f);
             var outPx = new Color[w * h];
-            bool any = false;
+            bool any = false, liquid = false;
             for (int i = 0; i < px.Length; i++)
             {
                 int tone = ToneOf(px[i]);
                 if (tone < 0) continue;
-                outPx[i] = mode == Sear ? sear : tones[mode == Hot ? 0 : LitTone[tone]];
+                outPx[i] = mode == Sear ? sear : mode == Hot ? tones[0] : Lit(tone, tones);
                 any = true;
+                liquid |= tone >= LiquidFirst;
             }
             if (!any) { _unmarked.Add(src); return null; }
+            if (liquid) _floors[src] = LiquidFloor;
 
             var tex = new Texture2D(w, h, TextureFormat.RGBA32, false)
             {

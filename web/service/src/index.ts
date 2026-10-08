@@ -51,12 +51,12 @@ app.get('/service/address', async (_req, res) => {
   }
 });
 
-// Named to match coalescence-chain.ts's existing /write/<kind> convention (beginRun, commitRun,
+// Named to match equivalence-chain.ts's existing /write/<kind> convention (beginRun, commitRun,
 // unlock, saveAccount all go through that same shape client-side), so wiring this endpoint into
 // the connector later is one more case in that file, not a new pattern.
 app.post('/write/redeem-gear', redeemGear);
 
 const port = Number(process.env.PORT ?? 8787);
 app.listen(port, () => {
-  console.log(`[coalescence-service] listening on :${port}`);
+  console.log(`[equivalence-service] listening on :${port}`);
 });

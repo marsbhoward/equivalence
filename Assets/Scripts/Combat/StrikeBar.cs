@@ -6,8 +6,12 @@ namespace Convergence.Combat
 {
     /// <summary>
     /// The finisher timing meter: a slim arc standing beside the character, filling from the
-    /// bottom up - a basketball shot meter. Four equal segments run up it (red lead, yellow good,
-    /// green perfect, yellow good), and the strike lands as the fill reaches the top.
+    /// bottom up - a basketball shot meter. Four segments run up it (red lead, yellow good,
+    /// green perfect, yellow good), and the strike lands as the fill reaches the top. The three
+    /// judged segments last the same on every bar; the lead's length follows the finisher's
+    /// weight. The meter keeps one height (about Tuning ArcRows), so a longer bar fills slower,
+    /// each segment getting rows in proportion to its time - the fill moves at one speed
+    /// from bottom to top.
     ///
     /// ON THE SIDE AWAY FROM THE FACING - the off hand. The strike goes the other way, so the
     /// meter never sits under the swing, the slash or the target. The side is chosen when the bar
@@ -43,8 +47,11 @@ namespace Convergence.Combat
 
         const float Ppu = 37.5f;
 
-        static int Rows => T.ArcRowsPerSegment * 4;
-        static int Height => Rows + 2;                                   // a rim cap at each end
+        // This bar's rows, set by Begin: the lead's, each judged segment's, and the total.
+        int _leadRows = T.ArcRows / 4, _segRows = T.ArcRows / 4;
+        float _barSeconds = T.SegmentSeconds * 4f;
+        int Rows => _leadRows + 3 * _segRows;
+        int Height => Rows + 2;                                          // a rim cap at each end
         static int ArcWidth => T.ArcBowTexels + T.ArcCoreTexels + 1 + 2; // bow + widest core + rims
         static int Width => ArcWidth + PipGap + PipLitWidth + 2;          // + clear gap + pip + rims
 
@@ -96,17 +103,26 @@ namespace Convergence.Combat
 
         void Build()
         {
+            _renderer = gameObject.AddComponent<SpriteRenderer>();
+            _renderer.sortingOrder = SortingOrders.StrikeBar;
+            _renderer.enabled = false;
+            Fit();
+        }
+
+        /// <summary>(Re)make the texture when this bar's height differs from the last one's.</summary>
+        void Fit()
+        {
+            if (_texture != null && _texture.height == Height && _renderer.sprite != null) return;
+            if (_texture != null) Destroy(_texture);
+            if (_renderer.sprite != null) Destroy(_renderer.sprite);
             _texture = new Texture2D(Width, Height, TextureFormat.RGBA32, false)
             {
                 filterMode = FilterMode.Point,
                 wrapMode = TextureWrapMode.Clamp,
                 name = "strike.bar",
             };
-            _renderer = gameObject.AddComponent<SpriteRenderer>();
             _renderer.sprite = Sprite.Create(_texture, new Rect(0, 0, Width, Height),
                                              new Vector2(0.5f, 0.5f), Ppu);
-            _renderer.sortingOrder = SortingOrders.StrikeBar;
-            _renderer.enabled = false;
         }
 
         void OnDestroy()
@@ -117,9 +133,16 @@ namespace Convergence.Combat
         /// <summary>
         /// Start a fresh, empty meter. <paramref name="facingX"/> is the player's facing: the
         /// meter stands on the OTHER side, and stays there until it is gone.
+        /// <paramref name="barSeconds"/> is how long it is on screen before the strike.
         /// </summary>
-        public void Begin(float facingX, int streak)
+        public void Begin(float facingX, int streak, float barSeconds)
         {
+            float seg = T.SegmentSeconds;
+            _barSeconds = Mathf.Max(barSeconds, seg * 4f);
+            _segRows = Mathf.Max(1, Mathf.RoundToInt(T.ArcRows * seg / _barSeconds));
+            _leadRows = Mathf.Max(1, Mathf.RoundToInt((_barSeconds - T.JudgedSeconds) / seg * _segRows));
+            Fit();
+
             float side = facingX >= 0f ? -1f : 1f;
             // The texture's x = 0 is the arc's inner edge (its ends), and the bow points to +x -
             // so the arc bulges AWAY from the body, and mirroring flips it for the left side.
@@ -167,22 +190,22 @@ namespace Convergence.Combat
             _dirty = true;
         }
 
-        /// <summary>Advance the fill. <paramref name="intoBar"/> is seconds since the meter
-        /// appeared; the controller's clock, so drawing and judging agree.</summary>
-        public void Tick(float intoBar)
+        /// <summary>Advance the fill. <paramref name="untilStrike"/> is the controller's clock,
+        /// so drawing and judging agree.</summary>
+        public void Tick(float untilStrike)
         {
             if (!_live || _state != State.Filling) return;
-            SetFill(intoBar);
+            SetFill(untilStrike);
         }
 
         /// <summary>
         /// The first tap: freeze the fill where it landed. A hit lights the segment it landed in;
         /// an early press turns the fill red and the zones dark.
         /// </summary>
-        public void Press(float intoBar, StrikeVerdict verdict)
+        public void Press(float untilStrike, StrikeVerdict verdict)
         {
             if (!_live) return;
-            SetFill(intoBar);
+            SetFill(untilStrike);
             if (verdict == StrikeVerdict.Early || verdict == StrikeVerdict.Missed)
             {
                 _state = State.Failed;
@@ -190,7 +213,8 @@ namespace Convergence.Combat
             else
             {
                 _state = State.Hit;
-                _hitSegment = Mathf.Clamp(Mathf.FloorToInt(intoBar / T.SegmentSeconds), 1, 3);
+                float seg = T.SegmentSeconds;
+                _hitSegment = untilStrike > seg * 2f ? 1 : untilStrike > seg ? 2 : 3;
                 _flash = 1f;
             }
             _dirty = true;
@@ -221,13 +245,24 @@ namespace Convergence.Combat
             if (_renderer != null) _renderer.enabled = false;
         }
 
-        void SetFill(float intoBar)
+        /// <summary>Rows filled with <paramref name="untilStrike"/> left - piecewise, lead then
+        /// the judged segments, so the fill crosses each boundary exactly when the judge does
+        /// (the two rates differ by under a row's worth from rounding).</summary>
+        void SetFill(float untilStrike)
         {
-            int rows = Mathf.Clamp(Mathf.CeilToInt(intoBar / T.BarSeconds * Rows), 0, Rows);
+            float judged = T.JudgedSeconds;
+            float lead = _barSeconds - judged;
+            float f = untilStrike > judged
+                ? (1f - (untilStrike - judged) / lead) * _leadRows
+                : _leadRows + (1f - untilStrike / judged) * 3 * _segRows;
+            int rows = Mathf.Clamp(Mathf.CeilToInt(f), 0, Rows);
             if (rows == _fillRows) return;
             _fillRows = rows;
             _dirty = true;
         }
+
+        /// <summary>0 lead, 1 good, 2 perfect, 3 good - bottom to top.</summary>
+        int SegmentOf(int r) => r < _leadRows ? 0 : 1 + Mathf.Min(2, (r - _leadRows) / _segRows);
 
         static Color SegmentColor(int segment) => segment switch
         {
@@ -238,7 +273,7 @@ namespace Convergence.Combat
 
         /// <summary>Where row <paramref name="r"/>'s inner rim sits: a parabola through the
         /// arc's two ends, bowing ArcBowTexels out at the middle.</summary>
-        static int BowAt(int r)
+        int BowAt(int r)
         {
             float half = Rows * 0.5f;
             float u = (r + 0.5f - half) / half;
@@ -246,10 +281,10 @@ namespace Convergence.Combat
         }
 
         /// <summary>The first texel past row <paramref name="r"/>'s outer rim.</summary>
-        static int OuterAt(int r)
+        int OuterAt(int r)
         {
             r = Mathf.Clamp(r, 0, Rows - 1);
-            int core = T.ArcCoreTexels + (r / T.ArcRowsPerSegment == 2 ? 1 : 0);
+            int core = T.ArcCoreTexels + (SegmentOf(r) == 2 ? 1 : 0);
             return BowAt(r) + core + 2;
         }
 
@@ -303,7 +338,7 @@ namespace Convergence.Combat
             Color rim = T.Track;
             for (int r = 0; r < Rows; r++)
             {
-                int segment = r / T.ArcRowsPerSegment;
+                int segment = SegmentOf(r);
                 int core = T.ArcCoreTexels + (segment == 2 ? 1 : 0);
                 int x0 = BowAt(r);
                 int y = r + 1;

@@ -728,6 +728,8 @@ namespace Convergence.Art.Gear
             // above the hairline and leaves the length below it, which is right for a great-helm
             // and wrong for one that wraps the jaw - see GearItem.SealsHead.
             seraphHelm.SealsHead = true;
+            seraphHelm.HelmBack = Pixels(RigLayer.HeadArmor, "gear.head.seraph.back", SeraphHelmBackRows,
+                                         seraphPal, 0f, 8f, ppu: BodyPpu);
             items.Add(seraphHelm);
 
             // The gloves and the boots are deliberate SIBLINGS - identical black cuff, identical
@@ -1188,6 +1190,7 @@ namespace Convergence.Art.Gear
                 Pixels(RigLayer.Weapon, "gear.weapon.zanmato.menu", ZanmatoSwordDetail, ZanmatoPal(),
                        0f, -10f, pivotTexel: ZanmatoDetailGrip, ppu: MenuPpu));
             zanmato.SignatureFinisher = "crosscut";
+            zanmato.SingleEdged = true;   // the edge leads every cut - see GearItem.SingleEdged
             // The ANIMATION rides the weapon; the finisher itself rides the saya. Held or worn as
             // a transmog, this is what puts the scabbard sequence on the move.
             zanmato.HasSheathAnimation = true;
@@ -1274,9 +1277,10 @@ namespace Convergence.Art.Gear
             // The disc Forge set: four element bands and the Armillary - DemoGear.Armillary.cs.
             AddArmillary(items);
 
-            // King and Queen: a red lion and a white lioness, each an ouroboros, cracked with the
+            // The Aether Dual Discs: a red lion and a white lioness, each an ouroboros, cracked with the
             // Secret Fire - DemoGear.LionOuroboros.cs.
             items.Add(LionOuroboros());
+            AddGeodeStone(items);   // its relic - DemoGear.LionOuroboros.cs
 
             // ---- bow: the third weapon class, pure ranged ----
             //
@@ -2743,6 +2747,13 @@ namespace Convergence.Art.Gear
         // One gilt ring at the bottom and nothing else. The reference carries three vents on the
         // temple; at this size each is a single texel, which is noise, not detail - the same call
         // the mantle's own notes make about shapes below three texels.
+        /// <summary>The Seraph Helm from BEHIND (GearItem.HelmBack): every row the visor reaches is
+        /// white shell - its gilt trim included - and the gilt bands, which run edge to edge with no
+        /// visor in them, wrap round the back. Derived, so the outline can't drift from the front.</summary>
+        static string[] SeraphHelmBackRows => _seraphHelmBackRows ??= System.Array.ConvertAll(SeraphHelmRows,
+            row => row.IndexOf('k') < 0 ? row : row.Replace('k', 'h').Replace('B', 'h'));
+        static string[] _seraphHelmBackRows;
+
         static readonly string[] SeraphHelmRows =
         {
                 "....................................",

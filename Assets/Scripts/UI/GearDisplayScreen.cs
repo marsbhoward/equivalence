@@ -194,7 +194,7 @@ namespace Convergence.UI
                     var twin = Piece(Corner(new Vector2(r.width * 0.175f, -r.height * 0.125f)), w, h, scale,
                           (Hub.GearDisplay.RepresentOffhand(item, menu: true) ?? layer).Sprite,
                           new Color(0.72f, 0.72f, 0.72f, 1f));
-                    KindledImage.On(twin, item);    // a kindled pair burns in BOTH halves (the King and Queen)
+                    KindledImage.On(twin, item);    // a kindled pair burns in BOTH halves (the Aether Dual Discs)
                 }
                 var at = pair ? new Vector2(-r.width * 0.175f, r.height * 0.125f) : Vector2.zero;
                 var main = Piece(Corner(at), w, h, scale, layer.Sprite, layer.Tint);
@@ -486,6 +486,14 @@ namespace Convergence.UI
             _focusRects.Clear();
             foreach (var (rect, _) in _rows) _focusRects.Add(rect);
             Controls.SetFocusCandidates(_focusRects);
+
+            // A row the D-pad lands on below the fold scrolls up into the pane.
+            var focused = Controls.Focused;
+            if (focused != null && _content != null && focused.IsChildOf(_content))
+            {
+                float d = UiKit.ScrollToShow(_pane, focused);
+                if (d != 0f) { _scroll += d; ApplyScroll(); }
+            }
 
             // COMMITTED ON RELEASE, not on press - forced by the list scrolling. Everywhere else
             // in this project a tap fires the moment the button goes down, which is right for a

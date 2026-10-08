@@ -62,6 +62,10 @@ namespace Convergence.Art.Gear
                        ppu: BodyPpu, outline: false)));
             // Enclosed - the guards wrap the jaw and no hair escapes (seraph_helm's reason).
             helm.SealsHead = true;
+            // Sealed, so it needs a back: without one the rig turns round into bare hair.
+            helm.HelmBack = Pixels(RigLayer.HeadArmor, "gear.head.aether.back", CorHelmBackRows, pal,
+                FieldCentreCells(CorHelmMinX, CorHelmMaxX), FieldCentreCells(CorHelmBottom, CorHelmTop),
+                ppu: BodyPpu, outline: false);
             items.Add(helm);
 
             items.Add(Kindle(Make("aether_pauldrons", "Aether Pauldrons", GearSlot.Shoulders, LootTier.Diamond, 0f,
@@ -336,6 +340,48 @@ namespace Convergence.Art.Gear
         /// <summary>Outside the helm, and not in the face opening.</summary>
         static bool CorOuterEdge(float x, float y) => !CorHelmIn(x, y) && !CorFaceOpen(x, y);
 
+        // The helm from BEHIND (GearItem.HelmBack): the same dome and foot with no opening, so
+        // turning round changes what is inside the outline and nothing about the outline. The
+        // band runs along the whole foot, so it carries on round the back.
+
+        static string[] _corHelmBackRows;
+        static string[] CorHelmBackRows => _corHelmBackRows ??=
+            PaintField(CorHelmMinX, CorHelmMaxX, CorHelmBottom, CorHelmTop, CorHelmBackTexel);
+
+        static bool CorHelmBackIn(float x, float y)
+        {
+            float half = CorHelmHalfAt(y);
+            return half >= 0f && x > -half && x < half && y >= CorHelmFootAt(x);
+        }
+
+        static char CorHelmBackTexel(int ix, int iy)
+        {
+            const string P = CorPlate;
+            float x = ix + 0.5f, y = iy + 0.5f;
+            if (!CorHelmBackIn(x, y)) return '.';
+
+            if (!CorHelmBackIn(x - 1f, y) || !CorHelmBackIn(x + 1f, y)
+                || !CorHelmBackIn(x, y + 1f) || y < CorHelmFootAt(x) + 1f)
+                return RampChar(P, 0);
+
+            if (CorNear(x, y, CorTrimWidth + 1f, (u, v) => v < CorHelmFootAt(u))) return CorVein;
+
+            return CorDomeShade(x, y);
+        }
+
+        /// <summary>The dome's shading, front and back alike: smooth, lit toward +X, the crown's
+        /// rim catching the light.</summary>
+        static char CorDomeShade(float x, float y)
+        {
+            const string P = CorPlate;
+            float half = CorHelmHalfAt(y);
+            float n = x / half;                                                   // -1 back .. +1 front
+            if (y > 14f && CorHelmHalfAt(y + 1.6f) < Mathf.Abs(x) + 0.5f)
+                return RampChar(P, n > -0.2f ? 4 : 3);                            // the crown's rim
+            if (n > 0.55f) return RampChar(P, 3);
+            return RampChar(P, n < -0.6f ? 1 : 2);
+        }
+
         static char CorHelmTexel(int ix, int iy)
         {
             const string P = CorPlate;
@@ -356,13 +402,8 @@ namespace Convergence.Art.Gear
             // ---- and along the whole foot, inside that edge ----
             if (CorNear(x, y, CorTrimWidth + 1f, CorUnderFoot)) return CorVein;
 
-            // ---- the dome: smooth, lit toward +X, the crown's rim catching the light ----
-            float half = CorHelmHalfAt(y);
-            float n = x / half;                                                   // -1 back .. +1 front
-            if (y > 14f && CorHelmHalfAt(y + 1.6f) < Mathf.Abs(x) + 0.5f)
-                return RampChar(P, n > -0.2f ? 4 : 3);                            // the crown's rim
-            if (n > 0.55f) return RampChar(P, 3);
-            return RampChar(P, n < -0.6f ? 1 : 2);
+            // ---- the dome ----
+            return CorDomeShade(x, y);
         }
 
         // ------------------------------------------------------------------ the pauldrons (Shoulders)
@@ -1004,7 +1045,7 @@ namespace Convergence.Art.Gear
         // ------------------------------------------------------------------ the stone
         //
         // The Aether Greatsword's RELIC: a Philosopher's Stone, the CRACKED SHARD (the user's pick
-        // for the sword, 2026-10-07 - the geode is the King and Queen's, the liquid Prima Materia's).
+        // for the sword, 2026-10-07 - the geode is the Aether Dual Discs', the liquid is the Aether Longbow's).
         // A tall red crystal pointed at both ends, at the body's density beside the pouch (HipRelic).
         // Its cracks are the Secret Fire's CREVICES: lit on the one beat in the attuned element,
         // and at rest only dark red lines in the red stone - a stone loses its glow, never goes

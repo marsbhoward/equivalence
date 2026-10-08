@@ -70,7 +70,7 @@ export async function redeemGear(req: Request, res: Response): Promise<void> {
 
     res.json({ hash, unit });
   } catch (err) {
-    // Rejects with a message, never a sentinel - matches coalescence-chain.d.ts's contract
+    // Rejects with a message, never a sentinel - matches equivalence-chain.d.ts's contract
     // ("a rejected promise becomes a ChainException"; empty-hash writes are recorded as failed
     // checkpoints, never as silent successes).
     res.status(500).json({ error: err instanceof Error ? err.message : String(err) });

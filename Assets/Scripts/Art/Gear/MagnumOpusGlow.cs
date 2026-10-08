@@ -39,7 +39,7 @@ namespace Convergence.Art.Gear
 
         [SerializeField] float _startedAt = -1f;
         [SerializeField] float _firedAt = -1f;
-        [SerializeField] SpriteRenderer _weapon, _relic;
+        [SerializeField] SpriteRenderer _weapon, _relic, _offhand;
         [SerializeField] SpriteRenderer _relicHalo;
 
         /// <summary>The storm round the blade while it swells (Combat.BladeLightning).</summary>
@@ -55,6 +55,7 @@ namespace Convergence.Art.Gear
             if (glow == null) glow = root.gameObject.AddComponent<MagnumOpusGlow>();
             glow._weapon = rig.WeaponRenderer;
             glow._relic = rig.TrinketRenderer;
+            glow._offhand = rig.OffhandRenderer;   // a disc pair lights as one weapon
             glow._startedAt = Time.time;
             glow._firedAt = -1f;
             glow._flashed = glow._arrived = false;
@@ -105,7 +106,7 @@ namespace Convergence.Art.Gear
 
             float now = Time.time, t = now - _startedAt;
             float fired = FiredAt;
-            bool isWeapon = src == _weapon, isRelic = src == _relic;
+            bool isWeapon = src == _weapon || (_offhand != null && src == _offhand), isRelic = src == _relic;
 
             if (fired >= 0f)
             {

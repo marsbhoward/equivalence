@@ -480,7 +480,7 @@ namespace Convergence.Balance
                            * Mathf.Max(0.25f, m.FinisherDamageMul) * StatPercents.Apply(1f, s.FinisherPower);
             float seconds = (basics + Tuning.Finisher.LockMedium * m.LockMul) * interval;
 
-            float windUp = Tuning.StrikeTiming.BarSeconds;
+            float windUp = Tuning.StrikeTiming.BarSecondsFor(Combat.FinisherWeight.Medium);   // the finisher priced
             finisher *= Combat.StrikeJudge.Parity(basics * basic, finisher, seconds, windUp)
                         * Tuning.StrikeTiming.GoodMultiplier;
             seconds += windUp;

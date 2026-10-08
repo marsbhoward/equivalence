@@ -231,5 +231,27 @@ namespace Convergence.UI
             rt.offsetMax = offsetMax;
             return rt;
         }
+
+        static readonly Vector3[] _paneCorners = new Vector3[4], _itemCorners = new Vector3[4];
+
+        /// <summary>
+        /// How far a vertically scrolling list must scroll, in its content's own units, to bring
+        /// <paramref name="item"/> fully inside <paramref name="pane"/> - 0 when it already is.
+        /// Positive scrolls down (content moves up). For the D-pad: the focused row must never be
+        /// one the player can't see.
+        /// </summary>
+        public static float ScrollToShow(RectTransform pane, RectTransform item, float margin = 12f)
+        {
+            if (pane == null || item == null) return 0f;
+            pane.GetWorldCorners(_paneCorners);
+            item.GetWorldCorners(_itemCorners);
+            float scale = Mathf.Max(0.0001f, pane.lossyScale.y);
+            float m = margin * scale;
+            float below = (_paneCorners[0].y + m) - _itemCorners[0].y;
+            if (below > 0f) return below / scale;
+            float above = _itemCorners[1].y - (_paneCorners[1].y - m);
+            if (above > 0f) return -above / scale;
+            return 0f;
+        }
     }
 }

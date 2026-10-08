@@ -20,6 +20,48 @@ namespace Convergence.Core
         static readonly HashSet<Object> _holders = new();
 
         public static bool IsPaused => _holders.Count > 0;
+
+        // ---- slow motion ----
+        //
+        // A third state between running and paused: BULLET TIME (the bow's Prima Materia art). Each
+        // holder asks for a scale; the slowest wins, and it is what time comes BACK to when a
+        // screen closes or a hit-stop ends - both used to resume straight to 1, which would cut
+        // bullet time off at its first hit. Not a dictionary of interface or struct shapes a
+        // domain reload can't restore - and if one empties it, time simply runs at 1 again.
+        static readonly Dictionary<Object, float> _slows = new();
+
+        /// <summary>What time runs at when nothing is pausing or freezing it: 1, or the slowest
+        /// slow-motion being held.</summary>
+        public static float BaseScale
+        {
+            get
+            {
+                float s = 1f;
+                List<Object> dead = null;
+                foreach (var kv in _slows)
+                {
+                    if (kv.Key == null) { (dead ??= new List<Object>()).Add(kv.Key); continue; }
+                    s = Mathf.Min(s, kv.Value);
+                }
+                if (dead != null) foreach (var d in dead) _slows.Remove(d);
+                return s;
+            }
+        }
+
+        /// <summary>Hold time at <paramref name="scale"/> (0..1) until <see cref="Unslow"/>. A pause
+        /// or a hit-stop still stops it outright, and hands back to this when they end.</summary>
+        public static void Slow(Object who, float scale)
+        {
+            if (who == null) return;
+            _slows[who] = Mathf.Clamp(scale, 0.01f, 1f);
+            if (!IsPaused && !Hitstop.IsActive) Time.timeScale = BaseScale;
+        }
+
+        public static void Unslow(Object who)
+        {
+            if (who == null || !_slows.Remove(who)) return;
+            if (!IsPaused && !Hitstop.IsActive) Time.timeScale = BaseScale;
+        }
         public static int HolderCount => _holders.Count;
 
         public static void Hold(Object who)
@@ -36,7 +78,7 @@ namespace Convergence.Core
             Prune();
             // A hitstop mid-freeze must not be cut short by a screen closing under it - Hitstop's
             // own Tick is what hands timescale back once ITS freeze ends.
-            if (_holders.Count == 0 && !Hitstop.IsActive) Time.timeScale = 1f;
+            if (_holders.Count == 0 && !Hitstop.IsActive) Time.timeScale = BaseScale;
         }
 
         /// <summary>
@@ -49,6 +91,7 @@ namespace Convergence.Core
         public static void ReleaseAll()
         {
             _holders.Clear();
+            _slows.Clear();
             Time.timeScale = 1f;
         }
     }

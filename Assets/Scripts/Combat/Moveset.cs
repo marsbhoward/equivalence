@@ -272,6 +272,23 @@ namespace Convergence.Combat
         public bool MagnumOpus;
 
         /// <summary>
+        /// PRIMA MATERIA, the Aether Longbow's weapon art: the bow thrown like a boomerang at the
+        /// target (Combat.BoomerangBow); its hit starts bullet time while the stone is thrown up
+        /// (Combat.RelicToss), and the caught bow looses two rapid shots at every enemy round the
+        /// one it struck. Handled by <c>PlayerController.PrimaMateriaStrike</c>, ahead of the bow's
+        /// own arrow path. Strikes on the throw, so the timing bar winds up before it.
+        /// </summary>
+        public bool Boomerang;
+
+        /// <summary>
+        /// KING AND QUEEN, the Aether Dual Discs' weapon art: after the Magnum Opus's gather
+        /// (<see cref="ChargeSeconds"/>), both discs thrown in a pincer that meets on the target
+        /// (Combat.PincerDisc), caught at the top of a jump as they come round, and hurled down
+        /// onto it. Handled by <c>PlayerController.KingAndQueenStrike</c>, ahead of the disc paths.
+        /// </summary>
+        public bool Pincer;
+
+        /// <summary>
         /// This step does NOT freeze movement or facing, even though it sits in a finisher slot.
         ///
         /// Exactly one move has it - Shadow's Echo - and it is half of a matched pair with that
@@ -284,6 +301,31 @@ namespace Convergence.Combat
         /// never locks is worth measurably more to an Air build than to anyone else.
         /// </summary>
         public bool NeverLocks;
+
+        /// <summary>
+        /// The player LUNGES with the strike: a dash this far along the facing over
+        /// Tuning.Impale.LungeSeconds, and the hit resolves where it ends. Stops short of a locked
+        /// target in front (so it is inside the reach, not run past) and at the floor's edge (a
+        /// lunge never carries the player into a chasm). Zero for everything but Impale.
+        /// </summary>
+        public float LungeDistance;
+
+        /// <summary>
+        /// Flurry: cut down, cut back up, then the hilt turned and the POMMEL driven into the
+        /// target - one fixed-time sequence (Tuning.Flurry, <c>PlayerController.FlurryStrike</c>).
+        /// The two cuts land while the timing bar fills and pay its provisional GOOD; the bar
+        /// judges the pommel. The step's DamageMultiplier is the whole sequence (what parity and
+        /// the balance model price); the coroutine splits it into the cuts' and the pommel's shares.
+        /// </summary>
+        public bool PommelFlurry;
+
+        /// <summary>
+        /// The wind-up is a GUARD: for the whole timing bar, every attack that asks
+        /// PlayerController.TryParry is parried - negated, with the parry's tell - and the guard
+        /// stays up for the rest of the bar, so a pack's hits are all turned. No counter-hit of
+        /// its own: the art's strike is the answer. Riposte, the swords' only defensive art.
+        /// </summary>
+        public bool Guards;
 
         /// <summary>
         /// This step's reach grows with <see cref="WeaponHeat"/>, and at the top of the cycle it
@@ -369,7 +411,9 @@ namespace Convergence.Combat
         public string Flavor;
 
         /// <summary>
-        /// Three basics, by ROLE rather than by position in the chain:
+        /// The basics, by ROLE rather than by position in the chain. A chain is TWO basics and the
+        /// weapon art - the opener and the lead-in; the filler is optional and only ever plays in a
+        /// chain the ledger has lengthened:
         ///
         ///     [0] OPENER    the first swing, played from rest - the Chop on most greatswords
         ///     [1] LEAD-IN   always the swing right before the finisher, and authored for it:
@@ -377,8 +421,8 @@ namespace Convergence.Combat
         ///                   flows out of it instead of the rig blending across the gap in
         ///                   0.06s (Rise for finishers that start high, Wind for ones that
         ///                   start low, Thrust for the thrusts)
-        ///     [2] FILLER    only fires when the ledger lengthens the chain (Leaking), between
-        ///                   the opener and the lead-in
+        ///     [2] FILLER    OPTIONAL - only fires when the ledger lengthens the chain (Leaking),
+        ///                   between the opener and the lead-in; without one, the lead-in repeats
         ///
         /// MovesetLibrary checks the lead-in against its finisher at start-up and warns when the
         /// two are more than <see cref="MovesetLibrary.LeadInWarnDegrees"/> apart.
@@ -441,7 +485,7 @@ namespace Convergence.Combat
             // ChopFrom/ChopTo in PrimitiveCharacterRig). This briefly carried ReverseArc while
             // that was the other way round.
             //
-            // The hop is what separates the finisher from the three basics that share its
+            // The hop is what separates the finisher from the basics that share its
             // motion: same arc, but the character leaves the ground to put their weight behind
             // it. It is the only visual difference, and at 1.5x the interval there is room for it.
             HopHeight = 0.52f,
@@ -455,10 +499,10 @@ namespace Convergence.Combat
         {
             Id = "default",
             DisplayName = "Overhand",
-            Flavor = "Your standing weapon art. Slow, heavy, always available.",
+            Flavor = "Your standing weapon art.",
             IsDefault = true,
             FinisherGlyph = Glyph.Overhand,
-            FinisherDescription = "A slow, heavy swing brought straight down on one enemy. Nothing fancy - it just hits hard and always works.",
+            FinisherDescription = "Hops off the ground and brings the blade straight down on the enemy in front of you.",
             Basics = new[]
             {
                 new AttackStep { Name = "Slash", DamageMultiplier = 1f, IntervalMultiplier = 1f, Motion = AttackMotion.Chop },
@@ -476,11 +520,11 @@ namespace Convergence.Combat
         {
             Id = "disc_default",
             DisplayName = "Cross Cut",
-            Flavor = "Your standing weapon art for discs. Close and committed.",
+            Flavor = "Your standing weapon art for discs.",
             IsDefault = true,
             Class = Art.Gear.WeaponClass.Disc,
             FinisherGlyph = Glyph.Cross,
-            FinisherDescription = "Both discs brought across one enemy at once. Short reach, heavy hit - the disc's answer to something already on top of you.",
+            FinisherDescription = "Brings both discs across the enemy in front of you at once.",
             Basics = new[]
             {
                 new AttackStep { Name = "Cut", DamageMultiplier = 1f, IntervalMultiplier = 1f },
@@ -504,11 +548,11 @@ namespace Convergence.Combat
         {
             Id = "bow_default",
             DisplayName = "Broadhead",
-            Flavor = "Your standing shot. Plain and heavy.",
+            Flavor = "Your standing shot.",
             IsDefault = true,
             Class = Art.Gear.WeaponClass.Bow,
             FinisherGlyph = Glyph.Spike,
-            FinisherDescription = "A single heavier arrow. No frills - just more of what the bow already does.",
+            FinisherDescription = "Draws and looses a single heavier arrow.",
             Basics = new[]
             {
                 new AttackStep { Name = "Shot", DamageMultiplier = 1f, IntervalMultiplier = 1f, Motion = AttackMotion.Draw },
@@ -563,6 +607,9 @@ namespace Convergence.Combat
             // These start from something other than the rig's own blend: a leap leaves the screen,
             // and the katana's draw and Separatio's figures run sequences of their own.
             if (finisher.LeapSeconds > 0f || finisher.SheathDraw || finisher.SplitsThreeWays) return;
+            // The bow's and the discs' gathers hold their throw's own first frame, not a charge's
+            // raised blade.
+            if (finisher.Boomerang || finisher.Pincer) return;
 
             // A charged finisher starts from its hold pose (blended into over the entry window).
             bool charged = finisher.ChargeSeconds > 0f;
@@ -638,7 +685,7 @@ namespace Convergence.Combat
                 var lead = Played(basics - 1, basics);
                 foreach (var f in new[] { m.Finisher, m.Finisher.ReleaseStep })
                 {
-                    if (f == null || f.LeapSeconds > 0f || f.SheathDraw || f.SplitsThreeWays) continue;
+                    if (f == null || f.LeapSeconds > 0f || f.SheathDraw || f.SplitsThreeWays || f.Pincer) continue;
                     Pair(lead, (f, f.AltVariant));
                     if (!f.ThrowsWeapon && !f.OrbitsWeapon && f.DiscThrows == 0)
                         Pair((f, f.AltVariant), Played(0, basics));
@@ -713,6 +760,34 @@ namespace Convergence.Combat
             return pool;
         }
 
+        /// <summary>
+        /// The floor reward's weapon art offer: one the player does not hold, drawn from the class's
+        /// rollable pool PLUS its standing art (Overhand) - unless every slot an offer could go
+        /// into already holds the standing art (the start of a run), where offering it would change
+        /// nothing. So a player who replaced Overhand can take it back. Relic rolls stay on
+        /// <see cref="RollablePool"/>: a relic carrying the default would be a relic carrying
+        /// nothing. Null when there is nothing to offer.
+        /// </summary>
+        public static Moveset RandomOffer(IReadOnlyList<Moveset> slots, System.Func<int, bool> locked,
+                                          Art.Gear.WeaponClass weapon)
+        {
+            var pool = RollablePool(weapon);
+            bool allStanding = true;
+            for (int i = 0; i < slots.Count; i++)
+            {
+                var m = slots[i];
+                if (m != null && !m.IsDefault) pool.Remove(m);
+                if (locked != null && locked(i)) continue;
+                if (m == null || !m.IsDefault) allStanding = false;
+            }
+
+            var standing = DefaultFor(weapon);
+            if (!allStanding && standing != null && standing.Class == weapon) pool.Add(standing);
+
+            if (pool.Count == 0) return null;
+            return pool[UnityEngine.Random.Range(0, pool.Count)];
+        }
+
         public static Moveset RandomExcluding(IEnumerable<Moveset> held,
                                               Art.Gear.WeaponClass weapon = Art.Gear.WeaponClass.Greatsword)
         {
@@ -758,7 +833,7 @@ namespace Convergence.Combat
                 Id = "disc_ripple", DisplayName = "Ripple", Class = Art.Gear.WeaponClass.Disc,
                 FinisherGlyph = Glyph.Volley,
                 Flavor = "Discs skipped low and flat.",
-                FinisherDescription = "Three discs thrown at once, each finding its own target. The crowd-clearer.",
+                FinisherDescription = "Throws three discs at once, each flying at its own target.",
                 Basics = new[]
                 {
                     Basic("Cut",  0.95f, 1f, 0.10f, 0f, AttackMotion.Sweep),
@@ -777,7 +852,7 @@ namespace Convergence.Combat
                 Id = "disc_carom", DisplayName = "Carom", Class = Art.Gear.WeaponClass.Disc,
                 FinisherGlyph = Glyph.Thrown,
                 Flavor = "One disc, thrown to keep going.",
-                FinisherDescription = "A single disc that ricochets four extra times before it comes home. Rewards standing where the crowd is thickest.",
+                FinisherDescription = "Throws one disc that ricochets four extra times before it comes home.",
                 Basics = new[]
                 {
                     Basic("Cut",  0.95f, 1f, 0.10f, 0f, AttackMotion.Sweep),
@@ -796,7 +871,7 @@ namespace Convergence.Combat
                 Id = "disc_cleaver", DisplayName = "Heavy Cleaver", Class = Art.Gear.WeaponClass.Disc,
                 FinisherGlyph = Glyph.Spike,
                 Flavor = "A slower, heavier disc.",
-                FinisherDescription = "One heavy disc that hits hard and bounces once. Single-target punish for when the crowd has thinned.",
+                FinisherDescription = "Throws one heavy disc that bounces once before it comes home.",
                 Basics = new[]
                 {
                     Basic("Cut",  1.00f, 1.05f, 0.10f, 0f, AttackMotion.Sweep),
@@ -815,7 +890,7 @@ namespace Convergence.Combat
                 Id = "disc_carousel", DisplayName = "Carousel", Class = Art.Gear.WeaponClass.Disc,
                 FinisherGlyph = Glyph.Whirl,
                 Flavor = "Discs held out at arm's length, and a turn.",
-                FinisherDescription = "Holds both discs out to your sides and spins, cutting everything within reach. The disc's answer to being surrounded - and the reason close quarters is a choice rather than a mistake.",
+                FinisherDescription = "Holds both discs out to your sides and spins, cutting everything within reach.",
                 Basics = new[]
                 {
                     Basic("Cut",  1.00f, 1f, 0.10f, 0f, AttackMotion.Sweep),
@@ -843,7 +918,7 @@ namespace Convergence.Combat
                 Id = "disc_kickback", DisplayName = "Kickback", Class = Art.Gear.WeaponClass.Disc,
                 FinisherGlyph = Glyph.Fan,
                 Flavor = "Everything at once, and a step back out of it.",
-                FinisherDescription = "Sprays four discs in a cone and hops you backward out of reach. Hits hardest right in front of you, so it wants something already too close - and then it is not close any more.",
+                FinisherDescription = "Sprays four discs in a cone in front of you and hops you backward. The discs hit hardest right in front of you.",
                 Basics = new[]
                 {
                     Basic("Cut",  0.95f, 1f, 0.10f, 0f, AttackMotion.Sweep),
@@ -873,7 +948,7 @@ namespace Convergence.Combat
                 Id = "disc_scatter", DisplayName = "Scattershot", Class = Art.Gear.WeaponClass.Disc,
                 FinisherGlyph = Glyph.Burst,
                 Flavor = "Discs loosed in every direction.",
-                FinisherDescription = "Five discs thrown outward at once, each bouncing once. No aiming required - it goes everywhere.",
+                FinisherDescription = "Throws five discs outward in every direction at once, each bouncing once.",
                 Basics = new[]
                 {
                     Basic("Cut",  0.90f, 0.95f, 0.10f, 0f, AttackMotion.Sweep),
@@ -894,7 +969,7 @@ namespace Convergence.Combat
                 Id = "disc_mark", DisplayName = "Mark", Class = Art.Gear.WeaponClass.Disc,
                 FinisherGlyph = Glyph.Vortex,
                 Flavor = "One disc, and a long chain of them left painted.",
-                FinisherDescription = "Throws a single disc that bounces far through the crowd, painting everything it touches. A marked enemy takes double from the next hit that lands on it - so this is the move you throw BEFORE the one that matters.",
+                FinisherDescription = "Throws a single disc that bounces far through the crowd, marking everything it touches. A marked enemy takes double from the next hit that lands on it.",
                 Basics = new[]
                 {
                     Basic("Cut",  0.95f, 1f, 0.10f, 0f, AttackMotion.Sweep),
@@ -923,7 +998,7 @@ namespace Convergence.Combat
                 Id = "disc_sublimate", DisplayName = "Sublimate", Class = Art.Gear.WeaponClass.Disc,
                 FinisherGlyph = Glyph.Fan,
                 Flavor = "Discs that go out and simply stop.",
-                FinisherDescription = "Hangs three discs in the air. They do nothing until your NEXT weapon art fires, then all three go off at once. Sublimate into Mark detonates onto amplified targets; Sublimate into Carousel drops it into a crowd you have already closed on.",
+                FinisherDescription = "Hangs three discs in the air. They stay there until your next weapon art fires, then all three go off at once.",
                 Basics = new[]
                 {
                     Basic("Cut",  0.95f, 1f, 0.10f, 0f, AttackMotion.Sweep),
@@ -951,7 +1026,7 @@ namespace Convergence.Combat
                 Id = "disc_orrery", DisplayName = "Orrery", Class = Art.Gear.WeaponClass.Disc,
                 FinisherGlyph = Glyph.Whirl,
                 Flavor = "Both discs, out on a long circle.",
-                FinisherDescription = "Sends both discs into a wide orbit for five sweeps, cutting anything they pass through on each one. The ring follows you, so walking steers it - and anything pressed right up against you sits in the hole in the middle.",
+                FinisherDescription = "Sends both discs into a wide orbit around you for five sweeps, cutting anything they pass through. The ring follows you as you walk, with a gap in the middle right around you.",
                 Basics = new[]
                 {
                     Basic("Cut",  0.90f, 0.95f, 0.10f, 0f, AttackMotion.Sweep),
@@ -973,7 +1048,7 @@ namespace Convergence.Combat
             },
             new Moveset
             {
-                FinisherDescription = "Erupts in flame around you. The circle widens as the blade heats, and at its coldest it barely clears your feet.",
+                FinisherDescription = "Plants the blade and erupts in a ring of flame around you. The ring widens as the blade heats; at its coldest it barely clears your feet.",
                 Id = "conflagration", FinisherGlyph = Glyph.Burst, DisplayName = "Conflagration",
 
                 // Emberline's, and only Emberline's. The heat cycle it turns lives on the weapon,
@@ -1021,7 +1096,7 @@ namespace Convergence.Combat
             },
             new Moveset
             {
-                FinisherDescription = "No weapon art of its own. Every swing of this chain lands twice - a shadow of you strikes a beat behind with half the blow - and the swing in the weapon art slot is one more of them: a full turn that never roots you, hitting everything around you.",
+                FinisherDescription = "No weapon art of its own. A shadow of you repeats every swing of this chain a beat behind, landing it a second time - and the swing in the weapon art slot is one more of them: a full turn that hits everything around you without stopping you in place.",
                 Id = "shadow_echo", FinisherGlyph = Glyph.Echoes, DisplayName = "Echo",
 
                 // Shadow's, and only Shadow's - the same reasoning as Conflagration. The whole
@@ -1111,7 +1186,7 @@ namespace Convergence.Combat
             },
             new Moveset
             {
-                FinisherDescription = "A single precise thrust that draws blood - the fuller stains a shade deeper every time it lands. Once it's full, the same button erupts instead: a wide, heavy burst that empties the blade.",
+                FinisherDescription = "A single thrust that draws blood - the fuller stains a shade deeper every time it lands. Once it is full, the same button spins the blade instead, bursting the blood out in a wide ring and emptying the fuller.",
                 Id = "blood_drink", FinisherGlyph = Glyph.Blood, DisplayName = "Bloodletting",
 
                 // Blood Blade's, and only Blood Blade's - a Black Diamond weapon's ceiling
@@ -1247,15 +1322,15 @@ namespace Convergence.Combat
                 // The Aether Greatsword's, through its stone - a Black Diamond ceiling privilege,
                 // same reasoning as Conflagration and the rest above.
                 SignatureOnly = true,
-                Flavor = "The work in four stages, and the last is the light let go.",
+                Flavor = "The blackening, the whitening, and then the light let go.",
 
-                // The opus's stages, the last one the weapon art. Ruin's shape: heavy swings into
-                // a held gather, the lead-in rising toward the hold.
+                // TWO basics, as every chain has (PlayerController.BasicsPerChain): the opus's first
+                // stages, then the weapon art. Ruin's shape: heavy swings into a held gather, the
+                // lead-in rising toward the hold.
                 Basics = new[]
                 {
-                    Basic("Nigredo",    1.1f, 1.0f, 0.2f, 3.6f, AttackMotion.Chop),
-                    Basic("Albedo",     1.1f, 1.0f, 0.2f, 3.6f, AttackMotion.Rise),
-                    Basic("Citrinitas", 1.2f, 1.05f, 0.2f, 4.0f, AttackMotion.Chop),
+                    Basic("Nigredo", 1.1f, 1.0f, 0.2f, 3.6f, AttackMotion.Chop),
+                    Basic("Albedo",  1.1f, 1.0f, 0.2f, 3.6f, AttackMotion.Rise),
                 },
                 Finisher = new AttackStep
                 {
@@ -1271,7 +1346,64 @@ namespace Convergence.Combat
             },
             new Moveset
             {
-                FinisherDescription = "Spins a full circle, striking every enemy around you at once and shoving them all back out of reach.",
+                FinisherDescription = "Throws the bow like a boomerang at your target. If it strikes, the world slows: you throw the stone up as the bow curves home, catch it, and loose two rapid shots at every enemy around the one it hit. If it misses, it simply comes back.",
+                Id = Art.Gear.DemoGear.PrimaMateriaArtId, FinisherGlyph = Glyph.PrimaMateria,
+                DisplayName = "Prima Materia", Class = Art.Gear.WeaponClass.Bow,
+
+                // The Aether Longbow's, through its stone - a Black Diamond ceiling privilege, same
+                // reasoning as Conflagration and the rest above.
+                SignatureOnly = true,
+                Flavor = "What is let go comes back, and what comes back is fixed.",
+                // Two basics, as every chain has.
+                Basics = new[]
+                {
+                    new AttackStep { Name = "Shot", DamageMultiplier = 1f, IntervalMultiplier = 1f, Motion = AttackMotion.Draw },
+                    new AttackStep { Name = "Shot", DamageMultiplier = 1f, IntervalMultiplier = 1f, Motion = AttackMotion.Draw },
+                },
+                Finisher = new AttackStep
+                {
+                    // HEAVY: the struck enemy takes exactly one (see Tuning.PrimaMateria's shares),
+                    // and the boomerang's hit is what displaces.
+                    Name = "Prima Materia", DamageMultiplier = 6.5f, IntervalMultiplier = 2.5f,
+                    Weight = FinisherWeight.Heavy, Motion = AttackMotion.Throw,
+                    Knockback = 6f, ChainFalloff = 0.85f,
+                    // The Magnum Opus's gather first (the user's call): the light drains, the
+                    // stone swells, the flash runs back through the armour into the bow - then the
+                    // throw. A charge in all but pose: the bow holds the throw's cocked first frame.
+                    ChargeSeconds = Core.Tuning.MagnumOpus.GatherSeconds,
+                    Boomerang = true,
+                },
+            },
+            new Moveset
+            {
+                FinisherDescription = "Throws both halves at once in a pincer that closes on your target, then leaps to catch them as they come round and hurls them down onto it - a blast that throws back everything around it.",
+                Id = Art.Gear.DemoGear.KingAndQueenArtId, FinisherGlyph = Glyph.KingAndQueen,
+                DisplayName = "King and Queen", Class = Art.Gear.WeaponClass.Disc,
+
+                // The Aether Dual Discs', through the Geode Stone - a Black Diamond ceiling privilege,
+                // same reasoning as Conflagration and the rest above.
+                SignatureOnly = true,
+                Flavor = "The king and the queen part, meet on the enemy, and come down as one.",
+                // Two basics, as every chain has: the red king, the white queen - then the two as one.
+                Basics = new[]
+                {
+                    Basic("Rubeus", 1.0f, 0.95f, 0.15f, 0f, AttackMotion.Sweep),
+                    Basic("Albus",  1.0f, 0.95f, 0.15f, 0f, AttackMotion.Sweep),
+                },
+                Finisher = new AttackStep
+                {
+                    // HEAVY: the target takes exactly one (Tuning.KingAndQueen's shares); the blast
+                    // is what displaces.
+                    Name = "King and Queen", DamageMultiplier = 6.5f, IntervalMultiplier = 2.5f,
+                    Weight = FinisherWeight.Heavy, Motion = AttackMotion.Throw,
+                    Knockback = 8f, ChainFalloff = 0.85f,
+                    ChargeSeconds = Core.Tuning.MagnumOpus.GatherSeconds,
+                    Pincer = true,
+                },
+            },
+            new Moveset
+            {
+                FinisherDescription = "Lets the blade go to circle once around you, striking every enemy it passes and shoving them back.",
                 Id = "cleave", FinisherGlyph = Glyph.Whirl, DisplayName = "Cleaving Arc",
                 Flavor = "Wide, even swings ending in a full circle.",
                 Basics = new[]
@@ -1296,28 +1428,32 @@ namespace Convergence.Combat
             },
             new Moveset
             {
-                FinisherDescription = "A rapid burst of strikes that rakes across everything in front of you. Fast enough to keep the chain moving.",
+                FinisherDescription = "Cuts down, cuts back up, then turns the hilt and drives the pommel into the enemy in front.",
                 Id = "flurry", FinisherGlyph = Glyph.Volley, DisplayName = "Flurry",
-                Flavor = "Fast, shallow jabs that end in a burst.",
+                Flavor = "Quick cuts that end with the hilt.",
+                // Rise is the lead-in: it ends with the blade cocked high over the shoulder, which
+                // is where the Flurry's first cut starts.
                 Basics = new[]
                 {
-                    Basic("Jab",    0.55f, 0.5f, 0.45f, 1.6f, AttackMotion.Jab),
-                    Basic("Jab",    0.55f, 0.5f, 0.45f, 1.6f, AttackMotion.Jab),
-                    Basic("Cross",  0.75f, 0.6f, 0.40f, 2.4f, AttackMotion.Jab),
+                    Basic("Cut",  1.0f, 0.85f, 0.25f, 3.0f, AttackMotion.Chop),
+                    Basic("Rise", 1.0f, 0.85f, 0.25f, 3.0f, AttackMotion.Rise),
                 },
                 Finisher = new AttackStep
                 {
-                    Name = "Rapid Volley", DamageMultiplier = 3f, IntervalMultiplier = 1f,
+                    Name = "Flurry",
+                    DamageMultiplier = Core.Tuning.Flurry.CutShare * 2f + Core.Tuning.Flurry.PommelShare,
+                    IntervalMultiplier = 1f,
                     Weight = FinisherWeight.Light,
-                    Motion = AttackMotion.Flurry,
-                    ArcDot = 0.3f, Knockback = 4f, CleavesAll = true, StrikeWidth = 1.5f,
+                    Motion = AttackMotion.Flurry, PommelFlurry = true,
+                    // The cuts' shape; the pommel narrows and shortens it (Tuning.Flurry).
+                    ArcDot = 0.3f, Knockback = 3f, CleavesAll = true, StrikeWidth = 1.5f,
                 },
             },
             new Moveset
             {
-                FinisherDescription = "A long thrust straight ahead. Runs a single enemy through at extended reach and hurls them away.",
+                FinisherDescription = "Draws the blade back and thrusts it far out ahead, running one enemy through at long reach and throwing it back.",
                 Id = "lunge", FinisherGlyph = Glyph.Spike, DisplayName = "Piercing Lunge",
-                Flavor = "Narrow and long. Rewards facing the right way.",
+                Flavor = "Narrow and long.",
                 Basics = new[]
                 {
                     Basic("Thrust", 1.0f, 0.9f, 0.65f, 2.0f, AttackMotion.Thrust),
@@ -1334,7 +1470,7 @@ namespace Convergence.Combat
             },
             new Moveset
             {
-                FinisherDescription = "Slams the ground, flattening everything close by and launching it. The heaviest knockback available.",
+                FinisherDescription = "Brings the blade down into the ground; the impact throws back everything close by.",
                 Id = "hammer", FinisherGlyph = Glyph.Burst, DisplayName = "Sunder",
                 Flavor = "Slow and heavy. Every hit shoves.",
                 Basics = new[]
@@ -1354,7 +1490,7 @@ namespace Convergence.Combat
             },
             new Moveset
             {
-                FinisherDescription = "Hauls every enemy on screen in toward you and drops them at arm's reach - hard from up close, gentler from range, but nothing escapes it. Barely hurts - it exists to gather a scattered fight for whatever swings next.",
+                FinisherDescription = "Spins and drags every enemy on screen in toward you, dropping them at arm's reach - hard from up close, gentler from range. It deals little damage.",
                 Id = "undertow", FinisherGlyph = Glyph.Vortex, DisplayName = "Undertow",
                 Flavor = "Builds speed as the chain goes on, then drags the fight inward.",
                 Basics = new[]
@@ -1391,7 +1527,7 @@ namespace Convergence.Combat
             },
             new Moveset
             {
-                FinisherDescription = "Raises the blade overhead and holds it there while you keep moving, then drives it down in a wide cone. It hits harder than anything else you have, and it lands wherever you are facing when it falls.",
+                FinisherDescription = "Raises the blade overhead and holds it there while you keep moving, then drives it down in a wide cone wherever you are facing when it falls.",
                 Id = "ruin", FinisherGlyph = Glyph.Slam, DisplayName = "Ruin",
                 Flavor = "Slow, deliberate, and utterly committed.",
                 Basics = new[]
@@ -1435,7 +1571,7 @@ namespace Convergence.Combat
             new Moveset
             {
                 FinisherDescription = "Leaps clean off the screen for a second - untouchable, and still free to run. " +
-                                      "Then drops onto the marked circle: devastating directly underneath you, weaker toward the rim. " +
+                                      "Then drops onto the marked circle: the full blow lands directly beneath you, less of it toward the rim. " +
                                       "You land winded, taking half again as much damage for two seconds.",
                 Id = "meteor", FinisherGlyph = Glyph.Comet, DisplayName = "Falling Star",
                 Flavor = "Rising swings that end with the ground itself.",
@@ -1470,21 +1606,54 @@ namespace Convergence.Combat
             },
             new Moveset
             {
-                FinisherDescription = "Holds the blade level at the shoulder, then lunges forward with everything behind it. The hardest single hit in the game, but it forgives nothing.",
-                Id = "riposte", FinisherGlyph = Glyph.Cross, DisplayName = "Impale",
-                Flavor = "Measured openers, then a single decisive strike.",
+                FinisherDescription = "Pulls the blade back to the hip, then lunges forward with it - body and blade together - and runs the enemy in front of you through.",
+                Id = "impale", FinisherGlyph = Glyph.Impale, DisplayName = "Impale",
+                Flavor = "Cut, thrust, then the whole body behind the point.",
+                Basics = new[]
+                {
+                    Basic("Cut",    1.0f, 0.9f, 0.30f, 3.0f, AttackMotion.Chop),
+                    // The lead-in: a Thrust ends in the guard the Impale's draw starts from.
+                    Basic("Thrust", 1.0f, 0.9f, 0.60f, 2.0f, AttackMotion.Thrust),
+                    Basic("Skewer", 1.2f, 1.0f, 0.65f, 2.5f, AttackMotion.Thrust),
+                },
+                // LIGHT: the wind-up is the draw (AttackMotion.Lunge animates it over the timing
+                // bar), then the player dashes LungeDistance with the thrust and the hit lands
+                // where the lunge ends - closing the gap is what the art does.
+                Finisher = new AttackStep
+                {
+                    Name = "Impale", DamageMultiplier = 3f, IntervalMultiplier = 1f, Motion = AttackMotion.Lunge,
+                    Weight = FinisherWeight.Light,
+                    ArcDot = 0.8f, Knockback = 3f, RangeBonus = 0.3f,
+                    StrikeWidth = 0.7f,   // a thrust is a point, not a sweep
+                    LungeDistance = 1.4f,
+                },
+            },
+            new Moveset
+            {
+                FinisherDescription = "Holds the blade in guard, turning aside every attack that reaches you while it is raised, then answers with a straight thrust.",
+                // The id was the old Impale's (a Heavy thrust with no guard); a relic that rolled
+                // it now carries Riposte, the move its id and basics always named.
+                Id = "riposte", FinisherGlyph = Glyph.Cross, DisplayName = "Riposte",
+                Flavor = "Measured openers, then a guard that answers.",
                 Basics = new[]
                 {
                     Basic("Parry",  0.6f, 0.75f, 0.5f, 1.2f, AttackMotion.Thrust),
                     Basic("Feint",  0.8f, 0.75f, 0.5f, 1.2f, AttackMotion.Thrust),
                     Basic("Counter",1.2f, 0.9f, 0.45f, 3.5f, AttackMotion.Thrust),
                 },
+                // MEDIUM, and the swords' only defensive art. The guard IS the timing bar's
+                // wind-up (Guards): the Thrust's first frame is the guard pose, held for the
+                // Medium bar (0.5s), and everything that asks TryParry in that time is parried.
+                // It fits the rotation because it costs no time a Medium art wasn't already
+                // spending. The price is the strike: a narrow single-target thrust where the
+                // other Medium hits a whole circle.
                 Finisher = new AttackStep
                 {
-                    Name = "Impale", DamageMultiplier = 6.5f, IntervalMultiplier = 2.5f, Motion = AttackMotion.Impale,
-                    Weight = FinisherWeight.Heavy,
-                    ArcDot = 0.8f, Knockback = 8f, RangeBonus = 0.3f,
-                    StrikeWidth = 0.7f,   // a thrust is a point, not a sweep
+                    Name = "Riposte", DamageMultiplier = 5f, IntervalMultiplier = 1.5f, Motion = AttackMotion.Thrust,
+                    Weight = FinisherWeight.Medium,
+                    ArcDot = 0.8f, Knockback = 3.5f, RangeBonus = 0.3f,
+                    StrikeWidth = 0.7f,
+                    Guards = true,
                 },
             },
         };

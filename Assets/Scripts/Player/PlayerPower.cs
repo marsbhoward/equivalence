@@ -140,7 +140,7 @@ namespace Convergence.Player
             // play, which would price every wave against a skill the player may not have. By
             // construction the two cancel and the number is unchanged; it is written out so the
             // model stays honest if either half ever moves.
-            float windUp = Tuning.StrikeTiming.BarSeconds;
+            float windUp = Tuning.StrikeTiming.BarSecondsFor(Combat.FinisherWeight.Medium);   // the finisher priced
             finisher *= Combat.StrikeJudge.Parity(basics * basic, finisher, seconds, windUp)
                         * Tuning.StrikeTiming.GoodMultiplier;
             seconds += windUp;

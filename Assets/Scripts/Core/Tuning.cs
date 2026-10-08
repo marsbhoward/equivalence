@@ -50,7 +50,7 @@ namespace Convergence.Core
 
             // ---- what the chain does, for studying one animation at a time ----
             //
-            // Normally the chain is 3 basics then a finisher, and the finisher ROTATES across
+            // Normally the chain is 2 basics then a finisher, and the finisher ROTATES across
             // the three earned moveset slots - so watching one swing means waiting for it to
             // come round. These two pin it down.
 
@@ -59,7 +59,7 @@ namespace Convergence.Core
             /// rotation always lands on the same move. Empty string = leave the loadout alone.
             ///
             /// Valid ids: "default" (Overhand), "cleave", "flurry", "lunge", "hammer",
-            /// "undertow", "ruin", "wanderblade", "meteor", "riposte".
+            /// "undertow", "ruin", "wanderblade", "meteor", "impale", "riposte".
             ///
             /// OFF. It was left on from the swing-animation work and was pinning every finisher
             /// slot to Overhand, which made nine of the ten movesets unreachable in normal play.
@@ -69,7 +69,7 @@ namespace Convergence.Core
             public const string ForceMovesetId = "";
 
             /// <summary>
-            /// Every swing plays the moveset's FINISHER instead of its three basics - so with
+            /// Every swing plays the moveset's FINISHER instead of its basics - so with
             /// ForceMovesetId = "default" every swing is the Overhand.
             ///
             /// Also suppresses the alternating reversed replay, since that only exists to vary
@@ -87,7 +87,7 @@ namespace Convergence.Core
             public const bool DemoShowcase = false;
 
             /// <summary>
-            /// Read a real wallet's holdings straight from the coalescence-service REST API on
+            /// Read a real wallet's holdings straight from the equivalence-service REST API on
             /// startup, bypassing WebChainBridge entirely - that bridge only exists inside a
             /// browser build, so this is the one way to see the showcase/crate wired to real chain
             /// data from the Editor. Empty means off; GameBootstrap only calls it when this is set.
@@ -98,7 +98,7 @@ namespace Convergence.Core
             public const string DemoWalletAddress =
                 "addr_test1qpluffpk6kew7ed6y453m6l2gudfgvp7cw8rwz2g6yacgrhs3cykq95zr24svxakxnkla9hqjht5rdwgc6jkdncty2ws8v86aj";
 
-            /// <summary>Where coalescence-service is listening - see web/service/README.md.</summary>
+            /// <summary>Where equivalence-service is listening - see web/service/README.md.</summary>
             public const string DemoWalletServiceUrl = "http://localhost:8787";
         }
 
@@ -1558,6 +1558,95 @@ namespace Convergence.Core
         /// also harder".
         /// </summary>
         /// <summary>
+        /// The Impale art (Light): the blade pulled back over the timing bar's wind-up, then the
+        /// player lunges forward with the thrust (AttackStep.LungeDistance, AttackMotion.Lunge).
+        /// </summary>
+        public static class Impale
+        {
+            /// <summary>Seconds the lunge (the dash and the thrust) takes. The hit lands as it
+            /// ends, so this is the last stretch of the timing bar - StrikeDelay counts it.</summary>
+            public const float LungeSeconds = 0.12f;
+
+            /// <summary>How far short of a locked target in front the lunge stops, so the target
+            /// is inside the thrust's reach rather than run through and left behind.</summary>
+            public const float StopShort = 0.6f;
+
+            /// <summary>Floor margin the lunge keeps from a wall or a chasm's edge.</summary>
+            public const float EdgeMargin = 0.3f;
+        }
+
+        /// <summary>
+        /// The Flurry art (Light, rebuilt 2026-10-08): cut down, cut back up, then the hilt turned
+        /// and the POMMEL driven into the target. One fixed-time sequence (PlayerController's
+        /// FlurryStrike, AttackMotion.Flurry). The two cuts land while the timing bar fills, at its
+        /// provisional GOOD rate as the katana's sheathed cuts do; the bar judges the pommel.
+        /// Absolute seconds, so the three beats read at the same speed whatever the attack speed.
+        /// The rig keys its own phases off these same numbers.
+        /// </summary>
+        public static class Flurry
+        {
+            /// <summary>Seconds from dispatch to the first cut (downward) landing.</summary>
+            public const float CutOneAt = 0.07f;
+
+            /// <summary>Seconds from dispatch to the second cut (rising) landing.</summary>
+            public const float CutTwoAt = 0.20f;
+
+            /// <summary>Seconds from dispatch to the pommel landing - the judged strike, so this is
+            /// StrikeDelay. At or past a Light bar (0.4s) the art needs no added wind-up.</summary>
+            public const float PommelAt = 0.40f;
+
+            /// <summary>The whole motion, recovery included: the hands come back to the opener's
+            /// cock over the shoulder, where the next chain starts.</summary>
+            public const float Seconds = 0.62f;
+
+            /// <summary>Each cut's damage, in basics.</summary>
+            public const float CutShare = 0.75f;
+
+            /// <summary>The pommel's damage, in basics. The sequence sums to 3.5 - half a basic over
+            /// the Light table's 3, because the 0.4s before the judged hit is the art's own time
+            /// rather than an added wind-up the bar pays back (StrikeJudge.Parity). At GOOD that
+            /// puts the chain within ~3% of an ordinary Light art's damage per second.</summary>
+            public const float PommelShare = 2.0f;
+
+            /// <summary>Reach the pommel gives up against a swing - it is the end of the hilt, not
+            /// the blade. Added to the step's range.</summary>
+            public const float PommelRangeBonus = -0.8f;
+
+            /// <summary>The pommel's strike width: narrow, a blow to the one body in front.</summary>
+            public const float PommelWidth = 0.6f;
+
+            /// <summary>What each body after the first takes of the pommel - it is not a cleave.</summary>
+            public const float PommelFalloff = 0.3f;
+        }
+
+        /// <summary>
+        /// The Riposte art's WARD (Combat.RiposteWard): a shield of light formed in front of the
+        /// character for as long as the guard is up, flaring on every parry. Pixel art at body
+        /// density, white-silver and outline-only so it reads as steel and light rather than as
+        /// the chest Barrier's blue lattice, and never hides the character.
+        /// </summary>
+        public static class Riposte
+        {
+            /// <summary>World units from the player's origin to the ward's centre, toward the
+            /// facing (in front of the body), and up from the origin to its centre.</summary>
+            public const float WardSideOffset = 0.34f;
+            public const float WardCentreY = 0.02f;
+
+            /// <summary>Seconds the ward takes to form outward from its centre, and to fade
+            /// once the strike lands.</summary>
+            public const float WardFormSeconds = 0.10f;
+            public const float WardFadeSeconds = 0.16f;
+
+            /// <summary>Seconds a parry's flare takes to settle back.</summary>
+            public const float WardFlashSeconds = 0.18f;
+
+            public static readonly UnityEngine.Color WardRim = new(0.10f, 0.12f, 0.18f, 0.85f);
+            public static readonly UnityEngine.Color WardCore = new(0.86f, 0.93f, 1.00f, 0.95f);
+            public static readonly UnityEngine.Color WardFill = new(0.62f, 0.76f, 1.00f, 0.16f);
+            public static readonly UnityEngine.Color WardFlash = new(1f, 1f, 1f, 1f);
+        }
+
+        /// <summary>
         /// Tria Prima's signature, Separatio: the blade held up, then the character splits into
         /// three figures - Sulfur, Salt, Mercury - each holding one of the three swords the fused
         /// blade is made of, each striking a different way, before they fold back into one.
@@ -1849,13 +1938,21 @@ namespace Convergence.Core
         /// fills from the bottom, and the first tap during it decides how hard the strike lands. See
         /// Combat.StrikeTiming for the rules and PlayerController's strike section for the flow.
         ///
-        /// THE BAR IS THE LAST <see cref="BarSeconds"/> BEFORE THE STRIKE, on every finisher -
-        /// same size, same speed, same zones. A finisher that already delays its damage (a
-        /// charge, a leap, Separatio's hold, the katana's sheathe, the bow's draw) shows it during
-        /// the end of that delay and gains no time; one that resolved on the press (an ordinary
-        /// swing, a disc volley, a thrown blade) gains a wind-up of exactly the shortfall. One
-        /// read, learned once, true everywhere - the same consistency rule the old basic-attack
-        /// beat lived by.
+        /// THE BAR IS THE LAST <see cref="BarSecondsFor"/> BEFORE THE STRIKE. The JUDGED part -
+        /// good, perfect, good, a <see cref="SegmentSeconds"/> each - is the same on every
+        /// finisher; only the red LEAD before it grows with the weight class (Light 0.1, Medium
+        /// 0.2, Heavy 0.3). The perfect band then starts 200/300/400ms after the bar appears: a
+        /// Light art stays a quick double tap, and a Medium or Heavy one puts the green past
+        /// reaction time, so its fill is READ rather than reacted to - and the classes stop
+        /// sharing one memorised rhythm. A finisher that already delays its damage (a charge, a
+        /// leap, Separatio's hold, the katana's sheathe, the bow's draw) shows the bar during the
+        /// end of that delay and gains no time - and shows it for up to
+        /// <see cref="DelayedBarSeconds"/>, since that time is already spent; one that resolved on
+        /// the press (an ordinary swing, a disc volley, a thrown blade) gains a wind-up of exactly
+        /// the shortfall, paid back by parity.
+        ///
+        /// The meter is always about <see cref="ArcRows"/> tall, so a longer bar FILLS SLOWER
+        /// rather than standing taller - the zones keep their share of it in time.
         ///
         /// ABSOLUTE seconds, never scaled by attack speed: human timing is a fixed number of
         /// milliseconds (TapBufferSeconds' reasoning). Speed buffs still shorten the swing, just
@@ -1864,14 +1961,38 @@ namespace Convergence.Core
         public static class StrikeTiming
         {
             /// <summary>
-            /// The four equal segments, bottom to top: LEAD (red - a press here is early), GOOD (yellow),
-            /// PERFECT (green), GOOD - and the strike lands where the last good band ends (the top of the
-            /// arc). Equal so the meter is four whole blocks of <see cref="ArcRowsPerSegment"/>
-            /// rows and nothing on it sits off the pixel grid. Perfect is +-45ms around its centre; a good press
-            /// has 90ms either side of that. Was 0.075 (a 0.30s bar) - widened for room to read it.
+            /// The three JUDGED segments above the lead, bottom to top: GOOD (yellow), PERFECT
+            /// (green), GOOD - and the strike lands where the last good band ends (the top of the
+            /// arc). The same on every finisher: perfect is +-50ms around its centre, a good press
+            /// has 100ms either side of that. Was 0.075, then 0.09 - widened for room to read it.
             /// </summary>
             public const float SegmentSeconds = 0.1f;
-            public const float BarSeconds = SegmentSeconds * 4f;
+            public const float JudgedSeconds = SegmentSeconds * 3f;
+
+            /// <summary>The red LEAD segment before the judged ones (a press there is early), by
+            /// weight class. The whole bar is the lead plus <see cref="JudgedSeconds"/>; an
+            /// ordinary swing winds up for all of it, so these are the by-feel dials.</summary>
+            public const float LeadLight = 0.1f;
+            public const float LeadMedium = 0.2f;
+            public const float LeadHeavy = 0.3f;
+
+            /// <summary>The longest a DELAYED finisher (charge, leap, draw...) shows its bar: the
+            /// lead stretches over the time the delay already spends, up to this. Costs nothing -
+            /// it only puts the meter up sooner, so the strike is coming from a visible start
+            /// rather than appearing at a moment nothing marks.</summary>
+            public const float DelayedBarSeconds = 0.8f;
+
+            public static float LeadFor(Combat.FinisherWeight weight) => weight switch
+            {
+                Combat.FinisherWeight.Light => LeadLight,
+                Combat.FinisherWeight.Heavy => LeadHeavy,
+                _ => LeadMedium,
+            };
+
+            /// <summary>The wind-up a finisher of this weight needs before its strike: lead plus
+            /// the judged segments. Light 0.4s, Medium 0.5s, Heavy 0.6s.</summary>
+            public static float BarSecondsFor(Combat.FinisherWeight weight)
+                => LeadFor(weight) + JudgedSeconds;
 
             /// <summary>The user's numbers: perfect +20%, good +10%, early or no press -5%.</summary>
             public const float PerfectMultiplier = 1.20f;
@@ -1883,9 +2004,11 @@ namespace Convergence.Core
             /// facing (the off hand - the strike goes the other way), filling from the bottom up
             /// like a basketball shot meter; the strike lands as the fill reaches the top. Drawn
             /// pixel by pixel at body density (37.5 px/unit), so it sits on the same grid as the
-            /// character. 12 rows x 4 segments = 48 rows = 1.28 units, about the body's height.
+            /// character. 48 rows = 1.28 units, about the body's height, whatever the bar's length:
+            /// each segment gets a whole number of rows in proportion to its time, so a bar comes
+            /// out within a couple of rows of this (Light 12 a segment, Heavy 8).
             /// </summary>
-            public const int ArcRowsPerSegment = 12;
+            public const int ArcRows = 48;
 
             /// <summary>Width of the lit core in texels, inside a one-texel dark rim. The perfect
             /// (green) segment's core is one texel WIDER - colour is never the only channel.</summary>
@@ -2179,6 +2302,126 @@ namespace Convergence.Core
             /// across the body the beam crosses it in, and how far they drift.</summary>
             public const float DisintegrateSeconds = 0.95f, DisintegrateSweepSeconds = 0.22f,
                                DisintegrateDrift = 0.9f;
+        }
+
+        /// <summary>
+        /// PRIMA MATERIA: the Aether Longbow's weapon art (the Liquid Stone's). The bow thrown like a
+        /// boomerang at the target; a hit stops the world into bullet time while the character
+        /// throws the stone up; the caught bow looses two rapid shots at every enemy round the one
+        /// it struck. Seconds are SCALED (game) time - inside bullet time they last longer in real
+        /// time by 1/BulletTimeScale.
+        /// </summary>
+        public static class PrimaMateria
+        {
+            /// <summary>The bow out (to the target) and back (to the hand), world units a second.</summary>
+            public const float ThrowSpeed = 24f, ReturnSpeed = 22f;
+
+            /// <summary>How far the flight bows sideways, as a share of its length, and how fast it spins.</summary>
+            public const float CurveFraction = 0.32f, SpinDegreesPerSecond = 2600f;
+
+            /// <summary>The thrown bow is drawn as a CIRCLE OF LIGHT (the user's call): a ring this
+            /// share of the bow's length across, the bow faint inside it, and a short trail of fading
+            /// rings - light only, no dust.</summary>
+            public const float RingDiameterShare = 0.95f, BowInRingAlpha = 0.12f,
+                               TrailEvery = 0.02f, TrailLife = 0.09f, TrailAlpha = 0.4f;
+
+            /// <summary>How close the spinning bow passes to a body to strike it.</summary>
+            public const float HitRadius = 0.5f;
+
+            /// <summary>What time runs at once the bow strikes, until the volley is spent.</summary>
+            public const float BulletTimeScale = 0.3f;
+
+            /// <summary>Shots per enemy, the seconds between shots, and the cap on enemies in the volley.</summary>
+            public const int ShotsPerEnemy = 2, MaxTargets = 6;
+            public const float ShotSpacing = 0.06f;
+
+            /// <summary>The volley takes every enemy this close to the one the bow struck.</summary>
+            public const float AoeRadius = 3.2f;
+
+            /// <summary>
+            /// Shares of the art's damage (its step's whole Heavy): the boomerang's hit, and each
+            /// shot. The struck enemy takes the boomerang and two shots - exactly one Heavy
+            /// (0.25 + 2 x 0.375); every other enemy in the volley takes two shots - three quarters
+            /// of one - less a swing's falloff per enemy before it, nearest the struck one first.
+            /// </summary>
+            public const float BoomerangShare = 0.25f, ShotShare = 0.375f;
+
+            /// <summary>The stone thrown up: how high over the ground it hangs (EYE LEVEL on the
+            /// arena-scaled figure - the shots go through it), where along the line from the wearer
+            /// to the struck enemy (halfway, the user's call), and how long the rise and the fall
+            /// back onto the hip take.</summary>
+            public const float RelicApex = 1.15f, RelicBetween = 0.5f, RelicRiseSeconds = 0.22f, RelicFallSeconds = 0.18f;
+
+            /// <summary>The last shot knocks the stone back to the wearer: how long it flies home,
+            /// and how fast it turns as it goes.</summary>
+            public const float RelicKnockSeconds = 0.2f, RelicKnockDegreesPerSecond = 1400f;
+
+            /// <summary>The bow leaves the hand AS A BOW and only then spins up into its circle of
+            /// light, over this (the user's call).</summary>
+            public const float SpinUpSeconds = 0.07f;
+
+            /// <summary>How much bigger the stone is drawn at the top of its throw than on the hip -
+            /// a belt-sized stone overhead read as a speck. Grows as it rises, shrinks as it falls.</summary>
+            public const float RelicAirScale = 2.5f;
+
+            /// <summary>After the last shot leaves, before the stone comes down and time runs again.</summary>
+            public const float SettleSeconds = 0.18f;
+        }
+
+        /// <summary>
+        /// KING AND QUEEN: the Aether Dual Discs' weapon art (the Geode Stone's). After the Magnum Opus's
+        /// gather, both discs are thrown in a PINCER - mirrored arcs that meet on the target - and
+        /// carry on round their circles, crossing back, while the wielder jumps and catches them
+        /// at the top; then hurls both straight down onto the target. Scaled seconds.
+        /// </summary>
+        public static class KingAndQueen
+        {
+            /// <summary>How far each arc bows out from the line to the target, as a share of its
+            /// length - the pincer's width.</summary>
+            public const float Bulge = 0.32f;
+
+            /// <summary>Where the pincer closes with nothing locked: this far down the facing.</summary>
+            public const float ReachNoTarget = 4f;
+
+            /// <summary>Seconds for the discs to reach the target, and to come round the rest of
+            /// their circles to the wielder's hands.</summary>
+            public const float OutSeconds = 0.3f, ReturnSeconds = 0.42f;
+
+            /// <summary>How close a disc passes to a body on the way out to strike it.</summary>
+            public const float HitRadius = 0.5f;
+
+            /// <summary>The jump: how high the figure goes (drawing only - the body stays on the
+            /// ground, as a leap's does), how long it hangs at the top after the catch, and how fast
+            /// the hurled discs reach the target.</summary>
+            public const float JumpHeight = 1.3f, HangSeconds = 0.1f, HurlSeconds = 0.12f;
+
+            /// <summary>The jump is a SHADOW STEP (the user's call): the after-image left on the
+            /// ground, and how long it takes to fade.</summary>
+            public static readonly UnityEngine.Color ShadowColor = new(0.10f, 0.06f, 0.16f, 0.85f);
+            public const float ShadowSeconds = 0.45f;
+
+            /// <summary>When in the gather the Geode Stone's rind falls off its crystals - as the
+            /// stone swells. The lions' bodies fall when the flash reaches the pair
+            /// (Tuning.MagnumOpus.WeaponLitAt).</summary>
+            public const float RelicShedAt = 0.3f;
+
+            /// <summary>After the impact: how long the discs, their light out and their cracks showing
+            /// again, take to spring back to the landed wielder's hands.</summary>
+            public const float RecallSeconds = 0.22f;
+
+            /// <summary>The hurl's blast: radius at the target, and what its edge deals against its
+            /// centre.</summary>
+            public const float BlastRadius = 1.8f, BlastEdge = 0.5f;
+
+            /// <summary>
+            /// Shares of the art's damage (its step's whole Heavy): each disc's pincer hit, and the
+            /// hurl's blast at its centre. The target takes both pincer hits and the blast - exactly
+            /// one Heavy (2 x 0.2 + 0.6).
+            /// </summary>
+            public const float PincerShare = 0.2f, BlastShare = 0.6f;
+
+            /// <summary>How fast a flying disc turns.</summary>
+            public const float SpinDegreesPerSecond = 1500f;
         }
 
         /// <summary>Framing. See also GameBootstrap's FloorMargin note about the pan room outside the walls.</summary>

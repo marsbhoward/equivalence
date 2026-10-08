@@ -584,13 +584,11 @@ namespace Convergence.UI
             // down here a tap on a picker card would ALSO hit the slot row behind it.
             if (PickerOpen) return;
 
-            // The preview swallows its own gestures, so a drag across it never also cycles a slot.
-            if (PreviewGesture()) return;
-
-            // D-pad navigation - the reorder panel's cards replace the gear grid entirely while
-            // it's open, the same "covers the grid, handled completely separately" split the tap
-            // handling below already uses. Its own cards only become real targets once Rearranging
-            // is on; before that the panel has exactly one live control, the REARRANGE button.
+            // D-pad navigation - registered BEFORE the preview's gesture, which returns early. The
+            // reorder panel's cards replace the gear grid entirely while it's open, the same
+            // "covers the grid, handled completely separately" split the tap handling below
+            // already uses. Its own cards only become real targets once Rearranging is on; before
+            // that the panel has the REARRANGE button and the button that closes it again.
             _focusRects.Clear();
             if (ReorderPanelOpen)
             {
@@ -600,14 +598,20 @@ namespace Convergence.UI
                     if (_slot3ToggleRect != null) _focusRects.Add(_slot3ToggleRect);
                     foreach (var c in _finisherCards) _focusRects.Add(c.Rect);
                 }
+                if (_reorderButtonRect != null) _focusRects.Add(_reorderButtonRect);
             }
             else
             {
+                // Slots first: they are what a gamepad lands on as the screen opens.
+                if (!Locked) foreach (var r in _rows) _focusRects.Add(r.Rect);
                 if (_helmToggleRect != null) _focusRects.Add(_helmToggleRect);
                 if (_reorderButtonRect != null) _focusRects.Add(_reorderButtonRect);
-                if (!Locked) foreach (var r in _rows) _focusRects.Add(r.Rect);
             }
             Core.Controls.SetFocusCandidates(_focusRects);
+
+            // The preview swallows its own gestures, so a drag across it never also cycles a slot.
+            if (PreviewGesture()) return;
+
 
             if (!Core.Controls.Tapped(out var p)) return;
 

@@ -67,7 +67,7 @@ namespace Convergence.Combat
             if (_remaining <= 0f)
             {
                 _remaining = 0f;
-                if (!GamePause.IsPaused) Time.timeScale = 1f;
+                if (!GamePause.IsPaused) Time.timeScale = GamePause.BaseScale;   // back to bullet time, if any
             }
         }
 

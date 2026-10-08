@@ -611,9 +611,52 @@ namespace Convergence.UI
         /// click lands within a pixel or two, a thumb wanders, so the slop below is generous
         /// enough that a tap on a node is not read as a one-pixel pan.
         /// </summary>
+        readonly List<RectTransform> _focusRects = new();
+
+        /// <summary>
+        /// D-pad navigation over the board: every node on this board plus the element chips, the
+        /// selected node first (else the one nearest the middle, where the board opens). A press of
+        /// A is a tap on the focused node through the ordinary pointer path - select, then buy -
+        /// so nothing below needed a second input path.
+        /// </summary>
+        void RegisterFocus()
+        {
+            _focusRects.Clear();
+            RectTransform first = null; float nearest = float.MaxValue;
+            foreach (var node in MasteryBoard.All)
+            {
+                if (!BoardState.Visible(_viewing, node)) continue;
+                if (!_nodeImages.TryGetValue(node.Id, out var img)) continue;
+                var rt = img.rectTransform;
+                _focusRects.Add(rt);
+                float d = node.Id == _selectedId ? -1f : node.Position.sqrMagnitude;
+                if (d < nearest) { nearest = d; first = rt; }
+            }
+            if (first != null) _focusRects.Insert(0, first);
+            foreach (var chip in _elementChips) _focusRects.Add(chip.Rect);
+            Core.Controls.SetFocusCandidates(_focusRects);
+
+            // The board is bigger than the viewport, so the node the D-pad lands on is panned to
+            // the middle once it nears the edge - otherwise focus walks off into the clipped dark.
+            var focused = Core.Controls.Focused;
+            if (focused == null || focused.parent != _content) return;
+            var local = focused.anchoredPosition * _zoom;
+            var half = _viewport.rect.size * 0.5f - Vector2.one * (FocusEdgeMargin + focused.rect.width * _zoom * 0.5f);
+            var shown = local + _pan;
+            if (Mathf.Abs(shown.x) <= half.x && Mathf.Abs(shown.y) <= half.y) return;
+            _pan = -local;
+            ApplyTransform();
+        }
+
+        /// <summary>How close to the viewport's edge, in canvas units, a focused node may sit
+        /// before the board recentres on it.</summary>
+        const float FocusEdgeMargin = 60f;
+
         void Update()
         {
             if (!IsOpen) return;
+
+            RegisterFocus();
 
             var at = Core.Controls.PointerPosition;
             bool overViewport = RectTransformUtility.RectangleContainsScreenPoint(_viewport, at, null);

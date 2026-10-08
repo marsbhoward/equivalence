@@ -146,6 +146,7 @@ namespace Convergence.Art.Gear
 
         public SpriteRenderer WeaponRenderer => null;
         public SpriteRenderer TrinketRenderer => null;
+        public SpriteRenderer OffhandRenderer => null;
 
         public bool TryGetDiscVisual(int index, out Sprite sprite, out Color tint, out Vector2 size)
             => TryGetWeaponVisual(out sprite, out tint, out size);

@@ -5,7 +5,7 @@ import type { NextFunction, Request, Response } from 'express';
  *
  * THIS IS REQUIRED, not hardening. The game is a browser build and the service is a separate
  * deployment, so every call the connector makes is cross-origin - without this the browser refuses
- * all of them and the whole chain layer silently does nothing. `window.COALESCENCE_SERVICE` in the
+ * all of them and the whole chain layer silently does nothing. `window.EQUIVALENCE_SERVICE` in the
  * WebGL template defaults to the same-origin `/api`, which only works if something is proxying;
  * pointed at a Railway URL it is cross-origin and needs this.
  *

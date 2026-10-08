@@ -367,5 +367,10 @@ namespace Convergence.Art.Gear
         /// to pass BEHIND it, which is the whole reason going in reads as going in.
         /// </summary>
         UnityEngine.SpriteRenderer TrinketRenderer { get; }
+
+        /// <summary>The OFF hand's disc while a disc pair is split (SetWeaponSplit), else null - a
+        /// second weapon renderer, for anything that lights or hides the pair as one (the
+        /// King and Queen art's gather).</summary>
+        UnityEngine.SpriteRenderer OffhandRenderer { get; }
     }
 }

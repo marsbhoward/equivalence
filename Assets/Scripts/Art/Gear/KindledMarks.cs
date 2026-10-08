@@ -40,6 +40,12 @@ namespace Convergence.Art.Gear
         /// somewhere (<see cref="MagnumOpusGlow.Live"/>).</summary>
         [SerializeField] MagnumOpusGlow _opus;
 
+        /// <summary>
+        /// Hold these marks lit at this alpha and heat whatever the beat says (negative = off) - a
+        /// weapon of light in flight (the Prima Materia art's thrown bow is FULLY lit, not on the beat).
+        /// </summary>
+        public float ForceAlpha = -1f, ForceHeat;
+
         /// <summary>Burn the marks of whatever <paramref name="source"/> shows. Idempotent.</summary>
         public static KindledMarks On(SpriteRenderer source)
         {
@@ -58,11 +64,13 @@ namespace Convergence.Art.Gear
             var src = _source;
             bool drawn = src != null && src.enabled && !src.forceRenderingOff && src.sprite != null;
             var overlay = drawn ? SecretFire.Overlay(src.sprite) : null;
-            float alpha = overlay != null ? SecretFire.Alpha : 0f;
+            // A liquid only ebbs: it never burns below its floor (SecretFire.LiquidFloor).
+            float alpha = overlay != null ? Mathf.Max(SecretFire.Alpha, SecretFire.FloorOf(src.sprite)) : 0f;
             float heat = 0f;
 
             // The character performing the Magnum Opus answers for its own marks while it does.
-            if (overlay != null && MagnumOpusGlow.Live > 0)
+            if (overlay != null && ForceAlpha >= 0f) { alpha = ForceAlpha; heat = ForceHeat; }
+            else if (overlay != null && MagnumOpusGlow.Live > 0)
             {
                 if (_opus == null) _opus = src.GetComponentInParent<MagnumOpusGlow>();
                 if (_opus != null && _opus.Running) _opus.Sample(src, alpha, out alpha, out heat);

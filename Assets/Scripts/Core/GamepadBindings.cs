@@ -62,7 +62,7 @@ namespace Convergence.Core
         };
 
         static Dictionary<GamepadAction, GamepadButtonId> _map;
-        const string PrefPrefix = "Coalescence.GamepadBind.";
+        const string PrefPrefix = "Equivalence.GamepadBind.";
 
         static void EnsureLoaded()
         {

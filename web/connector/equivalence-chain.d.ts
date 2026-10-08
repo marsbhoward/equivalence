@@ -1,5 +1,5 @@
 /**
- * The contract Unity calls. The page assigns an implementation to `window.CoalescenceChain`.
+ * The contract Unity calls. The page assigns an implementation to `window.EquivalenceChain`.
  *
  * THE AUTHORITY SPLIT, which is the design this contract exists to express:
  *
@@ -25,7 +25,7 @@
  *    declined dialog or a failed submit should be reported - never a sentinel string.
  *  - Anything that never settles is failed C#-side after 90s.
  */
-export interface CoalescenceChain {
+export interface EquivalenceChain {
 
   // ---- identity -------------------------------------------------------------------------
 
@@ -128,6 +128,6 @@ export interface CoalescenceChain {
 
 declare global {
   interface Window {
-    CoalescenceChain?: CoalescenceChain;
+    EquivalenceChain?: EquivalenceChain;
   }
 }

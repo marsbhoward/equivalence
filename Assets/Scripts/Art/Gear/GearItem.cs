@@ -119,6 +119,11 @@ namespace Convergence.Art.Gear
                  "the blade in it, and facing left it would otherwise hang under that same hand.")]
         public bool WornOnLeftHip;
 
+        [Tooltip("Weapon slot only. The blade has ONE edge, authored on the sprite's LEFT (-x) side " +
+                 "with the spine on the right. The rig turns it over per swing so the edge leads the " +
+                 "cut (and faces down on a thrust); a symmetric blade never needs it. The Zanmato.")]
+        public bool SingleEdged;
+
         [Tooltip("Back slot only. The drape (RigLayer.BackOver) swings WITH the cape: bent by the " +
                  "same springs about the cape's own hinge, so the two read as one cloth. Off " +
                  "for a yoke lying across both shoulders (the poncho), which should sit still.")]
@@ -423,6 +428,13 @@ namespace Convergence.Art.Gear
                  "painting the back of the head in HoodColor.")]
         public LayerSprite HoodBack;
 
+        [Tooltip("Head slot only. The helm seen from BEHIND - the same outline with the face " +
+                 "opening closed, at the same offset and size. Swapped onto RigLayer.HeadArmor " +
+                 "while the rig faces away (HoodBack's mechanism). Left null, the helm is switched " +
+                 "off from behind and the back of the head shows - right for an open helm, wrong " +
+                 "for a SealsHead one, which turns round into bare hair.")]
+        public LayerSprite HelmBack;
+
         [Tooltip("Head slot only. This piece is tied on with a cloth band (RigLayer.HeadArmor " +
                  "shows only the plate/gem from the front): the tie's own knot and tails are " +
                  "painted onto RigLayer.HeadBack, visible only while the rig faces away - the " +
@@ -513,7 +525,7 @@ namespace Convergence.Art.Gear
 
         /// <summary>
         /// How the piece is POSED when it is hung up to be looked at - the rack, the armoury wall,
-        /// a gear card - where that differs from how it is held. The King and Queen are held with
+        /// a gear card - where that differs from how it is held. The Aether Dual Discs are held with
         /// its heads at 135/45 deg (the strut level for the fist) but hangs turned so the two lions
         /// face each other across the pair. Null for everything else: a display shows the held
         /// picture. Same grid, ppu and pivot as the held layer.

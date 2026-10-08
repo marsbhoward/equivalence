@@ -3,13 +3,14 @@ using UnityEngine;
 
 namespace Convergence.Art.Gear
 {
-    // ====================================================== King and Queen: a red lion and a white lioness
+    // ====================================================== the Aether Dual Discs: a red lion and a white lioness
     //
-    // Named "King and Queen" by the user (built as "Lion Ouroboros"; the code keeps the Lion names).
+    // Named "Aether Dual Discs" by the user (built as "Lion Ouroboros", then "King and Queen" - now the
+    // name of its weapon art; the code keeps the Lion names).
     // A Black Diamond disc pair, power 0 (the cosmetic weapons' rule), Kindled. The user's brief:
     // an ouroboros with a LION instead of a snake, one disc red and one white, cracked and
     // imperfect, showing the reactive energy inside - the Secret Fire, like the Aether set and
-    // Prima Materia. Iterated as browser mock-ups first; every call below is the user's.
+    // the Aether Longbow. Iterated as browser mock-ups first; every call below is the user's.
     //
     //   THE LION      a ring of its own body, head at the top facing clockwise, jaws CLOSED on its
     //                 own tail-tuft. A CAT's body, not a serpent's: deep chest, waist, haunch, then
@@ -543,7 +544,7 @@ namespace Convergence.Art.Gear
         /// <paramref name="scale"/> texels per cell. Letters: a-e the body ramp, f-j the mane's,
         /// k-o gold, z the dark detail, and the Secret Fire's three marks.
         /// </summary>
-        static string[] LionSample(bool white, int scale, float headAngle)
+        static string[] LionSample(bool white, int scale, float headAngle, bool spirit = false)
         {
             var side = white ? LionWhiteSide : LionRedSide;
             float step = LionFieldPerCell / scale, half = LionCanvasCells * LionFieldPerCell / 2f;
@@ -570,6 +571,8 @@ namespace Convergence.Art.Gear
                     float lx = mx * c - dy * s, ly = mx * s + dy * c;
                     var q = new Vector2(lx, ly);
 
+                    if (spirit) { line[i] = LionSpiritAt(lx, ly, q, side, step, Back); continue; }
+
                     bool chipped = false;
                     foreach (var chip in side.Chips) if (Vector2.Distance(q, chip) < 1.45f) { chipped = true; break; }
                     // Chips nick the body, never the blade: the gold edge runs unbroken.
@@ -579,6 +582,34 @@ namespace Convergence.Art.Gear
                 rows[j] = new string(line);
             }
             return rows;
+        }
+
+        /// <summary>
+        /// The SPIRIT (GearSpirit): the stone body gone, the head - and the red lion's mane - left
+        /// standing on a RING OF ENERGY where the body's centre line ran. The ring is the Secret
+        /// Fire's marks (core along its middle, vein, ember at its edges, its width breathing round
+        /// the circle), so it burns in the attuned element like every other mark on the pair.
+        /// </summary>
+        static char LionSpiritAt(float x, float y, Vector2 q, LionSide side, float step, System.Func<Vector3, Vector3> back)
+        {
+            LionHit h;
+            if (side.Lioness)
+            {
+                if ((h = LionessHead(x, y)).Kind != LionKind.None) return LionLetter(h, q, side, step, back);
+            }
+            else
+            {
+                if ((h = LionHead(x, y)).Kind != LionKind.None) return LionLetter(h, q, side, step, back);
+                if (LionLocks(x, y, side.Mane, out var n, out int shift))
+                    return LionLetter(new LionHit { Kind = LionKind.Mane, N = n, Shift = shift }, q, side, step, back);
+            }
+            float a = Mathf.Atan2(y, x);
+            float d = Mathf.Abs(Mathf.Sqrt(x * x + y * y) - LionRc);
+            float w = 1f + 0.22f * Mathf.Sin(a * 5f) + 0.12f * Mathf.Sin(a * 13f + 1.3f);
+            if (d < 0.35f * w) return SecretFire.Core;
+            if (d < 0.8f * w) return SecretFire.Vein;
+            if (d < 1.2f * w) return SecretFire.Ember;
+            return '.';
         }
 
         static char LionLetter(LionHit h, Vector2 q, LionSide side, float step, System.Func<Vector3, Vector3> back)
@@ -658,16 +689,17 @@ namespace Convergence.Art.Gear
         {
             const string key = "gear.weapon.disc.king_and_queen";
 
-            LayerSprite Arena(string k, bool white, float angle)
-                => Pixels(RigLayer.Weapon, k, LionSample(white, 1, angle), LionPalette(white), DiscHandX, DiscHandY,
+            LayerSprite Arena(string k, bool white, float angle, bool spirit = false)
+                => Pixels(RigLayer.Weapon, k, LionSample(white, 1, angle, spirit), LionPalette(white), DiscHandX, DiscHandY,
                           pivotTexel: LionGrip, ppu: FinePpu, outlineColor: LionOutline(white), upscale2x: true);
             LayerSprite Menu(string k, bool white, float angle)
                 => Pixels(RigLayer.Weapon, k, LionSample(white, LionMenuScale, angle), LionPalette(white), DiscHandX, DiscHandY,
                           pivotTexel: LionMenuGrip, ppu: MenuPpu, outlineColor: LionOutline(white));
 
-            // "King and Queen" by the user's call (built as "Lion Ouroboros") - the red king and the
+            // "Aether Dual Discs" by the user's call (built as "Lion Ouroboros", then "King and Queen", the name
+            // its weapon art now carries) - the red king and the
             // white queen of the alchemists' wedding.
-            var item = Disc(WithMenu(Make("king_and_queen_discs", "King and Queen", GearSlot.Weapon, LootTier.BlackDiamond, 0f,
+            var item = Disc(WithMenu(Make("king_and_queen_discs", "Aether Dual Discs", GearSlot.Weapon, LootTier.BlackDiamond, 0f,
                                           Arena(key, false, LionHandRed)),
                                      Menu(key + ".menu", false, LionHandRed)));
 
@@ -681,7 +713,70 @@ namespace Convergence.Art.Gear
             item.OffhandDisplayLayer = Arena(key + ".off.display", true, LionDisplayWhite);
             item.OffhandDisplayMenuLayer = Menu(key + ".off.display.menu", true, LionDisplayWhite);
 
+            item.SignatureFinisher = KingAndQueenArtId;
+
+            // Each hand's SPIRIT - the heads on their ring of energy, what is left in the art once
+            // the stone bodies fall away (GearSpirit, the user's call).
+            GearSpirit.Register(item.Layers[0].Sprite, Arena(key + ".spirit", false, LionHandRed, spirit: true).Sprite);
+            GearSpirit.Register(item.OffhandLayer.Sprite, Arena(key + ".off.spirit", true, LionHandWhite, spirit: true).Sprite);
             return Kindle(item);
+        }
+
+        // ------------------------------------------------------------------ the stone
+        //
+        // The Aether Dual Discs' RELIC: a Philosopher's Stone, the GEODE (the user's pick for the discs,
+        // 2026-10-07 - the cracked shard is the Aether Greatsword's, the liquid the Aether Longbow's).
+        // A red rind broken open on crystals; the CRYSTALS are the glow (the Secret Fire's liquid
+        // tones, so they ebb but never go dark - SecretFire.LiquidFloor), the rind stays red, and a
+        // DEEP red band runs between them (the user's change from pale). "Geode Stone", not
+        // "Geode": the Diamond armour set already has that name. It carries the CONIUNCTIO.
+
+        public const string KingAndQueenArtId = "king_and_queen_art";
+        public const string GeodeStoneId = "geode_stone";
+
+        // 8 x 14, the user's belt grid: 1-4 the rind dark to light, r the band, a/b/c the crystals
+        // (shade, body, light) and s a sparkle (their highlight).
+        static readonly string[] GeodeStoneRows =
+        {
+            "...cs3..",
+            "..cbr43.",
+            ".scbr432",
+            ".cbbar32",
+            "csbbar32",
+            "cbcbar32",
+            "bcbsar22",
+            "cbbaar22",
+            ".bbaar21",
+            ".baarr21",
+            ".rrr3221",
+            "..33221.",
+            "..2211..",
+            "...11...",
+        };
+
+        static void AddGeodeStone(List<GearItem> items)
+        {
+            static Color Hex(string hex) => ColorUtility.TryParseHtmlString(hex, out var c) ? c : Color.magenta;
+            var pal = SecretFire.KindleLiquid(new Dictionary<char, Color>
+            {
+                ['1'] = Hex("#3a0c12"), ['2'] = Hex("#6e1420"), ['3'] = Hex("#a8202e"),
+                ['4'] = Hex("#d63a44"), ['r'] = Hex("#4e0414"),
+            }, 's', 'c', 'b', 'a', 'd');
+            var stone = RelicGrants(Make(GeodeStoneId, "Geode Stone", GearSlot.Relic, LootTier.BlackDiamond, 0f,
+                                         HipRelic("gear.trinket.geode_stone", GeodeStoneRows, pal)),
+                                    KingAndQueenArtId, WeaponClass.Disc, twoHanded: false);
+
+            // Its SPIRIT: the rind fallen away, the crystals bare (GearSpirit).
+            var bare = new string[GeodeStoneRows.Length];
+            for (int i = 0; i < bare.Length; i++)
+            {
+                var row = GeodeStoneRows[i].ToCharArray();
+                for (int j = 0; j < row.Length; j++)
+                    if ("abcs".IndexOf(row[j]) < 0) row[j] = '.';
+                bare[i] = new string(row);
+            }
+            GearSpirit.Register(stone.Layers[0].Sprite, HipRelic("gear.trinket.geode_stone.spirit", bare, pal).Sprite);
+            items.Add(Kindle(stone));
         }
     }
 }

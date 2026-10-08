@@ -33,6 +33,21 @@ namespace Convergence.Combat
         /// <summary>Gear's Splash and (bow-only) Pierce, as fractions of this arrow's hit.</summary>
         public float SplashFraction, PierceFraction;
 
+        /// <summary>A Prima Materia art shot: a kill comes apart (DamageInfo.Disintegrates), and no
+        /// hit-stop - a volley under bullet time would otherwise stutter at every arrow.</summary>
+        public bool Disintegrates, SuppressHitstop;
+
+        /// <summary>A point the arrow flies THROUGH before it homes on its target (the Prima Materia
+        /// art's stone), and what to do as it passes. Null for an ordinary shot.</summary>
+        public System.Func<Vector2> Through;
+        public System.Action<ThrownArrow> OnThrough;
+
+        /// <summary>Tint for the shaft; the element's own when left clear.</summary>
+        public Color? Tint
+        {
+            set { var sr = GetComponent<SpriteRenderer>(); if (sr != null && value.HasValue) sr.color = value.Value; }
+        }
+
         /// <summary>Set once and kept for the rest of the flight - a Red force field crossed on
         /// the way in doubles whatever this arrow eventually lands for.</summary>
         float _damageMul = 1f;
@@ -71,6 +86,25 @@ namespace Convergence.Combat
         {
             if (_owner == null || _target == null || _target.IsDead) { Destroy(gameObject); return; }
 
+            if (Through != null)
+            {
+                Vector2 via = Through(), at = transform.position;
+                var leg = via - at;
+                float stepVia = Speed * Time.deltaTime;
+                if (leg.magnitude <= stepVia)
+                {
+                    transform.position = via;
+                    Through = null;
+                    OnThrough?.Invoke(this);
+                }
+                else
+                {
+                    transform.position = at + leg.normalized * stepVia;
+                    transform.rotation = Quaternion.Euler(0f, 0f, Mathf.Atan2(leg.y, leg.x) * Mathf.Rad2Deg);
+                }
+                return;
+            }
+
             Vector2 to = (Vector2)_target.transform.position - (Vector2)transform.position;
             float dist = to.magnitude;
             transform.rotation = Quaternion.Euler(0f, 0f, Mathf.Atan2(to.y, to.x) * Mathf.Rad2Deg);
@@ -104,7 +138,8 @@ namespace Convergence.Combat
             float dmg = _damage * near * _damageMul;
             if (_player != null) dmg = _player.ScaleThrownHit(_target, dmg, _isFinisher, _crit, t);
             var info = new DamageInfo(dmg, _element, _owner)
-                { Thrown = true, IsFinisher = _isFinisher, Crit = _crit };
+                { Thrown = true, IsFinisher = _isFinisher, Crit = _crit,
+                  Disintegrates = Disintegrates, SuppressHitstop = SuppressHitstop };
             var where = _target.transform.position;
             _target.Take(info);
 

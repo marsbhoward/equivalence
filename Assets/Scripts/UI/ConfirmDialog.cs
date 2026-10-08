@@ -73,9 +73,18 @@ namespace Convergence.UI
             _cancelRect = cancel;
         }
 
+        readonly System.Collections.Generic.List<RectTransform> _focus = new();
+
         void Update()
         {
             if (!IsOpen) return;
+
+            // The SAFE answer first - it's what a gamepad lands on as the dialog opens, for the
+            // same reason Esc backs out: this dialog guards decisions that throw work away.
+            _focus.Clear();
+            if (_cancelRect) _focus.Add(_cancelRect);
+            if (_confirmRect) _focus.Add(_confirmRect);
+            Core.Controls.SetFocusCandidates(_focus);
 
             // Esc opens this dialog, and wasPressedThisFrame stays true for the whole frame - so
             // without skipping the opening frame the dialog read its own opening keystroke as a
@@ -84,7 +93,8 @@ namespace Convergence.UI
 
             // Enter confirms, Esc backs out - and Esc is what opened this, so backing out
             // must be the safe default. Both buttons are on screen, so a touch player has the
-            // same two answers without either one.
+            // same two answers without either one, and a gamepad's A clicks whichever the D-pad
+            // has selected.
             if (Core.Controls.ConfirmTapped) { Finish(true); return; }
             if (Core.Controls.CancelTapped) { Finish(false); return; }
 

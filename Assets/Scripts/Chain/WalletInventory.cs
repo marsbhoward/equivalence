@@ -141,7 +141,7 @@ namespace Convergence.Chain
                 // Left as it was rather than emptied - see RefreshAsync's own note on why a
                 // failed read must not look like a wallet that suddenly owns nothing.
                 Debug.LogWarning($"[Chain] service inventory read failed: {req.error} " +
-                                 $"(is coalescence-service running at {serviceUrl}?)");
+                                 $"(is equivalence-service running at {serviceUrl}?)");
                 return;
             }
 

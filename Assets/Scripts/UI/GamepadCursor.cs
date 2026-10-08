@@ -47,14 +47,22 @@ namespace Convergence.UI
             var cursor = go.AddComponent<GamepadCursor>();
             cursor._rect = rt;
             cursor._image = img;
-            go.SetActive(false);
+            // The GameObject stays ACTIVE and only the image is switched. This used to
+            // SetActive(false) here and switch itself back on in Update - which Unity never calls
+            // on an inactive object, so neither the highlight nor the dot was ever drawn and the
+            // D-pad looked dead even while it was moving focus perfectly well.
+            img.enabled = false;
             return cursor;
         }
 
-        void Update()
+        static readonly Vector3[] Corners = new Vector3[4];
+
+        // LateUpdate, so a screen that pans or scrolls the focused rect this frame is drawn where
+        // it ended up.
+        void LateUpdate()
         {
             bool on = Controls.GamepadMode;
-            if (gameObject.activeSelf != on) gameObject.SetActive(on);
+            if (_image.enabled != on) _image.enabled = on;
             if (!on) return;
 
             var focused = Controls.Focused;
@@ -62,11 +70,14 @@ namespace Convergence.UI
             {
                 _image.sprite = Spr.Square;
                 _image.color = HighlightColor;
-                _rect.position = focused.position;
-                // Canvas units, not screen pixels - sizeDelta scales with the CanvasScaler the
-                // same way every other UI element in this project already does, so this has to be
-                // measured in the focused rect's OWN canvas rather than copied from world corners.
-                _rect.sizeDelta = focused.rect.size;
+                // Measured off WORLD corners and converted into this canvas's units, not copied
+                // from the rect's own size: a mastery node is drawn scaled by the board's zoom, and
+                // its sizeDelta knows nothing about that.
+                focused.GetWorldCorners(Corners);
+                var parentScale = _rect.parent != null ? _rect.parent.lossyScale : Vector3.one;
+                _rect.position = (Corners[0] + Corners[2]) * 0.5f;
+                _rect.sizeDelta = new Vector2((Corners[2].x - Corners[0].x) / Mathf.Max(0.0001f, parentScale.x),
+                                              (Corners[2].y - Corners[0].y) / Mathf.Max(0.0001f, parentScale.y));
             }
             else
             {

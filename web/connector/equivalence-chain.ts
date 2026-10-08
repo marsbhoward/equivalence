@@ -11,7 +11,7 @@
  * prove the address, and once over the mint that puts their assembled PFP in their own wallet.
  */
 
-import type { CoalescenceChain } from './coalescence-chain';
+import type { EquivalenceChain } from './equivalence-chain';
 
 // CIP-68 asset name prefixes. The REFERENCE token carries the datum; the USER token is what the
 // player holds. Components and PFPs are user tokens; progression lives on a reference token the
@@ -40,9 +40,9 @@ let address = '';
  * IIFE loaded by a plain <script> tag before the Unity instance boots - import.meta.env is empty
  * in that format and the setting would be silently ignored rather than reported.
  *
- * Set it in index.html ahead of this script:  window.COALESCENCE_SERVICE = 'https://...'
+ * Set it in index.html ahead of this script:  window.EQUIVALENCE_SERVICE = 'https://...'
  */
-const SERVICE = (window as any).COALESCENCE_SERVICE ?? '/api';
+const SERVICE = (window as any).EQUIVALENCE_SERVICE ?? '/api';
 
 async function service(path: string, init?: RequestInit): Promise<Response> {
   const r = await fetch(`${SERVICE}${path}`, {
@@ -57,7 +57,7 @@ async function service(path: string, init?: RequestInit): Promise<Response> {
 const hex = (s: string) =>
   Array.from(new TextEncoder().encode(s)).map(b => b.toString(16).padStart(2, '0')).join('');
 
-export const connector: CoalescenceChain = {
+export const connector: EquivalenceChain = {
 
   // ---- identity ---------------------------------------------------------------------------
 
@@ -84,7 +84,7 @@ export const connector: CoalescenceChain = {
   async proveOwnership({ accountId, datum }) {
     if (!api) throw new Error('no wallet connected');
     // signData, NOT signTx. No fee, no UTxO, nothing to approve beyond "yes this is my address".
-    const message = `Coalescence login\naddress: ${accountId}\nnonce: ${datum}`;
+    const message = `Equivalence login\naddress: ${accountId}\nnonce: ${datum}`;
     const sig = await api.signData(accountId, hex(message));
 
     // The service is the one that has to believe it - it stores the proof and thereafter accepts
@@ -226,8 +226,8 @@ async function write(kind: string, payload: Record<string, string>): Promise<str
   return hash ?? '';                        // "" is recorded as a failed checkpoint, not a silent success
 }
 
-// The game reads window.CoalescenceChain lazily, but StoreFactory decides ONCE - assign before
+// The game reads window.EquivalenceChain lazily, but StoreFactory decides ONCE - assign before
 // the Unity instance boots if you want the chain-backed stores chosen.
-window.CoalescenceChain = connector;
+window.EquivalenceChain = connector;
 
 export { LABEL_REFERENCE, LABEL_USER };

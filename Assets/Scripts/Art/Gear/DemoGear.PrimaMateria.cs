@@ -3,7 +3,7 @@ using UnityEngine;
 
 namespace Convergence.Art.Gear
 {
-    // ====================================================== Prima Materia: a bow of the Secret Fire
+    // ====================================================== the Aether Longbow: a bow of the Secret Fire
     //
     // The Aether set's bow, Black Diamond, power 0 - bespoke art and nothing else (the cosmetic
     // weapons' rule). After the user's reference (an archer on a rooftop holding a bow of jagged red
@@ -83,12 +83,56 @@ namespace Convergence.Art.Gear
             var pal = SecretFire.Kindle(Palette.Of(steel, hilt, wrap));
 
             // Id "prima_materia_bow": "prima_materia" is already an exchange boon's id.
-            var bow = WithMenu(Bow(Make("prima_materia_bow", "Prima Materia", GearSlot.Weapon, LootTier.BlackDiamond, 0f,
+            var bow = WithMenu(Bow(Make("prima_materia_bow", "Aether Longbow", GearSlot.Weapon, LootTier.BlackDiamond, 0f,
                 Pixels(RigLayer.Weapon, "gear.weapon.prima_materia", PrimaRows, pal, 0f, 0f,
                        pivotTexel: PrimaGrip, ppu: FinePpu, upscale2x: true))),
                 Pixels(RigLayer.Weapon, "gear.weapon.prima_materia.menu", PrimaDetail, pal, 0f, 0f,
                        pivotTexel: PrimaDetailGrip, ppu: MenuPpu));
+            bow.SignatureFinisher = PrimaMateriaArtId;
             items.Add(Kindle(bow));
+            AddPrimaStone(items);
+        }
+
+        // ------------------------------------------------------------------ the stone
+        //
+        // The Aether Longbow's RELIC: a Philosopher's Stone, the LIQUID (the user's pick for the bow,
+        // 2026-10-07 - the cracked shard is the Aether Greatsword's, the geode the King and
+        // Queen's). A glossy drop of light, element-coloured all through, with a few droplets
+        // flung off it. The whole body is the Secret Fire's LIQUID (SecretFire.KindleLiquid): it
+        // swells and ebbs on the one beat but never below SecretFire.LiquidFloor - a stone loses
+        // its glow, it never goes out. It carries PRIMA MATERIA, and is what the character
+        // throws up while the bow is in the air.
+
+        public const string PrimaMateriaArtId = "prima_materia_art";
+        public const string PrimaStoneId = "prima_stone";
+
+        // 8 x 13, the user's belt grid: h highlight, 4 light, 3 body, 2 shade (no deep tone is
+        // used at this size), w a droplet - the highlight's light, loose.
+        static readonly string[] PrimaStoneRows =
+        {
+            "...ww...",
+            "...33...",
+            "..3443..",
+            ".34h432.",
+            ".3h4432.",
+            "w3h4432w",
+            ".3h4432.",
+            ".34h332.",
+            ".344332.",
+            ".333322.",
+            "..3222..",
+            "...22w..",
+            "....w...",
+        };
+
+        static void AddPrimaStone(List<GearItem> items)
+        {
+            var pal = SecretFire.KindleLiquid(new Dictionary<char, Color>(), 'h', '4', '3', '2', '1');
+            pal['w'] = pal['h'];
+            var stone = RelicGrants(Make(PrimaStoneId, "Liquid Stone", GearSlot.Relic, LootTier.BlackDiamond, 0f,
+                                         HipRelic("gear.trinket.prima_stone", PrimaStoneRows, pal)),
+                                    PrimaMateriaArtId, WeaponClass.Bow, twoHanded: true);
+            items.Add(Kindle(stone));
         }
 
         /// <summary>The whole bow sampled at <paramref name="k"/> texels per authored cell.</summary>

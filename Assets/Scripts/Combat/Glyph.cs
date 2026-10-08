@@ -53,6 +53,19 @@ namespace Convergence.Combat
         /// <summary>A crescent flying right with a small stone behind it - the Magnum Opus's shot.
         /// Appended, for the reason above.</summary>
         MagnumOpus,
+
+        /// <summary>A boomerang's chevron over a short arrow - the Prima Materia art. Appended, for the
+        /// reason above.</summary>
+        PrimaMateria,
+
+        /// <summary>Two arcs closing like pincers on a point - the King and Queen art. Appended, for the
+        /// reason above.</summary>
+        KingAndQueen,
+
+        /// <summary>A level blade driving right with speed lines behind it - the Impale art, the
+        /// body lunging with the thrust (Spike is Piercing Lunge's standing thrust). Appended, for
+        /// the reason above.</summary>
+        Impale,
     }
 
     /// <summary>
@@ -207,6 +220,30 @@ namespace Convergence.Combat
             Glyph.MagnumOpus => Render((x, y) =>
                                  (Disc(x, y, 0.10f, 0f, 0.82f) && !Disc(x, y, -0.22f, 0f, 0.82f) && x > -0.2f) ||
                                  (Mathf.Abs(x + 0.55f) / 0.13f + Mathf.Abs(y) / 0.32f <= 1f)),
+
+            // The thrown bow's chevron, and the arrow it comes back to loose.
+            Glyph.PrimaMateria => Render((x, y) =>
+                                 RotRect(x, y, -0.22f, 0.28f, 0.62f, 0.13f, 32f) ||
+                                 RotRect(x, y, 0.22f, 0.28f, 0.62f, 0.13f, -32f) ||
+                                 RotRect(x, y, 0f, -0.42f, 0.72f, 0.09f, 0f) ||
+                                 (x > 0.22f && x < 0.46f && Mathf.Abs(y + 0.42f) < (0.46f - x) * 0.9f)),
+
+            // The two halves' arcs closing on the target between them.
+            Glyph.KingAndQueen => Render((x, y) =>
+                             {
+                                 bool left = x < 0f && Mathf.Abs(Mathf.Sqrt((x + 0.55f) * (x + 0.55f) + (y + 0.1f) * (y + 0.1f)) - 0.62f) < 0.1f && y < 0.55f && x > -1f;
+                                 bool right = x > 0f && Mathf.Abs(Mathf.Sqrt((x - 0.55f) * (x - 0.55f) + (y + 0.1f) * (y + 0.1f)) - 0.62f) < 0.1f && y < 0.55f && x < 1f;
+                                 return left || right || Disc(x, y, 0f, 0.5f, 0.16f);
+                             }),
+
+            // A level blade driving right out of three speed lines: the thrust AND the body
+            // travelling with it, so it can't be read as Piercing Lunge's standing Spike.
+            Glyph.Impale   => Render((x, y) =>
+                                 Rect(x, y, 0.10f, 0f, 0.42f, 0.085f) ||           // blade
+                                 RightWedge(x, y, 0.50f, 0.92f, 0.17f) ||          // point
+                                 Rect(x, y, -0.62f,  0.30f, 0.20f, 0.05f) ||       // speed lines
+                                 Rect(x, y, -0.70f,  0f,    0.16f, 0.05f) ||
+                                 Rect(x, y, -0.62f, -0.30f, 0.20f, 0.05f)),
 
             _              => Render((x, y) =>
                                  RotRect(x, y, 0f, 0f, 0.80f, 0.12f, 45f) ||

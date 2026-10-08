@@ -51,7 +51,7 @@ namespace Convergence.EditorTools
         [MenuItem("Convergence/Apply Web Settings")]
         public static string ApplyWebSettings()
         {
-            PlayerSettings.WebGL.template = "PROJECT:Coalescence";
+            PlayerSettings.WebGL.template = "PROJECT:Equivalence";
 
             // Brotli is roughly a third the size of gzip and the download is the first thing a
             // player experiences. It needs the server to send Content-Encoding: br - if you are
@@ -85,7 +85,7 @@ namespace Convergence.EditorTools
             PlayerSettings.allowedAutorotateToLandscapeRight = true;
 
             AssetDatabase.SaveAssets();
-            return "web settings applied: template=Coalescence, brotli, 512/2048 MB, landscape only";
+            return "web settings applied: template=Equivalence, brotli, 512/2048 MB, landscape only";
         }
     }
 }

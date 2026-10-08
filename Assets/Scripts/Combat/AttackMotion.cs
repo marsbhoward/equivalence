@@ -111,6 +111,19 @@ namespace Convergence.Combat
         /// project has already had one save corrupted by renumbering an enum in place.
         /// </summary>
         Wind,
+
+        /// <summary>
+        /// The Impale art: the blade pulled back into the CHAMBER during the timing bar's
+        /// wind-up (the draw is animated over the hold, not frozen on a frame), then a fast
+        /// level thrust as the whole body lunges forward with it. Frame zero is the chamber;
+        /// the guard-to-chamber draw lives at negative k, which only the held wind-up plays
+        /// (see PrimitiveCharacterRig's Lunge case). The player's own displacement is
+        /// AttackStep.LungeDistance - this is only the picture.
+        ///
+        /// Appended, never inserted. AttackMotion is an enum on serialisable data and this
+        /// project has already had one save corrupted by renumbering an enum in place.
+        /// </summary>
+        Lunge,
     }
 
     /// <summary>Timing shared by the rig and the gameplay that depends on it.</summary>

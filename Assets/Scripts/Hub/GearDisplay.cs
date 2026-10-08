@@ -31,7 +31,7 @@ namespace Convergence.Hub
         {
             if (item == null) return null;
 
-            // A piece posed differently on display than in the hand (the King and Queen) hangs in
+            // A piece posed differently on display than in the hand (the Aether Dual Discs) hangs in
             // its display pose - see GearItem.DisplayLayer.
             var posed = item.DisplayFor(menu);
             if (posed != null) return posed;
@@ -54,7 +54,7 @@ namespace Convergence.Hub
 
         /// <summary>The picture for a disc pair's SECOND disc: the item's own off-hand half where
         /// it has one (the Armillary), otherwise the same as <see cref="Represent"/>. A pair with a
-        /// display pose (the King and Queen) hangs its second disc in that pose too.</summary>
+        /// display pose (the Aether Dual Discs) hangs its second disc in that pose too.</summary>
         public static LayerSprite RepresentOffhand(GearItem item, bool menu = false)
             => item?.OffhandDisplayFor(menu) ?? item?.OffhandFor(menu) ?? Represent(item, menu);
 

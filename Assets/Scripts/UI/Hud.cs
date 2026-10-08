@@ -633,7 +633,7 @@ namespace Convergence.UI
             //
             // It used to light whichever slot equalled RotationIndex, in fixed positions. That is
             // a true statement about the rotation and a useless one at the moment of pressing:
-            // mid-chain it lit a finisher that was still three swings away, so the highlight and
+            // mid-chain it lit a finisher that was still swings away, so the highlight and
             // the big icon above it disagreed about what the button was about to do.
             int slotCount = _player.Slots.Count;
             // The strip is built at run start, and the wheel can grow after it - Extra Sigil

@@ -8,7 +8,7 @@ namespace Convergence.Combat
     /// <summary>
     /// A body taken apart texel by texel: the death a non-boss enemy dies when a Magnum Opus hit
     /// (<see cref="DamageInfo.Disintegrates"/>) kills it while a reactive weapon is drawn - shared
-    /// by all three (the Aether Greatsword, Prima Materia, the King and Queen).
+    /// by all three (the Aether Greatsword, the Aether Longbow, the Aether Dual Discs).
     ///
     /// THE TEXELS ARE THE BODY'S OWN. Every sprite under the dying body's visual is read back and
     /// each opaque texel becomes one particle at its exact world position and colour, so a chaser

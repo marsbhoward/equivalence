@@ -46,10 +46,10 @@
   <div id="unity-rotate">rotate your device to play</div>
 
   <!-- The chain connector. Loaded BEFORE the Unity instance so StoreFactory, which decides once,
-       sees window.CoalescenceChain on its first look. Absent or failed, the game falls back to
+       sees window.EquivalenceChain on its first look. Absent or failed, the game falls back to
        local storage and stays playable. -->
-  <script>window.COALESCENCE_SERVICE = "/api";</script>
-  <script src="connector/coalescence-chain.js" onerror="console.warn('[Coalescence] no chain connector; running on local storage')"></script>
+  <script>window.EQUIVALENCE_SERVICE = "/api";</script>
+  <script src="connector/equivalence-chain.js" onerror="console.warn('[Equivalence] no chain connector; running on local storage')"></script>
 
   <script src="Build/%UNITY_WEBGL_LOADER_URL%"></script>
   <script>

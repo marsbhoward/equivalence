@@ -244,7 +244,7 @@ namespace Convergence.Exchange
               "See what the next floor holds - and its roster, if it is a fight.", conditional: true);
             B("lodestone", "Lodestone", Ledger, Stroke, 2, 1, "A spire boon you capture lasts one more floor.",
               (m, n) => m.SpireExtraFloors += T.LodestoneFloors);
-            B("prima_materia", "Prima Materia", Ledger, Cross, 2, 1, "The next deal shows three pairs.")
+            B("prima_materia", "Speculum", Ledger, Cross, 2, 1, "The next deal shows three pairs.")
               .Recurs(p => p.PairsDelta += 1);
 
             // ============================================================ COSTS

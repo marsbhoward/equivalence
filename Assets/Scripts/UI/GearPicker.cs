@@ -195,7 +195,8 @@ namespace Convergence.UI
             UiKit.Hint(UiKit.Rect(_full, "s", new Vector2(0, 1), new Vector2(1, 1),
                 new Vector2(0, -166), new Vector2(0, -136)),
                 "[ESC] to go back", "BACK to go back",
-                17, new Color(0.42f, 0.45f, 0.52f), TextAnchor.MiddleCenter);
+                17, new Color(0.42f, 0.45f, 0.52f), TextAnchor.MiddleCenter,
+                GamepadGlyphs.Cancel + " to go back");
 
             // Only the weapon slot splits. Every other slot is one kind of thing with few enough
             // entries that a filter would be furniture.
@@ -327,10 +328,14 @@ namespace Convergence.UI
             st.BestDurability = d;
         }
 
+        /// <summary>The card for what is equipped now, if this grid shows it.</summary>
+        RectTransform _wornRect;
+
         void BuildGrid()
         {
             if (_gridRoot) Destroy(_gridRoot);
             _cells.Clear();
+            _wornRect = null;
 
             _gridRoot = new GameObject("grid", typeof(RectTransform));
             _gridRoot.transform.SetParent(_full, false);
@@ -457,6 +462,7 @@ namespace Convergence.UI
                     TextAnchor.MiddleCenter);
 
                 _cells.Add((card, stack?.PickId));
+                if (worn || (isEmpty && nothingWorn)) _wornRect = card;
             }
         }
 
@@ -498,14 +504,17 @@ namespace Convergence.UI
         {
             if (!IsOpen) return;
 
+            // The worn card first, so a gamepad opens on what is equipped; then the rest of the
+            // grid, then the tabs above it.
             _focusRects.Clear();
-            foreach (var (rect, _) in _tabs) _focusRects.Add(rect);
+            if (_wornRect != null) _focusRects.Add(_wornRect);
             foreach (var (rect, _) in _cells) _focusRects.Add(rect);
+            foreach (var (rect, _) in _tabs) _focusRects.Add(rect);
             Core.Controls.SetFocusCandidates(_focusRects);
 
             // Back only. Deliberately NOT InteractTapped: on a keyboard that shares E with the
             // ability button, and this screen is reachable mid-run.
-            if (Core.Controls.CancelTapped) { Close(); return; }
+            if (Core.Controls.CancelTapped) { Core.Controls.ConsumeCancel(); Close(); return; }
 
             if (Time.frameCount == _openedFrame) return;   // the press that opened this
             if (!Core.Controls.Tapped(out var at)) return;

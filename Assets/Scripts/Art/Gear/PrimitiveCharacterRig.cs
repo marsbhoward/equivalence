@@ -843,6 +843,13 @@ namespace Convergence.Art.Gear
         // a power stance it can strike from. Judged by eye in the hub: the guard sits on the
         // pauldron; at -30 the fist rose and the guard climbed toward the head.
         //
+        // Third pass (the user's call, against two shouldered-greatsword references): arm and
+        // blade moved DIAGONALLY DOWN, ~5 body texels down and 5 inward, the blade's angle
+        // unchanged - it had floated above the pauldron with the guard by the neck; now it rests
+        // ON the shoulder with the fist lower on the chest. Solved as IK on the real rig: the
+        // forearm 210 -> 240, the shoulder stays at -20 (it came out -19). Down and OUTWARD was
+        // tried beside it and buried the arm under the pauldron.
+        //
         // Same convention as the rest carry: written for arm.back and flipped for arm.front, so
         // "outward on the carrying side" is BEHIND - the carrying arm is the trailing one.
 
@@ -855,12 +862,13 @@ namespace Convergence.Art.Gear
         const float MarchShoulderDegrees = -20f;
 
         /// <summary>
-        /// The forearm's ABSOLUTE angle in the march carry (shoulder + elbow), degrees: upright,
-        /// leaning in - barely moved from the rest carry's 200. Kept as an absolute angle so the
-        /// blend moves the forearm 10 degrees while the elbow drops, rather than spinning it a
-        /// whole turn the other way (-150 and 210 are the same angle; only one is a short blend).
+        /// The forearm's ABSOLUTE angle in the march carry (shoulder + elbow), degrees: leaning
+        /// in across the chest. Was 210; 240 moves the fist and blade diagonally down onto the
+        /// shoulder (the user's call). Kept as an absolute angle so the blend moves the forearm
+        /// 40 degrees while the elbow drops, rather than spinning it a whole turn the other way
+        /// (-120 and 240 are the same angle; only one is a short blend).
         /// </summary>
-        const float MarchForearmDegrees = 210f;
+        const float MarchForearmDegrees = 240f;
 
         /// <summary>Elbow angle for the march carry, degrees - derived from the two above.</summary>
         const float MarchElbowDegrees = MarchForearmDegrees - MarchShoulderDegrees;
@@ -1215,9 +1223,9 @@ namespace Convergence.Art.Gear
 
         /// <summary>
         /// The carry's elbow as the GRIP blend scales it toward the swing's straight arm: the
-        /// SHORT way round. The march's elbow is 230 degrees, and scaled from there to 0 it folded
+        /// SHORT way round. The march's elbow is 260 degrees, and scaled from there to 0 it folded
         /// back through 180 - the forearm swept a whole half-turn and the blade spun round past
-        /// the hip and back up before the swing could start. Taken as -130 instead, the forearm
+        /// the hip and back up before the swing could start. Taken as -100 instead, the forearm
         /// lifts and the blade stays laid back over the shoulder, which is within a few degrees of
         /// where a Chop cocks (blade 74 against the cock's 75-87): the march flows into the opener.
         ///
@@ -1649,8 +1657,44 @@ namespace Convergence.Art.Gear
                         pixelsPerUnit: bodyPpu);
 
             SetBodyPixel(RigLayer.Head, headSprite, new Vector2(0, ChinOnNeckline(headSprite)));
+            // SetBodyPixel switches the layer on; turned away the face stays off (SetFacingAway) -
+            // or hiding the helm from behind put the face on the back of the head.
+            if (_facingAway) SetLayerEnabled(RigLayer.Head, false);
+            EncloseHeadInHelm();
 
             SyncGlowEyeSprite();
+        }
+
+        /// <summary>The head as painted, and the copy cut to a sealed helm that stands in for it -
+        /// see <see cref="EncloseHeadInHelm"/>. Sprites, so a domain reload keeps them.</summary>
+        Sprite _headOpen, _headClipped;
+
+        /// <summary>
+        /// Under a SEALED helm (<see cref="GearItem.SealsHead"/>), the head is cut to the helm's
+        /// outline (<see cref="PixelSprite.Enclosed"/>, the hood's rule for a helm): ClipOverhead
+        /// only blanks the rows above the skull, and the hair at the skull's top corners still
+        /// poked out where a round dome narrows. The face opening is inside the outline, so the
+        /// face is kept. Swaps the sprite only - never the renderer's enabled state, which the
+        /// facing owns - and gives the uncut head back when the helm is hidden or taken off.
+        /// Measured against the FRONT helm (the head is off while turned away).
+        /// </summary>
+        void EncloseHeadInHelm()
+        {
+            if (!_layers.TryGetValue(RigLayer.Head, out var head) || head == null || head.sprite == null) return;
+            if (_headClipped != null && head.sprite == _headClipped && _headOpen != null) head.sprite = _headOpen;
+            _headOpen = head.sprite;
+            _headClipped = null;
+
+            if (!_headSealed || _helmHidden) return;
+            if (!_layers.TryGetValue(RigLayer.HeadArmor, out var helm) || helm == null) return;
+            var frame = helm.sprite == _helmBack && _helmBack != null ? _helmFront : helm.sprite;
+            if (frame == null) return;
+
+            var cut = PixelSprite.Enclosed(head.sprite, frame,
+                helm.transform.worldToLocalMatrix * head.transform.localToWorldMatrix);
+            if (cut == null || cut == head.sprite) return;
+            _headClipped = cut;
+            head.sprite = cut;
         }
 
         string[] Covered(string[] head, int scale)
@@ -1843,7 +1887,7 @@ namespace Convergence.Art.Gear
                     Palette.Of(skin, hair, tie), pixelsPerUnit: bodyPpu * scale);
                 SetBodyPixel(RigLayer.HeadBack, styled, new Vector2(0, ChinOnNeckline(styled)));
                 if (_layers.TryGetValue(RigLayer.HeadBack, out var styledSr) && styledSr != null)
-                    styledSr.enabled = _facingAway;
+                    styledSr.enabled = _facingAway && !SealedHelmBackShown;
                 return;
             }
 
@@ -1873,7 +1917,7 @@ namespace Convergence.Art.Gear
             SetBodyPixel(RigLayer.HeadBack, backSprite,
                 new Vector2(0, ChinOnNeckline(backSprite)));
             if (_layers.TryGetValue(RigLayer.HeadBack, out var sr) && sr != null)
-                sr.enabled = _facingAway;   // painted every time, shown only while turned away
+                sr.enabled = _facingAway && !SealedHelmBackShown;   // painted every time, shown only while turned away
         }
 
         /// <summary>
@@ -1965,6 +2009,14 @@ namespace Convergence.Art.Gear
         /// UnityEngine.Object reference.
         /// </summary>
         Sprite _hoodBack, _hoodFront;
+
+        /// <summary>The equipped helm's BACK view (<see cref="GearItem.HelmBack"/>) and the front
+        /// sprite it stands in for while turned away - see <see cref="SyncHelmFacing"/>.</summary>
+        Sprite _helmBack, _helmFront;
+
+        /// <summary>A sealed helm's back view is on: it encloses the head, so the back of the
+        /// skull (HeadBack) is hidden under it - drawn, its hair pokes out round the dome.</summary>
+        bool SealedHelmBackShown => _helmBack != null && _headSealed && !_helmHidden;
 
         /// <summary>
         /// Whether the equipped Head item is tied on with cloth (<see cref="GearItem.HasTieBack"/>),
@@ -2292,8 +2344,11 @@ namespace Convergence.Art.Gear
         public void SetHelmHidden(bool hidden)
         {
             _helmHidden = hidden;
+            // Through the facing, so showing the helm while turned away shows its BACK (or
+            // nothing), never the front face.
             if (_layers.TryGetValue(RigLayer.HeadArmor, out var sr) && sr != null && sr.sprite != null)
-                sr.enabled = !hidden;
+                SyncHelmFacing(_facingAway);
+            EncloseHeadInHelm();
 
             // wraith_eye paints no HeadArmor sprite at all - the recoloured eye and its glow ARE
             // its whole presence on the head slot, so "hide helm" has to reach into SyncGlowEye
@@ -2332,7 +2387,7 @@ namespace Convergence.Art.Gear
             if (glowEye != null) glowEye.SetShown(!away && _glowLeftEye);
             // Turning back round must not override "hide helm" - the helmet is shown again only
             // if the player has not hidden it (see SetHelmHidden).
-            SetLayerEnabled(RigLayer.HeadArmor, !away && !_helmHidden);
+            SyncHelmFacing(away);
             SyncHoodFacing(away);
             SetLayerEnabled(RigLayer.Ring,      !away);
             SetLayerEnabled(RigLayer.Trinket,   !away);
@@ -2343,7 +2398,28 @@ namespace Convergence.Art.Gear
             // HeadBack is a body layer SetAppearance always keeps painted (see DrawPixelBody), so
             // showing it again is just re-enabling the renderer - there is no equip step to redo.
             if (_layers.TryGetValue(RigLayer.HeadBack, out var headBack) && headBack != null)
-                headBack.enabled = away && headBack.sprite != null;
+                headBack.enabled = away && headBack.sprite != null && !SealedHelmBackShown;
+        }
+
+        /// <summary>
+        /// Turned away, a helm with back art (<see cref="GearItem.HelmBack"/>) swaps it onto
+        /// HeadArmor; one without is switched off and the back of the head shows. "Hide helm"
+        /// wins either way. The front sprite is remembered for the way back, as the hood's is.
+        /// </summary>
+        void SyncHelmFacing(bool away)
+        {
+            if (!_layers.TryGetValue(RigLayer.HeadArmor, out var sr) || sr == null) return;
+
+            if (away && _helmBack != null)
+            {
+                if (sr.sprite != _helmBack) _helmFront = sr.sprite;
+                sr.sprite = _helmBack;
+                sr.enabled = !_helmHidden;
+                return;
+            }
+
+            if (sr.sprite == _helmBack && _helmFront != null) sr.sprite = _helmFront;
+            SetLayerEnabled(RigLayer.HeadArmor, !away && !_helmHidden);
         }
 
         /// <summary>
@@ -2935,6 +3011,7 @@ namespace Convergence.Art.Gear
             // once. Re-derived every Apply, so it self-heals if EnsureLayers ever reattaches the
             // layer to its PivotFor default after a domain reload.
             _bowGrip = WeaponIsBow(loadout);
+            _singleEdged = WeaponIsSingleEdged(loadout);
             if (_layers.TryGetValue(RigLayer.Weapon, out var weaponSr) && weaponSr != null)
             {
                 var wantParent = _bowGrip ? _elbowBack : _elbowFront;
@@ -2964,6 +3041,8 @@ namespace Convergence.Art.Gear
             _drapeFront = null;
             _hoodBack = null;
             _hoodFront = null;
+            _helmBack = null;
+            _helmFront = null;
             _tieBackOn = false;
             _faceMaskOnly = false;
             _headSealed = false;
@@ -3010,6 +3089,7 @@ namespace Convergence.Art.Gear
                 // for a face mask - see GearItem.CoversFaceOnly.
                 if (item.Slot == GearSlot.Head && item.CoversFaceOnly) _faceMaskOnly = true;
                 if (item.Slot == GearSlot.Head && item.SealsHead) _headSealed = true;
+                if (item.Slot == GearSlot.Head) _helmBack = item.HelmBack?.Sprite;
 
                 if (item.Slot == GearSlot.Head && item.HasTieBack)
                 {
@@ -3056,6 +3136,8 @@ namespace Convergence.Art.Gear
             // AFTER every item has painted too: the helm and the hood come from two slots, in
             // whatever order Equipped lists them.
             EncloseHelmInHood();
+            // And the head inside a sealed helm - or uncut again, if the helm came off.
+            EncloseHeadInHelm();
 
             _glowEyeItem = wantGlowEye;
             SyncGlowEye();
@@ -4023,8 +4105,8 @@ namespace Convergence.Art.Gear
             21, // Shoulders   - the far-side pauldron, UNDER the cape - nothing rests on it
             20, // TorsoOver
             23, // Head
-            25, // HeadBack   - the back of the head, under the blade crossing it
-            24, // HeadArmor
+            24, // HeadBack   - the back of the head, under the blade crossing it
+            25, // HeadArmor  - over HeadBack: a helm's back view (GearItem.HelmBack) covers the skull
             26, // Hood       - over HeadBack: the cowl's back view covers the skull stand-in
             27, // Weapon   - over the head, UNDER the fist holding it
         })))));
@@ -4072,8 +4154,8 @@ namespace Convergence.Art.Gear
             17, // Shoulders
             23, // TorsoOver
             25, // Head
-            27, // HeadBack
-            26, // HeadArmor
+            26, // HeadBack
+            27, // HeadArmor    - over HeadBack, as in FacingAwayOrder
             28, // Hood         - over HeadBack: the cowl's back view covers the skull stand-in
             0,  // Weapon       - under everything; only what clears the body shows
         })))));
@@ -4258,6 +4340,95 @@ namespace Convergence.Art.Gear
             if (loadout == null) return false;
             var item = GearCatalog.Get(loadout.Get(GearSlot.Weapon));
             return item != null && !item.TwoHanded && item.Class == WeaponClass.Disc;
+        }
+
+        static bool WeaponIsSingleEdged(Loadout loadout)
+        {
+            if (loadout == null) return false;
+            var item = GearCatalog.Get(loadout.Get(GearSlot.Weapon));
+            return item != null && item.SingleEdged;
+        }
+
+        /// <summary>The held blade has one edge (GearItem.SingleEdged), re-read every Apply.</summary>
+        bool _singleEdged;
+
+        /// <summary>
+        /// Whether the current swing turns a single-edged blade OVER (the sprite mirrored across
+        /// its own long axis, the march roll's mechanism) so its edge leads. Set at PlayAttack from
+        /// the whole swing's sweep (<see cref="SweepSign"/>), then re-decided every frame from the
+        /// sweep just ahead (<see cref="SweepSignBetween"/>), so it follows a swing that reverses
+        /// - a thrust or a hold, with no sweep, keeps the PlayAttack answer. A clockwise cut
+        /// leads with the sprite's right side, so the left-authored edge is turned there; a
+        /// counter-clockwise cut already leads with it; a thrust - no sweep - turns it DOWN, which
+        /// is the right side again for a blade along the facing. Applied only in the combat grip:
+        /// the carry keeps the authored side.
+        /// </summary>
+        bool _edgeTurned;
+
+        /// <summary>
+        /// Which way a motion's blade SWEEPS: the sign of its angular travel weighted by speed, so
+        /// the strike (the fastest part) decides and a cock or a recovery doesn't. 0 for a motion
+        /// with no real sweep (the thrust family).
+        /// </summary>
+        static float SweepSign(AttackMotion motion, bool alt, float seconds)
+        {
+            const int Steps = 32;
+            float sum = 0f, total = 0f, prev = 0f;
+            for (int i = 0; i <= Steps; i++)
+            {
+                float arm = 0f, back = 0f, body = 0f;
+                var reach = Vector3.zero;
+                Animate(motion, i / (float)Steps, alt, false, seconds, ref arm, ref back, ref body, ref reach);
+                float blade = arm + body;
+                if (i > 0)
+                {
+                    float d = Mathf.DeltaAngle(prev, blade);
+                    sum += d * Mathf.Abs(d);
+                    total += d * d;
+                }
+                prev = blade;
+            }
+            // A sweep is one-directional; a thrust's small wobble cancels out.
+            return total > 0f && Mathf.Abs(sum) > 0.5f * total && total > 400f ? Mathf.Sign(sum) : 0f;
+        }
+
+        /// <summary>Seconds ahead of the current frame the edge looks to see which way the blade
+        /// is about to sweep - long enough to catch the next stroke while the blade is still
+        /// stopped before it, so the edge turns over in the stop, not a frame into the cut.</summary>
+        const float EdgeLookAheadSeconds = 0.1f;
+
+        /// <summary>Degrees the blade must travel inside the look-ahead before it counts as a
+        /// STROKE. Below it - a cock, an overshoot settling back, a hold, a thrust's wobble - the
+        /// edge stays as it was. At 12 a Chop's cock flipped the edge for two frames at the start
+        /// and its settle flipped it again in the follow-through; real strokes cover 100+.</summary>
+        const float EdgeMinTravel = 40f;
+
+        /// <summary>
+        /// <see cref="SweepSign"/> over part of a motion, <paramref name="k0"/> to
+        /// <paramref name="k1"/>: the sign of the blade's speed-weighted travel there, 0 when it
+        /// travels less than <see cref="EdgeMinTravel"/> or doesn't go one way.
+        /// </summary>
+        static float SweepSignBetween(AttackMotion motion, bool alt, float seconds, float k0, float k1)
+        {
+            const int Steps = 8;
+            float sum = 0f, total = 0f, travel = 0f, prev = 0f;
+            for (int i = 0; i <= Steps; i++)
+            {
+                float arm = 0f, back = 0f, body = 0f;
+                var reach = Vector3.zero;
+                Animate(motion, Mathf.Lerp(k0, k1, i / (float)Steps), alt, false, seconds,
+                        ref arm, ref back, ref body, ref reach);
+                float blade = arm + body;
+                if (i > 0)
+                {
+                    float d = Mathf.DeltaAngle(prev, blade);
+                    sum += d * Mathf.Abs(d);
+                    total += d * d;
+                    travel += Mathf.Abs(d);
+                }
+                prev = blade;
+            }
+            return travel >= EdgeMinTravel && Mathf.Abs(sum) > 0.5f * total ? Mathf.Sign(sum) : 0f;
         }
 
         static bool WeaponIsBow(Loadout loadout)
@@ -4506,6 +4677,9 @@ namespace Convergence.Art.Gear
 
         /// <summary>The worn Trinket layer's renderer - see ICharacterRig.TrinketRenderer. Read
         /// from _layers for the same reason WeaponRenderer is.</summary>
+        /// <summary>The off hand's disc while the pair is split - see ICharacterRig.OffhandRenderer.</summary>
+        public SpriteRenderer OffhandRenderer => _split ? EnsureOffhand() : null;
+
         public SpriteRenderer TrinketRenderer
             => _layers.TryGetValue(RigLayer.Trinket, out var sr) ? sr : null;
 
@@ -4718,7 +4892,7 @@ namespace Convergence.Art.Gear
             var go = new GameObject("WeaponOffhand");
             go.transform.SetParent(_elbowBack, false);
             _offhand = go.AddComponent<SpriteRenderer>();
-            // A kindled pair's second disc burns too (the King and Queen's lioness). SyncKindled
+            // A kindled pair's second disc burns too (the Aether Dual Discs' lioness). SyncKindled
             // only reaches _layers; the overlay draws nothing over a disc with no marks.
             KindledMarks.On(_offhand);
             return _offhand;
@@ -4983,6 +5157,8 @@ namespace Convergence.Art.Gear
             _alt = alt;
             _attackLength = AttackMotions.SwingSeconds(duration);
             _attackTimer = _attackLength;
+            // Counter-clockwise already leads with the authored edge; anything else turns it over.
+            if (_singleEdged) _edgeTurned = SweepSign(motion, alt, _attackLength) <= 0f;
 
             // Where the arm actually IS right now - the previous swing's end pose, a charge, or
             // the walk cycle. The new swing's opening frames blend from here to its own wind-up,
@@ -5202,9 +5378,28 @@ namespace Convergence.Art.Gear
                 if (_attackHold > 0f) { _attackHold -= dt; _holdElapsed += dt; }
                 else _attackTimer -= dt;
                 float k = 1f - Mathf.Clamp01(_attackTimer / _attackLength);
+                // The Lunge art's pull-back is ANIMATED over the hold (k -1 to 0), not frozen on
+                // its first frame - the draw is the wind-up the timing bar times.
+                if (_attackHold > 0f && _motion == AttackMotion.Lunge)
+                {
+                    float held = _holdElapsed + _attackHold - HoldOvershoot;
+                    k = Mathf.Clamp01(_holdElapsed / Mathf.Max(0.05f, held)) - 1f;
+                }
                 float swingArm = 0f, swingBack = 0f, swingBody = 0f;
                 var swingReach = Vector3.zero;
                 Animate(_motion, k, _alt, _facingLeft, _attackLength, ref swingArm, ref swingBack, ref swingBody, ref swingReach);
+
+                // A single-edged blade's edge FOLLOWS the motion: whichever way the blade is about
+                // to sweep decides it, so a swing that reverses (the Flurry's cut down and cut up)
+                // turns the edge over in the still moment between strokes - the wrist turning -
+                // rather than leading the second stroke with the spine. A window with no real sweep
+                // (a thrust, a hold) keeps what it had.
+                if (_singleEdged && _attackHold <= 0f)
+                {
+                    float ahead = EdgeLookAheadSeconds / Mathf.Max(0.05f, _attackLength);
+                    float sign = SweepSignBetween(_motion, _alt, _attackLength, k, Mathf.Min(1f, k + ahead));
+                    if (sign != 0f) _edgeTurned = sign < 0f;
+                }
 
                 // Blend out of wherever the arm actually was when this swing started, instead of
                 // snapping onto the animation's first frame. The window is short and eased, so
@@ -5445,8 +5640,10 @@ namespace Convergence.Art.Gear
                 _weaponPivot.localRotation = Quaternion.Euler(0, 0, wrist);
                 // Rolled only while the carrying fist holds it: the combat grip takes the blade
                 // back at the same moment the weapon changes arms (carryHandOpen).
-                _weaponPivot.localScale = new Vector3(
-                    _marchRolled && carryBlend > 0.5f ? -1f : 1f, 1f, 1f);
+                // A single-edged blade turned so its edge leads the swing (_edgeTurned) - in the
+                // combat grip only, the same handover point as the roll.
+                bool rolled = carryBlend > 0.5f ? _marchRolled : _singleEdged && _edgeTurned;
+                _weaponPivot.localScale = new Vector3(rolled ? -1f : 1f, 1f, 1f);
                 _weaponPivot.localPosition = Vector3.Lerp(_weaponGripRest,
                     new Vector3(side * CarryGrip.x, CarryGrip.y, _weaponGripRest.z), carryBlend);
             }
@@ -5829,6 +6026,143 @@ namespace Convergence.Art.Gear
         const float ImpaleLungeSeconds = 0.12f;
 
 
+        // ---- the FLURRY art: cut down, cut up, the pommel ----
+        //
+        // Starts where a Rise leaves the hands (blade cocked high over the shoulder, fists high in
+        // front), ends where a Chop starts (the opener's cock), so the chain runs into it and
+        // straight back out of it. Each cut is timed against the moment Tuning.Flurry says it lands,
+        // placed so the blade is crossing in front of the body as the hit resolves. The pommel turns the
+        // blade back over the shoulder - the pommel then points AT the target - and drives the
+        // fists out past a straight arm's reach (the figure goes with them, as a Thrust's does).
+
+        /// <summary>Where a Rise leaves the grip, and the Flurry starts it.</summary>
+        static readonly Vector2 FlurryHighFist = new Vector2(0.172f, 0.145f);
+        const float FlurryHighBlade = 85f;
+
+        /// <summary>The first cut's end: forward and down, the hands low in front (a Chop's end).</summary>
+        static readonly Vector2 FlurryLowFist = new Vector2(0.145f, -0.08f);
+        const float FlurryLowBlade = -118f;
+
+        /// <summary>The rising cut's end: blade back up over the shoulder, hands high.</summary>
+        static readonly Vector2 FlurryRiseFist = new Vector2(0.15f, 0.13f);
+        const float FlurryRiseBlade = 80f;
+
+        // The two pommel blade angles are the ARM's; what is drawn is arm + body, and the body is
+        // coiled +22 at the chamber and leaning -18 into the blow. Written as the drawn angle it
+        // landed tipped 20 degrees UP behind the head - the pommel pointed at the ground and the
+        // blow read as one more cock over the shoulder.
+
+        /// <summary>The pommel's chamber: fists drawn back level with the face, the blade laid
+        /// back along the forearms (drawn ~105, a touch below level).</summary>
+        static readonly Vector2 FlurryChamberFist = new Vector2(-0.04f, 0.10f);
+        const float FlurryChamberBlade = 83f;
+
+        /// <summary>The pommel landing: fists driven out at head height, past a straight arm (as
+        /// Impale's lunge), the blade level behind them (drawn ~94) so the pommel leads.</summary>
+        static readonly Vector2 FlurryPommelFist = new Vector2(0.42f, 0.06f);
+        const float FlurryPommelBlade = 112f;
+
+        /// <summary>The end: the opener's cock (a Chop's first frame), where the next chain starts.</summary>
+        static readonly Vector2 FlurryEndFist = new Vector2(0.167f, 0.074f);
+        const float FlurryEndBlade = ChopFrom;
+
+        /// <summary>Seconds the first cut runs on past its hit. Its arc starts on the first frame,
+        /// so the hit (CutOneAt) falls ~60% through it - the blade some 50 degrees down from
+        /// upright, out in front, as the hit resolves. Centred, it hit with the blade upright.</summary>
+        const float FlurryCutOneAfter = 0.045f;
+
+        /// <summary>Seconds the rising cut starts before its hit, and runs on after it: the hit
+        /// falls 40% through, the blade again ~50 degrees from upright, rising.</summary>
+        const float FlurryCutTwoBefore = 0.048f;
+        const float FlurryCutTwoAfter = 0.072f;
+
+        /// <summary>World units the fists bow forward through the middle of each cut (an orbit,
+        /// not a blade turning about a fixed point - see ChopOrbit).</summary>
+        const float FlurryCutBow = 0.10f;
+
+        /// <summary>Seconds the pommel holds at full extension before the recovery.</summary>
+        const float FlurryPommelHold = 0.06f;
+
+        /// <summary>
+        /// The Flurry's pose at <paramref name="t"/> seconds into the sequence. Phases, in order:
+        /// cut one (high to low, CutOneAt ~60% through it), cut two (low to high, CutTwoAt 40% through),
+        /// the chamber, the drive (accelerating INTO the pommel's hit at PommelAt), a hold, and
+        /// the recovery to the opener's cock.
+        /// </summary>
+        static void FlurryPose(float t, out Vector2 fist, out float blade, out float body, out float back)
+        {
+            var T = Core.Tuning.Flurry.Seconds;
+            float cut1End = Core.Tuning.Flurry.CutOneAt + FlurryCutOneAfter;
+            float cut2Start = Core.Tuning.Flurry.CutTwoAt - FlurryCutTwoBefore;
+            float cut2End = Core.Tuning.Flurry.CutTwoAt + FlurryCutTwoAfter;
+            float hit = Core.Tuning.Flurry.PommelAt;
+            float drive = hit - 0.07f;
+            float holdEnd = hit + FlurryPommelHold;
+
+            float Smooth(float a, float b) => Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(a, b, t));
+
+            if (t < cut1End)
+            {
+                float u = Smooth(0f, cut1End);
+                blade = Mathf.Lerp(FlurryHighBlade, FlurryLowBlade, u);
+                fist = Vector2.Lerp(FlurryHighFist, FlurryLowFist, u)
+                     + new Vector2(Mathf.Sin(u * Mathf.PI) * FlurryCutBow, 0f);
+                body = Mathf.Lerp(18f, -12f, u);
+                back = Mathf.Lerp(-20f, 25f, u);
+            }
+            else if (t < cut2Start)
+            {
+                blade = FlurryLowBlade;
+                fist = FlurryLowFist;
+                body = -12f;
+                back = 25f;
+            }
+            else if (t < cut2End)
+            {
+                float u = Smooth(cut2Start, cut2End);
+                blade = Mathf.Lerp(FlurryLowBlade, FlurryRiseBlade, u);
+                fist = Vector2.Lerp(FlurryLowFist, FlurryRiseFist, u)
+                     + new Vector2(Mathf.Sin(u * Mathf.PI) * FlurryCutBow, 0f);
+                body = Mathf.Lerp(-12f, 14f, u);
+                back = Mathf.Lerp(25f, -30f, u);
+            }
+            else if (t < drive)
+            {
+                // The chamber: the wrist turns the blade back over the shoulder, the fists come
+                // back to the face, the shoulders coil away.
+                float u = Smooth(cut2End, drive);
+                blade = Mathf.Lerp(FlurryRiseBlade, FlurryChamberBlade, u);
+                fist = Vector2.Lerp(FlurryRiseFist, FlurryChamberFist, u);
+                body = Mathf.Lerp(14f, 22f, u);
+                back = Mathf.Lerp(-30f, -36f, u);
+            }
+            else if (t < hit)
+            {
+                // The drive ACCELERATES into the hit - a blow arrives fast, it does not ease in.
+                float u = Mathf.InverseLerp(drive, hit, t);
+                u *= u;
+                blade = Mathf.Lerp(FlurryChamberBlade, FlurryPommelBlade, u);
+                fist = Vector2.Lerp(FlurryChamberFist, FlurryPommelFist, u);
+                body = Mathf.Lerp(22f, -18f, u);
+                back = Mathf.Lerp(-36f, 10f, u);
+            }
+            else if (t < holdEnd)
+            {
+                blade = FlurryPommelBlade;
+                fist = FlurryPommelFist;
+                body = -18f;
+                back = 10f;
+            }
+            else
+            {
+                float u = Smooth(holdEnd, T);
+                blade = Mathf.Lerp(FlurryPommelBlade, FlurryEndBlade, u);
+                fist = Vector2.Lerp(FlurryPommelFist, FlurryEndFist, u);
+                body = Mathf.Lerp(-18f, 0f, u);
+                back = Mathf.Lerp(10f, -20f, u);
+            }
+        }
+
         /// <summary>
         /// How high a hopping swing lifts the figure, as a fraction of the step's HopHeight.
         /// The rise fills the cock and the drop fills the strike, so the body's weight is coming
@@ -5975,6 +6309,45 @@ namespace Convergence.Art.Gear
             return Mathf.Lerp(1f + WindOvershoot, 1f, u);
         }
 
+        /// <summary>Impale's draw, 0 to 1: from the guard, level the blade and pull the fists
+        /// back past the near hip into the chamber, coiling the torso away.</summary>
+        static void ImpaleDraw(float t, out float blade, out Vector2 fist, out float bodySpin, out float backSwing)
+        {
+            float td = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(t));
+            blade = Mathf.Lerp(ThrustGuardBlade, ImpaleAngle, td);
+            fist = Vector2.Lerp(ThrustGuardFist, ImpaleChamberFist, td);
+            bodySpin = Mathf.Lerp(0f, -16f, td);
+            backSwing = Mathf.Lerp(10f, 25f, td);
+        }
+
+        /// <summary>Impale's thrust, 0 to 1: explosive, from the chamber to full extension.</summary>
+        static void ImpaleThrust(float t, out float blade, out Vector2 fist, out float bodySpin, out float backSwing)
+        {
+            float tl = Mathf.Clamp01(t);
+            tl = tl * tl * (3f - 2f * tl);
+            blade = ImpaleAngle;
+            fist = Vector2.Lerp(ImpaleChamberFist, ImpaleLungeFist, tl);
+            bodySpin = Mathf.Lerp(-16f, 18f, tl);
+            backSwing = Mathf.Lerp(25f, -15f, tl);
+        }
+
+        /// <summary>Impale's follow-through, 0 to 1: hold the skewer, then bring the fists home
+        /// to the guard, the body untwisting with them.</summary>
+        static void ImpaleRecover(float t, out float blade, out Vector2 fist, out float bodySpin, out float backSwing)
+        {
+            float raw = Mathf.Clamp01(t);
+            float u = Mathf.SmoothStep(0f, 1f, raw);
+            float back = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(ImpaleHoldShare, 1f, raw));
+            blade = Mathf.Lerp(ImpaleAngle, ThrustGuardBlade, back);
+            fist = Vector2.Lerp(ImpaleLungeFist * 0.94f, ThrustGuardFist, back);
+            bodySpin = Mathf.Lerp(Mathf.Lerp(18f, 12f, u), 0f, back);
+            backSwing = Mathf.Lerp(Mathf.Lerp(-15f, -8f, u), 10f, back);
+        }
+
+        /// <summary>Seconds the Lunge art's thrust takes to full extension - the dash's length
+        /// (Tuning.Impale.LungeSeconds), so the blade is out as the body arrives.</summary>
+        const float LungeThrustSeconds = Core.Tuning.Impale.LungeSeconds;
+
         static void ImpalePhases(float seconds, out float drawEnd, out float strikeEnd)
         {
             float dur = Mathf.Max(0.12f, seconds);
@@ -6090,7 +6463,8 @@ namespace Convergence.Art.Gear
         /// reads a pose: armReach plus the straight arm at the blade's angle. What a hand-off has
         /// to match as well as the blade angle - see Moveset.CheckGripHandoffs.
         /// </summary>
-        public static Vector2 StartGrip(AttackMotion motion, bool alt) => GripAt(motion, 0f, alt);
+        public static Vector2 StartGrip(AttackMotion motion, bool alt)
+            => GripAt(motion, motion == AttackMotion.Lunge ? -1f : 0f, alt);   // the lunge starts with its draw
 
         /// <summary>Where a motion leaves the near hand's grip - see <see cref="StartGrip"/>.</summary>
         public static Vector2 EndGrip(AttackMotion motion, bool alt) => GripAt(motion, 1f, alt);
@@ -6263,36 +6637,35 @@ namespace Convergence.Art.Gear
                     float blade;
                     Vector2 fist;
                     if (k < drawEnd)
-                    {
-                        // Draw back past the hip: level the blade, coil the torso away.
-                        float td = Mathf.SmoothStep(0f, 1f, k / drawEnd);
-                        blade = Mathf.Lerp(ThrustGuardBlade, ImpaleAngle, td);
-                        fist = Vector2.Lerp(ThrustGuardFist, ImpaleChamberFist, td);
-                        bodySpin = Mathf.Lerp(0f, -16f, td);
-                        backSwing = Mathf.Lerp(10f, 25f, td);
-                    }
+                        ImpaleDraw(k / drawEnd, out blade, out fist, out bodySpin, out backSwing);
                     else if (k < strikeEnd)
-                    {
-                        // Explosive forward lunge: accelerate from the chamber to full extension.
-                        float tl = (k - drawEnd) / (strikeEnd - drawEnd);
-                        tl = tl * tl * (3f - 2f * tl);
-                        blade = ImpaleAngle;
-                        fist = Vector2.Lerp(ImpaleChamberFist, ImpaleLungeFist, tl);
-                        bodySpin = Mathf.Lerp(-16f, 18f, tl);
-                        backSwing = Mathf.Lerp(25f, -15f, tl);
-                    }
+                        ImpaleThrust((k - drawEnd) / (strikeEnd - drawEnd),
+                                     out blade, out fist, out bodySpin, out backSwing);
                     else
-                    {
-                        // Hold the skewer, then bring the fists home to the guard, the body
-                        // untwisting with them.
-                        float raw = (k - strikeEnd) / (1f - strikeEnd);
-                        float u = Mathf.SmoothStep(0f, 1f, raw);
-                        float back = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(ImpaleHoldShare, 1f, raw));
-                        blade = Mathf.Lerp(ImpaleAngle, ThrustGuardBlade, back);
-                        fist = Vector2.Lerp(ImpaleLungeFist * 0.94f, ThrustGuardFist, back);
-                        bodySpin = Mathf.Lerp(Mathf.Lerp(18f, 12f, u), 0f, back);
-                        backSwing = Mathf.Lerp(Mathf.Lerp(-15f, -8f, u), 10f, back);
-                    }
+                        ImpaleRecover((k - strikeEnd) / (1f - strikeEnd),
+                                      out blade, out fist, out bodySpin, out backSwing);
+                    armSwing = blade - bodySpin;
+                    armReach = ReachFor(fist, armSwing);
+                    break;
+                }
+
+                case AttackMotion.Lunge:
+                {
+                    // Impale's three beats with the DRAW moved out in front of frame zero: k in
+                    // [-1, 0) is the pull-back from the guard into the chamber, played only by the
+                    // timing bar's held wind-up (the rig maps the hold onto it); frame zero is the
+                    // chamber, and the swing proper is the thrust - quick, so the blade is out as
+                    // the body arrives - then the held skewer and the way home to the guard.
+                    float blade;
+                    Vector2 fist;
+                    float strikeEnd = Mathf.Clamp(LungeThrustSeconds / Mathf.Max(0.12f, seconds), 0.1f, 0.35f);
+                    if (k < 0f)
+                        ImpaleDraw(k + 1f, out blade, out fist, out bodySpin, out backSwing);
+                    else if (k < strikeEnd)
+                        ImpaleThrust(k / strikeEnd, out blade, out fist, out bodySpin, out backSwing);
+                    else
+                        ImpaleRecover((k - strikeEnd) / (1f - strikeEnd),
+                                      out blade, out fist, out bodySpin, out backSwing);
                     armSwing = blade - bodySpin;
                     armReach = ReachFor(fist, armSwing);
                     break;
@@ -6503,25 +6876,17 @@ namespace Convergence.Art.Gear
                 }
 
                 case AttackMotion.Flurry:
-                    // Three FULL swings, not three pokes. The old version moved the arm through
-                    // twenty-four degrees and added a little reach, which at speed reads as the
-                    // sword being waggled side to side rather than swung.
-                    //
-                    // Each strike covers a real arc, and consecutive ones run in OPPOSITE
-                    // directions - up, down, up. Repeating the same arc three times just looks
-                    // like one clip restarting, because the blade has to teleport back to the
-                    // wind-up between each one.
-                    const int Strikes = 3;
-                    float t = Mathf.Clamp01(k) * Strikes;
-                    int which = Mathf.Min(Strikes - 1, (int)t);
-                    float local = Mathf.SmoothStep(0f, 1f, t - which);
-                    bool downward = (which & 1) == 0;
-
-                    armSwing = downward ? Mathf.Lerp(-110f, 70f, local) : Mathf.Lerp(70f, -110f, local);
-                    backSwing = -armSwing * 0.35f;
-                    bodySpin = Mathf.Sin(local * Mathf.PI) * (downward ? -12f : 12f);
-                    armReach = new Vector3(Lunge * 0.7f * Mathf.Sin(local * Mathf.PI), 0f, 0f);
+                {
+                    // Cut down, cut back up, turn the hilt, drive the pommel. Keyed off ABSOLUTE
+                    // time on the sequence's own clock (Tuning.Flurry), never `seconds`: the hits
+                    // land on these beats, and every caller (the stills, the hand-off checks, the
+                    // sweep test) must see the same picture. Every phase is a FIST and a BLADE
+                    // (ReachFor), so the hands are always where the grip is.
+                    FlurryPose(Mathf.Clamp01(k) * Core.Tuning.Flurry.Seconds,
+                               out var fist, out armSwing, out bodySpin, out backSwing);
+                    armReach = ReachFor(fist, armSwing);
                     break;
+                }
             }
         }
 

@@ -87,6 +87,10 @@ namespace Convergence.Art.Gear
                        ppu: BodyPpu));
             // Enclosed - the dome covers the whole face and no hair escapes (seraph_helm's reason).
             helm.SealsHead = true;
+            // From behind: the same field with the visor left out (GearItem.HelmBack).
+            helm.HelmBack = Pixels(RigLayer.HeadArmor, "gear.head.geode.back", GeoHelmBackRows, pal,
+                                   FieldCentreCells(-GeoHelmHalf, GeoHelmHalf), FieldCentreCells(GeoHelmBottom, GeoHelmTop),
+                                   ppu: BodyPpu);
             items.Add(helm);
 
             items.Add(Make("geode_pauldrons", "Geode Pauldrons", GearSlot.Shoulders, LootTier.Diamond, 0f,
@@ -229,7 +233,15 @@ namespace Convergence.Art.Gear
         static string[] GeoHelmRows => _geoHelmRows ??=
             PaintField(-GeoHelmHalf, GeoHelmHalf, GeoHelmBottom, GeoHelmTop, GeoHelmTexel);
 
-        static char GeoHelmTexel(int ix, int iy)
+        static string[] _geoHelmBackRows;
+        static string[] GeoHelmBackRows => _geoHelmBackRows ??=
+            PaintField(-GeoHelmHalf, GeoHelmHalf, GeoHelmBottom, GeoHelmTop, (ix, iy) => GeoHelmTexel(ix, iy, behind: true));
+
+        static char GeoHelmTexel(int ix, int iy) => GeoHelmTexel(ix, iy, behind: false);
+
+        /// <summary><paramref name="behind"/>: the helm from behind - no visor, nor the lights and lip
+        /// that belong to it; prongs, sickle and fin stand where they do from the front.</summary>
+        static char GeoHelmTexel(int ix, int iy, bool behind)
         {
             float x = ix + 0.5f, y = iy + 0.5f;
 
@@ -241,7 +253,7 @@ namespace Convergence.Art.Gear
             if (GeoDomeIn(x, y))
             {
                 // ---- the visor ----
-                if (GeoCrescentIn(x, y))
+                if (!behind && GeoCrescentIn(x, y))
                 {
                     // The glass: a lit streak along the foot of the U, and a lit inner rim on the
                     // light side.
@@ -257,8 +269,8 @@ namespace Convergence.Art.Gear
                 float n = x >= cx ? (x - cx) / front : (x - cx) / back;
                 int tone = n > 0.35f ? 4 : n < -0.6f ? 2 : 3;
                 if (GeoEllipse(x, y, cx + 4f, 31f, 3.5f, 6f)) tone = 5;            // the crown's light
-                else if (GeoEllipse(x, y, 2f, 10f, 2f, 3.5f)) tone = 5;            // the brow's, over the visor
-                if (!GeoEllipse(x, y, 1f, 16f, 15.5f, 15.5f) && y < 16f) tone--;  // the lip under the visor
+                else if (!behind && GeoEllipse(x, y, 2f, 10f, 2f, 3.5f)) tone = 5;   // the brow's, over the visor
+                if (!behind && !GeoEllipse(x, y, 1f, 16f, 15.5f, 15.5f) && y < 16f) tone--;  // the lip under the visor
                 return GeoDiamond(ix, iy, tone);
             }
 
