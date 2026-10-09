@@ -850,25 +850,34 @@ namespace Convergence.Art.Gear
         // forearm 210 -> 240, the shoulder stays at -20 (it came out -19). Down and OUTWARD was
         // tried beside it and buried the arm under the pauldron.
         //
+        // Fourth pass (the user's call, 2026-10-09: "the blade goes THROUGH the shoulder"): drawn
+        // under the pauldrons, the plate cut the lower half of the blade off where it crossed, so
+        // it read as passing through the shoulder. The blade now draws OVER the shoulder pieces
+        // (MarchCarryOrder) and the fist comes UP to the collarbone - shoulder -20 -> -40,
+        // forearm 240 -> 235, blade angle unchanged - so the blade's lower edge lies along the
+        // pauldron's top with the guard at the shoulder. Forearm 205 lifted it as far but swung
+        // the guard out past the shoulder (held OUT again); -45 / 225 hid the fist under the chin.
+        //
         // Same convention as the rest carry: written for arm.back and flipped for arm.front, so
         // "outward on the carrying side" is BEHIND - the carrying arm is the trailing one.
 
         /// <summary>
         /// Shoulder angle for the march carry, degrees: the upper arm down and a little INWARD,
-        /// so the elbow sits in front of the body under the fist. Dropped from -33 by the user's
-        /// call, together with the flatter <see cref="MarchBladeDegrees"/> (forearm held at
-        /// MarchForearmDegrees).
+        /// so the elbow sits in front of the body under the fist. Dropped from -33 to -20 by the
+        /// user's call, together with the flatter <see cref="MarchBladeDegrees"/>; raised to -40
+        /// so the blade lies on the pauldron's top instead of through it (the fourth pass).
         /// </summary>
-        const float MarchShoulderDegrees = -20f;
+        const float MarchShoulderDegrees = -40f;
 
         /// <summary>
         /// The forearm's ABSOLUTE angle in the march carry (shoulder + elbow), degrees: leaning
-        /// in across the chest. Was 210; 240 moves the fist and blade diagonally down onto the
-        /// shoulder (the user's call). Kept as an absolute angle so the blend moves the forearm
+        /// in across the chest. Was 210; 240 moved the fist and blade diagonally down onto the
+        /// shoulder (the user's call); 235 with the shoulder at -40 lifts the fist to the
+        /// collarbone with the guard at the shoulder (the fourth pass). Kept as an absolute angle so the blend moves the forearm
         /// 40 degrees while the elbow drops, rather than spinning it a whole turn the other way
         /// (-120 and 240 are the same angle; only one is a short blend).
         /// </summary>
-        const float MarchForearmDegrees = 240f;
+        const float MarchForearmDegrees = 235f;
 
         /// <summary>Elbow angle for the march carry, degrees - derived from the two above.</summary>
         const float MarchElbowDegrees = MarchForearmDegrees - MarchShoulderDegrees;
@@ -3835,14 +3844,15 @@ namespace Convergence.Art.Gear
 
         /// <summary>
         /// Back-to-front order for the MARCH carry (blade shouldered, see MarchBladeDegrees): the
-        /// weapon over the torso, belt and amulet, under the carrying arm, the pauldrons and the
-        /// head. The hilt is in front of the chest, so it shows with the fist closed over it; the
-        /// blade runs back over the shoulder, so the pauldron and head cover where it crosses and
-        /// it reads as resting ON the shoulder. Under ShoulderCarryOrder the hilt was hidden
-        /// behind the chest and the fist held nothing.
+        /// weapon over the torso, the pauldrons and every cap on them, under the carrying fist
+        /// and the head. The hilt is in front of the chest, so it shows with the fist closed over
+        /// it; the blade LIES ON the shoulder, so it draws over the plate it rests on and only the
+        /// head (by the neck) covers it. Under ShoulderCarryOrder the hilt was hidden behind the
+        /// chest and the fist held nothing; under the pauldrons (until 2026-10-09) the plate cut
+        /// off the blade's lower half and it read as passing THROUGH the shoulder.
         /// </summary>
-        static readonly int[] MarchCarryOrder = ForearmOverShoulders(Reranked(OneHandedOrder,
-            RigLayer.Weapon, after: RigLayer.Neck));
+        static readonly int[] MarchCarryOrder = ForearmOverShoulders(OneHandedOrder,
+            weaponToo: true);
 
         /// <summary>
         /// The carrying arm's forearm, glove and hand over the shoulder pieces (pauldrons, mantle,
@@ -3852,13 +3862,20 @@ namespace Convergence.Art.Gear
         /// pauldron and cloak. Only the march's carrying arm (arm.front - the march is never
         /// turned away): a hanging forearm sits beside the body, where the cap is still right.
         /// The upper arm stays capped - the pauldron still sits over the shoulder it rises from.
+        /// With <paramref name="weaponToo"/> the weapon goes over the caps first, under the fist.
         /// </summary>
-        static int[] ForearmOverShoulders(int[] table)
+        static int[] ForearmOverShoulders(int[] table, bool weaponToo = false)
         {
             var top = RigLayer.Shoulders;
             foreach (var cap in new[] { RigLayer.ShouldersBack, RigLayer.TorsoOver,
                                         RigLayer.BackOver, RigLayer.NeckOver })
                 if (table[(int)cap] > table[(int)top]) top = cap;
+
+            if (weaponToo)
+            {
+                table = Reranked(table, RigLayer.Weapon, after: top);
+                top = RigLayer.Weapon;
+            }
 
             // forearm before glove before hand, so each still draws over what it covers
             foreach (var part in new[] { RigLayer.ArmFrontLower, RigLayer.GlovesFrontLower,
