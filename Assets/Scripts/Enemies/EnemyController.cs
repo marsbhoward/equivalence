@@ -71,10 +71,9 @@ namespace Convergence.Enemies
         public float TelegraphDuration = Tuning.Enemy.RangedTelegraphDuration;
 
         /// <summary>
-        /// 0 when not telegraphing, climbing to 1 as the attack approaches - the same fraction
-        /// UpdateBombTelegraphVisual/UpdateTelegraphVisual already compute locally for the ground
-        /// ring, exposed here so a body-art driver (see BombVisualCycle) can agree with it without
-        /// duplicating the arithmetic or reaching into a private timer.
+        /// 0 when not telegraphing, climbing to 1 as the attack approaches - exposed so the
+        /// body art (see EnemyStageCycle) can show the wind-up without reaching into a private
+        /// timer.
         /// </summary>
         public float TelegraphProgress01 =>
             _telegraphTimer > 0f ? 1f - Mathf.Clamp01(_telegraphTimer / Mathf.Max(0.0001f, TelegraphDuration)) : 0f;
@@ -82,8 +81,7 @@ namespace Convergence.Enemies
         /// <summary>
         /// 0..1 through a Turret's charge-up - a SEPARATE signal from TelegraphProgress01, because
         /// Turret never touches _telegraphTimer at all: it counts _turretCharge against
-        /// Tuning.Enemy.TurretChargeDuration directly (see UpdateTurretChargeVisual, which this
-        /// mirrors exactly, right down to reading the same constant rather than the scaled
+        /// Tuning.Enemy.TurretChargeDuration directly (reading the same constant rather than the scaled
         /// TelegraphDuration field - matching what actually gates the beam is more important here
         /// than matching what EnemyFactory happened to also assign).
         /// </summary>
@@ -132,8 +130,6 @@ namespace Convergence.Enemies
         float _beamTick;
         float _turretCharge;
         float _overchargeUntil;
-        GameObject _turretChargeVisual;
-        SpriteRenderer _turretChargeSr;
 
         // The elite Turret's mire lob - see TickMire. The clock counts toward the next lob; the
         // wind-up, while above zero, is the tell a flinch denies. The wind-up glow is a CHILD, so
@@ -247,7 +243,6 @@ namespace Convergence.Enemies
             CancelTelegraph();
             if (Kind == EnemyKind.Mortar) EndMortarAction();
             EndBeam();
-            EndTurretChargeVisual();
             EndMireWindup();
         }
 
@@ -305,7 +300,6 @@ namespace Convergence.Enemies
         /// <summary>True while this enemy is reeling: it cannot act and cannot steer.</summary>
         public bool Flinched => _flinchTimer > 0f;
 
-        SpriteRenderer _flinchVisual;
 
         /// <summary>
         /// Interrupt this enemy: cancel whatever it was winding up, and hold it for a moment.
@@ -347,7 +341,6 @@ namespace Convergence.Enemies
             if (_rb != null) _rb.linearVelocity = Vector2.zero;
 
             RouteFlinch();
-            ShowFlinch();
             return true;
         }
 
@@ -397,20 +390,6 @@ namespace Convergence.Enemies
             // An elite's mire wind-up is denied with it - its cooldown was already spent at the
             // wind-up, so the flinch costs the turret the lob outright.
             if (Kind == EnemyKind.Turret) { EndBeam(); _turretCharge = 0f; EndMireWindup(); }
-        }
-
-        void ShowFlinch()
-        {
-            if (_flinchVisual == null)
-            {
-                var go = new GameObject("flinch");
-                go.transform.SetParent(transform, false);
-                go.transform.localScale = Vector3.one * 1.35f;
-                _flinchVisual = go.AddComponent<SpriteRenderer>();
-                _flinchVisual.sprite = Spr.Ring;
-                _flinchVisual.sortingOrder = SortingOrders.StatusOverlay + 1;
-            }
-            _flinchVisual.enabled = true;
         }
 
         // ---------------------------------------------------------------- the booster buff
@@ -667,13 +646,6 @@ namespace Convergence.Enemies
         {
             if (_flinchTimer <= 0f) return;
             _flinchTimer -= Time.deltaTime;
-
-            if (_flinchVisual != null)
-            {
-                float k = Mathf.Clamp01(_flinchTimer / Mathf.Max(0.0001f, Tuning.Finisher.FlinchSeconds));
-                _flinchVisual.color = new Color(1f, 0.95f, 0.6f, 0.30f + 0.45f * k);
-                if (_flinchTimer <= 0f) _flinchVisual.enabled = false;
-            }
         }
 
         void FixedUpdate()
@@ -1391,7 +1363,6 @@ namespace Convergence.Enemies
                 if (_targetHealth == null || _targetHealth.IsDead) { CancelTelegraph(); return; }
 
                 _telegraphTimer -= dt;
-                UpdateChaserTelegraphVisual();
                 if (_telegraphTimer <= 0f) SwingChaser();
                 return;
             }
@@ -1407,22 +1378,6 @@ namespace Convergence.Enemies
         void BeginChaserTelegraph()
         {
             _telegraphTimer = Tuning.Enemy.ChaserTelegraphDuration;
-
-            _telegraphVisual = new GameObject("chaser.telegraph");
-            var sr = _telegraphVisual.AddComponent<SpriteRenderer>();
-            sr.sprite = Spr.ThinRing;
-            sr.sortingOrder = SortingOrders.Reticle;
-            _telegraphSr = sr;
-            UpdateChaserTelegraphVisual();
-        }
-
-        void UpdateChaserTelegraphVisual()
-        {
-            if (_telegraphVisual == null) return;
-            _telegraphVisual.transform.position = transform.position;
-            _telegraphVisual.transform.localScale = Vector3.one * (AttackRange * 2f);
-            float t = 1f - Mathf.Clamp01(_telegraphTimer / Tuning.Enemy.ChaserTelegraphDuration);
-            _telegraphSr.color = Murk(new Color(1f, 0.3f, 0.28f, Mathf.Lerp(0.10f, 0.75f, t)));
         }
 
         void SwingChaser()
@@ -1512,7 +1467,7 @@ namespace Convergence.Enemies
             _telegraphVisual = new GameObject("ranged.telegraph");
             var sr = _telegraphVisual.AddComponent<SpriteRenderer>();
             sr.sprite = Spr.Capsule;
-            sr.sortingOrder = SortingOrders.Reticle;
+            sr.sortingOrder = SortingOrders.Telegraph;
             _telegraphSr = sr;
             UpdateTelegraphVisual();
         }
@@ -1677,7 +1632,7 @@ namespace Convergence.Enemies
             sr.sprite = action == MortarAction.Flame
                 ? Spr.Cone(Tuning.Enemy.MortarFlameHalfAngle, 0.3f)
                 : Spr.ThinRing;
-            sr.sortingOrder = SortingOrders.Reticle;
+            sr.sortingOrder = SortingOrders.Telegraph;
             _telegraphSr = sr;
             UpdateMortarTelegraphVisual();
         }
@@ -1879,7 +1834,6 @@ namespace Convergence.Enemies
                 if (_targetHealth == null || _targetHealth.IsDead) { CancelTelegraph(); return; }
 
                 _telegraphTimer -= Time.deltaTime;
-                UpdateBombTelegraphVisual();
                 if (_telegraphTimer <= 0f) Explode();
                 return;
             }
@@ -1897,29 +1851,6 @@ namespace Convergence.Enemies
         void BeginBombTelegraph()
         {
             _telegraphTimer = TelegraphDuration;
-
-            _telegraphVisual = new GameObject("bomb.telegraph");
-            var sr = _telegraphVisual.AddComponent<SpriteRenderer>();
-            sr.sprite = Spr.ThinRing;
-            sr.sortingOrder = SortingOrders.Reticle;
-            _telegraphSr = sr;
-            UpdateBombTelegraphVisual();
-        }
-
-        void UpdateBombTelegraphVisual()
-        {
-            if (_telegraphVisual == null) return;
-
-            _telegraphVisual.transform.position = transform.position;
-            // Spr.ThinRing is a 1-unit-diameter sprite at scale 1, so doubling the radius gives
-            // the ring's world size - the same convention LandingZone uses for its circle.
-            _telegraphVisual.transform.localScale = Vector3.one * (AttackRange * 2f);
-
-            // Grows from near-invisible to solid as the blast approaches, the same fade-in read
-            // the ranged bolt's own telegraph uses.
-            float t = 1f - Mathf.Clamp01(_telegraphTimer / TelegraphDuration);
-            var c = BombArt.Blast;
-            _telegraphSr.color = Murk(new Color(c.r, c.g, c.b, Mathf.Lerp(0.10f, 0.85f, t)));
         }
 
         /// <summary>
@@ -1996,7 +1927,6 @@ namespace Convergence.Enemies
             if (sight == SightResult.Blocked || sight == SightResult.Nulled)
             {
                 EndBeam();
-                EndTurretChargeVisual();
                 _beamTick = 0f;
 
                 // Losing the line drops the charge as well as the beam. Otherwise a player who
@@ -2017,10 +1947,8 @@ namespace Convergence.Enemies
             if (_turretCharge < Tuning.Enemy.TurretChargeDuration)
             {
                 _turretCharge += Time.deltaTime;
-                UpdateTurretChargeVisual();
                 return;
             }
-            EndTurretChargeVisual();
 
             if (_beamVisual == null) BeginBeam();
             UpdateBeamVisual();
@@ -2092,7 +2020,7 @@ namespace Convergence.Enemies
                 go.transform.SetParent(transform, false);
                 _mireWindupSr = go.AddComponent<SpriteRenderer>();
                 _mireWindupSr.sprite = Spr.Glow;
-                _mireWindupSr.sortingOrder = SortingOrders.Reticle;
+                _mireWindupSr.sortingOrder = SortingOrders.Telegraph;
             }
             float k = 1f - Mathf.Clamp01(_mireWindup / Tuning.Enemy.MireWindup);
             _mireWindupSr.transform.localScale = Vector3.one * Mathf.Lerp(0.6f, 1.8f, k);
@@ -2138,38 +2066,12 @@ namespace Convergence.Enemies
             _turretHead.rotation = Quaternion.Euler(0f, 0f, angle);
         }
 
-        void UpdateTurretChargeVisual()
-        {
-            if (_turretChargeVisual == null)
-            {
-                _turretChargeVisual = new GameObject("turret.charge");
-                _turretChargeSr = _turretChargeVisual.AddComponent<SpriteRenderer>();
-                _turretChargeSr.sprite = Spr.ThinRing;
-                _turretChargeSr.sortingOrder = SortingOrders.Reticle;
-            }
-            // Closing rather than growing, so "about to fire" reads as the ring arriving at the
-            // turret rather than as something expanding out of it - an expanding ring in this
-            // project already means a blast that has happened.
-            float k = Mathf.Clamp01(_turretCharge / Tuning.Enemy.TurretChargeDuration);
-            _turretChargeVisual.transform.position = transform.position;
-            _turretChargeVisual.transform.localScale = Vector3.one * Mathf.Lerp(2.6f, 0.9f, k);
-            _turretChargeSr.color = new Color(0.6f, 0.9f, 1f, Mathf.Lerp(0.12f, 0.8f, k));
-        }
-
-        void EndTurretChargeVisual()
-        {
-            if (_turretChargeVisual == null) return;
-            Destroy(_turretChargeVisual);
-            _turretChargeVisual = null;
-            _turretChargeSr = null;
-        }
-
         void BeginBeam()
         {
             _beamVisual = new GameObject("turret.beam");
             var sr = _beamVisual.AddComponent<SpriteRenderer>();
             sr.sprite = Spr.Capsule;
-            sr.sortingOrder = SortingOrders.Reticle;
+            sr.sortingOrder = SortingOrders.Telegraph;
             _beamSr = sr;
         }
 
@@ -2216,7 +2118,6 @@ namespace Convergence.Enemies
                         return;
                     }
                     _telegraphTimer -= Time.deltaTime;
-                    UpdateDasherTelegraphVisual();
                     if (_telegraphTimer <= 0f) BeginRush();
                     break;
 
@@ -2285,27 +2186,6 @@ namespace Convergence.Enemies
             // the whole window watching a committed, known point, the same rule Ranged's own aim
             // lives by. A charge that kept re-aiming through the glow would just be a slower bolt.
             _dasherRushTarget = _target.position;
-
-            _telegraphVisual = new GameObject("dasher.telegraph");
-            var sr = _telegraphVisual.AddComponent<SpriteRenderer>();
-            sr.sprite = Spr.Glow;
-            sr.sortingOrder = SortingOrders.Reticle;
-            _telegraphSr = sr;
-            UpdateDasherTelegraphVisual();
-        }
-
-        void UpdateDasherTelegraphVisual()
-        {
-            if (_telegraphVisual == null) return;
-
-            _telegraphVisual.transform.position = transform.position;
-            float t = 1f - Mathf.Clamp01(_telegraphTimer / TelegraphDuration);
-
-            // Hugs its own body and grows as the charge nears, the same "grows from near-invisible
-            // to solid" read Bomb/Ranged use for their own telegraphs - just centred on the Dasher
-            // itself rather than drawn out toward a direction or a landing spot.
-            _telegraphVisual.transform.localScale = Vector3.one * (Tuning.Enemy.DasherSize * Mathf.Lerp(1.1f, 2.1f, t));
-            _telegraphSr.color = Murk(new Color(1f, 0.15f, 0.15f, Mathf.Lerp(0.15f, 0.85f, t)));
         }
 
         void BeginRush()
@@ -2422,7 +2302,7 @@ namespace Convergence.Enemies
             _telegraphVisual = new GameObject("gargoyle.telegraph");
             var sr = _telegraphVisual.AddComponent<SpriteRenderer>();
             sr.sprite = Spr.Glow;
-            sr.sortingOrder = SortingOrders.Reticle;
+            sr.sortingOrder = SortingOrders.Telegraph;
             _telegraphSr = sr;
             UpdateGargoyleTelegraphVisual();
         }
@@ -2581,7 +2461,7 @@ namespace Convergence.Enemies
             _telegraphVisual = new GameObject("booster.telegraph");
             var sr = _telegraphVisual.AddComponent<SpriteRenderer>();
             sr.sprite = Spr.Glow;
-            sr.sortingOrder = SortingOrders.Reticle;
+            sr.sortingOrder = SortingOrders.Telegraph;
             _telegraphSr = sr;
             UpdateBoosterTelegraphVisual();
         }
@@ -2688,7 +2568,7 @@ namespace Convergence.Enemies
             _telegraphVisual = new GameObject("bubbles.telegraph");
             var sr = _telegraphVisual.AddComponent<SpriteRenderer>();
             sr.sprite = Spr.Glow;
-            sr.sortingOrder = SortingOrders.Reticle;
+            sr.sortingOrder = SortingOrders.Telegraph;
             _telegraphSr = sr;
             UpdateBubblesTelegraphVisual();
         }

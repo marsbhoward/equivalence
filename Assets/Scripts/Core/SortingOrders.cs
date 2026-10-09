@@ -57,7 +57,9 @@ namespace Convergence.Core
         /// <summary>Riposte's ward in front of the player (Combat.RiposteWard). An overlay for the
         /// meter's reason, just under it.</summary>
         public const int RiposteWard = StatusOverlay + 55;
-        public const int Reticle       = 24100;
+        /// <summary>Attack tells on the floor (enemy wind-ups, landing marks, the spire's dome rim).
+        /// An overlay, so a body standing on one never hides it.</summary>
+        public const int Telegraph     = 24100;
         public const int Fx            = 24200;
 
 
@@ -70,7 +72,7 @@ namespace Convergence.Core
         // The known cost of doing this in combat is that a crowd can stand in front of the
         // player. Mitigated rather than avoided: DepthSorted.Bias lets the player sort as if
         // slightly nearer than it is, so it wins close calls without being permanently on top.
-        // Every overlay that must never be hidden (status, reticle, hit FX) clears the band.
+        // Every overlay that must never be hidden (status, telegraphs, hit FX) clears the band.
 
         /// <summary>Bottom of the depth band. Everything below this is fixed-layer scenery.</summary>
         public const int DepthBase = 100;

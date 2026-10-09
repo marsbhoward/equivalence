@@ -64,7 +64,7 @@ namespace Convergence.Core
             d.Fixed = isFixed;
 
             // OVERLAYS ARE EXCLUDED. Anything already at or above StatusOverlay is deliberately
-            // above the whole depth band - a status halo, a hit flash, a reticle - and pulling it
+            // above the whole depth band - a status halo, a hit flash, a telegraph - and pulling it
             // into a depth-relative offset both destroys that guarantee and overflows: a halo at
             // 24000 rebased onto a depth of 11300 lands at 35295, past the short that Unity
             // stores a sorting order in, and comes back as -30241. It vanishes behind the floor.

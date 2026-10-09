@@ -34,8 +34,7 @@ namespace Convergence.Enemies
             // ArtBinder's Sprite/Prefab paths size to art.WorldHeight (or the prefab's own
             // authored scale) - neither knows about the elite multiplier already folded into
             // `size` for the placeholder path just above. Without this an elite with real art
-            // renders at the same size as a basic and, since the fallback elite ring below only
-            // draws while there is NO real art, loses the one tell that told the two apart.
+            // renders at the same size as a basic and loses the one tell that tells the two apart.
             if (elite && art.HasArt) visual.transform.localScale *= Tuning.Enemy.EliteSizeMul;
 
             var col = go.AddComponent<CircleCollider2D>();
@@ -136,24 +135,6 @@ namespace Convergence.Enemies
                 EnemyStageCycle.Attach(visual, RangedArt.For(EnemyLooks.Of(kind)), size, ec, kind);
             else if (kind == EnemyKind.Dasher)
                 EnemyStageCycle.Attach(visual, DasherArt.For(EnemyLooks.Of(kind)), size, ec, kind);
-
-            // Placeholder elite marker. Once elite art exists it carries its own read, so the
-            // ring is only drawn while the elite is still using the fallback shape.
-            //
-            // Gated on ELITE, not on Chaser. It used to check `kind == EnemyKind.Chaser`, which
-            // was correct back when Elite WAS a kind and Chaser was its name - so after Elite
-            // became a tier the ring drew on every common chaser and on no other elite at all,
-            // marking exactly the wrong bodies.
-            if (elite && !art.HasArt)
-            {
-                var ring = new GameObject("elite-ring");
-                ring.transform.SetParent(go.transform, false);
-                ring.transform.localScale = Vector3.one * size * 1.5f;
-                var rsr = ring.AddComponent<SpriteRenderer>();
-                rsr.sprite = Spr.Ring;
-                rsr.color = new Color(1f, 0.8f, 0.3f, 0.85f);
-                rsr.sortingOrder = SortingOrders.Enemy;
-            }
 
             // ---- armor: a shield-style absorb pool in front of HP ----
             //

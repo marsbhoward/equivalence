@@ -86,7 +86,7 @@ namespace Convergence.Hazards
             go.transform.localScale = new Vector3(localScale.x, localScale.y, 1f);
             var sr = go.AddComponent<SpriteRenderer>();
             sr.sprite = sprite;
-            sr.sortingOrder = SortingOrders.Reticle;
+            sr.sortingOrder = SortingOrders.Telegraph;
             return sr;
         }
 

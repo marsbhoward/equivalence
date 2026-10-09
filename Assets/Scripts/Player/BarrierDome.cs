@@ -67,7 +67,7 @@ namespace Convergence.Player
                 dome._sr.sprite = Shell;
                 // Above the whole depth band, like every other overlay: a shell the enemy
                 // standing in front of you can hide is a shell you cannot rely on. Below
-                // Reticle so aiming still reads through it.
+                // Telegraph so an attack's tell still reads through it.
                 dome._sr.sortingOrder = SortingOrders.StatusOverlay + 5;
             }
 

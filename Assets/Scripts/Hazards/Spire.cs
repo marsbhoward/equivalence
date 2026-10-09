@@ -371,7 +371,7 @@ namespace Convergence.Hazards
             // standing inside it; only the rim is drawn over everything, as a force field is.
             _dome = Quad(gameObject, Spr.GradientDisc(), Color.clear, Vector2.one * d, OrderFill, "dome");
             // Just OUTSIDE the capture ring, so the boon-coloured ring still shows inside the wall.
-            _domeRim = Quad(gameObject, Spr.ThinRing, Color.clear, Vector2.one * (d * 1.07f), SortingOrders.Reticle, "dome.rim");
+            _domeRim = Quad(gameObject, Spr.ThinRing, Color.clear, Vector2.one * (d * 1.07f), SortingOrders.Telegraph, "dome.rim");
         }
 
         static SpriteRenderer Quad(GameObject parent, Sprite sprite, Color color, Vector2 size, int order, string name)

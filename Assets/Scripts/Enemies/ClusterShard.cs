@@ -36,7 +36,7 @@ namespace Convergence.Enemies
 
             s._ring = go.AddComponent<SpriteRenderer>();
             s._ring.sprite = Spr.ThinRing;
-            s._ring.sortingOrder = SortingOrders.Reticle;
+            s._ring.sortingOrder = SortingOrders.Telegraph;
             go.transform.localScale = Vector3.one * (Tuning.Enemy.ClusterRadius * 2f);
             return s;
         }

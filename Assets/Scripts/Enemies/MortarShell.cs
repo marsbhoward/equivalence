@@ -24,7 +24,7 @@ namespace Convergence.Enemies
     /// of the player, credited to the player like a reflected bolt. A landed shell cannot be
     /// deflected; the parry at the moment of its blast still negates it, as Bomb's does.
     ///
-    /// Everything the player reads (landing ring, shell, blink) sits at Reticle, above the depth
+    /// Everything the player reads (landing ring, shell, blink) sits at Telegraph, above the depth
     /// band - a countdown hidden behind the body standing on it would be no countdown at all.
     /// Only the shadow is on the ground.
     ///
@@ -102,7 +102,7 @@ namespace Convergence.Enemies
             mark.transform.localScale = Vector3.one * (s._radius * 2f);
             s._markSr = mark.AddComponent<SpriteRenderer>();
             s._markSr.sprite = Spr.ThinRing;
-            s._markSr.sortingOrder = SortingOrders.Reticle;
+            s._markSr.sortingOrder = SortingOrders.Telegraph;
 
             // The shadow tracks the shell's GROUND position and tightens as it comes down - what
             // makes a y-offset read as height rather than as the shell sliding up the screen.
@@ -121,7 +121,7 @@ namespace Convergence.Enemies
             s._shellSr = shell.AddComponent<SpriteRenderer>();
             s._shellSr.sprite = Spr.Circle;
             s._shellSr.color = mire ? Hazards.MireField.ShellYellow : ShellColor;
-            s._shellSr.sortingOrder = SortingOrders.Reticle + 2;
+            s._shellSr.sortingOrder = SortingOrders.Telegraph + 2;
 
             // The blink. A soft glow round the shell, sized to about the blast, so the light
             // itself says how far the danger reaches.
@@ -130,7 +130,7 @@ namespace Convergence.Enemies
             glow.transform.localScale = Vector3.one * (s._radius * 1.6f);
             s._glowSr = glow.AddComponent<SpriteRenderer>();
             s._glowSr.sprite = Spr.Glow;
-            s._glowSr.sortingOrder = SortingOrders.Reticle + 1;
+            s._glowSr.sortingOrder = SortingOrders.Telegraph + 1;
             s._glowSr.enabled = false;
 
             s.Place(0f);
