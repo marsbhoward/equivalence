@@ -34,6 +34,9 @@ type Cip30Api = {
 
 let api: Cip30Api | null = null;
 let address = '';
+/** From /auth/prove - what every player write carries. Never the operator's WRITE_TOKEN, which
+ *  must never reach a browser. */
+let session = '';
 
 /**
  * Where the service lives. Read off a global rather than import.meta, because this bundles to an
@@ -47,7 +50,11 @@ const SERVICE = (window as any).EQUIVALENCE_SERVICE ?? '/api';
 async function service(path: string, init?: RequestInit): Promise<Response> {
   const r = await fetch(`${SERVICE}${path}`, {
     ...init,
-    headers: { 'content-type': 'application/json', ...(init?.headers ?? {}) },
+    headers: {
+      'content-type': 'application/json',
+      ...(session ? { authorization: `Bearer ${session}` } : {}),
+      ...(init?.headers ?? {}),
+    },
   });
   if (!r.ok) throw new Error(`${path} -> ${r.status} ${await r.text().catch(() => r.statusText)}`);
   return r;
@@ -81,24 +88,32 @@ export const connector: EquivalenceChain = {
     return address;
   },
 
-  async proveOwnership({ accountId, datum }) {
+  async proveOwnership({ accountId }) {
     if (!api) throw new Error('no wallet connected');
+    // The NONCE comes from the service, never from here - a nonce the client chose would let a
+    // captured signature be replayed. One nonce, one attempt, five minutes.
+    const ch = await service(`/auth/challenge?address=${encodeURIComponent(accountId)}`);
+    const { nonce, message } = await ch.json();
+
     // signData, NOT signTx. No fee, no UTxO, nothing to approve beyond "yes this is my address".
-    const message = `Equivalence login\naddress: ${accountId}\nnonce: ${datum}`;
     const sig = await api.signData(accountId, hex(message));
 
-    // The service is the one that has to believe it - it stores the proof and thereafter accepts
-    // progression writes for this address. A signature the client merely holds proves nothing.
-    await service('/auth/prove', {
+    // The service is the one that has to believe it: it verifies the signature and hands back a
+    // session, which every player write then carries. A signature the client merely holds
+    // proves nothing.
+    const proved = await service('/auth/prove', {
       method: 'POST',
-      body: JSON.stringify({ address: accountId, nonce: datum, ...sig }),
+      body: JSON.stringify({ address: accountId, nonce, ...sig }),
     });
+    session = (await proved.json()).session ?? '';
+    if (!session) throw new Error('the service issued no session');
     return sig.signature;
   },
 
   disconnect() {
     api = null;
     address = '';
+    session = '';
   },
 
   // ---- what the wallet owns ---------------------------------------------------------------
@@ -166,6 +181,33 @@ export const connector: EquivalenceChain = {
     // Room layout. Very likely off-chain - how a hub room was arranged is not something a
     // transaction should pay for - but it is still service-authored and still keyed by address.
     return write('account', { accountId, datum });
+  },
+
+  // ---- design boxes (tokens in the wallet; opening them is the one other thing a player signs) -
+
+  async openBoxes({ profileId, tier, count }) {
+    if (!api) throw new Error('no wallet connected');
+    // The SERVER rolls the designs (committed before this signature - declining and opening again
+    // shows the same ones), builds the transaction, pays its fee and keeps its own witness. The
+    // boxes are tokens in this wallet, so the player approves; partial: true keeps the service's
+    // half. The game plays its opening animation meanwhile - the reveal waits on the submit.
+    const built = await (await service('/write/open-boxes', {
+      method: 'POST',
+      body: JSON.stringify({
+        profileId, tier, count: Number(count) || 1,
+      }),
+    })).json();
+    const witness = await api.signTx(built.cbor, true);
+    const done = await service('/write/open-boxes/submit', {
+      method: 'POST',
+      body: JSON.stringify({ openId: built.openId, witness }),
+    });
+    return done.text();
+  },
+
+  async designBoxes({ profileId }) {
+    const r = await service(`/boxes/${encodeURIComponent(profileId)}`);
+    return r.text();
   },
 
   // ---- the ONE player-signed write ---------------------------------------------------------

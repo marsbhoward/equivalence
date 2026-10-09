@@ -1,4 +1,4 @@
-import { Blockfrost, Lucid, LucidEvolution, Network, getAddressDetails } from '@lucid-evolution/lucid';
+import { Blockfrost, CML, Lucid, LucidEvolution, Network, UTxO, getAddressDetails } from '@lucid-evolution/lucid';
 
 /**
  * One Lucid instance for the life of the process, wallet already selected from the service's own
@@ -46,4 +46,70 @@ function requireEnv(name: string): string {
   const value = process.env[name];
   if (!value) throw new Error(`missing required env var ${name}`);
   return value;
+}
+
+/**
+ * EVERY transaction the service wallet signs is built through here, one at a time.
+ *
+ * TWO JOBS, both about which of the wallet's coins a build may spend (`fundingInputs`):
+ *
+ * - NEVER A COIN CARRYING A TOKEN OR A DATUM. The service wallet holds every CIP-68 REFERENCE
+ *   token, each with its piece's metadata as an inline datum. Left to itself, coin selection pays
+ *   fees from any coin it likes - and a reference-token coin spent that way lands in change
+ *   WITHOUT its datum, which erases the piece's metadata. Seen happen to the DONADA test tokens.
+ *   So the builder is handed plain ADA only.
+ *
+ * - NEVER A COIN WE JUST SPENT. Blockfrost keeps listing a coin until the transaction spending it
+ *   has been indexed - seconds after it is confirmed - so two builds close together picked the
+ *   same coins ("All inputs are spent"): two players redeeming at once. Inputs of every submitted
+ *   transaction are remembered for PENDING_MS and left out.
+ *
+ * Builds are serialised so the second sees the first's inputs. The caller gets its result as
+ * soon as the transaction is submitted.
+ */
+const PENDING_MS = 10 * 60_000;
+const pending = new Map<string, number>(); // "txhash#index" -> forget after
+let walletQueue: Promise<unknown> = Promise.resolve();
+
+const outRef = (u: { txHash: string; outputIndex: number }) => `${u.txHash}#${u.outputIndex}`;
+
+/** The coins a build may spend: plain ADA, no datum, not already spent by us. */
+export async function fundingInputs(): Promise<UTxO[]> {
+  const now = Date.now();
+  for (const [k, until] of pending) if (until < now) pending.delete(k);
+  const lucid = await getLucid();
+  const utxos = await lucid.wallet().getUtxos();
+  const usable = utxos.filter(
+    (u) => !pending.has(outRef(u)) && !u.datum && !u.datumHash && !u.scriptRef &&
+      Object.keys(u.assets).every((unit) => unit === 'lovelace'),
+  );
+  if (usable.length === 0) throw new Error('the service wallet has no free plain-ADA coin to pay with');
+  return usable;
+}
+
+/** Sets aside the inputs of a built transaction - for one submitted later (a two-signature open). */
+export function rememberSpentCbor(cbor: string) {
+  rememberSpent(cbor);
+}
+
+function rememberSpent(signedCbor: string) {
+  const inputs = CML.Transaction.from_cbor_hex(signedCbor).body().inputs();
+  const until = Date.now() + PENDING_MS;
+  for (let i = 0; i < inputs.len(); i++) {
+    const input = inputs.get(i);
+    pending.set(`${input.transaction_id().to_hex()}#${input.index()}`, until);
+  }
+}
+
+/** Sign with the service wallet, remember what it spends, submit. */
+export async function signAndSubmit(tx: { sign: { withWallet(): { complete(): Promise<{ toCBOR(): string; submit(): Promise<string> }> } } }): Promise<string> {
+  const signed = await tx.sign.withWallet().complete();
+  rememberSpent(signed.toCBOR());
+  return signed.submit();
+}
+
+export function serialized<T>(build: () => Promise<T>): Promise<T> {
+  const run = walletQueue.then(build);
+  walletQueue = run.catch(() => {});
+  return run;
 }

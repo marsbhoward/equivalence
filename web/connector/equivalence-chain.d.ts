@@ -37,10 +37,11 @@ export interface EquivalenceChain {
 
   /**
    * Prove control of the address by signing a MESSAGE - CIP-30 `signData`, never `signTx`.
-   * Resolves with the signature; the service checks it before writing on this address's behalf.
-   * `datum` carries a fresh nonce. Costs no fee and spends no UTxO.
+   * The message and its one-time nonce come from the service (`GET /auth/challenge`); the
+   * signature is traded at `POST /auth/prove` for a SESSION that every player write carries.
+   * Costs no fee and spends no UTxO. `datum` is unused (kept for the bridge's argument shape).
    */
-  proveOwnership(args: { accountId: string; datum: string }): Promise<string>;
+  proveOwnership(args: { accountId: string; datum?: string }): Promise<string>;
 
   disconnect(args: {}): void | Promise<void>;
 
@@ -86,6 +87,21 @@ export interface EquivalenceChain {
 
   /** Room layout and account record. Keyed by wallet address, or "local" when unconnected. */
   saveAccount(args: { accountId: string; datum: string }): Promise<string>;
+
+  // ---- design boxes (tokens; the SERVER rolls, the player approves the open) --------------
+
+  /**
+   * Open 1-10 Diamond / Black Diamond BOXES - tokens in this wallet, so the player approves ONE
+   * transaction (signTx, partial); the service builds it, pays its fee and adds its own witness.
+   * Always a random open (there is no targeted open for these tiers). The SERVER rolls - committed
+   * before the signature, so declining and opening again shows the same designs. Resolves with the
+   * service's JSON: { hash, tier, pieces: [{ instanceId, design, name, slot, unit }] }. A Black
+   * Diamond weapon comes with its relic. The box's deposit returns to the service.
+   */
+  openBoxes(args: { profileId: string; tier: string; count?: string }): Promise<string>;
+
+  /** The boxes this WALLET holds - a box is a token: { profileId, boxes: { Diamond, BlackDiamond } }. */
+  designBoxes(args: { profileId: string }): Promise<string>;
 
   // ---- the ONE player-signed write ------------------------------------------------------
 

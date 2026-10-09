@@ -30,7 +30,7 @@ export function cors(req: Request, res: Response, next: NextFunction) {
     // allow-header to another, which is a hole that only appears once something sits in front.
     res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,HEAD,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
     res.setHeader('Access-Control-Max-Age', '600');
   }
 
