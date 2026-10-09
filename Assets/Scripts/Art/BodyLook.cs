@@ -1977,6 +1977,18 @@ namespace Convergence.Art
         }
 
         /// <summary>
+        /// A BARE head through the same detail pass - no hair, no beard, natural brows - for
+        /// pictures that want the head's own shape rather than a character (the Wraith's Eye's
+        /// display art). Same grid and eye placement as <see cref="HeadDetail"/>, ungazed.
+        /// </summary>
+        public static string[] BareHeadDetail(string expression, bool leftEyeGlow, int scale)
+        {
+            var face = Expand(Expression(expression).Grid, solid: false);
+            return FaceDetail.Build(Head(expression, "none", leftEyeGlow: leftEyeGlow), face,
+                                    scale, 0.5f, false, BeardGrid("none"), leftEyeGlow);
+        }
+
+        /// <summary>
         /// The head with the hair that LEAVES the skull removed - its <see cref="HairRowsAdded"/>
         /// overhead rows blanked, at whatever <paramref name="scale"/> the grid was built at.
         ///

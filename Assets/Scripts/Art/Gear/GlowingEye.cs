@@ -19,6 +19,13 @@ namespace Convergence.Art.Gear
     {
         static readonly Color Red = new(0.95f, 0.12f, 0.10f);
 
+        // Public so the Wraith's Eye's display picture (DemoGear.WraithEye) bakes the same light.
+        public static Color Colour => Red;
+        /// <summary>The glow's diameter in world units (Spr.Glow is one unit across).</summary>
+        public const float WorldSize = 0.075f;
+        const float PulseMid = 0.7f, PulseSwing = 0.25f;
+        public const float PeakAlpha = PulseMid + PulseSwing;
+
         SpriteRenderer _sr;
         float _t;
 
@@ -29,9 +36,9 @@ namespace Convergence.Art.Gear
 
             var go = new GameObject("glowing.eye");
             go.transform.SetParent(head, false);
-            // Sized against the eye it sits on, which halved with the head when the head moved to
-            // the body's density (0.065 was the eye at LayoutUnit).
-            go.transform.localScale = Vector3.one * 0.0325f;
+            // Wider than the eye, so the light spills onto the face round it (the user's call,
+            // 2026-10-09 - at 0.0325, the eye's own size, it only lit the iris).
+            go.transform.localScale = Vector3.one * WorldSize;
 
             var glow = go.AddComponent<GlowingEye>();
             glow._sr = go.AddComponent<SpriteRenderer>();
@@ -59,7 +66,7 @@ namespace Convergence.Art.Gear
 
             // The same breathing idiom PrismGlow and SaintHalo both use, so a lit eye reads as
             // alive rather than as a static decal.
-            float pulse = 0.55f + 0.35f * Mathf.Sin(_t * 2.6f);
+            float pulse = PulseMid + PulseSwing * Mathf.Sin(_t * 2.6f);
             _sr.color = new Color(Red.r, Red.g, Red.b, pulse);
         }
     }
