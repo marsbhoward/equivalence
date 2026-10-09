@@ -87,6 +87,72 @@ namespace Convergence.Rifts
         public void FindTieredBox(LootTier tier)
             => _foundTieredBoxes[tier] = FoundTieredBoxes(tier) + 1;
 
+        // ------------------------------------------------------------------ securing boxes
+
+        /// <summary>
+        /// BOXES ARE SECURED THE WAY GEAR IS (the user's call, 2026-10-09): at a Rift, one at a
+        /// time, from its free capacity and then with a Rift Box. A secured box moves into the
+        /// BANKED pool - the one death never touches - so it reaches the profile whatever happens
+        /// next, and a Diamond or Black Diamond one is minted to the wallet at the run's end even
+        /// if that end is a death.
+        ///
+        /// Counted per run as well, only for the Rift screen's "coming out" column - the banked
+        /// pool alone can't tell a box secured this run from one brought in.
+        /// </summary>
+        readonly Dictionary<LootTier, int> _securedTieredBoxes = new();
+
+        public int SecuredTieredBoxes(LootTier tier) => _securedTieredBoxes.TryGetValue(tier, out int n) ? n : 0;
+
+        public bool SecureTieredBox(LootTier tier)
+        {
+            int found = FoundTieredBoxes(tier);
+            if (found <= 0) return false;
+            _foundTieredBoxes[tier] = found - 1;
+            _bankedTieredBoxes[tier] = BankedTieredBoxes(tier) + 1;
+            _securedTieredBoxes[tier] = SecuredTieredBoxes(tier) + 1;
+            return true;
+        }
+
+        /// <summary>A Rift Box found this run, secured from free capacity. Never paid for with
+        /// another Rift Box - that would trade one box for the same box.</summary>
+        public int SecuredRiftBoxes { get; private set; }
+
+        public bool SecureRiftBox()
+        {
+            if (FoundBoxes <= 0) return false;
+            FoundBoxes--;
+            BankedBoxes++;
+            SecuredRiftBoxes++;
+            return true;
+        }
+
+        /// <summary>
+        /// Clearing floor 100 secures EVERY box found so far, of every kind - the completion prize
+        /// is the run's box haul made safe, so a death after it still keeps (and mints) them.
+        /// Gear is untouched: it still needs a Rift.
+        /// </summary>
+        public void SecureAllBoxes()
+        {
+            foreach (var tier in new List<LootTier>(_foundTieredBoxes.Keys))
+                while (FoundTieredBoxes(tier) > 0) SecureTieredBox(tier);
+            while (FoundBoxes > 0) SecureRiftBox();
+        }
+
+        /// <summary>
+        /// An avatar boss's own design-box rolls (floors 25, 50, 75), ON TOP of the floor's drop:
+        /// a Diamond box and a Black Diamond box, each rolled separately. Floor 100 is not here -
+        /// its floor drop already is the design box (see Roll).
+        /// </summary>
+        public void RollAvatarBoxes(int floor)
+        {
+            if (!FloorPlanner.IsAvatarFloor(floor) || floor >= FinalFloor) return;
+            if (Random.value < Tuning.GearRoll.AvatarDiamondBoxChance) FindTieredBox(LootTier.Diamond);
+            if (Random.value < Tuning.GearRoll.AvatarBlackDiamondBoxChance) FindTieredBox(LootTier.BlackDiamond);
+        }
+
+        /// <summary>The last avatar, and the run's completion floor.</summary>
+        public const int FinalFloor = 100;
+
         /// <summary>
         /// Spend one box. Consumes a FOUND one first.
         ///
@@ -109,6 +175,8 @@ namespace Convergence.Rifts
             BankedBoxes = 0;
             _foundTieredBoxes.Clear();
             _bankedTieredBoxes.Clear();
+            _securedTieredBoxes.Clear();
+            SecuredRiftBoxes = 0;
         }
 
         public void Add(MintedGearRecord record)
@@ -197,6 +265,8 @@ namespace Convergence.Rifts
             profile.Boxes.BlackDiamond = TotalTieredBoxes(LootTier.BlackDiamond);
             _foundTieredBoxes.Clear();
             _bankedTieredBoxes.Clear();
+            _securedTieredBoxes.Clear();
+            SecuredRiftBoxes = 0;
             return n;
         }
 
@@ -213,14 +283,15 @@ namespace Convergence.Rifts
         ///     25-49   Bronze 70   Silver 30
         ///     50-74   Bronze 40   Silver 45   Gold 15
         ///     75-99   Bronze 15   Silver 45   Gold 40
-        ///     100     Diamond 100
+        ///     100     Diamond 100   (Black Diamond 1% instead - see Roll)
+        ///     101+    the 75-99 band
         ///
-        /// Diamond is reserved ENTIRELY for floor 100 - it is the completion prize, not a
-        /// deep-floor drop, and the only way to hold one is to have finished a run.
+        /// Diamond never comes from an ordinary floor: it is floor 100's completion prize, and
+        /// otherwise only a rare EXTRA from the avatar bosses (RollAvatarBoxes).
         /// </summary>
         public static LootTier TierFor(int floor)
         {
-            if (floor >= 100) return LootTier.Diamond;
+            if (floor == FinalFloor) return LootTier.Diamond;
 
             float r = Random.value;
             if (floor >= 75) return r < 0.15f ? LootTier.Bronze : r < 0.60f ? LootTier.Silver : LootTier.Gold;
@@ -242,6 +313,19 @@ namespace Convergence.Rifts
         public MintedGearRecord Roll(int floor)
         {
             var tier = TierFor(floor);
+            if (floor == FinalFloor && Random.value < Tuning.GearRoll.FinalBlackDiamondBoxChance)
+                tier = LootTier.BlackDiamond;
+
+            // DIAMOND AND BLACK DIAMOND DROP AS BOXES, ALWAYS (the user's call, 2026-10-09) -
+            // never as a design. The box is what extraction mints to the wallet (a tradeable
+            // token); the DESIGN only comes into being when the box is opened at the Forge, rolled
+            // by the server. A design handed out here would be rolled on the client, which is the
+            // one thing those tiers must not be. Bronze, Silver and Gold still drop as gear.
+            if (DesignDrops.IsDesignTier(tier))
+            {
+                FindTieredBox(tier);
+                return null;
+            }
 
             // A BOX INSTEAD OF AN ITEM, some of the time - the Forge's own currency for
             // combining/upgrading, not just an alternate item source. At risk exactly like the
@@ -250,20 +334,6 @@ namespace Convergence.Rifts
             {
                 FindTieredBox(tier);
                 return null;
-            }
-
-            // Diamond and Black Diamond are DESIGNS, not rolls - one of the tier's authored
-            // pieces (see DesignDrops). A Black Diamond weapon comes with its relic: the relic is
-            // carried here and the weapon handed back like any other drop.
-            if (DesignDrops.IsDesignTier(tier))
-            {
-                var design = DesignDrops.Pick(DesignDrops.Pool(tier), Random.Range(int.MinValue, int.MaxValue));
-                if (design != null)
-                {
-                    var made = DesignDrops.Mint(design, "LOOT");
-                    for (int i = 1; i < made.Count; i++) Add(made[i]);
-                    return made[0];
-                }
             }
 
             // RELICS DROP NOW. They used to be swapped out for a Torso because "the roller has no

@@ -323,6 +323,14 @@ namespace Convergence.Hub
             return raw > (int)RigLayer.BackOver ? raw + 1 : raw;
         }
 
+        /// <summary>The joint a layer hangs from, and the stand's draw rank for it - read by
+        /// EditorTools.NftArt so an item image composes a piece exactly as the stand wears it,
+        /// rather than from a third copy of the pivot tree.</summary>
+        public Transform PivotOf(RigLayer layer) => PivotFor(layer);
+        public static int RankOf(RigLayer layer) => StandRank(layer);
+        /// <summary>The scaled child holding the joint tree (see Build).</summary>
+        public Transform Figure => transform.Find("figure");
+
         /// <summary>PrimitiveCharacterRig.PivotFor, and it has to stay identical to it - a layer
         /// hung off the wrong joint is a pauldron on a hip.</summary>
         Transform PivotFor(RigLayer layer) => layer switch

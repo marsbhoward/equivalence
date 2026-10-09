@@ -98,8 +98,9 @@ namespace Convergence.Core
             public const string DemoWalletAddress =
                 "addr_test1qpluffpk6kew7ed6y453m6l2gudfgvp7cw8rwz2g6yacgrhs3cykq95zr24svxakxnkla9hqjht5rdwgc6jkdncty2ws8v86aj";
 
-            /// <summary>Where equivalence-service is listening - see web/service/README.md.</summary>
-            public const string DemoWalletServiceUrl = "http://localhost:8787";
+            /// <summary>Where equivalence-service is listening - the Railway deployment (Cardano
+            /// Preview); `http://localhost:8787` for a local `npm run dev`. See web/service/README.md.</summary>
+            public const string DemoWalletServiceUrl = "https://equivalence-service-production.up.railway.app";
         }
 
         /// <summary>
@@ -4482,12 +4483,33 @@ namespace Convergence.Core
             public const float FloorBoxChance = 0.25f;
 
             /// <summary>
-            /// Forge box costs, in boxes of the tier being spent. Combining and promoting cost NO
-            /// boxes - two pieces are the price. Boxes buy randomness or remove it: a random
+            /// The design-box drops (the user's calls, 2026-10-09). The avatar bosses at 25, 50 and
+            /// 75 can each drop a Diamond box and a Black Diamond box, rolled separately, ON TOP of
+            /// the floor's own loot. Floor 100's own drop is a Diamond box - the completion prize,
+            /// the one guaranteed design box - or, 1% of the time, a Black Diamond box INSTEAD
+            /// (doubled from the other avatars' rate so short runs to the first avatar are not the
+            /// best farm). Black Diamond is never guaranteed anywhere.
+            /// </summary>
+            public const float AvatarDiamondBoxChance = 0.02f;
+            public const float AvatarBlackDiamondBoxChance = 0.005f;
+            public const float FinalBlackDiamondBoxChance = 0.01f;
+
+            /// <summary>
+            /// Forge box costs, in boxes of the tier being spent. Combining costs NO boxes - two
+            /// pieces are the price - but PROMOTING (three stars into the next tier) also takes a
+            /// RIFT BOX (`PromoteRiftBoxCost`). Boxes buy randomness or remove it: a random
             /// redemption, a re-roll of one sub-stat's value (the item's own tier), a re-roll of
             /// which stat that sub-stat is, or a targeted redemption, which costs the most because
-            /// choosing the exact slot (and weapon class) is the thing being paid for.
+            /// choosing the exact slot (and weapon class) is the thing being paid for. Targeted
+            /// redemption is Bronze/Silver/Gold only - Diamond and Black Diamond boxes always open
+            /// at random.
             /// </summary>
+            public const int PromoteRiftBoxCost = 1;
+
+            /// <summary>Rift Boxes it takes to insure a stake at the door: an insured stake comes
+            /// home on death instead of being destroyed (no partner is paid).</summary>
+            public const int StakeInsuranceRiftBoxCost = 1;
+
             public const int ForgeRandomRedeemBoxCost = 1;
             public const int ForgeRerollValueBoxCost = 1;
             public const int ForgeRerollStatBoxCost = 2;

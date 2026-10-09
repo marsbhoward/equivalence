@@ -13,6 +13,7 @@ namespace Convergence.Chain
     ///     stake a piece -> clear its gate floor -> extract -> receive a piece with the same MatchKey
     ///     die at any point (before or after the gate)       -> the staked piece is destroyed
     ///     extract before the gate                            -> the stake comes home, nothing more
+    ///     INSURED (a Rift Box paid at the door) and die      -> the stake comes home, nothing more
     ///
     /// WHY IT RISKS STATTED GEAR AND NOTHING ELSE. Stat-bearing Bronze/Silver/Gold pieces do not
     /// trade, so losing one costs power and never money - putting a tradeable piece at risk would
@@ -34,7 +35,7 @@ namespace Convergence.Chain
     /// </summary>
     public static class GearStake
     {
-        public enum Outcome { None, Returned, Paid, Lost }
+        public enum Outcome { None, Returned, Paid, Lost, Saved }
 
         /// <summary>Whether a piece may be staked at all. See the class header.</summary>
         public static bool Stakeable(MintedGearRecord r) => GearForge.Combinable(r);
@@ -71,11 +72,19 @@ namespace Convergence.Chain
         /// run-start checkpoint so the datum carries it - a stake held only in memory could be
         /// dodged by closing the game in a losing fight (see <see cref="ForfeitStale"/>).
         /// </summary>
-        public static bool Place(CharacterProfile profile, MintedGearRecord record)
+        ///
+        /// <paramref name="insured"/> spends a banked Rift Box (the user's call, 2026-10-09) so a
+        /// death brings the piece home instead of destroying it - it still pays no partner. Paid
+        /// up front, for the whole run; refused (nothing placed) without the box.
+        /// </summary>
+        public static bool Place(CharacterProfile profile, MintedGearRecord record, bool insured = false)
         {
             if (profile == null || !Stakeable(record) || !profile.MintedGear.Contains(record)) return false;
+            if (insured && profile.RiftBoxes < Tuning.GearRoll.StakeInsuranceRiftBoxCost) return false;
+            if (insured) profile.RiftBoxes -= Tuning.GearRoll.StakeInsuranceRiftBoxCost;
             profile.StakedInstanceId = record.InstanceId;
             profile.StakeGateFloor = GateFloor(record.UpgradeLevel);
+            profile.StakeInsured = insured;
             return true;
         }
 
@@ -90,9 +99,11 @@ namespace Convergence.Chain
         {
             var stake = Staked(profile);
             bool hadStake = profile != null && !string.IsNullOrEmpty(profile.StakedInstanceId);
+            bool insured = profile != null && profile.StakeInsured;
             Clear(profile);
             if (!hadStake || stake == null) return (Outcome.None, null, null);
 
+            if (!extracted && insured) return (Outcome.Saved, stake, null);
             if (!extracted)
             {
                 Destroy(profile, stake);
@@ -113,13 +124,14 @@ namespace Convergence.Chain
         /// HARSH ON A CRASH, AND DELIBERATELY SO. Returning it instead would make quitting the
         /// game the free way out of every losing fight, which empties the stake of meaning. Called
         /// on load rather than at the next run start so the piece cannot be combined away at the
-        /// Forge in between.
+        /// Forge in between. An INSURED stake is settled the same way and comes home, as a death
+        /// would bring it.
         /// </summary>
-        public static MintedGearRecord ForfeitStale(CharacterProfile profile)
+        public static (Outcome Outcome, MintedGearRecord Stake) ForfeitStale(CharacterProfile profile)
         {
-            if (profile == null || string.IsNullOrEmpty(profile.StakedInstanceId)) return null;
-            var (_, stake, _) = Resolve(profile, extracted: false, gateCleared: false, rng: null);
-            return stake;
+            if (profile == null || string.IsNullOrEmpty(profile.StakedInstanceId)) return (Outcome.None, null);
+            var (outcome, stake, _) = Resolve(profile, extracted: false, gateCleared: false, rng: null);
+            return (outcome, stake);
         }
 
         /// <summary>A piece matching <paramref name="stake"/> on every MatchKey field, with its
@@ -156,6 +168,7 @@ namespace Convergence.Chain
             if (profile == null) return;
             profile.StakedInstanceId = "";
             profile.StakeGateFloor = 0;
+            profile.StakeInsured = false;
         }
 
         /// <summary>Removes a lost piece everywhere it is referenced - the list, the loadout

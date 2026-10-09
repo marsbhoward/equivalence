@@ -76,7 +76,7 @@ namespace Convergence.UI
             int reserve = _loot?.BankedBoxes ?? 0;
             UiKit.Label(UiKit.Rect(full, "s", new Vector2(0, 1), new Vector2(1, 1),
                 new Vector2(0, -140), new Vector2(0, -102)),
-                $"what this run is carrying    -    Rift Boxes: {found} found, {reserve} in reserve",
+                "what this run is carrying",
                 18, new Color(0.55f, 0.57f, 0.66f), TextAnchor.MiddleCenter);
 
             // ---- left: at risk ----
@@ -106,6 +106,21 @@ namespace Convergence.UI
                 new Vector2(-200, 36), new Vector2(200, 36 + UiKit.TouchTarget),
                 new Color(0.12f, 0.13f, 0.17f, 1f));
             UiKit.Label(_backRect, "BACK", 22, new Color(0.82f, 0.85f, 0.92f), TextAnchor.MiddleCenter);
+
+            // ---- the Rift Boxes held, either side of BACK: the pickup's own picture at menu
+            // density, so the box picked up mid-fight is recognisably the one counted here ----
+            BoxCount(full, -620f, found, "FOUND", "lost if you die", new Color(0.95f, 0.62f, 0.55f));
+            BoxCount(full, 300f, reserve, "IN RESERVE", "safe - from earlier runs", new Color(0.62f, 0.92f, 0.68f));
+        }
+
+        static void BoxCount(RectTransform parent, float x, int count, string title, string note, Color ink)
+        {
+            var icon = BoxIcon.Add(parent, Art.BoxArt.Kind.Rift, true, new Vector2(0.5f, 0f), new Vector2(x, 40f));
+            if (count == 0) icon.color = new Color(1f, 1f, 1f, 0.3f);
+            UiKit.Label(UiKit.Rect(parent, "bc", new Vector2(0.5f, 0f), new Vector2(0.5f, 0f),
+                new Vector2(x + 96f, 40f), new Vector2(x + 360f, 158f)),
+                $"{title}  x{count}\n<size=15>{note}</size>", 22,
+                count > 0 ? ink : new Color(0.5f, 0.5f, 0.55f), TextAnchor.MiddleLeft);
         }
 
         void Fill(RectTransform parent, IReadOnlyList<MintedGearRecord> items)

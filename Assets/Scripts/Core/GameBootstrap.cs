@@ -569,10 +569,10 @@ namespace Convergence.Core
         /// </summary>
         async System.Threading.Tasks.Task ForfeitStaleStake()
         {
-            var lost = GearStake.ForfeitStale(_profile);
-            if (lost == null) return;
-            Debug.Log($"[Stake] {lost.DisplayName} ({lost.InstanceId}) was staked on a run that never " +
-                      "ended - destroyed.");
+            var (outcome, stake) = GearStake.ForfeitStale(_profile);
+            if (stake == null) return;
+            Debug.Log($"[Stake] {stake.DisplayName} ({stake.InstanceId}) was staked on a run that never " +
+                      (outcome == GearStake.Outcome.Saved ? "ended - insured, kept." : "ended - destroyed."));
             await _store.UnlockAsync(_profile);
         }
 
@@ -624,6 +624,11 @@ namespace Convergence.Core
         /// </summary>
         public async void RedeemForgeBoxRandom(Art.Gear.LootTier boxTier)
         {
+            if (DesignDrops.IsDesignTier(boxTier) && StoreFactory.UsingChain)
+            {
+                await RedeemDesignOnChain(boxTier);
+                return;
+            }
             if (!TrySpendBoxes(boxTier, Tuning.GearRoll.ForgeRandomRedeemBoxCost)) return;
 
             // Diamond and Black Diamond are DESIGNS, drawn from every eligible piece of the tier
@@ -644,20 +649,65 @@ namespace Convergence.Core
         /// Spend a box of a given tier at the Forge for a CHOSEN slot (and weapon class, if the
         /// slot is Weapon) - costs more than the random path because the player is paying to
         /// remove the randomness from which slot they get, not from what it rolls.
+        ///
+        /// Bronze/Silver/Gold only: Diamond and Black Diamond boxes always open at random (the
+        /// user's call, 2026-10-09) - the Forge never offers them here, and this refuses them.
         /// </summary>
         public async void RedeemForgeBoxTargeted(
             Art.Gear.GearSlot slot, Art.Gear.LootTier boxTier,
             Art.Gear.WeaponClass weaponClass = Art.Gear.WeaponClass.Greatsword)
         {
+            if (DesignDrops.IsDesignTier(boxTier)) return;
             if (!TrySpendBoxes(boxTier, Tuning.GearRoll.ForgeTargetedRedeemBoxCost)) return;
-            if (DesignDrops.IsDesignTier(boxTier))
+            await MintForgeBoxItem(slot, boxTier, weaponClass);
+        }
+
+        /// <summary>
+        /// A design box opened against the SERVICE (the browser build): the boxes are tokens in the
+        /// wallet, the server rolls the design, the player approves one transaction that burns the
+        /// box and mints the design - see Chain.Web.ChainDesigns. Nothing is spent or rolled here;
+        /// the records are built from what was minted, and the box count is re-read from the
+        /// wallet. A refusal or a declined dialog leaves the profile as it was.
+        /// TODO(forge UI): open 5-10 at once (the count is already supported) behind the opening
+        /// animation, which plays whatever the chain is doing.
+        /// </summary>
+        async System.Threading.Tasks.Task RedeemDesignOnChain(Art.Gear.LootTier tier)
+        {
+            Chain.Web.ChainDesigns.Result result;
+            try
             {
-                var classFilter = slot == Art.Gear.GearSlot.Weapon ? weaponClass : (Art.Gear.WeaponClass?)null;
-                await MintDesignBox(DesignDrops.Pool(boxTier, slot, classFilter), boxTier,
-                                    Tuning.GearRoll.ForgeTargetedRedeemBoxCost);
+                result = await Chain.Web.ChainDesigns.OpenAsync(_profile.ProfileId, tier, 1);
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[Forge] {tier} box not opened: {e.Message}");
+                await Chain.Web.ChainDesigns.SyncBalanceAsync(_profile);
+                _hub?.RefreshForge();
                 return;
             }
-            await MintForgeBoxItem(slot, boxTier, weaponClass);
+
+            foreach (var p in result.pieces)
+            {
+                var design = Art.Gear.GearCatalog.Get(p.design);
+                if (design == null)
+                {
+                    // Minted on chain but unknown here - the service's design manifest is newer
+                    // than this build. The token is in the wallet either way.
+                    Debug.LogError($"[Forge] minted {p.design} ({p.unit}) - not in this build's catalogue");
+                    continue;
+                }
+                var record = DesignDrops.RecordFor(design, p.instanceId);
+                record.Unit = p.unit;
+                _profile.MintedGear.Add(record);
+                Art.Gear.GearCatalog.Register(record.ToGearItem());
+                Debug.Log($"[Forge] minted {record.DisplayName} ({record.InstanceId}) -> {p.unit}");
+            }
+            await Chain.Web.ChainDesigns.SyncBalanceAsync(_profile);
+
+            if (CharacterScreen != null) CharacterScreen.Refresh();
+            _hub?.FlashForge();
+            _hub?.RefreshForge();
+            await _store.UnlockAsync(_profile);
         }
 
         /// <summary>
@@ -723,10 +773,9 @@ namespace Convergence.Core
         }
 
         /// <summary>
-        /// Drains a box of the given tier, falling back to Rift Boxes ONLY for Silver - the one
-        /// tier close enough to Rift Boxes' own "untiered, common/mid" spirit that treating one
-        /// as the other isn't an arbitrary call. Bronze/Gold/Diamond/BlackDiamond accept only
-        /// their own box.
+        /// Drains boxes of the given tier - only that tier. Rift Boxes are never Forge currency
+        /// for redeeming or re-rolling (the user's call, 2026-10-09; they once stood in for
+        /// Silver): they secure loot at a Rift, promote a three-star piece, and insure a stake.
         /// </summary>
         bool TrySpendBoxes(Art.Gear.LootTier tier, int amount)
         {
@@ -734,11 +783,6 @@ namespace Convergence.Core
             if (_profile.Boxes.Get(tier) >= amount)
             {
                 _profile.Boxes.Add(tier, -amount);
-                return true;
-            }
-            if (tier == Art.Gear.LootTier.Silver && _profile.RiftBoxes >= amount)
-            {
-                _profile.RiftBoxes -= amount;
                 return true;
             }
             return false;
@@ -759,6 +803,14 @@ namespace Convergence.Core
             if (IsEquipped(instanceIdA) || IsEquipped(instanceIdB)) return null;
             var plan = GearForge.Plan(a, b);
             if (plan == null) return null;
+
+            // PROMOTING TAKES A RIFT BOX (the user's call, 2026-10-09): three stars into the next
+            // tier is the one combine that needs one. A plain star-up stays free.
+            if (plan.Promotes)
+            {
+                if (_profile.RiftBoxes < Tuning.GearRoll.PromoteRiftBoxCost) return null;
+                _profile.RiftBoxes -= Tuning.GearRoll.PromoteRiftBoxCost;
+            }
 
             var record = GearForge.Execute(plan, new System.Random(Guid.NewGuid().GetHashCode()));
             _profile.MintedGear.Remove(a);
@@ -1779,22 +1831,22 @@ namespace Convergence.Core
             if (_state != State.Hub || StakeScreen == null || StakeScreen.IsOpen) return;
             var candidates = GearStake.Candidates(_profile);
             if (candidates.Count == 0) { StartRun(element); return; }
-            StakeScreen.Open(_canvas.transform, candidates,
-                onChoose: chosen => StartRun(element, chosen),
+            StakeScreen.Open(_canvas.transform, candidates, _profile.RiftBoxes,
+                onChoose: (chosen, insured) => StartRun(element, chosen, insured),
                 onCancel: null);
         }
 
-        void StartRun(ElementType element) => StartRun(element, null);
+        void StartRun(ElementType element) => StartRun(element, null, false);
 
-        async void StartRun(ElementType element, MintedGearRecord stake)
+        async void StartRun(ElementType element, MintedGearRecord stake, bool insured)
         {
             // async void swallows exceptions into the sync context, where Unity reports them with
             // useless line numbers from the state machine. Catch here so failures are legible.
-            try { await StartRunAsync(element, stake); }
+            try { await StartRunAsync(element, stake, insured); }
             catch (Exception e) { Debug.LogError($"[Convergence] StartRun failed: {e}"); }
         }
 
-        async System.Threading.Tasks.Task StartRunAsync(ElementType element, MintedGearRecord stake)
+        async System.Threading.Tasks.Task StartRunAsync(ElementType element, MintedGearRecord stake, bool insured)
         {
             // Start() is async, so nothing it creates is guaranteed to exist on the first frames.
             // Everything StartRunAsync touches before its await is checked here, by name, because
@@ -1866,6 +1918,8 @@ namespace Convergence.Core
             // the profile's count.
             _loot.SetBankedBoxes(_profile.RiftBoxes);
             _loot.SetBankedTieredBoxes(_profile.Boxes);
+            _runStartDiamondBoxes = _profile.Boxes.Diamond;
+            _runStartBlackDiamondBoxes = _profile.Boxes.BlackDiamond;
             Modifiers.Clear();
 
             // The stake is placed BEFORE the run-start checkpoint so the datum carries it - see
@@ -1873,12 +1927,18 @@ namespace Convergence.Core
             // is replaced by this one's rather than forfeited, since that run never began.
             _stakeGateCleared = false;
             _stakeLine = null;
-            if (stake != null && GearStake.Place(_profile, stake))
-                Debug.Log($"[Stake] {stake.DisplayName} +{stake.UpgradeLevel} staked, gate floor {_profile.StakeGateFloor}");
+            if (stake != null && GearStake.Place(_profile, stake, insured))
+            {
+                Debug.Log($"[Stake] {stake.DisplayName} +{stake.UpgradeLevel} staked, gate floor {_profile.StakeGateFloor}" +
+                          (insured ? ", insured with a Rift Box" : ""));
+                // The insurance box came out of the banked reserve the run's loot already copied.
+                _loot.SetBankedBoxes(_profile.RiftBoxes);
+            }
             else
             {
                 _profile.StakedInstanceId = "";
                 _profile.StakeGateFloor = 0;
+                _profile.StakeInsured = false;
             }
 
             // CHECKPOINT 1 of 2 - the only writes this prototype makes.
@@ -3447,6 +3507,22 @@ namespace Convergence.Core
                 Debug.Log($"[Rift] floor {_floor} dropped a loot box instead of an item " +
                           $"(carrying {_loot.CarriedCount}, secured {_loot.SecuredCount})");
             }
+
+            // An avatar's own design-box rolls, on top of the floor's drop.
+            int diamond = _loot.FoundTieredBoxes(Art.Gear.LootTier.Diamond);
+            int black = _loot.FoundTieredBoxes(Art.Gear.LootTier.BlackDiamond);
+            _loot.RollAvatarBoxes(_floor);
+            if (_loot.FoundTieredBoxes(Art.Gear.LootTier.BlackDiamond) > black) _hud?.Flash("BLACK DIAMOND BOX");
+            else if (_loot.FoundTieredBoxes(Art.Gear.LootTier.Diamond) > diamond) _hud?.Flash("DIAMOND BOX");
+
+            // FLOOR 100 SECURES THE RUN'S BOXES (the user's call, 2026-10-09) - the completion
+            // floor has no Rift, and the boxes it pays are the point of reaching it. From here a
+            // death still banks them, and the run end mints the design boxes to the wallet.
+            if (_floor == Rifts.RunLoot.FinalFloor)
+            {
+                _loot.SecureAllBoxes();
+                _hud?.Flash("floor 100 cleared  -  every box is secured");
+            }
         }
 
         /// <summary>
@@ -3851,6 +3927,10 @@ namespace Convergence.Core
             return RandomEdgePoint();
         }
 
+        /// <summary>The profile's design boxes when the run began - see RunSummary.SecuredDiamondBoxes.
+        /// Plain ints: they survive a domain reload.</summary>
+        int _runStartDiamondBoxes, _runStartBlackDiamondBoxes;
+
         async void EndRun(bool survived)
         {
             if (_state != State.Playing) return;
@@ -3910,6 +3990,10 @@ namespace Convergence.Core
             int banked = _loot.Bank(_profile);
             if (banked > 0 || lost > 0)
                 Debug.Log($"[Rift] banked {banked} piece(s), lost {lost} carried");
+            // What the server's box ledger is credited from - the gain, not the absolute count.
+            // Design boxes are never spent mid-run, so the difference is exactly what was secured.
+            summary.SecuredDiamondBoxes = Mathf.Max(0, _profile.Boxes.Diamond - _runStartDiamondBoxes);
+            summary.SecuredBlackDiamondBoxes = Mathf.Max(0, _profile.Boxes.BlackDiamond - _runStartBlackDiamondBoxes);
 
             // THE STAKE SETTLES ON THE SAME CHECKPOINT, keyed on `survived` - which is to say on
             // EXTRACTION: a run only ends survived when the player took it out. Whatever system
@@ -3923,6 +4007,7 @@ namespace Convergence.Core
                 GearStake.Outcome.Paid     => $"stake        {stakeItem.DisplayName} kept, matching piece claimed",
                 GearStake.Outcome.Returned => $"stake        {stakeItem.DisplayName} came home (gate not cleared)",
                 GearStake.Outcome.Lost     => $"stake        {stakeItem.DisplayName} DESTROYED",
+                GearStake.Outcome.Saved    => $"stake        {stakeItem.DisplayName} came home (insured)",
                 _ => null,
             };
             if (_stakeLine != null) Debug.Log($"[Stake] {stakeOutcome}: {stakeItem.InstanceId}" +

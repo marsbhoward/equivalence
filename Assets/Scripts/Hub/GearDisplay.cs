@@ -27,7 +27,10 @@ namespace Convergence.Hub
         /// at 1080p against menu art's 300 texels per unit, so hung in the room, half its texels
         /// would have no screen pixel to land on and the detail would shimmer instead of showing.
         /// </summary>
-        public static LayerSprite Represent(GearItem item, bool menu = false)
+        ///
+        /// <paramref name="attuned"/> false keeps a gemmed weapon's AUTHORED gem - an item image
+        /// (EditorTools.NftArt) must not depend on which element happened to be attuned.
+        public static LayerSprite Represent(GearItem item, bool menu = false, bool attuned = true)
         {
             if (item == null) return null;
 
@@ -45,7 +48,7 @@ namespace Convergence.Hub
 
             // A gemmed weapon shows the CURRENT element's gem lit, not the base sprite's fire one
             // (see Attunement). The variants share the layer's geometry, so only the sprite moves.
-            var lit = Attunement.Blade(item, menu);
+            var lit = attuned ? Attunement.Blade(item, menu) : null;
             if (pick != null && lit != null && pick.Layer == RigLayer.Weapon)
                 pick = new LayerSprite { Layer = pick.Layer, Sprite = lit, Offset = pick.Offset,
                                          Size = pick.Size, Tint = pick.Tint };

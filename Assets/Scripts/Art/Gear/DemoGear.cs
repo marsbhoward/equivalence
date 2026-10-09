@@ -377,6 +377,7 @@ namespace Convergence.Art.Gear
             // would cover the very eye the item exists to show.
             var wraithEye = Make("wraith_eye", "Wraith's Eye", GearSlot.Head, LootTier.Diamond, 0f);
             wraithEye.HasGlowingEye = true;
+            WraithEyeDisplay(wraithEye);   // a picture for cards and its NFT only - never worn
             items.Add(wraithEye);
 
             // The reference's most distinctive piece - a domed cap plate over a flared lower

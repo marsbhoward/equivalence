@@ -53,8 +53,8 @@ namespace Convergence.UI
         {
             public int VoucherCount;
             public LootBoxes Boxes;
-            /// <summary>Read live, not copied - a re-roll can spend Rift Boxes (as Silver) while
-            /// the screen stays open.</summary>
+            /// <summary>The banked Rift Boxes, read live - a promotion spends one while the screen
+            /// stays open.</summary>
             public Func<int> RiftBoxes;
             public List<MintedGearRecord> MintedGear;
             public Func<string, bool> IsEquipped;
@@ -130,7 +130,7 @@ namespace Convergence.UI
             BuildTabs(full);
 
             _content = UiKit.Rect(full, "content", new Vector2(0, 0), new Vector2(1, 1),
-                new Vector2(0, 60), new Vector2(0, -190));
+                new Vector2(0, 60), new Vector2(0, -236));
 
             Rebuild();
         }
@@ -263,7 +263,7 @@ namespace Convergence.UI
             for (int i = 0; i < Slots.Length; i++)
             {
                 var slot = Slots[i];
-                var card = Card(i, 4, 220f, 130f, 22f, 60f);
+                var card = Card(i, 4, 220f, 130f, 22f, -50f);
                 UiKit.Label(UiKit.Rect(card, "n", Vector2.zero, Vector2.one,
                     new Vector2(6, 6), new Vector2(-6, -6)),
                     slot.ToString(), 22, new Color(0.96f, 0.87f, 0.74f), TextAnchor.MiddleCenter);
@@ -291,8 +291,9 @@ namespace Convergence.UI
         {
             if (_pickedTier == null)
             {
-                Subtitle($"spend {Tuning.GearRoll.ForgeTargetedRedeemBoxCost} boxes - pick a tier, then the exact slot");
-                BuildTierPicker(tier => { _pickedTier = tier; Rebuild(); });
+                Subtitle($"spend {Tuning.GearRoll.ForgeTargetedRedeemBoxCost} boxes - pick a tier, then the exact slot" +
+                         "   (Diamond and Black Diamond boxes open at random only)");
+                BuildTierPicker(tier => { _pickedTier = tier; Rebuild(); }, designs: false);
                 return;
             }
 
@@ -307,7 +308,7 @@ namespace Convergence.UI
                 for (int i = 0; i < slots.Length; i++)
                 {
                     var slot = slots[i];
-                    var card = Card(i, 4, 220f, 130f, 22f, 60f);
+                    var card = Card(i, 4, 220f, 130f, 22f, -50f);
                     UiKit.Label(UiKit.Rect(card, "n", Vector2.zero, Vector2.one,
                         new Vector2(6, 6), new Vector2(-6, -6)),
                         slot.ToString(), 22, new Color(0.96f, 0.87f, 0.74f), TextAnchor.MiddleCenter);
@@ -331,7 +332,7 @@ namespace Convergence.UI
             for (int i = 0; i < classes.Length; i++)
             {
                 var wc = classes[i];
-                var card = Card(i, 3, 260f, 130f, 22f, 60f);
+                var card = Card(i, 3, 260f, 130f, 22f, -50f);
                 UiKit.Label(UiKit.Rect(card, "n", Vector2.zero, Vector2.one,
                     new Vector2(6, 6), new Vector2(-6, -6)),
                     wc.ToString(), 22, new Color(0.96f, 0.87f, 0.74f), TextAnchor.MiddleCenter);
@@ -343,33 +344,26 @@ namespace Convergence.UI
             }
         }
 
-        /// <summary>Owned box tiers (Bronze-BlackDiamond) plus Rift Boxes shown as a Silver
-        /// equivalent - the one currency the Forge also accepts, see GameBootstrap.TrySpendBoxes.</summary>
-        void BuildTierPicker(Action<LootTier> onPick)
+        const float TierCardW = 230f, TierCardH = 200f, TierLabelH = 52f;
+
+        static string Label(LootTier tier) => tier == LootTier.BlackDiamond ? "Black Diamond" : tier.ToString();
+
+        /// <summary>Owned box tiers, each card its box. <paramref name="designs"/> false leaves out
+        /// Diamond and Black Diamond (targeted redemption, which they never take).</summary>
+        void BuildTierPicker(Action<LootTier> onPick, bool designs = true)
         {
-            var owned = BoxTiers.Where(t => _ctx.Boxes.Get(t) > 0).ToList();
+            var owned = BoxTiers.Where(t => _ctx.Boxes.Get(t) > 0 && (designs || !DesignDrops.IsDesignTier(t))).ToList();
             int col = 0;
 
             foreach (var tier in owned)
             {
-                var card = Card(col, 5, 200f, 120f, 18f, 60f);
-                UiKit.Label(UiKit.Rect(card, "n", Vector2.zero, Vector2.one,
-                    new Vector2(6, 6), new Vector2(-6, -6)),
-                    $"{tier}\n x{_ctx.Boxes.Get(tier)}", 20, TierColor(tier), TextAnchor.MiddleCenter);
+                var card = Card(col, 5, TierCardW, TierCardH, 18f, -50f);
+                BoxIcon.Add(card, BoxIcon.KindOf(tier), true, new Vector2(0.5f, 0f), new Vector2(0f, TierLabelH));
+                UiKit.Label(UiKit.Rect(card, "n", Vector2.zero, new Vector2(1f, 0f),
+                    new Vector2(6, 4), new Vector2(-6, TierLabelH)),
+                    $"{Label(tier)}  x{_ctx.Boxes.Get(tier)}", 20, TierColor(tier), TextAnchor.MiddleCenter);
                 var chosen = tier;
                 _actions.Add((card, () => onPick(chosen)));
-                col++;
-            }
-
-            int rift = _ctx.RiftBoxes?.Invoke() ?? 0;
-            if (rift > 0)
-            {
-                var card = Card(col, 5, 200f, 120f, 18f, 60f);
-                UiKit.Label(UiKit.Rect(card, "n", Vector2.zero, Vector2.one,
-                    new Vector2(6, 6), new Vector2(-6, -6)),
-                    $"Rift Box\n(as Silver)\n x{rift}", 18, new Color(0.55f, 0.8f, 0.95f),
-                    TextAnchor.MiddleCenter);
-                _actions.Add((card, () => onPick(LootTier.Silver)));
                 col++;
             }
 
@@ -388,6 +382,13 @@ namespace Convergence.UI
         static readonly Color StarOff = new(1f, 1f, 1f, 0.12f);
         static readonly Color ButtonBg = new(0.28f, 0.2f, 0.12f);
         static readonly Color QuietBg = new(0.13f, 0.11f, 0.1f);
+        static readonly Color RefusedInk = new(0.95f, 0.5f, 0.45f);
+
+        /// <summary>Promoting (three stars into the next tier) takes a Rift Box from the banked
+        /// reserve - GameBootstrap.CombineGear spends it and refuses without one.</summary>
+        static int PromoteCost => Tuning.GearRoll.PromoteRiftBoxCost;
+        int RiftHeld => _ctx.RiftBoxes?.Invoke() ?? 0;
+        bool CanPromote => RiftHeld >= PromoteCost;
 
         const int PageSize = 8;   // 4 x 2 item cards
         const float ItemW = 410f, ItemH = 220f, ItemGap = 20f, GridTop = -50f;
@@ -563,8 +564,13 @@ namespace Convergence.UI
             float after = Scaled(GearRoller.PrimaryPoints(p.A.PrimaryStat, p.ToTier, p.A.Slot), p.ToLevel);
             Line(y, $"    {GearForge.Label(p.A.PrimaryStat)}  {Pct(before)}  ->  {Pct(after)}", 20, Ink); y -= 30f;
             if (p.Promotes)
+            {
                 Line(y, $"    Tier {p.FromTier} -> {p.ToTier}, sub-stat slots " +
                         $"{GearRoller.SubStatCount(p.FromTier)} -> {GearRoller.SubStatCount(p.ToTier)}", 20, Ink);
+                y -= 30f;
+                Line(y, $"    takes {PromoteCost} Rift Box{(PromoteCost == 1 ? "" : "es")}  (you have {RiftHeld})",
+                     20, CanPromote ? Ink : RefusedInk);
+            }
             else
                 Line(y, $"    every stat x{GearRoller.UpgradeScale(p.ToLevel) / GearRoller.UpgradeScale(p.FromLevel):0.00}", 20, Ink);
             y -= 44f;
@@ -594,8 +600,10 @@ namespace Convergence.UI
             for (int i = 0; i < p.Randomized; i++) { Line(y, "    ??? (?-?)", 20, Ink); y -= 30f; }
             y -= 20f;
 
-            Button(-280f, y, 260f, 128f, "CONFIRM", ButtonBg, () =>
+            bool can = !p.Promotes || CanPromote;
+            Button(-280f, y, 260f, 128f, can ? "CONFIRM" : "NEEDS A\nRIFT BOX", can ? ButtonBg : QuietBg, () =>
             {
+                if (!can) return;
                 var result = _ctx.OnCombine?.Invoke(p.A.InstanceId, p.B.InstanceId);
                 _plan = null;
                 _pickA = null;
@@ -661,9 +669,8 @@ namespace Convergence.UI
         void BuildRerollItem()
         {
             var r = _rerollItem;
-            int rift = r.Tier == LootTier.Silver ? (_ctx.RiftBoxes?.Invoke() ?? 0) : 0;
-            int owned = _ctx.Boxes.Get(r.Tier) + rift;
-            Subtitle($"{r.Tier} boxes: {owned}{(rift > 0 ? " (incl. Rift Boxes)" : "")} - a re-roll can come out worse");
+            int owned = _ctx.Boxes.Get(r.Tier);
+            Subtitle($"{r.Tier} boxes: {owned} - a re-roll can come out worse");
 
             float y = -40f;
             Line(y, ItemName(r), 30, TierColor(r.Tier), 700f);

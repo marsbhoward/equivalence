@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.UI;
 using Convergence.Chain;
 using Convergence.Core;
 
@@ -18,6 +19,10 @@ namespace Convergence.UI
     /// too late to have been a decision.
     ///
     /// Dismissible: backing out stays in the hub and starts nothing.
+    ///
+    /// INSURANCE (the user's call, 2026-10-09): a toggle under the cards spends one banked Rift
+    /// Box so a death brings the staked piece home instead of destroying it. Chosen BEFORE the
+    /// piece, paid only if a piece is then staked; greyed out with no box to spend.
     /// </summary>
     public class StakeScreen : MonoBehaviour
     {
@@ -25,21 +30,27 @@ namespace Convergence.UI
 
         GameObject _root;
         int _openedFrame = -1;
-        Action<MintedGearRecord> _onChoose;
+        Action<MintedGearRecord, bool> _onChoose;
         Action _onCancel;
 
         readonly List<(RectTransform Rect, MintedGearRecord Item)> _cards = new();
         readonly List<RectTransform> _focusRects = new();
-        RectTransform _noStake;
+        RectTransform _noStake, _insure;
+        Text _insureLabel;
+        UnityEngine.UI.Image _insureBg;
+        bool _insured;
+        int _riftBoxes;
 
         const int Columns = 3;
         const float CardW = 420f, CardH = UiKit.TouchTarget, Gap = 14f;
 
-        public void Open(Transform canvas, IReadOnlyList<MintedGearRecord> candidates,
-                         Action<MintedGearRecord> onChoose, Action onCancel)
+        public void Open(Transform canvas, IReadOnlyList<MintedGearRecord> candidates, int riftBoxes,
+                         Action<MintedGearRecord, bool> onChoose, Action onCancel)
         {
             if (IsOpen) return;
             IsOpen = true;
+            _riftBoxes = riftBoxes;
+            _insured = false;
             _openedFrame = Time.frameCount;
             _onChoose = onChoose;
             _onCancel = onCancel;
@@ -61,7 +72,8 @@ namespace Convergence.UI
                 new Vector2(160, -186), new Vector2(-160, -110)),
                 "Clear the floor on the card, then extract, and you leave with a matching piece to " +
                 "combine it with at the Forge. Extract sooner and it simply comes home. " +
-                "Die - before or after that floor - and the staked piece is destroyed.",
+                "Die - before or after that floor - and the staked piece is destroyed, unless a " +
+                "Rift Box insures it.",
                 19, new Color(0.62f, 0.60f, 0.68f), TextAnchor.UpperCenter);
             sub.horizontalOverflow = HorizontalWrapMode.Wrap;
 
@@ -80,7 +92,18 @@ namespace Convergence.UI
                 _cards.Add((Card(full, candidates[i], x, y), candidates[i]));
             }
 
-            float btnTop = top - rows * (CardH + Gap) - 10f;
+            float insureTop = top - rows * (CardH + Gap) - 10f;
+            _insure = UiKit.Panel(full, new Vector2(0.5f, 1), new Vector2(0.5f, 1),
+                new Vector2(-gridW * 0.5f, insureTop - CardH), new Vector2(gridW * 0.5f, insureTop),
+                new Color(0.12f, 0.14f, 0.16f, 1f));
+            _insureBg = _insure.GetComponent<UnityEngine.UI.Image>();
+            var box = BoxIcon.Add(_insure, Art.BoxArt.Kind.Rift, false, new Vector2(0f, 0f), new Vector2(70f, 30f));
+            if (_riftBoxes < Tuning.GearRoll.StakeInsuranceRiftBoxCost) box.color = new Color(1f, 1f, 1f, 0.3f);
+            _insureLabel = UiKit.Label(UiKit.Rect(_insure, "l", Vector2.zero, Vector2.one,
+                new Vector2(130, 0), new Vector2(-20, 0)), "", 22, Color.white, TextAnchor.MiddleLeft);
+            PaintInsure();
+
+            float btnTop = insureTop - CardH - Gap;
             _noStake = UiKit.Panel(full, new Vector2(0.5f, 1), new Vector2(0.5f, 1),
                 new Vector2(-gridW * 0.5f, btnTop - CardH), new Vector2(gridW * 0.5f, btnTop),
                 new Color(0.12f, 0.14f, 0.16f, 1f));
@@ -123,6 +146,20 @@ namespace Convergence.UI
             return card;
         }
 
+        void PaintInsure()
+        {
+            int cost = Tuning.GearRoll.StakeInsuranceRiftBoxCost;
+            bool can = _riftBoxes >= cost;
+            _insureLabel.text = !can
+                ? $"INSURE WITH A RIFT BOX   -   you have none"
+                : _insured
+                    ? $"INSURED   -   a death brings it home   (1 of your {_riftBoxes} Rift Boxes)"
+                    : $"INSURE WITH A RIFT BOX?   -   you have {_riftBoxes}";
+            _insureLabel.color = !can ? new Color(0.45f, 0.47f, 0.54f)
+                               : _insured ? new Color(0.72f, 0.92f, 1f) : new Color(0.78f, 0.82f, 0.88f);
+            _insureBg.color = _insured ? new Color(0.12f, 0.22f, 0.30f, 1f) : new Color(0.12f, 0.14f, 0.16f, 1f);
+        }
+
         public void Close()
         {
             if (!IsOpen) return;
@@ -132,6 +169,7 @@ namespace Convergence.UI
             _root = null;
             _cards.Clear();
             _noStake = null;
+            _insure = null;
             _onChoose = null;
             _onCancel = null;
         }
@@ -142,6 +180,7 @@ namespace Convergence.UI
 
             _focusRects.Clear();
             foreach (var (rect, _) in _cards) _focusRects.Add(rect);
+            if (_insure) _focusRects.Add(_insure);
             if (_noStake) _focusRects.Add(_noStake);
             Controls.SetFocusCandidates(_focusRects);
 
@@ -161,6 +200,12 @@ namespace Convergence.UI
             foreach (var (rect, item) in _cards)
                 if (RectTransformUtility.RectangleContainsScreenPoint(rect, at, null)) { Finish(item); return; }
 
+            if (_insure && RectTransformUtility.RectangleContainsScreenPoint(_insure, at, null))
+            {
+                if (_riftBoxes >= Tuning.GearRoll.StakeInsuranceRiftBoxCost) { _insured = !_insured; PaintInsure(); }
+                return;
+            }
+
             if (_noStake && RectTransformUtility.RectangleContainsScreenPoint(_noStake, at, null))
                 Finish(null);
         }
@@ -168,8 +213,9 @@ namespace Convergence.UI
         void Finish(MintedGearRecord chosen)
         {
             var go = _onChoose;
+            bool insured = chosen != null && _insured;
             Close();
-            go?.Invoke(chosen);
+            go?.Invoke(chosen, insured);
         }
     }
 }

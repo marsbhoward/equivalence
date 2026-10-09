@@ -897,7 +897,7 @@ namespace Convergence.Hub
 
             var b = _profile.Boxes;
             bool hasAnyBox = b.Bronze > 0 || b.Silver > 0 || b.Gold > 0 || b.Diamond > 0 ||
-                              b.BlackDiamond > 0 || _profile.RiftBoxes > 0;
+                              b.BlackDiamond > 0;
             // Combining costs no boxes, so a matching pair is reason enough to light the Forge.
             // So is a complete set for a fusion, for the same reason.
             System.Func<string, bool> equipped = id => _profile.Gear.Equipped.Exists(e => e.ItemId == id);

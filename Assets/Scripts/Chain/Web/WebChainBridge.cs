@@ -28,6 +28,12 @@ namespace Convergence.Chain.Web
         public string datum = "";
 
         public string summary = "";
+
+        /// <summary>A design-box open: the box tier - an enum NAME, never an ordinal, since the
+        /// service reads it. Always random; there is no targeted open.</summary>
+        public string tier = "";
+        /// <summary>How many boxes one open takes (1-10), as text like every other field.</summary>
+        public string count = "";
     }
 
     [Serializable]

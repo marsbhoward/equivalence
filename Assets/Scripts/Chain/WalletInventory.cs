@@ -133,6 +133,9 @@ namespace Convergence.Chain
             if (string.IsNullOrEmpty(serviceUrl) || string.IsNullOrEmpty(address)) return;
 
             using var req = UnityWebRequest.Get($"{serviceUrl}/components?address={address}");
+            // The hub's construction awaits this. Against localhost a stopped service refuses at
+            // once; a remote one (Railway) that stops answering would otherwise stall it forever.
+            req.timeout = 20;
             var op = req.SendWebRequest();
             while (!op.isDone) await Task.Yield();
 

@@ -38,7 +38,7 @@ namespace Convergence.UI
         int _capacity;
         Action _onExtract, _onPushOn;
 
-        readonly List<(RectTransform Rect, MintedGearRecord Item)> _cells = new();
+        readonly List<(RectTransform Rect, Action Secure)> _cells = new();
         readonly List<RectTransform> _focusRects = new();
         RectTransform _extractBtn, _pushBtn;
         Text _securedTitle, _carriedTitle, _pushLabel, _subtitle;
@@ -139,8 +139,8 @@ namespace Convergence.UI
             foreach (var (rect, _) in _cells) if (rect) Destroy(rect.gameObject);
             _cells.Clear();
 
-            _securedTitle.text = $"COMING OUT   {_loot.SecuredCount}";
-            _carriedTitle.text = $"STILL AT RISK   {_loot.CarriedCount}";
+            _securedTitle.text = $"COMING OUT   {_loot.SecuredCount + SecuredBoxCount()}";
+            _carriedTitle.text = $"STILL AT RISK   {_loot.CarriedCount + FoundBoxCount()}";
 
             // TWO WAYS TO SECURE, and the screen keeps them apart. The Rift's own capacity is
             // free; past it every piece costs a Rift Box. Rolling them into one "you may take N"
@@ -148,7 +148,7 @@ namespace Convergence.UI
             // the player did not notice spending is a consumable they will be angry about later.
             int free = Mathf.Max(0, _capacity - SecuredThisRift);
             int boxes = _loot.TotalBoxes;
-            bool canSecure = _loot.CarriedCount > 0 && (free > 0 || boxes > 0);
+            bool canSecure = free > 0 || boxes > 0;
 
             _subtitle.text = $"floor {_floor}    -    it holds {_capacity} free"
                            + (boxes > 0 ? $", and you have {boxes} Rift Box{(boxes == 1 ? "" : "es")}" : "");
@@ -158,8 +158,136 @@ namespace Convergence.UI
                 : boxes > 0 ? $"NOT YET   ({boxes} box{(boxes == 1 ? "" : "es")} left)"
                             : "NOT YET";
 
-            Fill(_leftBody, _loot.Secured, false, false);
-            Fill(_rightBody, _loot.Carried, canSecure, free == 0);
+            Fill(_leftBody, SecuredRows());
+            Fill(_rightBody, CarriedRows(canSecure, free));
+        }
+
+        // ------------------------------------------------------------------ rows
+
+        /// <summary>One line of a column: a carried piece, or a stack of boxes of one kind.</summary>
+        struct Row
+        {
+            public string Label;
+            public Color Ink, Chip;
+            public Art.BoxArt.Kind? Box;   // drawn instead of the tier chip
+            public bool CostsBox;          // shows the Rift Box it will spend
+            public Action Secure;          // null = not clickable
+        }
+
+        static readonly Color SecuredInk = new(0.72f, 0.78f, 0.74f);
+        static readonly Color FreeInk = new(0.94f, 0.88f, 0.82f);
+        static readonly Color PaidInk = new(0.80f, 0.72f, 1f);
+        static readonly Color DeadInk = new(0.55f, 0.5f, 0.52f);
+
+        static readonly Art.Gear.LootTier[] BoxTiers =
+        {
+            Art.Gear.LootTier.BlackDiamond, Art.Gear.LootTier.Diamond, Art.Gear.LootTier.Gold,
+            Art.Gear.LootTier.Silver, Art.Gear.LootTier.Bronze,
+        };
+
+        static string BoxName(Art.Gear.LootTier tier)
+            => (tier == Art.Gear.LootTier.BlackDiamond ? "Black Diamond" : tier.ToString()) + " box";
+
+        int FoundBoxCount()
+        {
+            int n = _loot.FoundBoxes;
+            foreach (var t in BoxTiers) n += _loot.FoundTieredBoxes(t);
+            return n;
+        }
+
+        int SecuredBoxCount()
+        {
+            int n = _loot.SecuredRiftBoxes;
+            foreach (var t in BoxTiers) n += _loot.SecuredTieredBoxes(t);
+            return n;
+        }
+
+        List<Row> SecuredRows()
+        {
+            var rows = new List<Row>();
+            foreach (var t in BoxTiers)
+                if (_loot.SecuredTieredBoxes(t) > 0)
+                    rows.Add(new Row { Label = $"{BoxName(t)}  x{_loot.SecuredTieredBoxes(t)}", Ink = SecuredInk,
+                                       Box = BoxIcon.KindOf(t) });
+            if (_loot.SecuredRiftBoxes > 0)
+                rows.Add(new Row { Label = $"Rift Box  x{_loot.SecuredRiftBoxes}", Ink = SecuredInk,
+                                   Box = Art.BoxArt.Kind.Rift });
+            foreach (var it in _loot.Secured)
+                rows.Add(new Row { Label = it.DisplayName, Ink = SecuredInk, Chip = Art.Palette.Tier(it.Tier).Base });
+            return rows;
+        }
+
+        /// <summary>
+        /// The carried column. Boxes first, rarest first: a found box is usually worth more than a
+        /// piece of gear, and a Diamond box below nine rows of Bronze would be scrolled past.
+        /// A box or piece costs free capacity first, then a Rift Box - except a RIFT BOX itself,
+        /// which only free capacity can secure (paying one box to keep one box is no trade).
+        /// </summary>
+        List<Row> CarriedRows(bool canSecure, int free)
+        {
+            var rows = new List<Row>();
+            bool paid = free == 0;
+            string price = paid ? "[ spend a Rift Box ]" : "[ secure ]";
+            foreach (var t in BoxTiers)
+            {
+                int n = _loot.FoundTieredBoxes(t);
+                if (n <= 0) continue;
+                var tier = t;
+                rows.Add(new Row
+                {
+                    Label = $"{BoxName(t)}  x{n}      {(canSecure ? price : "")}",
+                    Ink = canSecure ? (paid ? PaidInk : FreeInk) : SecuredInk,
+                    Box = BoxIcon.KindOf(t),
+                    CostsBox = canSecure && paid,
+                    Secure = canSecure ? () => Take(() => _loot.SecureTieredBox(tier)) : null,
+                });
+            }
+            if (_loot.FoundBoxes > 0)
+            {
+                bool can = free > 0;
+                rows.Add(new Row
+                {
+                    Label = $"Rift Box  x{_loot.FoundBoxes}      {(can ? "[ secure ]" : "[ needs free space ]")}",
+                    Ink = can ? FreeInk : DeadInk,
+                    Box = Art.BoxArt.Kind.Rift,
+                    Secure = can ? () => Take(() => _loot.SecureRiftBox()) : null,
+                });
+            }
+            foreach (var it in _loot.Carried)
+            {
+                var item = it;
+                rows.Add(new Row
+                {
+                    Label = canSecure ? $"{it.DisplayName}      {price}" : it.DisplayName,
+                    Ink = canSecure ? (paid ? PaidInk : FreeInk) : SecuredInk,
+                    Chip = Art.Palette.Tier(it.Tier).Base,
+                    CostsBox = canSecure && paid,
+                    Secure = canSecure ? () => Take(() => _loot.Secure(item)) : null,
+                });
+            }
+            return rows;
+        }
+
+        /// <summary>
+        /// Secures one thing: free capacity first, then a Rift Box. Never the other way round: a
+        /// player who had both and spent a consumable while a free slot sat unused would rightly
+        /// call that a bug.
+        ///
+        /// Move FIRST, then pay. Spending first needed a refund path if the move failed, and the
+        /// refund could not know which pool it had taken from - SpendBox drains found before
+        /// banked, so refunding into found would quietly convert a safe box into one that dies
+        /// with the run. Ordering it this way deletes the case instead of handling it.
+        /// </summary>
+        void Take(Func<bool> move)
+        {
+            if (SecuredThisRift < _capacity)
+            {
+                if (move()) SecuredThisRift++;
+            }
+            else if (_loot.TotalBoxes > 0 && move())
+            {
+                _loot.SpendBox();
+            }
         }
 
         /// <summary>How many have been pushed through this Rift's own capacity. Counted rather than
@@ -172,39 +300,49 @@ namespace Convergence.UI
         }
         int _securedNoRift;
 
-        void Fill(RectTransform parent, IReadOnlyList<MintedGearRecord> items, bool clickable,
-                  bool costsBox)
+        void Fill(RectTransform parent, List<Row> rows)
         {
             const float h = 54f, gap = 8f;
-            for (int i = 0; i < items.Count && i < 9; i++)
+            for (int i = 0; i < rows.Count && i < 9; i++)
             {
-                var it = items[i];
+                var row = rows[i];
                 float y = -i * (h + gap);
                 var card = UiKit.Panel(parent, new Vector2(0, 1), new Vector2(1, 1),
                     new Vector2(0, y - h), new Vector2(0, y),
-                    clickable ? new Color(0.20f, 0.14f, 0.13f, 1f) : new Color(0.11f, 0.13f, 0.12f, 1f));
+                    row.Secure != null ? new Color(0.20f, 0.14f, 0.13f, 1f) : new Color(0.11f, 0.13f, 0.12f, 1f));
 
-                var chip = UiKit.Rect(card, "c", new Vector2(0, 0), new Vector2(0, 1),
-                    new Vector2(10, 10), new Vector2(20, -10));
-                chip.gameObject.AddComponent<Image>().color = Art.Palette.Tier(it.Tier).Base;
+                float textLeft = 32f;
+                if (row.Box.HasValue)
+                {
+                    // The box itself at in-game density, standing on the row's floor.
+                    BoxIcon.Add(card, row.Box.Value, false, new Vector2(0f, 0f), new Vector2(48f, 0f));
+                    textLeft = 96f;
+                }
+                else
+                {
+                    var chip = UiKit.Rect(card, "c", new Vector2(0, 0), new Vector2(0, 1),
+                        new Vector2(10, 10), new Vector2(20, -10));
+                    chip.gameObject.AddComponent<Image>().color = row.Chip;
+                }
 
-                string label = !clickable ? it.DisplayName
-                             : costsBox ? $"{it.DisplayName}      [ spend a Rift Box ]"
-                                        : $"{it.DisplayName}      [ secure ]";
                 UiKit.Label(UiKit.Rect(card, "n", new Vector2(0, 0), new Vector2(1, 1),
-                    new Vector2(32, 0), new Vector2(-12, 0)),
-                    label, 19,
-                    !clickable ? new Color(0.72f, 0.78f, 0.74f)
-                    : costsBox ? new Color(0.80f, 0.72f, 1f)
-                               : new Color(0.94f, 0.88f, 0.82f));
+                    new Vector2(textLeft, 0), new Vector2(-12, 0)),
+                    row.Label, 19, row.Ink);
 
-                if (clickable) _cells.Add((card, it));
+                // A row that costs a box shows the box it costs, at in-game density (the size it
+                // was seen at, picked up mid-fight), standing on the row's floor at its right end.
+                // It is a few texels taller than the row and peeks into the gap above - never
+                // scaled down to fit, which would put it off its grid.
+                if (row.CostsBox)
+                    BoxIcon.Add(card, Art.BoxArt.Kind.Rift, false, new Vector2(1f, 0f), new Vector2(-52f, 0f));
+
+                if (row.Secure != null) _cells.Add((card, row.Secure));
             }
 
-            if (items.Count > 9)
+            if (rows.Count > 9)
                 UiKit.Label(UiKit.Rect(parent, "more", new Vector2(0, 1), new Vector2(1, 1),
                     new Vector2(0, -9 * (h + gap) - 40), new Vector2(0, -9 * (h + gap))),
-                    $"+{items.Count - 9} more", 17, new Color(0.5f, 0.5f, 0.55f), TextAnchor.MiddleCenter);
+                    $"+{rows.Count - 9} more", 17, new Color(0.5f, 0.5f, 0.55f), TextAnchor.MiddleCenter);
         }
 
         public void Close()
@@ -243,25 +381,10 @@ namespace Convergence.UI
 
             if (!Core.Controls.Tapped(out var at)) return;
 
-            foreach (var (rect, item) in _cells)
+            foreach (var (rect, secure) in _cells)
             {
                 if (!RectTransformUtility.RectangleContainsScreenPoint(rect, at, null)) continue;
-                // Free capacity first, then a box. Never the other way round: a player who had
-                // both and spent a consumable while a free slot sat unused would rightly call that
-                // a bug, and there is no reading of the fiction where they would want it.
-                if (SecuredThisRift < _capacity)
-                {
-                    if (_loot.Secure(item)) SecuredThisRift++;
-                }
-                else if (_loot.TotalBoxes > 0 && _loot.Secure(item))
-                {
-                    // Move the item FIRST, then pay. Spending first needed a refund path if the
-                    // move failed, and the refund could not know which pool it had taken from -
-                    // SpendBox drains found before banked, so refunding into found would quietly
-                    // convert a safe box into one that dies with the run. Ordering it this way
-                    // deletes the case instead of handling it.
-                    _loot.SpendBox();
-                }
+                secure();
                 Refresh();
                 return;
             }

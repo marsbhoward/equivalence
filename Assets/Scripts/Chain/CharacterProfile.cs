@@ -154,6 +154,11 @@ namespace Convergence.Chain
         /// when the stake is placed, so a mid-run change to the tuning cannot move it.</summary>
         public int StakeGateFloor;
 
+        /// <summary>The stake was INSURED with a Rift Box at the door: a death (or a run that
+        /// never ended) brings it home instead of destroying it. The box is spent either way.
+        /// Additive: older saves load false.</summary>
+        public bool StakeInsured;
+
         /// <summary>Name for display, never blank.</summary>
         public string DisplayName => string.IsNullOrWhiteSpace(Name) ? ProfileId : Name;
     }
@@ -175,6 +180,16 @@ namespace Convergence.Chain
         public int XpEarned;
         public bool Survived;
         public string EndedAtUtc;
+
+        /// <summary>
+        /// Design-tier boxes this run SECURED - banked at its end over what the profile held when it
+        /// began. The service's box ledger is credited from these (once per run id the run-start
+        /// checkpoint registered, capped by what the depth makes plausible) - never from
+        /// <see cref="CharacterProfile.Boxes"/>, which is an absolute count the client writes.
+        /// Additive: older summaries read 0.
+        /// </summary>
+        public int SecuredDiamondBoxes;
+        public int SecuredBlackDiamondBoxes;
     }
 
     /// <summary>
@@ -293,6 +308,13 @@ namespace Convergence.Chain
         /// load would remap rolls that were already current.
         /// </summary>
         public int StatsVersion;
+
+        /// <summary>
+        /// The on-chain CIP-68 USER (222) unit when this record was minted to the wallet - a
+        /// Diamond / Black Diamond design redeemed through the service (Chain.Web.ChainDesigns).
+        /// Empty for everything that lives only in the character's own datum. Additive.
+        /// </summary>
+        public string Unit;
 
         /// <summary>Recomputes Grants from tier, primary, star level and sub-stats - the only
         /// way Grants should change once an item exists, so the stored total can never disagree
