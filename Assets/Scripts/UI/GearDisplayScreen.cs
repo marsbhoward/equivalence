@@ -20,9 +20,9 @@ namespace Convergence.UI
     /// screen's item choice to it rather than to keep a second, worse grid beside it.
     ///
     /// THE ARMOUR STAND IS THEREFORE A SLOT LIST FIRST, A PICKER SECOND - the same two-level shape
-    /// TransmutationScreen already uses for the loadout tab: a small, always-visible list of the
-    /// ten slots (segmented by slot, and SCROLLABLE the same way that screen's own body page is,
-    /// since ten touch-sized rows do not fit one screen), and pressing a slot opens the identical
+    /// TransmutationScreen uses for the loadout: every slot always visible (here a list,
+    /// segmented by slot and SCROLLABLE, since ten touch-sized rows do not fit one screen), and
+    /// pressing a slot opens the identical
     /// per-slot grid the equip screen opens. The weapon rack has only one slot, so there is nothing
     /// for a list to be a list OF - its screen opens straight into the picker.
     ///
@@ -68,7 +68,7 @@ namespace Convergence.UI
         /// row or cell happens to sit under it.</summary>
         int _openedFrame = -1;
 
-        // ---- scrolling, the identical drag-vs-tap idiom TransmutationScreen's body page uses ----
+        // ---- scrolling: a drag-vs-tap pane, committed on release ----
         float _scroll, _contentHeight;
         bool _scrolling;
         Vector2 _scrollOrigin;
@@ -330,18 +330,17 @@ namespace Convergence.UI
         // ------------------------------------------------------------------ armour rows
 
         /// <summary>
-        /// The ten-row list, two columns of five - the pane clips it and the content scrolls,
-        /// exactly TransmutationScreen's RectMask2D-plus-drag idiom, because ten touch-sized rows
-        /// (about 1150 units across two rows of five) do not fit inside one screen any more than
-        /// that screen's own six body rows did.
+        /// The ten-row list, two columns of five - the pane clips it (RectMask2D) and the content
+        /// scrolls by drag, because ten touch-sized rows (about 1150 units across two rows of five)
+        /// do not fit inside one screen.
         /// </summary>
         void BuildRows()
         {
             _rows.Clear();
 
             // Detached and hidden BEFORE Destroy, which is deferred to end of frame - left
-            // parented, the outgoing list draws on top of the incoming one for a frame, the same
-            // flicker TransmutationScreen's own BuildPane already documents and avoids this way.
+            // parented, the outgoing list draws on top of the incoming one for a frame - the same
+            // flicker TransmutationScreen's BuildPage avoids this way.
             if (_content != null)
             {
                 _content.SetParent(null, false);
