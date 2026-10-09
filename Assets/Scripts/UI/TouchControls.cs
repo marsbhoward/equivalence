@@ -153,13 +153,13 @@ namespace Convergence.UI
             Button("GUARD", AbilityR, BottomRight, new Vector2(-490f, 120f), Controls.Context.Arena,
                    v => Controls.VirtualAlt = v, () => Controls.GuardReady != null && Controls.GuardReady(),
                    progress: () => Controls.GuardProgress01?.Invoke() ?? 1f,
-                   key: "Q", pad: () => GamepadGlyphs.Alt, held: () => Controls.AltHeld);
+                   key: "Q", pad: () => GamepadGlyphs.Guard, held: () => Controls.GuardHeld);
             Button("GEAR", SmallR, TopRight, new Vector2(-120f, -120f), Controls.Context.Arena,
                    v => Controls.VirtualLoadout = v, null,
-                   key: "C", pad: () => GamepadGlyphs.Loadout, held: () => Controls.LoadoutHeld);
+                   key: "C", pad: () => GamepadGlyphs.Menu, held: () => Controls.LoadoutHeld);
             Button("MENU", SmallR, TopRight, new Vector2(-290f, -120f), Controls.Context.Arena,
                    v => Controls.VirtualCancel = v, null,
-                   key: "ESC", pad: () => GamepadGlyphs.Cancel, held: () => Controls.CancelHeld);
+                   key: "ESC", pad: () => GamepadGlyphs.Menu, held: () => Controls.CancelHeld);
 
             Button("USE", ActionR, BottomRight, new Vector2(-250f, 250f), Controls.Context.Hub,
                    v => Controls.VirtualInteract = v, null,

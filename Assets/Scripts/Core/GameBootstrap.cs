@@ -1589,12 +1589,21 @@ namespace Convergence.Core
             }
             else if (_state == State.Playing)
             {
-                // Esc / Back, and the loadout key too, open the paused radial menu. The loadout
+                // Esc / Start, and the loadout key too, open the paused radial menu (not the pad's
+                // B, which guards in a fight - Controls.MenuTapped). The loadout
                 // sheet, the carried-loot screen and abandoning the run are its three points -
                 // abandoning is one option among them rather than a bare keystroke. Returning
                 // here matters for the same reason it always did: the floor-clear check below
                 // must not run on the frame a menu goes up.
-                if (Controls.CancelTapped || Controls.LoadoutTapped) { OpenPauseMenu(); return; }
+                if (Controls.MenuTapped) { OpenPauseMenu(); return; }
+
+                // Select (I) goes straight to the carried loot, and closing it returns to play
+                // rather than to the pause menu it was never opened from.
+                if (Controls.InventoryTapped && !InventoryScreen.IsOpen)
+                {
+                    InventoryScreen.Open(_canvas.transform, _loot);
+                    return;
+                }
 
                 _alive.RemoveAll(e => e == null);
                 _hud?.SetFloorInfo(_floor, _alive.Count, _player ? _player.Kills : 0);

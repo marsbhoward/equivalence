@@ -105,7 +105,7 @@ namespace Convergence.UI
                 "[ESC] or the circle to resume    -    game is paused",
                 "tap the circle to resume    -    game is paused",
                 17, new Color(0.5f, 0.53f, 0.62f), TextAnchor.MiddleCenter,
-                GamepadGlyphs.Cancel + " or the circle to resume    -    game is paused");
+                GamepadGlyphs.Cancel + ", " + GamepadGlyphs.Menu + " or the circle to resume    -    game is paused");
         }
 
         /// <summary>A fixed-size rect centred on <paramref name="c"/> in the full-screen root's
@@ -158,7 +158,7 @@ namespace Convergence.UI
             _focus.Add(_charRect); _focus.Add(_invRect); _focus.Add(_endRect); _focus.Add(_circleRect);
             Core.Controls.SetFocusCandidates(_focus);
 
-            if (Core.Controls.CancelTapped) { Close(); return; }
+            if (Core.Controls.CancelTapped || Core.Controls.MenuTapped) { Close(); return; }
 
             if (!Core.Controls.Tapped(out var p)) return;
             if (Hit(_circleRect, p)) { Close(); return; }

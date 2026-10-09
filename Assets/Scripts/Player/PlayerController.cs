@@ -405,7 +405,7 @@ namespace Convergence.Player
                 }
             }
 
-            if (Core.Controls.AltTapped && _defenseCooldown <= 0f && !Statue) ActivateDefensiveAbility();
+            if (Core.Controls.GuardTapped && _defenseCooldown <= 0f && !Statue) ActivateDefensiveAbility();
         }
 
         void ActivateDefensiveAbility()
@@ -1105,7 +1105,6 @@ namespace Convergence.Player
             => 1f - (1f - falloff) * Art.Gear.StatPercents.ReductionFactor(Stats.Cleave);
 
         Rigidbody2D _rb;
-        Transform _aim;
         float _cooldown;
 
         /// <summary>This swing's quickening (the board's Realgar), 1 when none - read once by
@@ -1323,7 +1322,6 @@ namespace Convergence.Player
             Resource.Bind(this);
         }
 
-        public void SetAimIndicator(Transform t) => _aim = t;
         public void SetRig(Art.Gear.ICharacterRig rig)
         {
             _rig = rig;
@@ -1546,12 +1544,6 @@ namespace Convergence.Player
             // character standing at ease would say the opposite.
             Rig?.SetGripShouldered(ComboIndex == 0 && !AttackLocked);
 
-            if (_aim)
-            {
-                _aim.localPosition = Facing * (CurrentRange * 0.55f);
-                _aim.localRotation = Quaternion.Euler(0, 0, Mathf.Atan2(Facing.y, Facing.x) * Mathf.Rad2Deg);
-            }
-
             // ---- combo chain decays if you stop swinging, but a READY finisher never does ----
             //
             // Partial progress still lapses: the chain has to be a chain, and two stray swings at
@@ -1622,7 +1614,7 @@ namespace Convergence.Player
             bool tapPending = attackTapped || _tapBuffer > 0f;
 
             // While the blade is out the attack button means "call it home" and nothing else; the
-            // ability button (below) means "blink to it". Both are fresh TAPS, not the held
+            // action button (below) means "blink to it". Both are fresh TAPS, not the held
             // state: attacking is a hold in this game, so reading isPressed would fire on the
             // very next frame after the throw and the player would never see the choice. A tap
             // inside _throwTapGuard was aimed at the bar that just closed and does nothing.
@@ -1661,14 +1653,15 @@ namespace Convergence.Player
 
             // ---- element ability / blade blink ----
             //
-            // While a thrown blade is in the air this button takes the player to it instead -
-            // forward damage only, the weapon back in hand where it was. The element release is
-            // given over to the blink for the second of flight, the same way the attack button
-            // above is wholly given over to the recall.
+            // While a thrown blade is in the air the ACTION button takes the player to it -
+            // forward damage only, the weapon back in hand where it was. A weapon art's mid-move
+            // choice is an action, not the element release (on keyboard both are E anyway). The
+            // release is held off for the second of flight, the same way the attack button above
+            // is wholly given over to the recall.
             bool releasePressed = Core.Controls.ReleaseTapped;
             if (Blade != null)
             {
-                if (releasePressed) Blade.TeleportOwner();
+                if (Core.Controls.InteractTapped) Blade.TeleportOwner();
             }
             else if (releasePressed && Resource != null && Resource.CanRelease)
                 DoRelease();

@@ -7,21 +7,30 @@ namespace Convergence.Core
 {
     /// <summary>
     /// Every gamepad action a player can rebind, and the physical button each one is checking
-    /// today by default. Not every action Controls reads is here - the sticks, the D-pad and the
-    /// zoom triggers stay fixed, because a stick has nowhere else to go and the D-pad is spoken
-    /// for by menu navigation - only the face buttons and the two shoulders/triggers that stand
-    /// in for a keyboard key are offered up for remapping.
+    /// today by default. Not every action Controls reads is here - the sticks, the D-pad, the
+    /// zoom triggers and Start/Select stay fixed, because a stick has nowhere else to go, the
+    /// D-pad is spoken for by menu navigation, and a menu button has to work before the player
+    /// has looked at the rebind screen (see <see cref="Controls.SettingsTapped"/>).
+    ///
+    /// Saved BY NAME, so appending or reordering here never shifts a saved binding.
     /// </summary>
     public enum GamepadAction
     {
-        Attack,           // also Confirm and the gamepad cursor's click - one physical button, as today
-        ReleaseInteract,  // Release ability / hub Interact - shares E's double duty on keyboard too
-        SecondAbility,
-        Cancel,
-        Loadout,
+        Attack,
+        Ability,        // the element release - its own button, never shared with Interact
+        Interact,       // use a fixture, pick up, open a Rift; a weapon art's mid-move choice (the blade blink)
+        Guard,          // the chest's defensive ability
+        SecondAbility,  // the hub's "look closer" (VIEW)
         Mastery,
-        Alt,
+        Alt,            // the hub's edit mode / pick up a frame
+        Confirm,        // a menu's click on the focused entry
+        Cancel,         // backs out of a menu
     }
+
+    /// <summary>Where an action is read. Two actions may share a button only when they never
+    /// share a context - B guards in a fight, looks closer in the hub, backs out of a menu.</summary>
+    [System.Flags]
+    public enum GamepadContext { Arena = 1, Hub = 2, Menu = 4 }
 
     /// <summary>A physical button, named by position rather than by label - InputSystem's own
     /// convention, and what makes a PlayStation face-button swap a change to <see cref="GamepadBindings.Name"/>
@@ -52,17 +61,29 @@ namespace Convergence.Core
     {
         static readonly Dictionary<GamepadAction, GamepadButtonId> Defaults = new()
         {
-            { GamepadAction.Attack,          GamepadButtonId.South },
-            { GamepadAction.ReleaseInteract, GamepadButtonId.West },
-            { GamepadAction.SecondAbility,   GamepadButtonId.RightTrigger },
-            { GamepadAction.Cancel,          GamepadButtonId.East },
-            { GamepadAction.Loadout,         GamepadButtonId.North },
-            { GamepadAction.Mastery,         GamepadButtonId.LeftShoulder },
-            { GamepadAction.Alt,             GamepadButtonId.RightShoulder },
+            { GamepadAction.Attack,        GamepadButtonId.RightTrigger },
+            { GamepadAction.Ability,       GamepadButtonId.LeftTrigger },
+            { GamepadAction.Interact,      GamepadButtonId.South },
+            { GamepadAction.Guard,         GamepadButtonId.East },
+            { GamepadAction.SecondAbility, GamepadButtonId.East },
+            { GamepadAction.Mastery,       GamepadButtonId.LeftShoulder },
+            { GamepadAction.Alt,           GamepadButtonId.RightShoulder },
+            { GamepadAction.Confirm,       GamepadButtonId.South },
+            { GamepadAction.Cancel,        GamepadButtonId.East },
+        };
+
+        public static GamepadContext ContextOf(GamepadAction action) => action switch
+        {
+            GamepadAction.Attack or GamepadAction.Ability or GamepadAction.Guard => GamepadContext.Arena,
+            GamepadAction.Interact => GamepadContext.Arena | GamepadContext.Hub,
+            GamepadAction.SecondAbility or GamepadAction.Mastery or GamepadAction.Alt => GamepadContext.Hub,
+            _ => GamepadContext.Menu,
         };
 
         static Dictionary<GamepadAction, GamepadButtonId> _map;
-        const string PrefPrefix = "Equivalence.GamepadBind.";
+        // v2: Ability and Interact split (they shared one slot) and the defaults moved to the
+        // triggers - a v1 save would pin Attack back on A, so it is left behind rather than read.
+        const string PrefPrefix = "Equivalence.GamepadBind.v2.";
 
         static void EnsureLoaded()
         {
@@ -85,23 +106,26 @@ namespace Convergence.Core
         }
 
         /// <summary>
-        /// Binds <paramref name="action"/> to <paramref name="button"/>. If another action already
-        /// reads that button, the two SWAP rather than both silently reading the same press - two
-        /// actions sharing one button is never what "map buttons" is asking for, and a swap is the
-        /// only outcome that leaves every action still bound to exactly one thing.
+        /// Binds <paramref name="action"/> to <paramref name="button"/>. Any action read in the
+        /// same context that already reads that button SWAPS to this one's old button rather than
+        /// both silently reading the same press. Actions in other contexts keep it - sharing
+        /// across contexts is what lets B guard in a fight and back out of a menu. Each context
+        /// held the button at most once, so every holder can take the old button without a clash.
         /// </summary>
         public static void Set(GamepadAction action, GamepadButtonId button)
         {
             EnsureLoaded();
-            GamepadAction? holder = null;
+            var ctx = ContextOf(action);
+            var holders = new List<GamepadAction>();
             foreach (var kv in _map)
             {
-                if (kv.Key != action && kv.Value == button) { holder = kv.Key; break; }
+                if (kv.Key != action && kv.Value == button && (ContextOf(kv.Key) & ctx) != 0)
+                    holders.Add(kv.Key);
             }
 
             var previous = _map[action];
             _map[action] = button;
-            if (holder.HasValue) _map[holder.Value] = previous;
+            foreach (var h in holders) _map[h] = previous;
 
             Save();
         }
@@ -182,13 +206,15 @@ namespace Convergence.Core
 
         public static string ActionName(GamepadAction action) => action switch
         {
-            GamepadAction.Attack => "Attack / Confirm",
-            GamepadAction.ReleaseInteract => "Release Ability / Interact",
-            GamepadAction.SecondAbility => "Look Closer (hub)",
-            GamepadAction.Cancel => "Cancel",
-            GamepadAction.Loadout => "Loadout",
-            GamepadAction.Mastery => "Mastery",
-            GamepadAction.Alt => "Alt (Guard / Pick Up)",
+            GamepadAction.Attack => "Attack",
+            GamepadAction.Ability => "Ability",
+            GamepadAction.Interact => "Action / Use",
+            GamepadAction.Guard => "Defensive Ability",
+            GamepadAction.SecondAbility => "View (hub)",
+            GamepadAction.Mastery => "Mastery (hub)",
+            GamepadAction.Alt => "Edit / Pick Up (hub)",
+            GamepadAction.Confirm => "Menu Select",
+            GamepadAction.Cancel => "Menu Back",
             _ => action.ToString(),
         };
     }

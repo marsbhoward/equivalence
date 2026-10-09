@@ -18,7 +18,7 @@ namespace Convergence.UI
     /// NOT TOUCH-TARGET SIZED, DELIBERATELY. Every other screen in this project holds to
     /// UiKit.TouchTarget because a phone player might reach any of them - this one cannot be
     /// reached by one. Opening it starts at SettingsScreen, which itself only opens on Escape or a
-    /// gamepad's Start button (Controls.SettingsTapped), and there is no on-screen/virtual
+    /// gamepad's Select button (Controls.SettingsTapped), and there is no on-screen/virtual
     /// equivalent for either - the same "keyboard only, deliberately" reasoning Controls.DigitTapped
     /// already states for a shortcut nothing on a touch device can reach. A screen about
     /// configuring a controller is also meaningless without one already connected.
@@ -129,7 +129,7 @@ namespace Convergence.UI
                 "click a row to rebind it    -    [ESC] to go back",
                 "click a row to rebind it    -    tap BACK to go back", 17,
                 new Color(0.5f, 0.53f, 0.62f), TextAnchor.MiddleCenter,
-                "press a row, then the new button    -    " + GamepadGlyphs.Cancel + " or Start to go back");
+                "press a row, then the new button    -    " + GamepadGlyphs.Cancel + " or " + GamepadGlyphs.Settings + " to go back");
         }
 
         static RectTransform SmallButton(RectTransform parent, Vector2 center, float h, string label)

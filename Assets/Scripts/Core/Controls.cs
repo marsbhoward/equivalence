@@ -136,7 +136,7 @@ namespace Convergence.Core
 
         /// <summary>
         /// Whether a gamepad is the last device the player touched. Drives the virtual cursor's
-        /// visibility (<see cref="GamepadCursorPosition"/>) the same "last device wins" way
+        /// menu highlight (<see cref="UI.GamepadCursor"/>) the same "last device wins" way
         /// <see cref="TouchMode"/> already drives the on-screen stick.
         /// </summary>
         public static bool GamepadMode { get { DetectDevice(); return _gamepadMode; } }
@@ -165,6 +165,9 @@ namespace Convergence.Core
         static bool _confirm, _confirmPrev;
         static bool _mastery, _masteryPrev;
         static bool _alt, _altPrev;
+        static bool _guard, _guardPrev;
+        static bool _menu, _menuPrev;
+        static bool _inventory, _inventoryPrev;
         static bool _settingsMenu, _settingsMenuPrev;
         static Vector2 _move;
 
@@ -172,7 +175,7 @@ namespace Convergence.Core
         static Vector2 _pointer, _pointerPrevPos, _pointerDelta;
         static float _zoom;
 
-        /// <summary>Deadzone applied to both sticks, as a fraction of full deflection - the same
+        /// <summary>Deadzone applied to the left stick, as a fraction of full deflection - the same
         /// "a thumb resting on the glass must not read as input" reasoning the touch stick's own
         /// DeadZone exists for, just for an analog stick instead of a screen zone.</summary>
         const float StickDeadzone = 0.2f;
@@ -186,20 +189,10 @@ namespace Convergence.Core
             return v / mag * Mathf.InverseLerp(deadzone, 1f, mag);
         }
 
+        /// <summary>Where the pad's pointer is, in real screen pixels: the centre of the rect the
+        /// D-pad has focused, so a press of A clicks it through the ordinary pointer path. Never
+        /// drawn - menus are D-pad only, and the highlight is what shows the selection.</summary>
         static Vector2 _gamepadCursor;
-
-        /// <summary>Fraction of the screen HEIGHT the cursor crosses per second at full stick
-        /// deflection - a fraction rather than a pixel count so it feels the same on any
-        /// resolution, the same reasoning the pinch-to-zoom conversion already uses.</summary>
-        const float GamepadCursorSpeed = 1.1f;
-
-        /// <summary>
-        /// Where the gamepad's virtual cursor currently is, in real screen pixels - the same space
-        /// <c>Mouse.current.position</c> already reports in. Read by the one thing that draws it;
-        /// every screen that cares where the pointer IS already reads <see cref="PointerPosition"/>
-        /// instead, which only updates while something is actually pressed/held.
-        /// </summary>
-        public static Vector2 GamepadCursorPosition { get { Sync(); return _gamepadCursor; } }
 
         // ---------------------------------------------------------------- D-pad menu navigation
         //
@@ -220,11 +213,6 @@ namespace Convergence.Core
         static RectTransform _focused, _focusedBefore;
         static int _candidatesFrame = -10;
 
-        /// <summary>True once the right stick has moved the free cursor since the last D-pad
-        /// press. While set, nothing is focused and nothing is auto-focused - the stick is the
-        /// player saying "I am pointing myself".</summary>
-        static bool _freeAim;
-
         /// <summary>Called by whichever screen is open, every frame, with its own current list of
         /// clickable rects. Replaces the previous list outright - only one screen is ever open at
         /// a time in this project's modal model, so there is nothing to merge.
@@ -239,7 +227,7 @@ namespace Convergence.Core
         }
 
         /// <summary>The rect the D-pad has selected, or null while a gamepad isn't the device in
-        /// use, the stick is free-aiming, or no screen has registered candidates in the last
+        /// use, or no screen has registered candidates in the last
         /// frame (a closed screen's list goes stale rather than lingering as a phantom
         /// highlight). Read by <see cref="UI.GamepadCursor"/> to draw the highlight, and by the
         /// scrolling screens to keep it in view.</summary>
@@ -268,9 +256,7 @@ namespace Convergence.Core
         static void SyncFocusNavigation(Gamepad pad)
         {
             if (pad == null) return;
-            // No menu open: the right stick is aiming in play, which must not leave the next menu
-            // opened believing the player is free-aiming it.
-            if (!CandidatesLive) { _freeAim = false; return; }
+            if (!CandidatesLive) return;
             if (_focusCandidates.Count == 0) return;
 
             Vector2 dir = Vector2.zero;
@@ -281,15 +267,14 @@ namespace Convergence.Core
 
             if (dir != Vector2.zero)
             {
-                // A D-pad press is unambiguous gamepad activity, and it ends free aim.
+                // A D-pad press is unambiguous gamepad activity.
                 _touchMode = false;
                 _gamepadMode = true;
-                _freeAim = false;
             }
-            if (!_gamepadMode || _freeAim) return;
+            if (!_gamepadMode) return;
 
             // AUTO-FOCUS. A menu opened on a gamepad has something selected from its first frame -
-            // otherwise the first press of A clicks wherever the free cursor was left, and the
+            // otherwise the first press of A clicks nothing, and the
             // first D-pad press has nothing to move FROM. When the focused rect goes away (a
             // picker closing, a screen rebuilding) the one focused before it is tried first, so
             // coming back from the gear grid lands on the slot that opened it.
@@ -382,7 +367,7 @@ namespace Convergence.Core
                      || (kb != null && kb.anyKey.isPressed)) { _touchMode = false; _gamepadMode = false; }
         }
 
-        /// <summary>Any bound button held or either stick pushed past a deadzone - used only to
+        /// <summary>Any bound button held or the left stick pushed past a deadzone - used only to
         /// decide which device last spoke, so a small deadzone is fine even though the deadzone
         /// that actually shapes movement is applied separately in Sync. Checks the controls this
         /// file actually binds rather than every control the device exposes, so it stays cheap
@@ -390,12 +375,11 @@ namespace Convergence.Core
         static bool IsPadActive(Gamepad pad)
         {
             return pad.leftStick.ReadValue().sqrMagnitude > 0.04f
-                || pad.rightStick.ReadValue().sqrMagnitude > 0.04f
                 || pad.buttonSouth.isPressed || pad.buttonNorth.isPressed
                 || pad.buttonEast.isPressed || pad.buttonWest.isPressed
                 || pad.leftShoulder.isPressed || pad.rightShoulder.isPressed
                 || pad.leftTrigger.isPressed || pad.rightTrigger.isPressed
-                || pad.startButton.isPressed
+                || pad.startButton.isPressed || pad.selectButton.isPressed
                 || pad.dpad.up.isPressed || pad.dpad.down.isPressed
                 || pad.dpad.left.isPressed || pad.dpad.right.isPressed;
         }
@@ -433,49 +417,73 @@ namespace Convergence.Core
             // configuration screen changes what THIS reads without either of them knowing about
             // the other - see GamepadBindings' own header for why the lookup lives there.
             var attackBtn = GamepadBindings.Control(pad, GamepadBindings.Get(GamepadAction.Attack));
-            var releaseBtn = GamepadBindings.Control(pad, GamepadBindings.Get(GamepadAction.ReleaseInteract));
+            var abilityBtn = GamepadBindings.Control(pad, GamepadBindings.Get(GamepadAction.Ability));
+            var interactBtn = GamepadBindings.Control(pad, GamepadBindings.Get(GamepadAction.Interact));
+            var guardBtn = GamepadBindings.Control(pad, GamepadBindings.Get(GamepadAction.Guard));
             var secondBtn = GamepadBindings.Control(pad, GamepadBindings.Get(GamepadAction.SecondAbility));
-            var cancelBtn = GamepadBindings.Control(pad, GamepadBindings.Get(GamepadAction.Cancel));
-            var loadoutBtn = GamepadBindings.Control(pad, GamepadBindings.Get(GamepadAction.Loadout));
             var masteryBtn = GamepadBindings.Control(pad, GamepadBindings.Get(GamepadAction.Mastery));
             var altBtn = GamepadBindings.Control(pad, GamepadBindings.Get(GamepadAction.Alt));
+            var confirmBtn = GamepadBindings.Control(pad, GamepadBindings.Get(GamepadAction.Confirm));
+            var cancelBtn = GamepadBindings.Control(pad, GamepadBindings.Get(GamepadAction.Cancel));
 
-            // Interact and Release already share E on keyboard - the contextual action, combat or
-            // hub, whichever applies - so West does the same double duty here rather than needing
-            // a fourth face button neither context actually wants. They also share one rebindable
-            // slot (ReleaseInteract) for the same reason.
+            // INSIDE A MENU, THE MENU'S TWO BUTTONS ARE THE MENU'S. By default A is both Interact
+            // and a menu's click, and B is Guard, View and a menu's back - shared on purpose,
+            // since a fight, the hub and a menu never need them at once. But a screen is open
+            // OVER the world: the click that closes the forge would also be the Interact that
+            // reopens it, and Interact closes several screens outright (E's "let go of the key
+            // that opened it"), so A in the mastery board would shut it instead of buying a node.
+            // "A menu is up" is a screen having registered focus candidates last frame - every
+            // modal does, every frame.
+            bool menuLive = CandidatesLive;
+            bool World(UnityEngine.InputSystem.Controls.ButtonControl b)
+                => b != null && b.isPressed
+                   && !(menuLive && (b == confirmBtn || b == cancelBtn));
+
             Edge(ref _attack, ref _attackPrev,
                  (mouse != null && mouse.leftButton.isPressed) || (kb != null && kb.spaceKey.isPressed)
-                 || (attackBtn != null && attackBtn.isPressed)
+                 || World(attackBtn)
                  || VirtualAttack);
 
+            // The element release. Its own pad button, never Interact's: on keyboard both still
+            // ride E, but on a pad the ability is a trigger and the A button is the action.
             Edge(ref _release, ref _releasePrev,
                  (mouse != null && mouse.rightButton.isPressed)
                  || (kb != null && (kb.eKey.isPressed || kb.leftShiftKey.isPressed))
-                 || (releaseBtn != null && releaseBtn.isPressed)
+                 || World(abilityBtn)
                  || VirtualRelease);
 
-            // R on keyboard and, by default, the right trigger on a pad. Named for the second
-            // ability it once fired; that now rides the release button (chosen on the mastery
-            // board), leaving this to the hub's "look closer" and AnyDismiss.
+            // R on keyboard and, by default, B on a pad - the hub's VIEW ("look closer") and
+            // AnyDismiss. Named for the second ability it once fired.
             Edge(ref _secondAbility, ref _secondAbilityPrev,
                  (kb != null && kb.rKey.isPressed)
-                 || (secondBtn != null && secondBtn.isPressed)
+                 || World(secondBtn)
                  || VirtualSecondAbility);
 
+            // Use a fixture, take a Rift Box, open a Rift - and, while a thrown blade is out, blink
+            // to it (a weapon art's mid-move choice is an action, not the element release).
             Edge(ref _interact, ref _interactPrev,
                  (kb != null && (kb.eKey.isPressed || kb.enterKey.isPressed))
-                 || (releaseBtn != null && releaseBtn.isPressed)
+                 || World(interactBtn)
                  || VirtualInteract);
 
             Edge(ref _cancel, ref _cancelPrev,
                  (kb != null && kb.escapeKey.isPressed) || (cancelBtn != null && cancelBtn.isPressed)
                  || VirtualCancel);
 
+            // Start is fixed, like Select below: the loadout in the hub, and (through MenuTapped)
+            // the pause menu in a run.
             Edge(ref _loadout, ref _loadoutPrev,
                  (kb != null && (kb.cKey.isPressed || kb.tabKey.isPressed))
-                 || (loadoutBtn != null && loadoutBtn.isPressed)
+                 || (pad != null && pad.startButton.isPressed)
                  || VirtualLoadout);
+
+            // The run's pause menu: Escape, the loadout keys, Start, or the overlay's MENU/GEAR.
+            // Not the pad's Cancel - B is the defensive ability in a fight, and backing out of a
+            // menu must not be the same button that opens one.
+            Edge(ref _menu, ref _menuPrev,
+                 (kb != null && (kb.escapeKey.isPressed || kb.cKey.isPressed || kb.tabKey.isPressed))
+                 || (pad != null && pad.startButton.isPressed)
+                 || VirtualCancel || VirtualLoadout);
 
             // Keyboard only. A gamepad's A used to be Confirm too, and that is what made two-answer
             // dialogs unanswerable on a pad: A confirmed the destructive answer whichever button
@@ -485,48 +493,38 @@ namespace Convergence.Core
                  kb != null && (kb.enterKey.isPressed || kb.numpadEnterKey.isPressed));
 
             Edge(ref _mastery, ref _masteryPrev,
-                 (kb != null && kb.mKey.isPressed) || (masteryBtn != null && masteryBtn.isPressed));
+                 (kb != null && kb.mKey.isPressed) || World(masteryBtn));
 
+            // The hub's edit mode / pick up. Q, as Guard is - the overlay's GUARD and CRATE
+            // buttons both drive VirtualAlt; the arena reads Guard and the hub reads Alt.
             Edge(ref _alt, ref _altPrev,
-                 (kb != null && kb.qKey.isPressed) || (altBtn != null && altBtn.isPressed)
+                 (kb != null && kb.qKey.isPressed) || World(altBtn)
+                 || VirtualAlt);
+
+            Edge(ref _guard, ref _guardPrev,
+                 (kb != null && kb.qKey.isPressed) || World(guardBtn)
                  || VirtualAlt);
 
             // Opens the hub's settings menu. Escape specifically, not the Cancel action (which
-            // also fires on the gamepad's East/B button and on touch's virtual cancel) - a
-            // settings menu is summoned on its own key, never backed into by the button that
-            // closes everything else. Start is fixed rather than rebindable for the same reason
-            // the D-pad and sticks are: a menu button has to work even before the player has
-            // pressed anything else, including before they have looked at the rebind screen.
+            // also fires on the gamepad's B and on touch's virtual cancel) - a settings menu is
+            // summoned on its own key, never backed into by the button that closes everything
+            // else. Select is fixed rather than rebindable for the same reason the D-pad and
+            // sticks are: a menu button has to work even before the player has pressed anything
+            // else, including before they have looked at the rebind screen.
             Edge(ref _settingsMenu, ref _settingsMenuPrev,
-                 (kb != null && kb.escapeKey.isPressed) || (pad != null && pad.startButton.isPressed));
+                 (kb != null && kb.escapeKey.isPressed) || (pad != null && pad.selectButton.isPressed));
 
-            // ---- gamepad virtual cursor ----
-            //
-            // The right stick integrates into a persistent screen position exactly the way a mouse
-            // already reports one directly and a finger's own contact point already IS one - so it
-            // slots into the SAME _pointer pipeline every screen already reads, rather than every
-            // screen needing to learn a fourth way to be pointed at.
-            if (pad != null)
-            {
-                if (_gamepadCursor == Vector2.zero) _gamepadCursor = new Vector2(UnityEngine.Screen.width, UnityEngine.Screen.height) * 0.5f;
-                var stick = ApplyDeadzone(pad.rightStick.ReadValue(), StickDeadzone);
-                if (stick != Vector2.zero)
-                {
-                    // The stick takes over from the D-pad: start from where the highlight was.
-                    if (!_freeAim && _focused != null && _gamepadMode) _gamepadCursor = RectCenter(_focused);
-                    _freeAim = true;
-                    _gamepadCursor += stick * (UnityEngine.Screen.height * GamepadCursorSpeed * Time.unscaledDeltaTime);
-                    _gamepadCursor.x = Mathf.Clamp(_gamepadCursor.x, 0f, UnityEngine.Screen.width);
-                    _gamepadCursor.y = Mathf.Clamp(_gamepadCursor.y, 0f, UnityEngine.Screen.height);
-                }
-            }
+            // The run's carried loot, straight past the pause menu. Select again, as the hub's
+            // settings: the two never meet, since settings is hub-only and loot is run-only.
+            Edge(ref _inventory, ref _inventoryPrev,
+                 (kb != null && kb.iKey.isPressed) || (pad != null && pad.selectButton.isPressed));
 
             // Focus is resolved BEFORE the pointer, so the press of A on the frame a D-pad press
             // lands clicks the rect it landed on. While something is focused the pad's pointer
             // sits on its CURRENT centre - read every frame, not copied once at the D-pad press,
             // because the mastery board pans and the lists scroll the focused rect under it.
             SyncFocusNavigation(pad);
-            if (pad != null && _gamepadMode && !_freeAim && CandidatesLive && Valid(_focused))
+            if (pad != null && _gamepadMode && CandidatesLive && Valid(_focused))
                 _gamepadCursor = RectCenter(_focused);
 
             // ---- pointer: a mouse click, a finger tap and a gamepad's cursor click are the same event ----
@@ -537,8 +535,10 @@ namespace Convergence.Core
             bool fingerDown = FreeTaps.Count > 0;
             bool fingerHeld = FreePointer.HasValue;
 
-            bool padDown = attackBtn != null && attackBtn.wasPressedThisFrame;
-            bool padHeld = attackBtn != null && attackBtn.isPressed;
+            // Only while a menu is up: outside one, A is the world's Interact, and a click at the
+            // last focused rect's stale centre would land on whatever screen that press opens.
+            bool padDown = menuLive && confirmBtn != null && confirmBtn.wasPressedThisFrame;
+            bool padHeld = menuLive && confirmBtn != null && confirmBtn.isPressed;
 
             _pointerDown = mouseDown || fingerDown || padDown;
 
@@ -715,6 +715,7 @@ namespace Convergence.Core
         public static bool CancelHeld { get { Sync(); return _cancel; } }
         public static bool LoadoutHeld { get { Sync(); return _loadout; } }
         public static bool AltHeld { get { Sync(); return _alt; } }
+        public static bool GuardHeld { get { Sync(); return _guard; } }
 
         /// <summary>
         /// Spend this frame's Cancel press: <see cref="CancelTapped"/> reads false for the rest of
@@ -727,7 +728,17 @@ namespace Convergence.Core
         /// <summary>The third option, where one exists. Only trophy placement has one.</summary>
         public static bool AltTapped { get { Sync(); return _alt && !_altPrev; } }
 
-        /// <summary>Opens the hub's settings menu - Escape (keyboard) or Start (gamepad) only.
+        /// <summary>The chest's defensive ability, in a run. Q on keyboard, as Alt is.</summary>
+        public static bool GuardTapped { get { Sync(); return _guard && !_guardPrev; } }
+
+        /// <summary>Opens the run's pause menu - Escape, C/Tab, Start, or the overlay's MENU/GEAR.
+        /// Deliberately not the pad's Cancel; see the field.</summary>
+        public static bool MenuTapped { get { Sync(); return _menu && !_menuPrev; } }
+
+        /// <summary>Opens (and closes) the run's carried loot - I, or Select on a pad.</summary>
+        public static bool InventoryTapped { get { Sync(); return _inventory && !_inventoryPrev; } }
+
+        /// <summary>Opens the hub's settings menu - Escape (keyboard) or Select (gamepad) only.
         /// See the field this reads for why it is not folded into <see cref="CancelTapped"/>.</summary>
         public static bool SettingsTapped { get { Sync(); return _settingsMenu && !_settingsMenuPrev; } }
 

@@ -210,7 +210,7 @@ namespace Convergence.UI
             if (_backRect) _focus.Add(_backRect);
             Core.Controls.SetFocusCandidates(_focus);
 
-            if (Core.Controls.CancelTapped) { Close(); return; }
+            if (Core.Controls.CancelTapped || Core.Controls.InventoryTapped) { Close(); return; }
 
             if (!Core.Controls.Tapped(out var p)) return;
             if (_backRect && RectTransformUtility.RectangleContainsScreenPoint(_backRect, p, null))

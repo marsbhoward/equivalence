@@ -291,8 +291,8 @@ namespace Convergence.UI
                 "stick to move    -    ATTACK    -    ABILITY    -    GUARD    -    GEAR for your loadout    -    MENU to leave the run",
                 15, new Color(0.45f, 0.48f, 0.56f), TextAnchor.LowerCenter,
                 UI.GamepadGlyphs.Move + " move    -    " + UI.GamepadGlyphs.Attack + " attack    -    "
-                + UI.GamepadGlyphs.Release + " element ability    -    " + UI.GamepadGlyphs.Alt + " guard    -    "
-                + UI.GamepadGlyphs.Loadout + " loadout    -    " + UI.GamepadGlyphs.Cancel + " abandon run");
+                + UI.GamepadGlyphs.Release + " element ability    -    " + UI.GamepadGlyphs.Guard + " guard    -    "
+                + UI.GamepadGlyphs.Interact + " use    -    " + UI.GamepadGlyphs.Menu + " menu    -    " + UI.GamepadGlyphs.Inventory + " loot");
         }
 
         void BuildMeter(ElementalResource resource, Color tint)

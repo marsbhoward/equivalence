@@ -5,29 +5,18 @@ using Convergence.Core;
 namespace Convergence.UI
 {
     /// <summary>
-    /// The pointer a gamepad drives, in whichever of its two shapes currently applies.
+    /// The gamepad's menu highlight: an outline over the rect the D-pad has focused
+    /// (Controls.Focused). Menus are D-pad only - there is no free pointer and no dot; a press of A
+    /// clicks the focused rect through the ordinary pointer path (see Controls.Sync).
     ///
-    /// FREE-AIM: the right stick moves Controls.GamepadCursorPosition and this draws a small dot
-    /// there. FOCUSED: a D-pad press has landed on one of a screen's own registered clickable
-    /// rects (Controls.Focused), and this instead outlines that rect - so navigating a menu reads
-    /// as "this card is selected" rather than "there is a dot somewhere near this card".
-    ///
-    /// Either way, this is the only thing that draws it. Every screen already hit-tests
-    /// Controls.Tapped / PointerHeld / PointerPosition the same way for a mouse click or a finger
-    /// tap, so a gamepad only had to become a THIRD source feeding that one pipeline (see
-    /// Controls.Sync) - nothing here, or there, needed to learn a new input shape.
-    ///
-    /// Hidden whenever a gamepad isn't the last device touched, the same "last device wins" rule
-    /// Controls.TouchMode already lives by - a mouse click or a key press hides this exactly the
-    /// way it turns off the on-screen stick.
+    /// Shown only while a gamepad is the last device touched and a screen has something focused,
+    /// the same "last device wins" rule Controls.TouchMode lives by.
     /// </summary>
     public class GamepadCursor : MonoBehaviour
     {
         RectTransform _rect;
         Image _image;
 
-        static readonly Vector2 DotSize = new(56f, 56f);
-        static readonly Color DotColor = new(1f, 0.85f, 0.4f, 0.9f);
         static readonly Color HighlightColor = new(1f, 0.85f, 0.4f, 0.3f);
 
         public static GamepadCursor Build(Transform canvas)
@@ -37,19 +26,18 @@ namespace Convergence.UI
             var rt = (RectTransform)go.transform;
             rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
             rt.pivot = new Vector2(0.5f, 0.5f);
-            rt.sizeDelta = DotSize;
 
             var img = go.AddComponent<Image>();
-            img.sprite = Spr.Ring;
-            img.color = DotColor;
-            img.raycastTarget = false;   // it points AT things, it must never itself be what's hit
+            img.sprite = Spr.Square;
+            img.color = HighlightColor;
+            img.raycastTarget = false;   // it marks things, it must never itself be what's hit
 
             var cursor = go.AddComponent<GamepadCursor>();
             cursor._rect = rt;
             cursor._image = img;
             // The GameObject stays ACTIVE and only the image is switched. This used to
             // SetActive(false) here and switch itself back on in Update - which Unity never calls
-            // on an inactive object, so neither the highlight nor the dot was ever drawn and the
+            // on an inactive object, so the highlight was never drawn and the
             // D-pad looked dead even while it was moving focus perfectly well.
             img.enabled = false;
             return cursor;
@@ -61,31 +49,19 @@ namespace Convergence.UI
         // it ended up.
         void LateUpdate()
         {
-            bool on = Controls.GamepadMode;
+            var focused = Controls.Focused;
+            bool on = focused != null;
             if (_image.enabled != on) _image.enabled = on;
             if (!on) return;
 
-            var focused = Controls.Focused;
-            if (focused != null)
-            {
-                _image.sprite = Spr.Square;
-                _image.color = HighlightColor;
-                // Measured off WORLD corners and converted into this canvas's units, not copied
-                // from the rect's own size: a mastery node is drawn scaled by the board's zoom, and
-                // its sizeDelta knows nothing about that.
-                focused.GetWorldCorners(Corners);
-                var parentScale = _rect.parent != null ? _rect.parent.lossyScale : Vector3.one;
-                _rect.position = (Corners[0] + Corners[2]) * 0.5f;
-                _rect.sizeDelta = new Vector2((Corners[2].x - Corners[0].x) / Mathf.Max(0.0001f, parentScale.x),
-                                              (Corners[2].y - Corners[0].y) / Mathf.Max(0.0001f, parentScale.y));
-            }
-            else
-            {
-                _image.sprite = Spr.Ring;
-                _image.color = DotColor;
-                _rect.sizeDelta = DotSize;
-                _rect.position = Controls.GamepadCursorPosition;
-            }
+            // Measured off WORLD corners and converted into this canvas's units, not copied
+            // from the rect's own size: a mastery node is drawn scaled by the board's zoom, and
+            // its sizeDelta knows nothing about that.
+            focused.GetWorldCorners(Corners);
+            var parentScale = _rect.parent != null ? _rect.parent.lossyScale : Vector3.one;
+            _rect.position = (Corners[0] + Corners[2]) * 0.5f;
+            _rect.sizeDelta = new Vector2((Corners[2].x - Corners[0].x) / Mathf.Max(0.0001f, parentScale.x),
+                                          (Corners[2].y - Corners[0].y) / Mathf.Max(0.0001f, parentScale.y));
         }
     }
 }

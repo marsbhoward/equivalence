@@ -23,42 +23,46 @@ namespace Convergence.UI
     /// below match Core.Controls' own defaults; the properties themselves never go stale, because
     /// they never cache the answer.
     ///
-    ///     Attack / Confirm   Attack           (A)
-    ///     Interact / Release ReleaseInteract  (X)   - shares E's double duty on keyboard
-    ///     Cancel             Cancel           (B)
-    ///     Loadout            Loadout          (Y)
-    ///     Mastery            Mastery          (LB)
-    ///     Alt                Alt              (RB)
-    ///     SecondAbility      SecondAbility    (RT)  - same physical button as Zoom's RT by
-    ///                                                 default; the hub's "look closer" prompt is
-    ///                                                 what reads this one, and the two contexts
-    ///                                                 never overlap
-    ///     Zoom               fixed, not rebindable   (LT) / (RT)
-    ///     Settings           fixed, not rebindable   Start
+    ///     Attack           Attack         (RT)
+    ///     Ability          Ability        (LT)
+    ///     Interact         Interact       (A)   - also the blade blink while a thrown blade is out
+    ///     Guard            Guard          (B)   - in a fight
+    ///     SecondAbility    SecondAbility  (B)   - the hub's VIEW
+    ///     Mastery          Mastery        (LB)
+    ///     Alt              Alt            (RB)  - the hub's edit / pick up
+    ///     Confirm          Confirm        (A)   - a menu's click
+    ///     Cancel           Cancel         (B)   - a menu's back
+    ///     Menu / Loadout   fixed          Start - the pause menu in a run, the loadout in the hub
+    ///     Settings         fixed          Select (View) - hub; the carried loot in a run
+    ///     Zoom             fixed          (LT) / (RT), inside the boards that zoom
     /// </summary>
     public static class GamepadGlyphs
     {
         public static string Attack => GamepadBindings.Label(GamepadBindings.Get(GamepadAction.Attack));
-        public static string Confirm => Attack;
-        public static string Interact => GamepadBindings.Label(GamepadBindings.Get(GamepadAction.ReleaseInteract));
-        public static string Release => Interact;
-        public static string Cancel => GamepadBindings.Label(GamepadBindings.Get(GamepadAction.Cancel));
-        public static string Loadout => GamepadBindings.Label(GamepadBindings.Get(GamepadAction.Loadout));
+        public static string Release => GamepadBindings.Label(GamepadBindings.Get(GamepadAction.Ability));
+        public static string Interact => GamepadBindings.Label(GamepadBindings.Get(GamepadAction.Interact));
+        public static string Guard => GamepadBindings.Label(GamepadBindings.Get(GamepadAction.Guard));
+        public static string SecondAbility => GamepadBindings.Label(GamepadBindings.Get(GamepadAction.SecondAbility));
         public static string Mastery => GamepadBindings.Label(GamepadBindings.Get(GamepadAction.Mastery));
         public static string Alt => GamepadBindings.Label(GamepadBindings.Get(GamepadAction.Alt));
-        public static string SecondAbility => GamepadBindings.Label(GamepadBindings.Get(GamepadAction.SecondAbility));
+        public static string Confirm => GamepadBindings.Label(GamepadBindings.Get(GamepadAction.Confirm));
+        public static string Cancel => GamepadBindings.Label(GamepadBindings.Get(GamepadAction.Cancel));
+
+        /// <summary>The pause menu in a run, the loadout in the hub - fixed, as Settings is.</summary>
+        public const string Menu = "(Start)";
+        public const string Loadout = Menu;
 
         public const string ZoomOut = "(LT)";
         public const string ZoomIn = "(RT)";
 
         /// <summary>Opens the settings menu from the hub. Fixed rather than rebindable - see
         /// Controls.SettingsTapped's own note.</summary>
-        public const string Settings = "(Start)";
+        public const string Settings = "(Select)";
+        public const string Inventory = Settings;
 
         /// <summary>Sticks and the d-pad are named rather than glyphed - there is no short token
         /// for them that reads better than the words.</summary>
         public const string Move = "left stick";
-        public const string Cursor = "right stick";
         public const string Navigate = "D-pad";
     }
 }
