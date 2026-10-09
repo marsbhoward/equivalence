@@ -275,7 +275,6 @@ namespace Convergence.Core
         /// another attempt to go deeper is the whole point of that mechanic.
         /// </summary>
         int _pendingMastery;
-        int _pendingGearVouchers;
 
         /// <summary>
         /// Bumped by every teardown. Async continuations and coroutines capture it and bail if it
@@ -577,50 +576,8 @@ namespace Convergence.Core
         }
 
         /// <summary>
-        /// Spends one Forge voucher on a freshly-rolled item for the given slot. Local stand-in
-        /// for what web/service's own POST /write/redeem-gear will eventually do on chain - see
-        /// that service's README for the wiring this is meant to converge with. Seeded by the
-        /// new instance id, matching GearRoller's own "fixed to identity" rule elsewhere.
-        /// </summary>
-        public async void RedeemGearVoucher(Art.Gear.GearSlot slot)
-        {
-            if (_profile.PendingGearVouchers <= 0) return;
-
-            _profile.PendingGearVouchers--;
-            string instanceId = $"GEAR-{slot}-{Guid.NewGuid():N}";
-            var (tier, grants, primary, subs, ability, finisher) =
-                Art.Gear.GearRoller.RollItem(slot, instanceId.GetHashCode());
-
-            var record = new MintedGearRecord
-            {
-                InstanceId = instanceId,
-                DisplayName = $"{tier} {slot}",
-                Slot = slot,
-                Tier = tier,
-                Grants = grants,
-                PrimaryStat = primary,
-                SubStats = subs,
-                DefensiveAbility = ability,
-                Finisher = finisher,
-                Class = Art.Gear.WeaponClass.Greatsword,
-                StatsVersion = Art.Gear.GearRoller.TablesVersion,
-            };
-            _profile.MintedGear.Add(record);
-            Art.Gear.GearCatalog.Register(record.ToGearItem());
-
-            Debug.Log($"[Forge] redeemed {record.DisplayName} ({instanceId}), " +
-                      $"{_profile.PendingGearVouchers} voucher(s) remaining");
-
-            if (CharacterScreen != null) CharacterScreen.Refresh();
-            _hub?.FlashForge();
-            _hub?.RefreshForge();
-            await _store.UnlockAsync(_profile);
-        }
-
-        /// <summary>
         /// Spend a box of a given tier at the Forge for a RANDOM slot - the cheap, common path.
-        /// Guarantees the box's own tier (unlike a voucher, which rolls Silver/Gold via
-        /// GearRoller.RollTier) - see RollItem's fixed-tier overload.
+        /// Guarantees the box's own tier - see RollItem's fixed-tier overload.
         /// </summary>
         public async void RedeemForgeBoxRandom(Art.Gear.LootTier boxTier)
         {
@@ -642,7 +599,7 @@ namespace Convergence.Core
 
             var slots = UI.ForgeScreen.RedeemableSlots;
             var slot = slots[UnityEngine.Random.Range(0, slots.Length)];
-            await MintForgeBoxItem(slot, boxTier, Art.Gear.WeaponClass.Greatsword);
+            await MintForgeBoxItem(slot, boxTier, Art.Gear.WeaponClasses.RandomAny());
         }
 
         /// <summary>
@@ -749,7 +706,7 @@ namespace Convergence.Core
             var record = new MintedGearRecord
             {
                 InstanceId = instanceId,
-                DisplayName = $"{tier} {slot}",
+                DisplayName = MintedGearRecord.NameFor(tier, slot, weaponClass),
                 Slot = slot,
                 Tier = tier,
                 Grants = grants,
@@ -842,6 +799,40 @@ namespace Convergence.Core
             Debug.Log($"[Forge] re-rolled sub-stat {index} of {record.DisplayName} ({instanceId})");
             AfterForgeChange();
             return record;
+        }
+
+        /// <summary>
+        /// SALVAGE: break unwanted pieces into calx of their own tier (GearForge.CalxFor), every
+        /// whole Tuning.GearRoll.CalxPerBox becoming a box. Skips anything equipped, staked or not
+        /// salvageable rather than refusing the batch. Returns what came of it, for the Forge to
+        /// show, or null if nothing was salvaged.
+        /// </summary>
+        public string SalvageGear(IReadOnlyList<string> instanceIds)
+        {
+            if (_profile == null || instanceIds == null) return null;
+
+            var calx = new Dictionary<Art.Gear.LootTier, int>();
+            int pieces = 0;
+            foreach (var id in instanceIds)
+            {
+                var r = _profile.MintedGear.Find(x => x.InstanceId == id);
+                if (!GearForge.Salvageable(r) || IsEquipped(id) || id == _profile.StakedInstanceId) continue;
+                _profile.MintedGear.Remove(r);
+                calx[r.Tier] = (calx.TryGetValue(r.Tier, out int n) ? n : 0) + GearForge.CalxFor(r);
+                pieces++;
+            }
+            if (pieces == 0) return null;
+
+            var parts = new List<string>();
+            foreach (var (tier, n) in calx)
+            {
+                int boxes = GearForge.AddCalx(_profile, tier, n);
+                parts.Add($"{tier} +{n} calx" + (boxes > 0 ? $" -> {boxes} box{(boxes == 1 ? "" : "es")}" : ""));
+            }
+            string note = $"{pieces} piece{(pieces == 1 ? "" : "s")} salvaged: {string.Join(",  ", parts)}";
+            Debug.Log($"[Forge] {note}");
+            AfterForgeChange();
+            return note;
         }
 
         /// <summary>
@@ -1220,24 +1211,24 @@ namespace Convergence.Core
                        SaveLook);
         }
 
-        /// <summary>Opens the Forge's slot picker. Reachable only through the fixture's own
-        /// interact key, which already gates on there being a voucher to spend.</summary>
+        /// <summary>Opens the Forge. Reachable only through the fixture's own interact key, which
+        /// already gates on there being something to spend or combine.</summary>
         void OpenForge()
         {
             if (_profile == null) return;
             ForgeScreen.Open(_canvas.transform, new UI.ForgeScreen.Context
             {
-                VoucherCount = _profile.PendingGearVouchers,
                 Boxes = _profile.Boxes,
                 RiftBoxes = () => _profile.RiftBoxes,
                 MintedGear = _profile.MintedGear,
                 IsEquipped = IsEquipped,
-                OnPickVoucher = RedeemGearVoucher,
                 OnRedeemRandom = RedeemForgeBoxRandom,
                 OnRedeemTargeted = RedeemForgeBoxTargeted,
                 OnCombine = CombineGear,
                 OnReroll = RerollSubStat,
                 OnFuse = FuseGear,
+                OnSalvage = SalvageGear,
+                Calx = _profile.Calx,
             });
         }
 
@@ -1903,7 +1894,6 @@ namespace Convergence.Core
             _runId = Guid.NewGuid().ToString("N")[..8];
             _bonusXp = 0;
             _pendingMastery = 0;
-            _pendingGearVouchers = 0;
             _runStartTime = Time.time;
             _floor = 0;
             // A LOCAL stand-in for the server's sticky run seed - the day the service issues
@@ -3108,7 +3098,6 @@ namespace Convergence.Core
             }
 
             _pendingMastery += Mathf.RoundToInt(MasteryXpPerFloor * taper);
-            _pendingGearVouchers += Tuning.GearRoll.VouchersPerFloor;
 
             // Reuses the roll the exchange row may already have shown. Rolling again here would
             // make Transmuter's Eye show one thing and deliver another.
@@ -3968,13 +3957,6 @@ namespace Convergence.Core
                           (levels > 0 ? $" -> {levels} level(s), now {em.Level}" : "") +
                           $" (total {_profile.Mastery.TotalLevel})");
                 _pendingMastery = 0;
-            }
-
-            if (_pendingGearVouchers > 0)
-            {
-                _profile.PendingGearVouchers += _pendingGearVouchers;
-                Debug.Log($"[Forge] +{_pendingGearVouchers} voucher(s), now {_profile.PendingGearVouchers}");
-                _pendingGearVouchers = 0;
             }
 
             // THE EXTRACTION LOOP'S ONLY WRITE. Whatever was carried and never pushed through a

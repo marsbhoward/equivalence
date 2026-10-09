@@ -4453,10 +4453,6 @@ namespace Convergence.Core
             /// </summary>
             public const float WeaponPrimaryMul = 1.5f;
 
-            /// <summary>Chance a Forge redemption rolls Gold instead of Silver. Placeholder, same
-            /// spirit as XpPerPick - tune once there is real playtesting to tune it against.</summary>
-            public const float ForgeGoldChance = 0.3f;
-
             /// <summary>
             /// What a Bronze piece is worth against the same Silver roll.
             ///
@@ -4464,15 +4460,28 @@ namespace Convergence.Core
             /// than carrying its own column - "a weaker Silver" is the whole idea, and it keeps
             /// GearRoller.TierScale's (silver, gold) shape intact at every call site.
             ///
-            /// Deliberately NOT rollable from the Forge: RollTier stays Silver/Gold, because a
-            /// voucher redemption paying out the floor tier would make spending one feel like a
-            /// punishment. Bronze belongs to the floor drop table.
+            /// Bronze comes from the floor drop table and from Bronze boxes.
             /// </summary>
             public const float BronzeFraction = 0.5f;
 
-            /// <summary>Gear vouchers banked per floor cleared, added at the run-end checkpoint
-            /// alongside mastery XP - forfeit on a false start for the same reason.</summary>
-            public const int VouchersPerFloor = 1;
+            /// <summary>
+            /// The star level a floor's GEAR drop comes in at (the user's calls, 2026-10-09, when
+            /// the per-floor voucher was removed). Every star level is obtainable in every tier at
+            /// every depth, but the odds CLIMB the deeper the floor is into that tier's band:
+            /// `RunLoot.TierStartFloor` (Bronze 1, Silver 25, Gold 50) is the Min end, and
+            /// `DropStarRampFloors` past it is the Max end, held from there on. So a Bronze drop on
+            /// floor 80 is usually starred, a Gold one on floor 50 rarely. Rolled three, two, one;
+            /// the rest is base.
+            ///
+            /// What it buys: a starred drop is the work of 2 / 4 / 8 matching base pieces, so the
+            /// primary-stat lottery (1 in 5 to 1 in 20 for one exact MatchKey) wastes less of a run.
+            /// Relics never roll stars (they carry no stats and never combine). A Gold three-star
+            /// is the cap - it can't combine further - and Gold reaches its Max only at floor 100.
+            /// </summary>
+            public const float DropStarRampFloors = 50f;
+            public const float DropOneStarMin = 0.10f, DropOneStarMax = 0.30f;
+            public const float DropTwoStarMin = 0.01f, DropTwoStarMax = 0.10f;
+            public const float DropThreeStarMin = 0.0005f, DropThreeStarMax = 0.005f;
 
             /// <summary>
             /// Chance a floor-clear drop hands over a loot box (of that floor's own banded tier,
@@ -4514,6 +4523,20 @@ namespace Convergence.Core
             public const int ForgeRerollValueBoxCost = 1;
             public const int ForgeRerollStatBoxCost = 2;
             public const int ForgeTargetedRedeemBoxCost = 4;
+
+            /// <summary>
+            /// SALVAGE (the user's call, 2026-10-09): an unwanted Bronze/Silver/Gold piece breaks
+            /// down into CALX of its own tier - one per base piece it is worth (2^stars: a three-star
+            /// is eight base pieces combined), one for a relic - and this many calx make a box of
+            /// that tier. 3 = a third of a box per base piece.
+            ///
+            /// Priced against the odds of a MATCH, not as a ratio: with targeted redemption at four
+            /// boxes and a 1-in-5 primary, a third of a box per piece speeds up building one exact
+            /// MatchKey ~1.6x on top of drops and boxes. Combining drops stays the main path. Must
+            /// stay above 1 - a box opens into a base piece, so at 1 or below salvage-and-redeem
+            /// would cost nothing.
+            /// </summary>
+            public const int CalxPerBox = 3;
 
             /// <summary>
             /// Star multipliers GearRoller.UpgradeScale applies to EVERY stat on a piece.

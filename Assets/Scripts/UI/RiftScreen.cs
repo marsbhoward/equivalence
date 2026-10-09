@@ -185,6 +185,11 @@ namespace Convergence.UI
             Art.Gear.LootTier.Silver, Art.Gear.LootTier.Bronze,
         };
 
+        /// <summary>A carried piece's row name, with its star level - drops arrive at up to three
+        /// stars, and which piece to secure turns on it. Text, not star sprites: a row is a line.</summary>
+        static string Named(MintedGearRecord it)
+            => it.UpgradeLevel > 0 ? $"{it.DisplayName}  +{it.UpgradeLevel}" : it.DisplayName;
+
         static string BoxName(Art.Gear.LootTier tier)
             => (tier == Art.Gear.LootTier.BlackDiamond ? "Black Diamond" : tier.ToString()) + " box";
 
@@ -213,7 +218,7 @@ namespace Convergence.UI
                 rows.Add(new Row { Label = $"Rift Box  x{_loot.SecuredRiftBoxes}", Ink = SecuredInk,
                                    Box = Art.BoxArt.Kind.Rift });
             foreach (var it in _loot.Secured)
-                rows.Add(new Row { Label = it.DisplayName, Ink = SecuredInk, Chip = Art.Palette.Tier(it.Tier).Base });
+                rows.Add(new Row { Label = Named(it), Ink = SecuredInk, Chip = Art.Palette.Tier(it.Tier).Base });
             return rows;
         }
 
@@ -258,7 +263,7 @@ namespace Convergence.UI
                 var item = it;
                 rows.Add(new Row
                 {
-                    Label = canSecure ? $"{it.DisplayName}      {price}" : it.DisplayName,
+                    Label = canSecure ? $"{Named(it)}      {price}" : Named(it),
                     Ink = canSecure ? (paid ? PaidInk : FreeInk) : SecuredInk,
                     Chip = Art.Palette.Tier(it.Tier).Base,
                     CostsBox = canSecure && paid,

@@ -4,23 +4,20 @@ using Convergence.Core;
 namespace Convergence.Hub
 {
     /// <summary>
-    /// Where an earned voucher becomes a real, rolled piece of gear. One object, independent of
+    /// Where boxes become gear and matching pieces combine. One object, independent of
     /// roster size, the same reasoning PhotoBooth already settled on - nothing here is tied to
     /// which character is being played.
     ///
     /// Holds no chain or profile state itself - see PhotoBooth's own note on why: an interface or
     /// a cached reference here would be exactly the kind of field that dies on a domain reload.
-    /// VoucherCount is a plain int, refreshed by an explicit call from HubRoom whenever the number
-    /// could have changed (a run ending, a redemption), the same discipline RefreshBooth uses.
+    /// HasBoxAction is a plain bool, refreshed by an explicit call from HubRoom whenever it could
+    /// have changed (a run ending, a redemption), the same discipline RefreshBooth uses.
     /// </summary>
     public class Forge : MonoBehaviour
     {
         public Vector2 Anchor { get; private set; }
-        public int VoucherCount { get; private set; }
-
         /// <summary>Whether ANY box path (redeem/targeted/re-roll) or a combine has something to do -
-        /// pushed from HubRoom the same way VoucherCount is, since Forge holds no profile state
-        /// itself.</summary>
+        /// pushed from HubRoom, since Forge holds no profile state itself.</summary>
         public bool HasBoxAction { get; private set; }
 
         SpriteRenderer _base, _hearth, _glow, _sign, _flash;
@@ -59,7 +56,6 @@ namespace Convergence.Hub
         }
 
         public void SetFocus(bool on) => _focused = on;
-        public void SetVoucherCount(int count) => VoucherCount = count;
         public void SetHasBoxAction(bool has) => HasBoxAction = has;
 
         /// <summary>Fires on a successful redemption - feedback for the moment the item actually
@@ -77,7 +73,7 @@ namespace Convergence.Hub
 
         void Apply(float lit)
         {
-            bool ready = VoucherCount > 0 || HasBoxAction;
+            bool ready = HasBoxAction;
             float pulse = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 2.4f);
 
             // Dim and still with nothing to redeem; a slow ember pulse once there is - the same

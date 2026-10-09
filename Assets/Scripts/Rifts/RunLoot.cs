@@ -344,26 +344,24 @@ namespace Convergence.Rifts
 
             string instanceId = $"LOOT-{slot}-{System.Guid.NewGuid():N}";
 
-            // Tier comes from DEPTH, so the rolls are handed that tier rather than the forge draw
-            // RollItem would make for itself. Calling RollItem here rolled the stats against a
-            // tier the record then overwrote, which quietly decoupled what a deep drop claimed
-            // to be from what it was worth.
-            int seed = instanceId.GetHashCode();
-            var (_, primary) = GearRoller.Roll(slot, tier, seed);
-            var subs = GearRoller.RollSubStats(slot, tier, seed);
-            var grants = GearRoller.BuildGrants(slot, tier, primary, 0, subs);
-            var ability = slot == GearSlot.Torso
-                ? GearRoller.RollDefensiveAbility(seed)
-                : DefensiveAbility.Dash;
+            // ANY CLASS, not the one being played (the user's call, 2026-10-09): the floor is open
+            // to every build, so a sword run still finds discs, bows, and relics for them. Only
+            // weapons and relics carry a class; everything else is worn by every class.
+            var weaponClass = slot is GearSlot.Weapon or GearSlot.Relic
+                ? WeaponClasses.RandomAny()
+                : WeaponClass.Greatsword;
 
-            // Greatsword because a minted record carries no class and GearItem.Class defaults
-            // there - the two have to agree or the relic could never be socketed.
-            var finisher = GearRoller.RollFinisher(slot, tier, WeaponClass.Greatsword, seed);
+            // Tier comes from DEPTH and is handed to the roller, never redrawn by it.
+            int seed = instanceId.GetHashCode();
+            var (_, _, primary, subs, ability, finisher) =
+                GearRoller.RollItem(slot, tier, seed, weaponClass);
+            int stars = RollDropStars(slot, tier, floor);
+            var grants = GearRoller.BuildGrants(slot, tier, primary, stars, subs);
 
             return new MintedGearRecord
             {
                 InstanceId = instanceId,
-                DisplayName = $"{tier} {slot}",
+                DisplayName = MintedGearRecord.NameFor(tier, slot, weaponClass),
                 Slot = slot,
                 Tier = tier,
                 Grants = grants,
@@ -371,9 +369,46 @@ namespace Convergence.Rifts
                 SubStats = subs,
                 DefensiveAbility = ability,
                 Finisher = finisher,
-                Class = WeaponClass.Greatsword,
+                Class = weaponClass,
+                UpgradeLevel = stars,
                 StatsVersion = GearRoller.TablesVersion,
             };
+        }
+
+        /// <summary>The first floor a tier drops on - where its band begins in TierFor. Keep the
+        /// two in step.</summary>
+        public static int TierStartFloor(LootTier tier) => tier switch
+        {
+            LootTier.Silver => 25,
+            LootTier.Gold => 50,
+            _ => 1,
+        };
+
+        /// <summary>
+        /// The odds a gear drop of <paramref name="tier"/> on <paramref name="floor"/> arrives at
+        /// each star level (one, two, three) - every level possible in every band, climbing with
+        /// depth into the band. See Tuning.GearRoll.DropStarRampFloors.
+        /// </summary>
+        public static (float One, float Two, float Three) DropStarOdds(LootTier tier, int floor)
+        {
+            float t = Mathf.Clamp01((floor - TierStartFloor(tier)) / Tuning.GearRoll.DropStarRampFloors);
+            return (Mathf.Lerp(Tuning.GearRoll.DropOneStarMin, Tuning.GearRoll.DropOneStarMax, t),
+                    Mathf.Lerp(Tuning.GearRoll.DropTwoStarMin, Tuning.GearRoll.DropTwoStarMax, t),
+                    Mathf.Lerp(Tuning.GearRoll.DropThreeStarMin, Tuning.GearRoll.DropThreeStarMax, t));
+        }
+
+        /// <summary>The star level a gear drop arrives at. A relic has no stats and never
+        /// combines, so it is always base.</summary>
+        static int RollDropStars(GearSlot slot, LootTier tier, int floor)
+        {
+            if (slot == GearSlot.Relic) return 0;
+            var (one, two, three) = DropStarOdds(tier, floor);
+            float r = Random.value;
+            if (r < three) return 3;
+            r -= three;
+            if (r < two) return 2;
+            r -= two;
+            return r < one ? 1 : 0;
         }
     }
 }

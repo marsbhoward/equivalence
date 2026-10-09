@@ -149,7 +149,7 @@ namespace Convergence.Chain
             var record = new MintedGearRecord
             {
                 InstanceId = $"STAKE-{stake.Slot}-{Guid.NewGuid():N}",
-                DisplayName = $"{stake.Tier} {stake.Slot}",
+                DisplayName = MintedGearRecord.NameFor(stake.Tier, stake.Slot, stake.Class),
                 Slot = stake.Slot,
                 Tier = stake.Tier,
                 PrimaryStat = stake.PrimaryStat,

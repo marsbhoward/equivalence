@@ -66,10 +66,9 @@ namespace Convergence.UI
                 "set again until the next floor closes."),
 
             new("THE FORGE",
-                "Clearing a floor earns a voucher, and the Forge is where a voucher becomes a real " +
-                "item. Walk up, choose a slot, and it rolls a fresh piece on the spot - tier, stats, " +
-                "and for chest pieces, a defensive ability - with no fee and no signature required. " +
-                "What you earn is genuinely yours; the Forge just does the crafting. " +
+                "Floors drop gear and boxes, and the Forge is where a box becomes a real item. Spend " +
+                "one for a random slot at the box's tier, or four to choose the slot - stats, and " +
+                "for chest pieces a defensive ability, are rolled on the spot. " +
                 "Two matching pieces (same slot, tier, stars and primary stat) combine into one with " +
                 "a star more - and two three-star pieces into the next tier. Sub-stats both pieces " +
                 "share are kept at the higher roll; the rest are rolled fresh. Boxes re-roll a " +

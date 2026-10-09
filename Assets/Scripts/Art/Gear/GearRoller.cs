@@ -481,17 +481,6 @@ namespace Convergence.Art.Gear
         }
 
         /// <summary>
-        /// The Forge's own tier roll. Silver/Gold only, weighted toward Silver - Diamond is
-        /// purely cosmetic (nothing here would roll) and Black Diamond is the RNG-only ceiling
-        /// tier reserved for its own drop path, not an ordinary voucher redemption.
-        /// </summary>
-        public static LootTier RollTier(int seed)
-        {
-            var rng = new Random(seed ^ 0x7EA5E7);
-            return rng.NextDouble() < Tuning.GearRoll.ForgeGoldChance ? LootTier.Gold : LootTier.Silver;
-        }
-
-        /// <summary>
         /// The star level's multiplier on every stat of the piece - base, one, two, three stars at
         /// levels 0..3. Independent of LootTier on purpose: tier is RNG rarity, stars are power
         /// bought by combining two matching items, and conflating the two would mean a lucky roll
@@ -544,23 +533,16 @@ namespace Convergence.Art.Gear
         }
 
         /// <summary>
-        /// Rolls a complete Forge redemption for one slot: tier, stats, and a defensive ability if
-        /// the slot is Torso (DefensiveAbility.Dash otherwise, ignored by every non-Torso item the
-        /// same way GearItem's own field already is). One call so a caller never has to remember
-        /// which of the rolls a given slot actually needs.
+        /// Rolls a complete item for one slot at a GIVEN tier (a box's tier is a guarantee; a
+        /// floor drop's comes from depth): stats, and a defensive ability if the slot is Torso
+        /// (DefensiveAbility.Dash otherwise, ignored by every non-Torso item the same way
+        /// GearItem's own field already is), and a finisher if it is a Relic. One call so a
+        /// caller never has to remember which of the rolls a given slot actually needs.
         ///
         /// Returns the pieces rather than a finished record on purpose - this file stays ignorant
         /// of Chain.MintedGearRecord, which depends on Art.Gear types today and would otherwise
-        /// gain a dependency back the other way for no reason.
-        /// </summary>
-        public static (LootTier Tier, StatPercents Grants, StatKind Primary, List<SubStat> SubStats,
-                       DefensiveAbility DefensiveAbility, string Finisher) RollItem(
-            GearSlot slot, int seed, WeaponClass weapon = WeaponClass.Greatsword)
-            => RollItem(slot, RollTier(seed), seed, weapon);
-
-        /// <summary>
-        /// Same as the seed-only overload, but the tier is GIVEN rather than rolled - what a box
-        /// redemption needs, since the box's own tier is a guarantee, not a weighted draw.
+        /// gain a dependency back the other way for no reason. Stars are applied by the caller
+        /// (BuildGrants with a level) - this rolls base.
         /// </summary>
         public static (LootTier Tier, StatPercents Grants, StatKind Primary, List<SubStat> SubStats,
                        DefensiveAbility DefensiveAbility, string Finisher) RollItem(

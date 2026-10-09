@@ -45,6 +45,50 @@ namespace Convergence.Chain
                r.Tier is LootTier.Bronze or LootTier.Silver or LootTier.Gold &&
                !(r.Tier == LootTier.Gold && r.UpgradeLevel >= GearRoller.MaxLevel);
 
+        // ------------------------------------------------------------------ salvage
+
+        /// <summary>
+        /// Whether a piece may be salvaged: Bronze, Silver or Gold (relics included - their roll
+        /// is a finisher, and an unwanted one is as dead as an unwanted stat). Never Diamond or
+        /// Black Diamond: those are designs and trade, and calx turning into anything tradeable
+        /// would make statted gear tradeable through the back door. The caller rules out what is
+        /// equipped or staked.
+        /// </summary>
+        public static bool Salvageable(MintedGearRecord r)
+            => r != null && r.Tier is LootTier.Bronze or LootTier.Silver or LootTier.Gold &&
+               string.IsNullOrEmpty(r.Design);
+
+        /// <summary>Calx a piece breaks into: one per base piece it is worth (2^stars).</summary>
+        public static int CalxFor(MintedGearRecord r)
+            => r == null ? 0 : 1 << Math.Clamp(r.UpgradeLevel, 0, GearRoller.MaxLevel);
+
+        /// <summary>
+        /// Whether another unequipped piece shares this one's MatchKey - a piece with a partner is
+        /// one combine away from a star, so the bulk "salvage what has no partner" leaves it.
+        /// </summary>
+        public static bool HasPartner(MintedGearRecord r, IEnumerable<MintedGearRecord> gear,
+                                      Func<string, bool> isEquipped)
+        {
+            if (!Combinable(r)) return false;
+            string key = MatchKey(r);
+            return (gear ?? Enumerable.Empty<MintedGearRecord>()).Any(o =>
+                o != r && Combinable(o) && (isEquipped == null || !isEquipped(o.InstanceId)) &&
+                MatchKey(o) == key);
+        }
+
+        /// <summary>
+        /// Adds <paramref name="calx"/> of a tier to the profile and turns every whole
+        /// CalxPerBox of it into a box. Returns the boxes made.
+        /// </summary>
+        public static int AddCalx(CharacterProfile profile, LootTier tier, int calx)
+        {
+            int total = profile.Calx.Get(tier) + calx;
+            int boxes = total / Core.Tuning.GearRoll.CalxPerBox;
+            profile.Calx.Add(tier, total - boxes * Core.Tuning.GearRoll.CalxPerBox - profile.Calx.Get(tier));
+            profile.Boxes.Add(tier, boxes);
+            return boxes;
+        }
+
         /// <summary>
         /// Two pieces combine only if this matches: slot, tier, star level and primary stat - plus
         /// the weapon class on a weapon (it decides how the thing is held) and the defensive
@@ -130,7 +174,7 @@ namespace Convergence.Chain
             var record = new MintedGearRecord
             {
                 InstanceId = $"COMBINE-{a.Slot}-{Guid.NewGuid():N}",
-                DisplayName = $"{plan.ToTier} {a.Slot}",
+                DisplayName = MintedGearRecord.NameFor(plan.ToTier, a.Slot, a.Class),
                 Slot = a.Slot,
                 Tier = plan.ToTier,
                 PrimaryStat = a.PrimaryStat,

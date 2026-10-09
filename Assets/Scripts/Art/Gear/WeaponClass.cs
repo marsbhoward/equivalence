@@ -37,6 +37,17 @@ namespace Convergence.Art.Gear
 
     public static class WeaponClasses
     {
+        /// <summary>
+        /// Every class, for anything that hands out a weapon or relic WITHOUT a player choosing
+        /// the class (a floor drop, a random box). Drawn evenly, never from the class being
+        /// played: the floor is open to every build, so a run with one weapon still finds pieces
+        /// for the others (the user's call, 2026-10-09).
+        /// </summary>
+        public static readonly WeaponClass[] All =
+            (WeaponClass[])System.Enum.GetValues(typeof(WeaponClass));
+
+        public static WeaponClass RandomAny() => All[UnityEngine.Random.Range(0, All.Length)];
+
         public static string Name(WeaponClass c) => c switch
         {
             WeaponClass.Disc => "Discs",

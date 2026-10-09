@@ -149,6 +149,13 @@ namespace Convergence.UI
                     new Vector2(34, -34), new Vector2(-12, -6)),
                     it.DisplayName, 20, CharacterScreen.TierColor(it.Tier));
 
+                // Drops arrive at up to three stars - shown as the gear picker shows them.
+                if (it.UpgradeLevel > 0)
+                    UiKit.Stars(UiKit.Rect(card, "stars", new Vector2(1, 1), new Vector2(1, 1),
+                                    new Vector2(-60, -22), new Vector2(-6, -4)),
+                                it.UpgradeLevel, Art.Gear.GearRoller.MaxLevel, 17f,
+                                new Color(1f, 0.82f, 0.3f), new Color(1f, 1f, 1f, 0.12f));
+
                 UiKit.Label(UiKit.Rect(card, "d", new Vector2(0, 0), new Vector2(1, 1),
                     new Vector2(34, 6), new Vector2(-12, -34)),
                     Detail(it), 14, new Color(0.62f, 0.65f, 0.72f));

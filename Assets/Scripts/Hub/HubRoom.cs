@@ -844,7 +844,7 @@ namespace Convergence.Hub
         }
 
         /// <summary>
-        /// Where an earned voucher becomes a real item - see Forge's own header for why it holds
+        /// Where boxes become gear - see Forge's own header for why it holds
         /// no state of its own. Placed south-centre, clear of the circle's own footprint (which
         /// reaches to y -2.625) and mirroring the terminal/crate pair either side of it along the
         /// same wall.
@@ -868,33 +868,29 @@ namespace Convergence.Hub
                     : new Prompt
                     {
                         Title = "THE FORGE",
-                        Sub = _forge.VoucherCount > 0
-                            ? $"{_forge.VoucherCount} voucher{(_forge.VoucherCount == 1 ? "" : "s")} to redeem"
-                            : _forge.HasBoxAction
-                                ? "boxes to spend"
-                                : "nothing to spend - clear a floor to earn a voucher or a box",
-                        Body = "Trade a voucher, or a box, for gear - or combine and upgrade what you own.",
-                        Key = _forge.VoucherCount > 0 || _forge.HasBoxAction ? "[ E ]  open" : "[ E ]  nothing to redeem",
+                        Sub = _forge.HasBoxAction
+                            ? "something to spend"
+                            : "nothing to spend - floors drop boxes and gear",
+                        Body = "Trade a box for gear - or combine and upgrade what you own.",
+                        Key = _forge.HasBoxAction ? "[ E ]  open" : "[ E ]  nothing to redeem",
                         Accent = new Color(1f, 0.55f, 0.15f),
                     },
                 () =>
                 {
                     if (_editMode) { BeginCarryFixture("forge"); return; }
-                    if (_forge.VoucherCount > 0 || _forge.HasBoxAction) _onOpenForge?.Invoke();
+                    if (_forge.HasBoxAction) _onOpenForge?.Invoke();
                 },
                 on => _forge.SetFocus(on));
             _points.Add(forgePoint);
             RegisterMovable("forge", _forge.transform, Tuning.Hub.ForgeFootprint, forgePoint);
         }
 
-        /// <summary>Re-reads the voucher count - called on build and after GameBootstrap finishes
+        /// <summary>Re-reads what the Forge has to offer - called on build and after GameBootstrap finishes
         /// a redemption, the same explicit-call discipline RefreshBooth uses and for the same
         /// reason: nothing here should be a delegate held on this MonoBehaviour.</summary>
         public void RefreshForge()
         {
             if (_forge == null || _profile == null) return;
-            _forge.SetVoucherCount(_profile.PendingGearVouchers);
-
             var b = _profile.Boxes;
             bool hasAnyBox = b.Bronze > 0 || b.Silver > 0 || b.Gold > 0 || b.Diamond > 0 ||
                               b.BlackDiamond > 0;
@@ -904,7 +900,12 @@ namespace Convergence.Hub
             bool canCombine = Chain.GearForge.Groups(_profile.MintedGear, equipped).Count > 0;
             bool canFuse = System.Array.Exists(Chain.GearForge.Fusions,
                 f => Chain.GearForge.CanFuse(f, _profile.MintedGear, equipped));
-            _forge.SetHasBoxAction(hasAnyBox || canCombine || canFuse);
+            // And so is a piece to salvage - otherwise a player holding only junk could not reach
+            // the one thing that turns it into boxes.
+            bool canSalvage = _profile.MintedGear.Exists(r =>
+                Chain.GearForge.Salvageable(r) && !equipped(r.InstanceId) &&
+                r.InstanceId != _profile.StakedInstanceId);
+            _forge.SetHasBoxAction(hasAnyBox || canCombine || canFuse || canSalvage);
         }
 
         public void FlashForge() => _forge?.Flash();

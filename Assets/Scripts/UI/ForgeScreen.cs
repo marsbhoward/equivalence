@@ -10,9 +10,9 @@ using Convergence.Chain;
 namespace Convergence.UI
 {
     /// <summary>
-    /// The Forge, in full: the original free-voucher redemption, box-fuelled random and targeted
-    /// redemption, COMBINING two matching pieces (the next star, or from three stars the next
-    /// tier), and RE-ROLLING one sub-stat for boxes. One screen, five tabs.
+    /// The Forge, in full: box-fuelled random and targeted redemption, COMBINING two matching
+    /// pieces (the next star, or from three stars the next tier), RE-ROLLING one sub-stat for
+    /// boxes, SALVAGING unwanted pieces into calx, and FUSING a complete Diamond set.
     ///
     /// Combining never commits from a single tap. It walks group -> the two pieces -> a PREVIEW
     /// that states what carries over, what powers up, and how many slots will be randomized
@@ -23,12 +23,12 @@ namespace Convergence.UI
     {
         public bool IsOpen { get; private set; }
 
-        enum Mode { Vouchers, Redeem, Targeted, Combine, Reroll, Fuse }
+        enum Mode { Redeem, Targeted, Combine, Reroll, Salvage, Fuse }
 
         /// <summary>Every slot the Forge can roll into. Relic is excluded - GearRoller has no
         /// pool for it (cosmetic only, same rule a weapon transmog already follows), so redeeming
         /// into it would hand back a blank item. Trinket is excluded too: it merged into Relic and
-        /// no item declares that slot any more, so redeeming into it would be a wasted voucher.</summary>
+        /// no item declares that slot any more, so redeeming into it would be wasted boxes.</summary>
         static readonly GearSlot[] Slots =
         {
             GearSlot.Head, GearSlot.Shoulders, GearSlot.Torso, GearSlot.Back,
@@ -51,14 +51,12 @@ namespace Convergence.UI
         /// since five tabs each need a different slice of it.</summary>
         public struct Context
         {
-            public int VoucherCount;
             public LootBoxes Boxes;
             /// <summary>The banked Rift Boxes, read live - a promotion spends one while the screen
             /// stays open.</summary>
             public Func<int> RiftBoxes;
             public List<MintedGearRecord> MintedGear;
             public Func<string, bool> IsEquipped;
-            public Action<GearSlot> OnPickVoucher;
             public Action<LootTier> OnRedeemRandom;
             public Action<GearSlot, LootTier, WeaponClass> OnRedeemTargeted;
             /// <summary>Combines two pieces; returns the new one, or null if refused.</summary>
@@ -69,12 +67,17 @@ namespace Convergence.UI
             /// <summary>Burns a fusion's pieces (by fusion id); returns the minted weapon, or null
             /// if refused.</summary>
             public Func<string, MintedGearRecord> OnFuse;
+            /// <summary>Salvages pieces (by instance id); returns what came of it, or null if
+            /// nothing was salvaged.</summary>
+            public Func<IReadOnlyList<string>, string> OnSalvage;
+            /// <summary>The calx short of a whole box, per tier - read live.</summary>
+            public LootBoxes Calx;
         }
 
         Context _ctx;
         GameObject _root;
         Transform _content;
-        Mode _mode = Mode.Vouchers;
+        Mode _mode = Mode.Redeem;
 
         // Multi-step picks within Redeem/Targeted, reset whenever the tab or a step changes.
         LootTier? _pickedTier;
@@ -91,6 +94,10 @@ namespace Convergence.UI
         int _page;
         GearForge.Fusion _fusion;
         MintedGearRecord _fused;
+        // Not readonly, and rebuilt if null - see the domain reload rules.
+        HashSet<string> _salvagePick = new();
+        bool _salvageConfirm;
+        string _salvageNote;
 
         void ResetSteps()
         {
@@ -98,6 +105,8 @@ namespace Convergence.UI
             _groupKey = null; _pickA = null; _plan = null; _result = null;
             _rerollItem = null; _rerollNote = null; _page = 0;
             _fusion = null; _fused = null;
+            (_salvagePick ??= new HashSet<string>()).Clear();
+            _salvageConfirm = false; _salvageNote = null;
         }
 
         readonly List<RectTransform> _focusRects = new();
@@ -108,7 +117,7 @@ namespace Convergence.UI
             if (IsOpen) return;
             IsOpen = true;
             _ctx = ctx;
-            _mode = Mode.Vouchers;
+            _mode = Mode.Redeem;
             ResetSteps();
             GamePause.Hold(this);
 
@@ -148,8 +157,9 @@ namespace Convergence.UI
 
         static readonly (Mode Mode, string Label)[] AllTabs =
         {
-            (Mode.Vouchers, "VOUCHERS"), (Mode.Redeem, "REDEEM"), (Mode.Targeted, "TARGETED"),
-            (Mode.Combine, "COMBINE"), (Mode.Reroll, "RE-ROLL"), (Mode.Fuse, "FUSE"),
+            (Mode.Redeem, "REDEEM"), (Mode.Targeted, "TARGETED"),
+            (Mode.Combine, "COMBINE"), (Mode.Reroll, "RE-ROLL"), (Mode.Salvage, "SALVAGE"),
+            (Mode.Fuse, "FUSE"),
         };
 
         /// <summary>
@@ -179,7 +189,7 @@ namespace Convergence.UI
             full = _tabs;
 
             var tabs = Tabs();
-            const float tabW = 240f, tabH = 56f, gap = 12f;
+            const float tabW = 220f, tabH = 56f, gap = 12f;
             float gridW = tabs.Count * tabW + (tabs.Count - 1) * gap;
 
             for (int i = 0; i < tabs.Count; i++)
@@ -215,11 +225,11 @@ namespace Convergence.UI
 
             switch (_mode)
             {
-                case Mode.Vouchers: BuildVouchers(); break;
                 case Mode.Redeem: BuildRedeem(); break;
                 case Mode.Targeted: BuildTargeted(); break;
                 case Mode.Combine: BuildCombine(); break;
                 case Mode.Reroll: BuildReroll(); break;
+                case Mode.Salvage: BuildSalvage(); break;
                 case Mode.Fuse: BuildFuse(); break;
             }
         }
@@ -252,26 +262,6 @@ namespace Convergence.UI
             LootTier.BlackDiamond => new Color(0.55f, 0.35f, 0.85f),
             _ => Color.white,
         };
-
-        // ------------------------------------------------------------------ Vouchers (original flow)
-
-        void BuildVouchers()
-        {
-            Subtitle($"{_ctx.VoucherCount} voucher{(_ctx.VoucherCount == 1 ? "" : "s")} - " +
-                     "pick a slot to redeem a free random roll");
-
-            for (int i = 0; i < Slots.Length; i++)
-            {
-                var slot = Slots[i];
-                var card = Card(i, 4, 220f, 130f, 22f, -50f);
-                UiKit.Label(UiKit.Rect(card, "n", Vector2.zero, Vector2.one,
-                    new Vector2(6, 6), new Vector2(-6, -6)),
-                    slot.ToString(), 22, new Color(0.96f, 0.87f, 0.74f), TextAnchor.MiddleCenter);
-
-                var chosen = slot;
-                _actions.Add((card, () => { Close(); _ctx.OnPickVoucher?.Invoke(chosen); }));
-            }
-        }
 
         // ------------------------------------------------------------------ Redeem (random slot, one box)
 
@@ -720,6 +710,122 @@ namespace Convergence.UI
             Rebuild();
         }
 
+        // ------------------------------------------------------------------ Salvage
+
+        /// <summary>
+        /// Unwanted Bronze/Silver/Gold pieces break into calx of their tier, CalxPerBox of it
+        /// making a box. Tap pieces to pick them (across pages), or PICK LONERS for every base
+        /// piece nothing else matches; SALVAGE asks once before anything is destroyed. A piece
+        /// that has a partner is marked, since it is one combine away from a star.
+        /// </summary>
+        void BuildSalvage()
+        {
+            _salvagePick ??= new HashSet<string>();
+            var eligible = (_ctx.MintedGear ?? new List<MintedGearRecord>())
+                .Where(r => GearForge.Salvageable(r) && (_ctx.IsEquipped == null || !_ctx.IsEquipped(r.InstanceId)))
+                .OrderBy(r => r.Tier).ThenBy(r => r.UpgradeLevel).ThenBy(r => r.Slot).ToList();
+            _salvagePick.RemoveWhere(id => !eligible.Exists(r => r.InstanceId == id));
+            var picked = eligible.Where(r => _salvagePick.Contains(r.InstanceId)).ToList();
+
+            if (_salvageConfirm && picked.Count > 0) { BuildSalvageConfirm(picked); return; }
+            _salvageConfirm = false;
+
+            int per = Tuning.GearRoll.CalxPerBox;
+            string held = _ctx.Calx == null ? "" :
+                $"   calx: Bronze {_ctx.Calx.Bronze}/{per}  Silver {_ctx.Calx.Silver}/{per}  Gold {_ctx.Calx.Gold}/{per}";
+            Subtitle($"tap pieces to pick them - each breaks into calx of its tier (1 for a base piece, " +
+                     $"doubling with each star), {per} make a box{held}");
+
+            if (eligible.Count == 0)
+            {
+                Line(-80f, "nothing to salvage - equipped pieces, Diamond and Black Diamond never are", 20, Dim, 1100f);
+                if (!string.IsNullOrEmpty(_salvageNote)) Line(-130f, _salvageNote, 22, CarriedInk, 1100f);
+                return;
+            }
+
+            var shown = Page(eligible);
+            for (int i = 0; i < shown.Count; i++)
+            {
+                var r = shown[i];
+                string text = ItemText(r) + $"\n{GearForge.CalxFor(r)} calx" +
+                              (GearForge.HasPartner(r, _ctx.MintedGear, _ctx.IsEquipped) ? "   HAS A PARTNER" : "");
+                var card = ItemCard(i, text, r.Tier, r.UpgradeLevel, _salvagePick.Contains(r.InstanceId));
+                var id = r.InstanceId;
+                _actions.Add((card, () =>
+                {
+                    if (!_salvagePick.Remove(id)) _salvagePick.Add(id);
+                    _salvageNote = null;
+                    Rebuild();
+                }));
+            }
+            NavRow(eligible.Count, null);
+
+            // Every BASE piece with no partner. Starred pieces and relics are left to the
+            // player - a lone two-star is still half a three-star, and a relic is a finisher.
+            Button(-840f, NavY, 260f, 128f, "PICK LONERS", QuietBg, () =>
+            {
+                foreach (var r in eligible)
+                    if (r.UpgradeLevel == 0 && GearForge.Combinable(r) &&
+                        !GearForge.HasPartner(r, _ctx.MintedGear, _ctx.IsEquipped))
+                        _salvagePick.Add(r.InstanceId);
+                _salvageNote = null;
+                Rebuild();
+            });
+            Button(580f, NavY, 260f, 128f, $"SALVAGE {picked.Count}",
+                   picked.Count > 0 ? ButtonBg : QuietBg, () =>
+            {
+                if (picked.Count == 0) return;
+                _salvageConfirm = true;
+                Rebuild();
+            });
+
+            if (!string.IsNullOrEmpty(_salvageNote)) Line(NavY - 140f, _salvageNote, 22, CarriedInk, 1400f);
+        }
+
+        void BuildSalvageConfirm(List<MintedGearRecord> picked)
+        {
+            Subtitle("these are destroyed - check before you confirm");
+
+            float y = -40f;
+            foreach (var tier in new[] { LootTier.Bronze, LootTier.Silver, LootTier.Gold })
+            {
+                var ofTier = picked.Where(r => r.Tier == tier).ToList();
+                if (ofTier.Count == 0) continue;
+                int calx = ofTier.Sum(GearForge.CalxFor);
+                int total = (_ctx.Calx?.Get(tier) ?? 0) + calx;
+                int boxes = total / Tuning.GearRoll.CalxPerBox;
+                Line(y, $"{ofTier.Count} {tier} piece{(ofTier.Count == 1 ? "" : "s")}  ->  {calx} calx" +
+                        (boxes > 0 ? $"  ->  {boxes} {tier} box{(boxes == 1 ? "" : "es")}" : "") +
+                        $"   ({total - boxes * Tuning.GearRoll.CalxPerBox} calx left over)",
+                     24, TierColor(tier), 1200f);
+                y -= 44f;
+            }
+
+            int partnered = picked.Count(r => GearForge.HasPartner(r, _ctx.MintedGear, _ctx.IsEquipped));
+            int starred = picked.Count(r => r.UpgradeLevel > 0);
+            if (partnered > 0)
+            {
+                Line(y, $"{partnered} of them could still combine with a piece you hold", 22, RefusedInk, 1200f);
+                y -= 40f;
+            }
+            if (starred > 0)
+            {
+                Line(y, $"{starred} of them carry stars", 22, RefusedInk, 1200f);
+                y -= 40f;
+            }
+            y -= 24f;
+
+            Button(-290f, y, 260f, 128f, "BACK", QuietBg, () => { _salvageConfirm = false; Rebuild(); });
+            Button(30f, y, 260f, 128f, "SALVAGE", ButtonBg, () =>
+            {
+                var ids = picked.Select(r => r.InstanceId).ToList();
+                _salvageNote = _ctx.OnSalvage?.Invoke(ids) ?? "nothing was salvaged";
+                _salvagePick.Clear();
+                _salvageConfirm = false;
+                Rebuild();
+            });
+        }
+
         // ------------------------------------------------------------------ Fuse
 
         /// <summary>
@@ -739,7 +845,7 @@ namespace Convergence.UI
                 {
                     ResetSteps();
                     // The set just burned - if it was the only one, FUSE goes with it.
-                    if (!AnyFusionHeld()) _mode = Mode.Vouchers;
+                    if (!AnyFusionHeld()) _mode = Mode.Redeem;
                     BuildTabs(_full);
                     Rebuild();
                 });

@@ -100,12 +100,6 @@ namespace Convergence.Chain
         public int BestFloor;
 
         /// <summary>
-        /// Unredeemed gear vouchers - earned during a run (one per floor cleared, banked at the
-        /// run-end checkpoint like mastery XP, forfeit on a false start), spent at the Forge.
-        /// </summary>
-        public int PendingGearVouchers;
-
-        /// <summary>
         /// Rift Boxes banked and safe, spendable on any future run.
         ///
         /// FINDABLE ONLY, NEVER PURCHASABLE, and that is a design line rather than a missing
@@ -131,6 +125,14 @@ namespace Convergence.Chain
         /// exactly right: it had not found any.
         /// </summary>
         public LootBoxes Boxes = new();
+
+        /// <summary>
+        /// CALX - what salvaging unwanted Bronze/Silver/Gold gear leaves behind, per tier, short of
+        /// a whole box (every `Tuning.GearRoll.CalxPerBox` becomes a box of that tier the moment it
+        /// is made, so this only ever holds the remainder). See GearForge's salvage section.
+        /// Diamond/BlackDiamond stay zero. Additive: older saves load at zero.
+        /// </summary>
+        public LootBoxes Calx = new();
 
         /// <summary>
         /// Every item this character has redeemed at the Forge - the LOCAL stand-in for "an item
@@ -245,6 +247,19 @@ namespace Convergence.Chain
     {
         public string InstanceId;
         public string DisplayName;
+
+        /// <summary>
+        /// The name a stat-rolled piece is minted with: tier and slot, and for a weapon or relic
+        /// its CLASS - drops and random boxes hand out every class, so "Silver Weapon" would not
+        /// say whether it fits the build.
+        /// </summary>
+        public static string NameFor(Art.Gear.LootTier tier, Art.Gear.GearSlot slot,
+                                     Art.Gear.WeaponClass weaponClass) => slot switch
+        {
+            Art.Gear.GearSlot.Weapon => $"{tier} {Art.Gear.WeaponClasses.Name(weaponClass)}",
+            Art.Gear.GearSlot.Relic => $"{tier} {Art.Gear.WeaponClasses.Name(weaponClass)} Relic",
+            _ => $"{tier} {slot}",
+        };
         public Art.Gear.GearSlot Slot;
         public Art.Gear.LootTier Tier;
         public Art.Gear.StatPercents Grants = new();
