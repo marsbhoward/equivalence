@@ -65,7 +65,7 @@ namespace Convergence.Core
         public float FloorMargin = Tuning.Arena.FloorMargin;
 
         [Header("Durability")]
-        [Tooltip("Durability each armour piece loses per hit taken.")]
+        [Tooltip("Durability each armour piece loses per hit taken, for a hit the size of the floor's Chaser swing - scaled by how hard the hit was (Tuning.Defense.WearReferenceHit).")]
         public float ArmorWearPerHit = 1.4f;
         [Tooltip("UNUSED while weapon degradation is off - nothing wears weapons and nothing " +
                  "reads their condition. Kept for the sharpness mechanic this may become.")]
@@ -2439,8 +2439,10 @@ namespace Convergence.Core
                 var m = Modifiers.Current;
                 if (m.ArmourNeverWears || info.Price) return;   // a price the run charges is not a blow
                 float resistFactor = Art.Gear.StatPercents.ReductionFactor(pc.Stats.DamageResistance);
+                float blows = Mathf.Clamp(info.Amount / (Tuning.Defense.WearReferenceHit * FloorDifficulty.Damage(_floor)),
+                                          0f, Tuning.Defense.WearMaxBlows);
                 _profile.Wear.Wear(_profile.Gear, Art.Gear.SlotKind.Armor,
-                                   ArmorWearPerHit * m.ArmourWearMul * resistFactor,
+                                   ArmorWearPerHit * blows * m.ArmourWearMul * resistFactor,
                                    pc.Stats.Armor);
             };
 

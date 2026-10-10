@@ -4592,6 +4592,19 @@ namespace Convergence.Core
         public static class Defense
         {
             /// <summary>
+            /// Armour wear is weighted by how HARD the blow was: a hit of the floor's Chaser
+            /// swing (ChaserDamage x FloorDifficulty.Damage) costs one ArmorWearPerHit, a 4.5
+            /// damage fire-pit tick ~0.3 of one. A flat wear per EVENT made every damage-over-time
+            /// tick (pits, spikes, a turret beam, a mortar's flame at 5 ticks a second) a full
+            /// blow - one floor took armour to half. Measured on the RAW amount, before
+            /// mitigation, so worn armour raising damage taken can't feed back into faster wear.
+            /// </summary>
+            public const float WearReferenceHit = Enemy.ChaserDamage;
+            /// <summary>The most wear one blow can cost, in blows - a boss mechanic sized off
+            /// max HP would otherwise strip a whole set in one read.</summary>
+            public const float WearMaxBlows = 3f;
+
+            /// <summary>
             /// Shared across all four. This is Parry Stance's ENTIRE active duration - it has no
             /// benefit beyond the check itself, which is the trade for its much shorter cooldown.
             /// </summary>
