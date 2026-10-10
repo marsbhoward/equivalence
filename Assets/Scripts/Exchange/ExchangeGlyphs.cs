@@ -34,6 +34,37 @@ namespace Convergence.Exchange
             return sprite;
         }
 
+        static readonly Dictionary<int, bool[,]> _texels = new();
+
+        /// <summary>
+        /// The same icon on an n x n TEXEL grid, [x, y] with y = 0 the top row - for the deal's
+        /// scales, which draw it into their pans texel by texel. Each texel takes 4 x 4 samples
+        /// and is on when 7 land inside: generous enough that the marks and the thin strokes
+        /// survive at 17 texels, where a centre sample alone lost them into the outline.
+        /// </summary>
+        public static bool[,] Texels(ExchangeEntry entry, int n)
+        {
+            int key = ((int)entry.Family * 100 + (int)entry.Mark) * 1000 + n;
+            if (_texels.TryGetValue(key, out var cached)) return cached;
+
+            var grid = new bool[n, n];
+            for (int ty = 0; ty < n; ty++)
+            for (int tx = 0; tx < n; tx++)
+            {
+                int hits = 0;
+                for (int a = 0; a < 4; a++)
+                for (int b = 0; b < 4; b++)
+                {
+                    float x = -1f + 2f * (tx + (a + 0.5f) / 4f) / n;
+                    float y = 1f - 2f * (ty + (b + 0.5f) / 4f) / n;
+                    if (Family(entry.Family, x, y) || Mark(entry.Mark, x, y)) hits++;
+                }
+                grid[tx, ty] = hits >= 7;
+            }
+            _texels[key] = grid;
+            return grid;
+        }
+
         // ---------------------------------------------------------------- families
 
         static bool Family(ExchangeFamily f, float x, float y) => f switch

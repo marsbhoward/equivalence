@@ -20,16 +20,20 @@ namespace Convergence.UI
 
         /// <param name="highlight">Ids to light. Anything on offer that the run already holds.</param>
         /// <param name="withNames">Names under each icon. For the sheet, not the choice row.</param>
-        public static void Build(RectTransform parent, RunModifiers mods,
-                                 ISet<string> highlight = null, bool withNames = false,
-                                 float size = 44f, float gap = 8f)
+        /// <param name="chips">Filled with each chip by entry id - the deal flies a taken icon
+        /// to its chip.</param>
+        /// <returns>Where the next chip would start, from the parent's left edge.</returns>
+        public static float Build(RectTransform parent, RunModifiers mods,
+                                  ISet<string> highlight = null, bool withNames = false,
+                                  float size = 44f, float gap = 8f,
+                                  IDictionary<string, RectTransform> chips = null)
         {
             if (mods == null || mods.Held.Count == 0)
             {
                 UiKit.Label(UiKit.Rect(parent, "empty", Vector2.zero, Vector2.one,
                     Vector2.zero, Vector2.zero),
                     "nothing taken yet", 15, new Color(0.42f, 0.45f, 0.53f), TextAnchor.MiddleLeft);
-                return;
+                return 0f;
             }
 
             // Boons and costs are grouped rather than shown in the order they were taken. The
@@ -44,7 +48,7 @@ namespace Convergence.UI
             }
 
             float x = 0f;
-            foreach (var e in boons) x = Chip(parent, mods, e, x, size, gap, highlight, withNames);
+            foreach (var e in boons) x = Chip(parent, mods, e, x, size, gap, highlight, withNames, chips);
 
             if (boons.Count > 0 && costs.Count > 0)
             {
@@ -54,11 +58,13 @@ namespace Convergence.UI
                 x += 14f;
             }
 
-            foreach (var e in costs) Chip(parent, mods, e, x, size, gap, highlight, withNames);
+            foreach (var e in costs) x = Chip(parent, mods, e, x, size, gap, highlight, withNames, chips);
+            return x;
         }
 
         static float Chip(RectTransform parent, RunModifiers mods, ExchangeEntry e, float x,
-                          float size, float gap, ISet<string> highlight, bool withNames)
+                          float size, float gap, ISet<string> highlight, bool withNames,
+                          IDictionary<string, RectTransform> chips)
         {
             int n = mods.StacksOf(e);
             bool lit = highlight != null && highlight.Contains(e.Id);
@@ -66,6 +72,7 @@ namespace Convergence.UI
             var chip = UiKit.Panel(parent, new Vector2(0, 0.5f), new Vector2(0, 0.5f),
                 new Vector2(x, -size * 0.5f), new Vector2(x + size, size * 0.5f),
                 lit ? new Color(0.20f, 0.17f, 0.09f) : new Color(0.10f, 0.11f, 0.14f));
+            if (chips != null) chips[e.Id] = chip;
 
             if (lit)
             {

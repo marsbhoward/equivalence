@@ -594,6 +594,32 @@ namespace Convergence.Core
             /// vanishing after the first floors.</summary>
             public const float LightShareDeep = 0.25f;
 
+            // ---------------------------------------------------------------- the deal's scales
+
+            /// <summary>How far a slate's scale tips per point of boon weight over cost weight.
+            /// 12 was offered for phone legibility and not yet chosen (2026-10-10).</summary>
+            public const float ScaleTiltDegrees = 9f;
+
+            /// <summary>The scale's stops: a weight difference past this tips no further.</summary>
+            public const int ScaleMaxSteps = 2;
+
+            /// <summary>An EMPTY boon pan (Debt) slams past the stops to here - the one deal that
+            /// should look alarming.</summary>
+            public const float ScaleSlamDegrees = 30f;
+
+            /// <summary>Each slate's scale starts swinging this much after the one before.</summary>
+            public const float ScaleStaggerSeconds = 0.12f;
+
+            /// <summary>Canvas units per texel at the 1920 x 1080 reference: whole screen pixels
+            /// per texel at 1080p.</summary>
+            public const float ScaleUnitsPerTexel = 5f;
+
+            /// <summary>Taking a slate: the icons lift out of the pans, fly to the ledger strip,
+            /// then the row holds a beat before it dissolves into the floor reward.</summary>
+            public const float TakeLiftSeconds = 0.2f;
+            public const float TakeFlySeconds = 0.6f;
+            public const float TakeHoldSeconds = 1.3f;
+
             // ---------------------------------------------------------------- Edge
             public const float WhetstoneDamage = 10f;
             public const float QuickeningSpeed = 8f;
