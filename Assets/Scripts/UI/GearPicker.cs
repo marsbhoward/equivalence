@@ -103,6 +103,11 @@ namespace Convergence.UI
         /// tab says "shown", because a disguise is not being worn - the piece underneath it is.</summary>
         string _wornLabel = "worn";
 
+        /// <summary>The piece the EMPTY cell stands for, drawn on it, or null. The perception
+        /// tab hands over the worn piece: "as equipped" shows it, and it is not offered again as a
+        /// perception of itself.</summary>
+        GearItem _emptyItem;
+
         /// <summary>
         /// One card: a single item, or several that are identical in every attribute.
         /// <see cref="PickId"/> is the instance actually equipped when the card is pressed.
@@ -147,7 +152,7 @@ namespace Convergence.UI
                          string equippedId, Action<string> onPick, Func<string, float> wear = null,
                          StackBy stackBy = StackBy.Attributes, List<GearItem> options = null,
                          string emptyLabel = "empty", string titleSuffix = null,
-                         string wornLabel = "worn")
+                         string wornLabel = "worn", GearItem emptyItem = null)
         {
             if (IsOpen) return;
             IsOpen = true;
@@ -160,6 +165,7 @@ namespace Convergence.UI
             _emptyLabel = string.IsNullOrEmpty(emptyLabel) ? "empty" : emptyLabel;
             _titleSuffix = titleSuffix;
             _wornLabel = string.IsNullOrEmpty(wornLabel) ? "worn" : wornLabel;
+            _emptyItem = emptyItem;
 
             // The relic socket lists by what is HELD rather than by slot - a signature relic only
             // fits beside a weapon of its own class. Everything else is a plain slot lookup.
@@ -384,6 +390,22 @@ namespace Convergence.UI
                     worn || (isEmpty && nothingWorn) ? new Color(0.14f, 0.13f, 0.09f)
                                                      : new Color(0.11f, 0.12f, 0.16f));
 
+                if (isEmpty && _emptyItem != null)
+                {
+                    var emptyLayer = GearDisplay.Represent(_emptyItem);
+                    if (emptyLayer?.Sprite != null)
+                    {
+                        var eart = UiKit.Rect(card, "art", Vector2.zero, Vector2.one,
+                                              new Vector2(16, 22), new Vector2(-16, -16));
+                        var eimg = eart.gameObject.AddComponent<Image>();
+                        eimg.sprite = emptyLayer.Sprite;
+                        eimg.preserveAspect = true;
+                        eimg.raycastTarget = false;
+                        eimg.color = emptyLayer.Tint;
+                        KindledImage.On(eimg, _emptyItem);
+                    }
+                }
+
                 if (!isEmpty)
                 {
                     var layer = GearDisplay.Represent(item);
@@ -396,6 +418,8 @@ namespace Convergence.UI
                         : art;
                     var img = holder.gameObject.AddComponent<Image>();
                     img.sprite = layer?.Sprite;
+                    // A minted piece with no art draws nothing, not a white square.
+                    img.enabled = layer?.Sprite != null;
                     img.preserveAspect = true;
                     img.raycastTarget = false;
                     img.color = layer != null ? layer.Tint : Color.white;
@@ -448,7 +472,8 @@ namespace Convergence.UI
                 // which the power figure already owns - a stacking piece is minted and carries no
                 // power today, but "today" is not a layout rule and two labels in one rect is a
                 // collision waiting for the first minted item that rolls one.
-                string name = isEmpty ? (nothingWorn ? _emptyLabel + "  (current)" : _emptyLabel)
+                string name = isEmpty ? (nothingWorn ? _emptyLabel + (_emptyItem != null ? "  (" + _wornLabel + ")" : "  (current)")
+                                                     : _emptyLabel)
                                       : item.DisplayName
                                         + (stack.Count > 1 ? "  x" + stack.Count : "")
                                         + (worn ? "  (" + _wornLabel + ")" : "");
@@ -498,6 +523,7 @@ namespace Convergence.UI
             _emptyLabel = "empty";
             _titleSuffix = null;
             _wornLabel = "worn";
+            _emptyItem = null;
         }
 
         void Update()

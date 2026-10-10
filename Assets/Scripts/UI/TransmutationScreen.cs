@@ -402,6 +402,7 @@ namespace Convergence.UI
                 var p = _profile();
                 var real = GearCatalog.Get(p.Gear.Get(slot));
                 var over = perception && !locked ? GearCatalog.Get(p.Look.Transmog.Get(slot)) : null;
+                if (Appearance.SameLook(over, real)) over = null;   // perceived as itself is no perception
                 var item = perception ? (over ?? real) : real;
 
                 // Rebuilt only when the piece changes - the Secret Fire and weapon extras hang
@@ -570,7 +571,7 @@ namespace Convergence.UI
             var real = GearCatalog.Get(p.Gear.Get(cell.Slot));
             var over = GearCatalog.Get(p.Look.Transmog.Get(cell.Slot));
             string realName = real != null ? real.DisplayName : "nothing";
-            if (over == null)
+            if (over == null || Appearance.SameLook(over, real))
                 return $"<color=#{Hex(Dim)}>{cell.Slot.ToString().ToUpper()}</color>\nas equipped  ({realName})";
 
             var sb = new StringBuilder();
@@ -770,7 +771,13 @@ namespace Convergence.UI
             // A weapon may only be perceived as another weapon of its own class - the class is
             // how the thing is HELD, so the list is narrowed before the grid ever sees it rather
             // than offered and then refused at the point of use.
-            var options = SameClassOnly(slot, GearCatalog.ForSlot(slot));
+            // ...and never as ITSELF: the worn piece is the "as equipped" cell, not a perception
+            // (the user's call, 2026-10-09) - choosing it would change nothing and still mark
+            // the slot as perceived.
+            var worn = GearCatalog.Get(_profile().Gear.Get(slot));
+            // A piece with no art has no look to be perceived as (stat-rolled gear today).
+            var options = SameClassOnly(slot, GearCatalog.ForSlot(slot))
+                .FindAll(o => !Appearance.SameLook(o, worn) && o.Layers != null && o.Layers.Length > 0);
 
             _picker.Open(_root.transform, slot, held, _profile().Look.Transmog.Get(slot),
                          id => { _profile().Look.Transmog.Set(slot, id); Commit(); },
@@ -779,7 +786,8 @@ namespace Convergence.UI
                          options: options,
                          emptyLabel: "as equipped",
                          titleSuffix: "PERCEPTION",
-                         wornLabel: "shown");
+                         wornLabel: "shown",
+                         emptyItem: worn);
         }
 
         /// <summary>

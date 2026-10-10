@@ -121,11 +121,27 @@ namespace Convergence.Chain
         /// Asks the same question <see cref="Resolve"/> does, so the loadout screen cannot label a
         /// slot "(disguised)" while the disguise is being refused for a class mismatch.
         /// </summary>
+        /// A perception that LOOKS LIKE the worn piece is not one (the user's call, 2026-10-09):
+        /// nothing on the character changes, so nothing may say it is perceived as something else.
         public bool IsTransmogged(GearSlot slot, Loadout equipped)
         {
             var over = Transmog.Get(slot);
-            return !string.IsNullOrEmpty(over) && Allowed(slot, over, equipped);
+            return !string.IsNullOrEmpty(over) && Allowed(slot, over, equipped) &&
+                   !SameLook(GearCatalog.Get(over), GearCatalog.Get(equipped.Get(slot)));
         }
+
+        /// <summary>
+        /// Whether two pieces draw the same picture: the same item, the same DESIGN (a minted
+        /// instance wears its design's art), or neither has any art at all.
+        /// </summary>
+        public static bool SameLook(GearItem a, GearItem b)
+        {
+            if (a == null || b == null) return false;
+            if (a.ItemId == b.ItemId || LookId(a) == LookId(b)) return true;
+            return (a.Layers == null || a.Layers.Length == 0) && (b.Layers == null || b.Layers.Length == 0);
+        }
+
+        static string LookId(GearItem item) => string.IsNullOrEmpty(item.DesignId) ? item.ItemId : item.DesignId;
 
         /// <summary>True when this slot HOLDS a disguise, whether or not it is being honoured.</summary>
         public bool IsTransmogged(GearSlot slot) => !string.IsNullOrEmpty(Transmog.Get(slot));
