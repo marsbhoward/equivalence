@@ -415,7 +415,7 @@ namespace Convergence.Player
             // The board's Sal Ammoniac stretches the protection and the parry window, never the
             // cooldown or the dash's distance.
             float window = Board != null ? Board.DefenseWindowMul : 1f;
-            _parryWindowRemaining = Tuning.Defense.ParryWindowSeconds * window * Mods.ParryWindowMul;   // Shackled, Unshackled
+            _parryWindowRemaining = Tuning.Defense.ParryWindowSeconds * window;
 
             switch (EquippedDefensiveAbility)
             {
@@ -495,6 +495,7 @@ namespace Convergence.Player
             ParryTell(attackerPosition);
 
             FireCounterStrike();
+            Effects?.OnParried();   // Unshackled
 
             // The board's Volatilization: a parry hands the ability straight back.
             if (Board != null && Board.RefundsOnParry) _defenseCooldown = 0f;
@@ -875,6 +876,20 @@ namespace Convergence.Player
         /// </summary>
         public System.Func<float> IncomingDamageMultiplier;
 
+        /// <summary>Supplied by the game: worn armour's penalty alone (Durability.DamageTakenMultiplier),
+        /// which IncomingDamageMultiplier leaves out while it lands outside the floor instead.</summary>
+        public System.Func<float> ArmourWearMultiplier;
+
+        /// <summary>Corrosion (Rust's Nigredo): worn armour's penalty can't be mitigated - it lands
+        /// outside the floor, so a capped build feels it too.</summary>
+        public bool WearOutsideFloor => Effects != null && Effects.WearOutsideFloor;
+
+        float WearOutside => WearOutsideFloor ? (ArmourWearMultiplier?.Invoke() ?? 1f) : 1f;
+
+        /// <summary>The armour readout the HUD shows: the mitigated multiplier and, under Corrosion,
+        /// the wear that moved outside it - the same pieces Vulnerability composes.</summary>
+        public float IncomingReadout => (IncomingDamageMultiplier?.Invoke() ?? 1f) * WearOutside;
+
         public System.Action OnWeaponUsed;
 
         /// <summary>Every attack the player starts, and whether it is a finisher - fired as the
@@ -1048,13 +1063,15 @@ namespace Convergence.Player
         float RollCrit(out bool crit) => RollCrit(null, out crit);
 
         /// <summary>
-        /// Rolls one crit against a target: the ledger may make it one without rolling (Honed,
-        /// Stoop, Cementation) and decides what it is worth (Cold Iron). Returns the multiplier.
+        /// Rolls one crit against a target: the ledger may add to this hit's chance (Honed, Stoop,
+        /// Cementation) - into the one pool, so past the cap it is crit damage - and decides what a
+        /// crit is worth (Cold Iron). Returns the multiplier.
         /// </summary>
         float RollCrit(Health target, out bool crit)
         {
-            var (chance, multiplier) = Art.Gear.StatCurves.Crit(CritChanceSum, CritMulSum);
-            crit = (Effects != null && target != null && Effects.ForcesCrit(target)) || Random.value < chance;
+            float bonus = Effects != null && target != null ? Effects.BonusCritChance(target) : 0f;
+            var (chance, multiplier) = Art.Gear.StatCurves.Crit(CritChanceSum + bonus, CritMulSum);
+            crit = Random.value < chance;
             if (!crit) return 1f;
             return Effects != null ? Effects.CritMultiplier(multiplier) : multiplier;
         }
@@ -1065,6 +1082,11 @@ namespace Convergence.Player
 
         float RollCritFor(bool isFinisher, Health target, out bool crit)
         {
+            if (isFinisher && Mods.ArtsCantCrit)   // Slag
+            {
+                crit = false;
+                return 1f;
+            }
             if (isFinisher && _strikeCrit)
             {
                 crit = true;
@@ -1102,7 +1124,7 @@ namespace Convergence.Player
         /// fraction past 1.
         /// </summary>
         float CleaveFalloff(float falloff)
-            => 1f - (1f - falloff) * Art.Gear.StatPercents.ReductionFactor(Stats.Cleave);
+            => 1f - (1f - falloff) * Art.Gear.StatPercents.ReductionFactor(Stats.Cleave + Mods.CleavePoints);
 
         Rigidbody2D _rb;
         float _cooldown;
@@ -1345,26 +1367,29 @@ namespace Convergence.Player
         /// <summary>A thrown hit (a disc, an arrow, the thrown blade) about to land: the ledger's
         /// and the board's target rules, exactly as ResolveArc applies them to a swing.
         /// <paramref name="reach01"/> is how far out it lands as a share of the throw's range.</summary>
-        public float ScaleThrownHit(Health target, float damage, bool isFinisher, bool crit, float reach01 = 0.5f)
+        public float ScaleThrownHit(Health target, float damage, bool isFinisher, bool crit, float reach01 = 0.5f,
+                                    bool first = true)
         {
             if (target == null) return damage;
             if (Effects != null)
             {
                 damage = Effects.ModifyOutgoing(target, damage, new Exchange.HitContext
                 {
-                    IsFinisher = isFinisher, Reach01 = reach01, Thrown = true, First = true,
+                    IsFinisher = isFinisher, Reach01 = reach01, Thrown = true, First = first,
                 });
                 PierceArmourFor(target);
             }
             return Board != null ? Board.ModifyOutgoing(target, damage, isFinisher, crit) : damage;
         }
 
-        /// <summary>Keen Edge: the next hit on this body passes its armour.</summary>
+        /// <summary>Keen Edge: the next hit on this body spends its armour faster.</summary>
         void PierceArmourFor(Health target)
         {
-            if (Effects == null || !Effects.PiercesArmour || target == null) return;
+            if (Effects == null || target == null) return;
+            float shred = Effects.ArmourShred;
+            if (shred <= 1f) return;
             var shell = target.GetComponent<Combat.EnemyArmor>();
-            if (shell != null && shell.Current > 0f) shell.PierceNextHit = true;
+            if (shell != null && shell.Current > 0f) shell.ShredNextHit = shred;
         }
 
         /// <summary>
@@ -1478,10 +1503,6 @@ namespace Convergence.Player
             _lockTimer = Mathf.Max(_lockTimer, seconds);
             _cooldown = Mathf.Max(_cooldown, seconds);
         }
-
-        /// <summary>The defensive ability comes back sooner (Tempered).</summary>
-        public void ShortenDefenseCooldown(float seconds)
-            => _defenseCooldown = Mathf.Max(0f, _defenseCooldown - seconds);
 
         void Update()
         {
@@ -1801,12 +1822,17 @@ namespace Convergence.Player
                 // states of the fight, not mitigation, and sit outside the floor.
                 // The ledger's costs on damage taken land OUTSIDE the floor (Paper Guard), and an
                 // entry may move the floor itself (Exposed, Adamant).
+                // The ledger's conditional REDUCTIONS (Reactive Plate, Lapis, Fortitude,
+                // Committed, Retrograde Motion) are mitigation too, so they sit inside the floor.
                 Health.Vulnerability = Art.Gear.StatCurves.Incoming(
                                            (1f - (Resource?.DamageReduction ?? 0f))
                                            * mods.DamageTakenMul
-                                           * (IncomingDamageMultiplier?.Invoke() ?? 1f),
+                                           * (IncomingDamageMultiplier?.Invoke() ?? 1f)
+                                           * (Effects != null ? Effects.MitigationNow : 1f),
                                            mods.MitigationFloor)
                                        * mods.DamageTakenOutside
+                                       * (Effects != null ? Effects.ExposureNow : 1f)   // the Nigredos' exposures
+                                       * WearOutside                                      // Corrosion
                                        * (ExposedSeconds > 0f ? _exposedMultiplier : 1f)
                                        * (Soaked ? 1f + Tuning.Hazards.WaterSoakDamageTaken : 1f)
                                        * (_status != null ? _status.StoneDamageTaken : 1f);   // stone skin
@@ -3794,7 +3820,7 @@ namespace Convergence.Player
             if (disc != null)
             {
                 disc.Crit = crit;
-                disc.Falloff = Effects != null && Effects.RicochetsKeepAll ? 1f : CleaveFalloff(disc.Falloff);   // Boomerang
+                disc.Falloff = CleaveFalloff(disc.Falloff);   // Boomerang adds run Cleave
                 disc.SplashFraction = SplashFraction;
             }
         }
@@ -3881,7 +3907,7 @@ namespace Convergence.Player
                 if (disc != null)
                 {
                     disc.Crit = crit;
-                    disc.Falloff = Effects != null && Effects.RicochetsKeepAll ? 1f : CleaveFalloff(disc.Falloff);   // Boomerang
+                    disc.Falloff = CleaveFalloff(disc.Falloff);   // Boomerang adds run Cleave
                     disc.SplashFraction = SplashFraction;
                 }
                 if (disc != null && step.DiscMarkMultiplier > 1f)
@@ -3946,8 +3972,7 @@ namespace Convergence.Player
                              Resource?.Element ?? ElementType.Fire,
                              CurrentRange, Tuning.Bow.NearFraction, isFinisher, crit);
             arrow.SplashFraction = SplashFraction;
-            // Broadhead: what the arrow pierces takes the full hit.
-            arrow.PierceFraction = Effects != null && Effects.PierceFull && PierceFraction > 0f ? 1f : PierceFraction;
+            arrow.PierceFraction = PierceFraction;   // Fletching and Broadhead add run Pierce
         }
 
         /// <summary>
@@ -4047,10 +4072,12 @@ namespace Convergence.Player
                     // than squared: an inverse-square falloff is physically honest and unreadable
                     // in play, because almost the whole circle ends up in the weak tail and the
                     // ring drawn on the ground stops describing anything the player can feel.
-                    // Expansion: full damage out to the edge.
-                    if (step.EdgeDamageFraction < 1f && !(Effects != null && Effects.FullEdge))
-                        dmg *= Mathf.Lerp(1f, step.EdgeDamageFraction,
-                                          Mathf.Clamp01(dist / Mathf.Max(range, 0.01f)));
+                    // Expansion: the edge loses less (EdgeLossKept of its loss).
+                    if (step.EdgeDamageFraction < 1f)
+                    {
+                        float edge = 1f - (1f - step.EdgeDamageFraction) * (Effects != null ? Effects.EdgeLossKept : 1f);
+                        dmg *= Mathf.Lerp(1f, edge, Mathf.Clamp01(dist / Mathf.Max(range, 0.01f)));
+                    }
                 }
                 else
                 {
@@ -4058,9 +4085,7 @@ namespace Convergence.Player
                     // every one after it takes less, floored so a big cleave still means something
                     // on its fifth target.
                     dmg *= chain;
-                    // Cleaving Habit: a basic loses nothing for each body it passes through.
-                    if (isFinisher || Effects == null || !Effects.NoChainFalloff)
-                        chain = Mathf.Max(MinChainFraction, chain * CleaveFalloff(step.ChainFalloff));
+                    chain = Mathf.Max(MinChainFraction, chain * CleaveFalloff(step.ChainFalloff));
                 }
 
                 // Worn weapons hit softer.
@@ -4316,11 +4341,7 @@ namespace Convergence.Player
             if (firedFinisher)
             {
                 ComboIndex = 0;
-                // Locked Rotation shuffles the wheel: the next weapon art is any OTHER slot's,
-                // drawn at random, instead of the next one in order.
-                RotationIndex = Mods.RotationShuffled && Slots.Count > 1
-                    ? (RotationIndex + Random.Range(1, Slots.Count)) % Slots.Count
-                    : (RotationIndex + 1) % Slots.Count;   // next slot's finisher
+                RotationIndex = (RotationIndex + 1) % Slots.Count;   // next slot's finisher
                 // Golden Chain: every third weapon art comes with no basics before it.
                 if (Effects != null && Effects.OnArtCompleted()) RefundFinisher();
             }

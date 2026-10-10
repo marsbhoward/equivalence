@@ -137,7 +137,7 @@ namespace Convergence.Art.Gear
         public static float Incoming(float multiplier) => Enabled ? Mathf.Max(S.IncomingFloor, multiplier) : multiplier;
 
         /// <summary><see cref="Incoming(float)"/> against a floor the run's ledger has moved
-        /// (Exposed raises it, Adamant lowers it); below zero keeps the usual one.</summary>
+        /// (Exposed raises it); below zero keeps the usual one.</summary>
         public static float Incoming(float multiplier, float floor)
             => !Enabled ? multiplier : Mathf.Max(floor < 0f ? S.IncomingFloor : floor, multiplier);
     }

@@ -1960,7 +1960,7 @@ namespace Convergence.Core
             _hud = gameObject.AddComponent<Hud>();
             _hud.SetWearSource(
                 () => _profile.Wear.Condition01(_profile.Gear, Art.Gear.SlotKind.Armor, _player.Stats.Armor),
-                () => _player.IncomingDamageMultiplier?.Invoke() ?? 1f,
+                () => _player.IncomingReadout,
                 () => _bonusXp);
             _hud.Build(_player, _canvas.transform);
             var staked = GearStake.Staked(_profile);
@@ -2334,13 +2334,16 @@ namespace Convergence.Core
             // The run layer joins here too: the ledger's Graze and Brace as factors of their own,
             // Patina (worn armour stops counting against you) and Lightfoot (Graze counts double
             // at full speed).
+            pc.ArmourWearMultiplier = () => Modifiers.Current.ArmourWearIgnored
+                ? 1f : _profile.Wear.DamageTakenMultiplier(_profile.Gear, pc.Stats.Armor);
             pc.IncomingDamageMultiplier = () =>
             {
                 var m = Modifiers.Current;
-                float wear = m.ArmourWearIgnored ? 1f : _profile.Wear.DamageTakenMultiplier(_profile.Gear, pc.Stats.Armor);
+                // Under Corrosion the wear moves outside the floor (PlayerController.WearOutside).
+                float wear = pc.WearOutsideFloor ? 1f : pc.ArmourWearMultiplier();
                 float graze = pc.Stats.Graze * (pc.Effects != null && pc.Effects.GrazeDoubled ? 2f : 1f);
                 return wear
-                       * Art.Gear.StatPercents.ReductionFactor(pc.Stats.Resilience)
+                       * Art.Gear.StatPercents.ReductionFactor(pc.Stats.Resilience) * m.ResilienceFactor   // Adamant
                        * (pc.IsMoving ? Art.Gear.StatPercents.ReductionFactor(graze) * m.GrazeFactor
                                       : Art.Gear.StatPercents.ReductionFactor(pc.Stats.Brace) * m.BraceFactor)
                        * (pc.BulwarkActive ? Tuning.Defense.BulwarkDamageMultiplier : 1f);
@@ -2723,7 +2726,7 @@ namespace Convergence.Core
         /// </summary>
         bool CircleDue()
         {
-            if (_planner == null || !Modifiers.HoldsNigredo) return false;
+            if (_planner == null || !Modifiers.HoldsNigredo || !Modifiers.CanTransmute) return false;
             if (IsBossFloor(_floor) || _plan.Category == Rifts.FloorCategory.Puzzle) return false;
             return CircleFloorFrom(_floor) == _floor;
         }
@@ -2769,7 +2772,9 @@ namespace Convergence.Core
             _circle?.Complete();
             if (albedo != null)
             {
-                _hud?.Flash($"{cost.Name} transmuted  -  {albedo.Name}: {albedo.Effect}");
+                int left = Tuning.Exchange.TransmutationsPerRun - Modifiers.TransmutedCount;
+                _hud?.Flash($"{cost.Name} transmuted  -  {albedo.Name}: {albedo.Effect}  " +
+                            (left > 0 ? $"({left} circle{(left == 1 ? "" : "s")} left this run)" : "(the last circle this run)"));
                 Debug.Log($"[Circle] {cost.Name} -> {albedo.Name} on floor {_floor}");
             }
         }
@@ -2832,6 +2837,7 @@ namespace Convergence.Core
             var next = _spawnQueue.Dequeue();
             var e = EnemyFactory.Spawn(next.Position(), next.Kind, _floor, _player.transform, _enemyRoot,
                                        elite: next.Elite);
+            Harden(e);
             HookDeath(e);
             _alive.Add(e);
         }
@@ -3334,7 +3340,7 @@ namespace Convergence.Core
                 if (_player) _player.RegisterKill();
                 // The board hears every death, whatever caused it - a hit, a burn, a fall.
                 if (_player && _player.Board) _player.Board.OnEnemyDied(h);
-                if (_player && _player.Effects) _player.Effects.OnEnemyDied(h);
+                if (_player && _player.Effects) _player.Effects.OnEnemyDied(h, Tuning.Exchange.KillWorthCap);
                 Spr.Flash(h.transform.position, 3.2f, new Color(1f, 0.95f, 0.8f), 0.9f);
 
                 // Cease BEFORE destroying, so the fight's coroutine and any lit slice stop on the
@@ -3457,6 +3463,7 @@ namespace Convergence.Core
                 var pos = Arena.NearestFloor(at + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * 1.6f, 0.8f);
                 var kind = Enemies.WaveComposer.EliteKinds[UnityEngine.Random.Range(0, Enemies.WaveComposer.EliteKinds.Length)];
                 var e = EnemyFactory.Spawn(pos, kind, _floor, _player.transform, _enemyRoot, elite: true);
+                Harden(e);
                 HookDeath(e);
                 _redGuard.Add(e.GetComponent<Health>());
                 if (!_rewardTaken) _alive.Add(e);
@@ -3646,11 +3653,11 @@ namespace Convergence.Core
             switch (boon)
             {
                 case Hazards.SpireBoon.Heal:
-                    _player.Health.Heal(_player.Health.Max * Tuning.Spire.HealFraction * Modifiers.Current.SpireBoonMul);
+                    _player.Health.Heal(_player.Health.Max * Tuning.Spire.HealFraction);
                     break;
                 case Hazards.SpireBoon.Repair:
                     _profile.Wear.Repair(_profile.Gear,
-                                         Tuning.Spire.RepairFraction * Modifiers.Current.SpireBoonMul * Modifiers.Current.RepairMul,
+                                         Tuning.Spire.RepairFraction * Modifiers.Current.RepairMul,
                                          _player.Stats?.Armor ?? 0f);
                     break;
                 default:
@@ -3821,15 +3828,36 @@ namespace Convergence.Core
             return Art.Gear.GearCatalog.Get(drawn.Get(Art.Gear.GearSlot.Weapon)) is { Kindled: true };
         }
 
+        /// <summary>
+        /// The ledger's hand in what an enemy brings (Induration, Coagulation, Mollification): its
+        /// health and armour scaled as it spawns - deep down armour is most of a body, so health
+        /// alone was a third of the cost on the card. The wave was bought at the factory's numbers,
+        /// so a tougher wave is a longer floor - the cost - not a smaller one.
+        /// </summary>
+        void Harden(EnemyController enemy)
+        {
+            var m = Modifiers.Current;
+            float mul = m.EnemyHealthMul * (enemy.Elite ? m.EliteHealthMul : 1f);
+            if (Mathf.Approximately(mul, 1f)) return;
+            var hp = enemy.GetComponent<Health>();
+            if (hp != null) hp.Configure(hp.Max * mul);
+            enemy.GetComponent<Combat.EnemyArmor>()?.Scale(mul);
+        }
+
         void HookDeath(EnemyController enemy)
         {
             var hp = enemy.GetComponent<Health>();
             hp.Died += h =>
             {
+                // What this body was worth against the floor's pool - the spire rises on it, a
+                // Rift Box drops in proportion to it, and the ledger's per-kill entries count it.
+                float cost = Enemies.WaveComposer.Cost(enemy.Kind, enemy.Elite, _floor);
+                float worth = cost / Enemies.WaveComposer.Ehp(EnemyKind.Chaser, false, _floor);
+
                 if (_player) _player.RegisterKill();
                 // The board hears every death, whatever caused it - a hit, a burn, a fall.
                 if (_player && _player.Board) _player.Board.OnEnemyDied(h);
-                if (_player && _player.Effects) _player.Effects.OnEnemyDied(h);
+                if (_player && _player.Effects) _player.Effects.OnEnemyDied(h, worth);
 
                 // BASIC AND ELITE ONLY. This is HookDeath, which is the wave path - a boss has its
                 // own Died handler and its own set-piece, and a weapon's cosmetic has no business
@@ -3844,11 +3872,8 @@ namespace Convergence.Core
                 else
                     Spr.Flash(h.transform.position, 0.9f, new Color(1f, 0.9f, 0.7f), 0.3f);
 
-                // What this body was worth against the floor's pool - the spire rises on it and
-                // a Rift Box drops in proportion to it.
-                float cost = Enemies.WaveComposer.Cost(enemy.Kind, enemy.Elite, _floor);
                 _spireKilled += cost;
-                TryDropRiftBox(h.transform.position, cost / Enemies.WaveComposer.Ehp(EnemyKind.Chaser, false, _floor));
+                TryDropRiftBox(h.transform.position, worth);
                 _alive.Remove(enemy);
                 Destroy(h.gameObject);
 

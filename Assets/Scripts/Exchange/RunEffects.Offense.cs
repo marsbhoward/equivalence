@@ -89,8 +89,8 @@ namespace Convergence.Exchange
         /// <summary>Lapsus: a swing that passes through leaves you stumbling.</summary>
         public bool StumblesOnWhiff => AtMax("fumbler");
 
-        /// <summary>Expansion: area attacks deal full damage out to their edge.</summary>
-        public bool FullEdge => AtMax("dilation");
+        /// <summary>Expansion: the share of an area attack's edge loss it keeps - 1 without it.</summary>
+        public float EdgeLossKept => AtMax("dilation") ? T.ExpansionEdgeLoss : 1f;
 
         /// <summary>Mired: sand and mire slow the player twice as much.</summary>
         public bool Mired => AtMax("anchored");
@@ -98,24 +98,24 @@ namespace Convergence.Exchange
         // ---------------------------------------------------------------- crits
 
         /// <summary>
-        /// Whether this hit is a crit before any roll is made: Honed (the first hit on each enemy),
-        /// Stoop (the hit after a kill), Cementation (every Nth hit on the same enemy).
+        /// Crit chance this one hit gains before it is rolled: Honed (a body above half health),
+        /// Stoop (the hit after a kill), Cementation (every Nth hit on the same enemy). It joins
+        /// the ONE pool (StatCurves.Crit) - a player at the cap gets it as crit damage instead.
+        /// They once made the hit a crit outright, stepping past the cap every other source obeys.
         /// </summary>
-        public bool ForcesCrit(Health target)
+        public float BonusCritChance(Health target)
         {
-            if (_mods == null || target == null) return false;
-            if (_stoopRemaining > 0f) return true;
-            if (Has("honed"))
-            {
-                var mk = LedgerMarks.Peek(target.gameObject);
-                if (mk == null || !mk.Struck) return true;
-            }
+            if (_mods == null || target == null) return 0f;
+            float add = 0f;
+            if (_stoopRemaining > 0f) add += T.ForcedCritChance;
+            // Honed: every hit on a body above half health - the same share however fat it is.
+            if (Has("honed") && target.Max > 0f && target.Current / target.Max > T.HonedAbove) add += T.HonedCrit;
             if (Has("cementation"))
             {
                 var mk = LedgerMarks.Peek(target.gameObject);
-                if (((mk != null ? mk.Hits : 0) + 1) % T.CementationEvery == 0) return true;
+                if (((mk != null ? mk.Hits : 0) + 1) % T.CementationEvery == 0) add += T.ForcedCritChance;
             }
-            return false;
+            return add;
         }
 
         /// <summary>
@@ -149,10 +149,16 @@ namespace Convergence.Exchange
             if (exec > 0 && (frac <= T.ExecutionerBelow || (_huntRemaining > 0f && Has("hunt"))))
                 up += T.ExecutionerDamage * exec;
 
-            if (Has("first_blood") && !h.Repeat && frac >= 0.999f)
+            // First Blood: a share of the body's own health, on the attack's MAIN target only - on
+            // every body a swing passed through it was worth more the bigger the crowd. A share
+            // rather than Damage points, which fell to nothing as bodies grew: the same opener at
+            // floor 5 and floor 95. Never a boss's.
+            float opener = 0f;
+            if (Has("first_blood") && h.First && !h.Repeat && frac >= 0.999f
+                && target.GetComponent<Bosses.Boss>() == null)
             {
                 var mk = LedgerMarks.Peek(target.gameObject);
-                if (mk == null || !mk.Struck) up += T.FirstBloodDamage;
+                if (mk == null || !mk.Struck) opener = target.Max * T.FirstBloodShare;
             }
 
             if (AtMax("long_reach") && h.Reach01 >= T.FarStrikeFrom) up += T.FarStrikeDamage;
@@ -162,10 +168,10 @@ namespace Convergence.Exchange
             if (_wakeThisSwing && !h.IsFinisher) up += T.WakeDamage;
             if (Has("deliberate")) up += T.DeliberateDamagePerBasic * _swingChainIndex;
 
-            if (Has("damascene") && !h.IsFinisher)
+            if (Has("damascene"))
             {
                 var mk = LedgerMarks.Peek(target.gameObject);
-                if (mk != null && mk.ScoredBasics > 0) up += T.DamasceneDamage;
+                if (mk != null && mk.ScoredHits > 0) up += T.DamasceneDamage;
             }
 
             var hp = Hp;
@@ -182,7 +188,7 @@ namespace Convergence.Exchange
             if (Has("mountain") && _stillSeconds > 0.25f) up += T.MountainDamage;
             if (_trapRemaining > 0f) up += T.TrapBonusDamage;
 
-            damage *= m.Factor(StatKind.Damage, up, down);
+            damage = damage * m.Factor(StatKind.Damage, up, down) + opener;
 
             // Green Lion: a weapon art settled PERFECT, in Weapon Art points.
             if (h.IsFinisher && _perfectArt && Has("green_lion"))
@@ -190,17 +196,8 @@ namespace Convergence.Exchange
             return damage;
         }
 
-        /// <summary>Keen Edge: hits ignore enemy armour.</summary>
-        public bool PiercesArmour => AtMax("whetstone");
-
-        /// <summary>Cleaving Habit: basics lose nothing for each body they pass through.</summary>
-        public bool NoChainFalloff => AtMax("wide_arc");
-
-        /// <summary>Broadhead: pierced enemies take the full hit.</summary>
-        public bool PierceFull => AtMax("fletching");
-
-        /// <summary>Boomerang: ricochets lose nothing.</summary>
-        public bool RicochetsKeepAll => AtMax("ricochet");
+        /// <summary>Keen Edge: how much faster your hits spend enemy armour - 1 without it.</summary>
+        public float ArmourShred => AtMax("whetstone") ? T.KeenEdgeShred : 1f;
 
         // ---------------------------------------------------------------- landed hits
 
@@ -221,23 +218,25 @@ namespace Convergence.Exchange
                     var marks = LedgerMarks.Of(target.gameObject);
                     marks.Struck = true;
                     marks.Hits++;
+                    // Damascene: an art scores the body for its next hits - spent one a hit, the
+                    // scoring art's own hit spending the last score before it scores again.
                     if (Has("damascene"))
                     {
-                        if (h.IsFinisher) marks.ScoredBasics = T.DamasceneBasics;
-                        else if (marks.ScoredBasics > 0) marks.ScoredBasics--;
+                        if (marks.ScoredHits > 0) marks.ScoredHits--;
+                        if (h.IsFinisher) marks.ScoredHits = T.DamasceneHits;
                     }
                 }
-                _stoopRemaining = 0f;   // Stoop's crit and Hunt's mark are each one hit's
-                _huntRemaining = 0f;
+                _stoopRemaining = 0f;   // Stoop's crit is one hit's; Hunt's lasts its seconds
             }
 
             // Fulminate: a crit bursts onto the bodies round its target.
             if (info.Crit && AtMax("vein_finder") && !h.Repeat)
                 CrowdHits.Splash(target, info.Amount, T.FulminateFraction, info.Element, _pc.gameObject, T.FulminateRadius);
 
-            // Crushing Blow: every weapon art flinches, armoured or not - denial, not displacement.
+            // Crushing Blow: every weapon art staggers what it hits - its attacks come slower,
+            // armoured or not. Not a flinch: armoured flinch is what makes an art Heavy.
             if (h.IsFinisher && AtMax("heavy_payoff") && !target.IsDead)
-                target.GetComponent<Enemies.EnemyController>()?.Flinch(Tuning.Finisher.FlinchSeconds, true);
+                _pc.Stagger(target, T.CrushingBlowStagger);
 
             // Coup de Grace: what the cut left this low, it finishes.
             if (AtMax("executioner") && !target.IsDead && target.Max > 0f
@@ -255,14 +254,17 @@ namespace Convergence.Exchange
 
             bool repeat = false;
             int rei = N("reiteration");
-            if (rei > 0)
+            // Counted per ATTACK (its main target), not per body: per body, a swing through a pack
+            // or a disc landing five times as often as a sword repeated on nearly every press.
+            if (rei > 0 && h.First)
             {
                 _hitCount++;
                 int every = Mathf.Max(2, T.ReiterationEvery - (rei - 1));
                 if (_hitCount % every == 0) repeat = true;
             }
             if (_repeatNextHit) { _repeatNextHit = false; repeat = true; }
-            if (repeat) Repeat(target, info, T.ReiterationFraction, AtMax("reiteration"));
+            // Gemini: the repeat is a whole twin of the hit, not half of it.
+            if (repeat) Repeat(target, info, Has("gemini") ? 1f : T.ReiterationFraction, AtMax("reiteration"));
 
             if (_felicityThisSwing && !_felicityUsed && h.First && !target.IsDead)
             {
@@ -272,7 +274,7 @@ namespace Convergence.Exchange
         }
 
         /// <summary>
-        /// The hit again, for a share of itself. Gemini makes every repeat a crit; Rota sends a
+        /// The hit again, for a share of itself (Gemini: all of it); Rota sends a
         /// repeat that kills on to the nearest enemy, to repeat again. A repeat is a plain hit - it
         /// repeats nothing and feeds no counter, or the boons would compound on themselves.
         /// </summary>
@@ -281,9 +283,8 @@ namespace Convergence.Exchange
             var at = target;
             for (int hops = 0; hops < 6 && at != null && !at.IsDead; hops++)
             {
-                bool crit = info.Crit || Has("gemini");
+                bool crit = info.Crit;
                 float dmg = info.Amount * fraction;
-                if (crit && !info.Crit) dmg *= _pc.CritMultiplierNow;
                 var where = (Vector2)at.transform.position;
                 at.Take(new DamageInfo(dmg, info.Element, _pc.gameObject) { IsFinisher = info.IsFinisher, Crit = crit });
                 Spr.Flash(where, 0.5f, new Color(1f, 0.95f, 0.7f), 0.18f, false);
@@ -331,8 +332,12 @@ namespace Convergence.Exchange
 
         // ---------------------------------------------------------------- kills
 
-        /// <summary>An enemy died, whatever killed it - heard from GameBootstrap.HookDeath.</summary>
-        public void OnEnemyDied(Health h)
+        /// <summary>
+        /// An enemy died, whatever killed it - heard from GameBootstrap.HookDeath.
+        /// <paramref name="worth"/> is the body's wave cost in Chaser-equivalents (the Rift Box's
+        /// measure), so the per-kill entries pay for how much killing it took, not for bodies.
+        /// </summary>
+        public void OnEnemyDied(Health h, float worth = 1f)
         {
             if (_mods == null || h == null || _pc == null) return;
             var at = h.transform.position;
@@ -342,14 +347,15 @@ namespace Convergence.Exchange
             if (AtMax("eagle")) _stoopRemaining = T.StoopSeconds;
             if (Has("hunt")) _huntRemaining = T.HuntSeconds;
 
+            float counts = Mathf.Clamp(worth, 0f, T.KillWorthCap);
             int ouro = N("ouroboros");
-            if (ouro > 0 && (Random.value < T.OuroborosChance * ouro || (AtMax("ouroboros") && byArt)))
+            if (ouro > 0 && (Random.value < T.OuroborosChance * ouro * counts || (AtMax("ouroboros") && byArt)))
             {
                 _pc.RefundFinisher();
                 Spr.Pulse(_pc.transform, 0.9f, new Color(1f, 0.85f, 0.4f, 0.7f), 0.25f, true, 1.2f);
             }
 
-            if (AtMax("rich_vein")) Resource?.Refund(T.MotherLodeRefill);
+            if (AtMax("rich_vein")) Resource?.Refund(T.MotherLodeRefill * counts);
 
             int dead = N("dead_weight");
             if (dead > 0)

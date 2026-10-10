@@ -43,7 +43,7 @@ namespace Convergence.Core
             /// switch whose entire purpose is to be flipped. This keeps the toggle honest while
             /// still needing a recompile, same as everything else here.
             /// </remarks>
-            public static readonly bool PracticeDummy = true;
+            public static readonly bool PracticeDummy = false;
 
             /// <summary>How far in front of the player the dummy is parked, in world units.</summary>
             public const float DummyDistance = 2.2f;
@@ -582,12 +582,23 @@ namespace Convergence.Core
             /// many deals - chasing an Albedo is a strategy, so it must be reachable.</summary>
             public const int MercyDeals = 3;
 
+            /// <summary>
+            /// THE CIRCLES' LIMIT: transmutations one run may make (the user's call, 2026-10-10).
+            /// With a circle at every Rift a run made ~10, and a maxed cost became an investment:
+            /// held until the next Rift, then gone with an Albedo on top - random picks out-damaged
+            /// careful ones (3.6x against 2.3x at floor 100) and a damage-only player never paid
+            /// for its costs. Five keeps "max a cost on purpose" a strategy, not the strategy
+            /// (docs/balance/2026-10-10-exchange-pricing.md). Spent, no circle is drawn and the
+            /// mercy pull stops.
+            /// </summary>
+            public const int TransmutationsPerRun = 5;
+
             /// <summary>The floor by which cost weights have climbed to the top and the bargain
             /// (a boon one weight heavier than its cost) has drifted from near-certain to rare.
             /// Twice the old 9: there are half as many deals.</summary>
             public const float BargainUntilFloor = 20f;
             public const float BargainEarly = 0.9f;
-            public const float BargainDeep = 0.15f;
+            public const float BargainDeep = 0.5f;
 
             /// <summary>Past the first floors, the chance a slate draws its cost (and so its boon)
             /// light instead of at the floor's weight - a nudge still turns up late rather than
@@ -623,11 +634,14 @@ namespace Convergence.Core
             // ---------------------------------------------------------------- Edge
             public const float WhetstoneDamage = 10f;
             public const float QuickeningSpeed = 8f;
-            public const float VeinFinderCrit = 0.05f;
+            public const float VeinFinderCrit = 0.07f;
             public const float ExecutionerBelow = 0.30f;
             public const float ExecutionerDamage = 25f;
             public const float CoupDeGraceBelow = 0.10f;
-            public const float FirstBloodDamage = 60f;
+            /// <summary>First Blood: the share of a full-health body's own health the attack's main
+            /// target loses on top of the hit. Damage points (+60, then +100) fell to nothing as
+            /// bodies grew - one hit in twenty on a floor-50 Chaser.</summary>
+            public const float FirstBloodShare = 0.12f;
             /// <summary>Every Nth landed hit repeats - N at one stack, one sooner at two.</summary>
             public const int ReiterationEvery = 5;
             public const float ReiterationFraction = 0.5f;
@@ -639,33 +653,81 @@ namespace Convergence.Core
             public const float FulminateFraction = 0.25f;
             public const float FulminateRadius = 2.2f;
 
+            /// <summary>
+            /// What Stoop and Cementation add to ONE hit's crit chance. They used to
+            /// make the hit a crit outright, which stepped past the one crit pool's cap
+            /// (Tuning.Stats.CritChanceCap); now it joins the pool, so a player already at the cap
+            /// gets the overflow as crit damage (StatCurves.Crit) like any other source.
+            /// </summary>
+            public const float ForcedCritChance = 0.5f;
+
+            /// <summary>Honed: hits on a body above this share of its health get HonedCrit - while
+            /// its armour lasts and for half its health, most hits. "The first hit on each enemy"
+            /// was one hit in twenty deep down.</summary>
+            public const float HonedAbove = 0.5f;
+            public const float HonedCrit = 0.15f;
+
+            /// <summary>Keen Edge: your hits spend enemy armour this much faster. It made them
+            /// ignore armour outright, which deep down is most of a body's effective health
+            /// (an armour bar every 20 floors, half the body's health each) - over 3x the damage
+            /// at floor 100 from one Rubedo, and Mercury's Phase Strike made redundant.</summary>
+            public const float KeenEdgeShred = 1.25f;
+
+            /// <summary>Cleaving Habit: run-layer Cleave, a Gold weapon's Cleave primary
+            /// (12 x 1.5 x 2). Basics losing NOTHING through a crowd made Cleave rolls worthless.</summary>
+            public const float CleavingHabitCleave = 36f;
+
             // ---------------------------------------------------------------- Anvil
             public const float HeavyPayoffArt = 12f;
-            public const float OuroborosChance = 0.12f;
-            public const float GreenLionArt = 15f;
+            public const float OuroborosChance = 0.25f;
+            public const float GreenLionArt = 25f;
+
+            /// <summary>Crushing Blow: seconds a weapon art staggers what it hits. It made every art
+            /// flinch armoured enemies - the one thing that defines a Heavy art.</summary>
+            public const float CrushingBlowStagger = 1.5f;
+
+            /// <summary>Celerity: the weapon art's lock at this share. Half took a Medium chain
+            /// from 3.5 intervals to 2.75 - an unbent +27% damage that stepped past the run's
+            /// attack-speed threshold and erased the weight classes' lock price.</summary>
+            public const float CelerityLockMul = 0.75f;
 
             // ---------------------------------------------------------------- Hide
             public const float ThickenedHideHp = 10f;
             public const float FortitudeBelow = 0.30f;
             public const float FortitudeMul = 0.70f;
-            public const float BloodletterLifesteal = 0.03f;
-            public const float StonestanceBrace = 10f;
+            public const float BloodletterLifesteal = 0.0075f;
+            public const float StonestanceBrace = 20f;
             public const float LapisStillSeconds = 1f;
             public const float LapisMul = 0.5f;
             public const float ReactivePlateSeconds = 2f;
             public const float ReactivePlateReduction = 0.20f;
             public const float ReactivePlateReductionII = 0.35f;
             public const float ReactivePlateCooldown = 5f;
-            public const float TemperedCooldownCut = 2f;
+
+            /// <summary>Tempered: the window's own cooldown at max stacks. It used to take 2 s off
+            /// the DEFENSIVE ABILITY's cooldown on every window - Parry Stance's is 2.5 s, so a
+            /// hit taken handed the parry straight back: parry spam, an unbroken immunity loop.
+            /// No ledger entry shortens the defensive ability; the gear stat
+            /// (AbilityCooldownReduction) is its one threshold.</summary>
+            public const float ReactivePlateCooldownTempered = 3f;
             public const float AegisRenewSeconds = 10f;
             public const float AegisRenewSecondsII = 7f;
             public const float TinWardRadius = 3f;
             /// <summary>How far the ward's break throws a body (DragToward.Push), world units.</summary>
             public const float TinWardKnockback = 2.5f;
-            public const float SecondWindHeal = 0.15f;
+            public const float SecondWindHeal = 0.08f;
             public const float SecondWindHealSeconds = 3f;
             public const float GhostwalkSeconds = 0.6f;
             public const float GhostwalkCooldown = 6f;
+
+            /// <summary>
+            /// ONE CLOCK for everything the ledger makes land as nothing - Aegis's ward, Ghostwalk's
+            /// window, Vapour's pass. After any of them turns a hit, none can for this long. Held
+            /// together they were each priced alone and stacked to well over half of all hits
+            /// negated, OUTSIDE the mitigation floor; the clock makes their sum a ceiling (one hit
+            /// in this many seconds) rather than a product nobody priced.
+            /// </summary>
+            public const float NegationGapSeconds = 4f;
 
             // ---------------------------------------------------------------- Quicksilver
             public const float FleetfootMove = 5f;
@@ -675,25 +737,29 @@ namespace Convergence.Core
             public const float EagleSeconds = 2f;
             public const float EagleSecondsII = 3f;
             public const float StoopSeconds = 2f;
-            public const float EvanescenceGraze = 10f;
+            public const float EvanescenceGraze = 20f;
             public const int VapourEvery = 4;
 
             // ---------------------------------------------------------------- Azoth
-            public const float AttunementFill = 0.30f;
-            public const float RichVeinGrowth = 10f;
+            public const float AttunementFill = 0.50f;
+            public const float RichVeinGrowth = 15f;
             public const float MotherLodeRefill = 0.10f;
-            public const float ElixirPower = 10f;
+            public const float ElixirPower = 20f;
             public const float DilationArea = 8f;
+
+            /// <summary>Expansion: the share of an area attack's edge LOSS it keeps (half). Full
+            /// damage to the edge erased the falloff the Area stat is priced against.</summary>
+            public const float ExpansionEdgeLoss = 0.5f;
             public const float ResidueSeconds = 4f;
             public const float ResidueRadius = 2.2f;
             /// <summary>Fire's residue burns, in the player's own hit units a second.</summary>
-            public const float ResidueBurnHitUnits = 1.2f;
+            public const float ResidueBurnHitUnits = 2.0f;
             public const float ResidueSoakSeconds = 3f;
             public const float ResidueSlow = 0.6f;
             public const float ResiduePull = 6f;
             public const float OverflowRefund = 0.40f;
             public const float TwinSparkDelay = 1f;
-            public const float TwinSparkScale = 0.5f;
+            public const float TwinSparkScale = 0.75f;
 
             // ---------------------------------------------------------------- Ledger
             public const int CuratorCards = 1;
@@ -711,74 +777,115 @@ namespace Convergence.Core
             /// player where they stand - no moving, no attacking.</summary>
             public const float LapsusStumble = 0.4f;
             public const float FelicityChance = 1f / 9f;
-            public const float OvercommittedLock = 0.25f;
-            public const float OverextendedTaken = 0.40f;
+            public const float OvercommittedLock = 0.30f;
+            public const float OverextendedTaken = 0.60f;
             public const float CommittedTaken = 0.40f;
             public const float ShortArmRange = 10f;
             public const float CrampedFrom = 0.5f;
             public const float CrampedDamage = 40f;
             public const float CloseQuartersWithin = 0.5f;
             public const float CloseQuartersDamage = 25f;
-            public const float DeliberateDamagePerBasic = 15f;
+            public const float DeliberateDamagePerBasic = 8f;
+
+            /// <summary>Dross, per stack: Weapon Art lost - Heavy Payoff's missing mirror, on the
+            /// half of every build's damage its arts deal. Slag (III): arts can't crit. Gilding
+            /// (its Albedo): Weapon Art.</summary>
+            public const float DrossArt = 12f;
+            public const float GildingArt = 20f;
 
             // ---------------------------------------------------------------- Brittle
             public const float ThinBloodHp = 11f;
             public const float AnaemiaAbove = 0.5f;
             public const float AnaemiaMul = 0.5f;
             public const float FuryBelow = 0.5f;
-            public const float FuryDamage = 25f;
+            public const float FuryDamage = 50f;
             /// <summary>Paper Guard, per stack: damage taken, OUTSIDE the mitigation floor.</summary>
             public const float PaperGuardTaken = 0.17f;
             public const float ExposedFloor = 0.60f;
-            public const float AdamantFloor = 0.25f;
-            public const float SlowKnitHeal = 0.15f;
+
+            /// <summary>Adamant: run-layer Resilience, inside the mitigation floor. It LOWERED the
+            /// floor from 35% to 25% - a boon moving the threshold every mitigation stat is
+            /// tuned against, worth -29% damage taken to exactly the build already at it.</summary>
+            public const float AdamantResilience = 15f;
+            public const float SlowKnitHeal = 0.20f;
             public const float HollowCeiling = 0.60f;
-            public const float VitalSparkRegen = 0.005f;
+            public const float VitalSparkRegen = 0.01f;
             public const float RustWear = 0.5f;
             public const float CorrosionRepairMul = 0.5f;
-            public const int OpenStanceHits = 2;
+            public const int OpenStanceHits = 1;
 
             // ---------------------------------------------------------------- Tithe
             /// <summary>Blood Price, per stack: max health a swing costs.</summary>
-            public const float BloodPriceSwing = 0.005f;
+            public const float BloodPriceSwing = 0.008f;
             public const float HaemorrhageBelow = 0.5f;
-            public const float PelicanHeal = 0.003f;
-            public const float WitheringPerFloor = 0.015f;
-            public const float WitheringCap = 0.30f;
+            public const float PelicanHeal = 0.006f;
+            public const float WitheringPerFloor = 0.02f;
+            public const float WitheringCap = 0.35f;
             public const float ViriditasPerFloor = 0.01f;
             public const float ViriditasCap = 0.20f;
-            public const float TollFraction = 0.06f;
-            public const float TributeHeal = 0.12f;
+            public const float TollFraction = 0.10f;
+            public const float TributeHeal = 0.20f;
             /// <summary>Souring, per stack: Damage lost for every SouringEverySeconds on a floor,
             /// up to SouringCap a stack.</summary>
-            public const float SouringDamage = 2f;
+            public const float SouringDamage = 5f;
             public const float SouringEverySeconds = 10f;
-            public const float SouringCap = 12f;
-            public const float AcetumTaken = 0.02f;
-            public const float MaturationDamage = 3f;
-            public const float MaturationCap = 30f;
-            public const float BackfireFraction = 0.08f;
+            public const float SouringCap = 20f;
+            public const float AcetumTaken = 0.05f;
+            public const float MaturationDamage = 6f;
+            public const float MaturationCap = 40f;
+            public const float BackfireFraction = 0.12f;
             public const float RecoilSeconds = 0.6f;
-            public const float ReboundHeal = 0.05f;
-            public const float DesecratedMul = 0.5f;
+            public const float ReboundHeal = 0.08f;
+
+            /// <summary>Induration, per stack: enemies' health (not bosses'). Coagulation (III):
+            /// elites have this much more on top. Mollification (its Albedo): enemies' health.
+            /// The one cost on what the ENEMY brings - it taxes every damage source at once,
+            /// releases, burns and repeats included, which Dulled's Damage points miss.</summary>
+            public const float IndurationHealth = 0.12f;
+            public const float CoagulationEliteHealth = 0.25f;
+            public const float MollificationHealth = 0.12f;
 
             // ---------------------------------------------------------------- Leaden
-            public const float AnchoredMove = 6f;
+            public const float AnchoredMove = 10f;
             public const float MiredSlowMul = 2f;
+            /// <summary>Mired (Anchored III) also slides you after you stop, as in water - the
+            /// slide that was Drag's, a one-stack cost careful players took for free.</summary>
+            public const float MiredSlide = 0.6f;
             public const float LightfootMove = 12f;
             public const float LightfootGrazeMul = 2f;
-            public const float EncumberedCooldown = 0.20f;
-            public const float ShackledWindow = 0.5f;
-            public const float UnshackledWindow = 2f;
-            public const float DragSlide = 0.6f;
+            public const float EncumberedCooldown = 0.35f;
+
+            // ---------------------------------------------------------------- the Nigredos' exposures
+            // Every Nigredo taxes every build (the user's call, 2026-10-10): the cost's own weak
+            // moment becomes a window of damage taken, OUTSIDE the mitigation floor. With five
+            // circles a run a Nigredo is the price of an Albedo, and a narrow one (a Striker maxing
+            // Leaky Vessel) cost nothing to carry to a circle.
+
+            /// <summary>Shackled (Encumbered III): while the defensive ability recharges.</summary>
+            public const float ShackledTaken = 0.25f;
+            /// <summary>Barren (Stubborn Ore III): while the meter is under BarrenBelow.</summary>
+            public const float BarrenTaken = 0.15f;
+            public const float BarrenBelow = 0.5f;
+            /// <summary>Wet Ash (Smother III): while under WetAshBelowStacks heat.</summary>
+            public const float WetAshTaken = 0.15f;
+            public const int WetAshBelowStacks = 3;
+            /// <summary>Ebb (Low Water III): while not surging.</summary>
+            public const float EbbTaken = 0.10f;
+            /// <summary>Doldrums (Becalmed III): while under DoldrumsBelow momentum.</summary>
+            public const float DoldrumsTaken = 0.15f;
+            public const float DoldrumsBelow = 0.5f;
+            /// <summary>Unshackled: a parry staggers every enemy this close, for these seconds. It
+            /// doubled the parry window, which with the board's Sal Ammoniac made 0.6 s of a
+            /// 2.5 s cycle a parry - nothing in the ledger lengthens the window now.</summary>
+            public const float UnshackledRadius = 3f;
+            public const float UnshackledStagger = 2f;
 
             // ---------------------------------------------------------------- Leaking
-            public const float StubbornOreGrowth = 15f;
-            public const float BarrenSeconds = 3f;
-            public const float ConcentratePower = 40f;
-            public const float LeakyVesselDecay = 0.30f;
-            public const float CrackedVesselSpill = 0.10f;
-            public const float SealedVesselGain = 0.05f;
+            public const float StubbornOreGrowth = 20f;
+            public const float ConcentratePower = 60f;
+            public const float LeakyVesselDecay = 0.50f;
+            public const float CrackedVesselSpill = 0.15f;
+            public const float SealedVesselGain = 0.08f;
             public const float FrayingComboMul = 0.5f;
             public const int GoldenChainEvery = 3;
 
@@ -788,23 +895,23 @@ namespace Convergence.Core
             public const float DeadWeightSeconds = 1f;   // + one per stack: 2, 3, 4
             public const float RetrogradeEvery = 10f;
             public const float RetrogradeEveryII = 6f;
-            public const float RetrogradeSeconds = 1.5f;
+            public const float RetrogradeSeconds = 2f;
             public const float RetrogradeWarning = 0.75f;
             public const float ContrarySeconds = 1f;
             public const float AntipathyEvery = 10f;
             public const float AntipathySeconds = 1.5f;
             public const float AntipathyRadius = 3f;
             public const float ProjectionEvery = 12f;
-            public const float ProjectionEveryII = 8f;
-            public const int ProjectionLines = 3;
+            public const float ProjectionEveryII = 7f;
+            public const int ProjectionLines = 4;
             public const float ProjectionWarning = 1f;
             public const float ProjectionBurn = 2f;
             /// <summary>A line's burn a second on the player, scaled like a spire's lines and every
             /// other hazard (FloorDifficulty.Damage).</summary>
             public const float ProjectionDamagePerSecond = 14f;
             public const float ProjectionHalfWidth = 0.35f;
-            public const float LeyLinesEvery = 10f;
-            public const float LeyLinesHitUnits = 1.5f;
+            public const float LeyLinesEvery = 8f;
+            public const float LeyLinesHitUnits = 5f;
 
             // ---------------------------------------------------------------- the elements
             /// <summary>The trap boons' stack II: the same bonus for all four, for the same time
@@ -819,13 +926,13 @@ namespace Convergence.Core
             public const float TailwindHoldII = 1f;
             public const float UpdraftRadius = 3f;
             public const float UpdraftKnockback = 2.5f;
-            public const float SmotherPoints = 2.5f;
+            public const float SmotherPoints = 3.5f;
             public const float PhlogistonMul = 2f;
             public const float LowWaterSurge = 12f;
-            public const float FloodVulnerability = 0.15f;
+            public const float FloodVulnerability = 0.25f;
             public const float RestlessStillSeconds = 2f;
-            public const float RestlessTaken = 0.15f;
-            public const float QuicksandSpeed = 15f;
+            public const float RestlessTaken = 0.20f;
+            public const float QuicksandSpeed = 25f;
             public const float MountainDamage = 20f;
             public const float BecalmedCritPerHit = 0.01f;
             public const float GaleMul = 2f;
@@ -834,15 +941,34 @@ namespace Convergence.Core
             public const float FletchingPierce = 15f;
             public const int RicochetBounces = 1;
 
+            /// <summary>Broadhead and Boomerang: run-layer Pierce / Cleave at a Gold weapon primary's
+            /// worth. "Pierced enemies take the full hit" and "ricochets lose nothing" erased the
+            /// stats their gear rolls are.</summary>
+            public const float BroadheadPierce = 36f;
+            public const float BoomerangCleave = 36f;
+
+            /// <summary>
+            /// The most one kill counts for in the per-kill entries (Ouroboros, Mother Lode), in
+            /// Chaser-equivalents of its wave cost - the Rift Box's measure. Counted per BODY they
+            /// scaled with how many enemies a floor had, not how much killing it took: a swarm floor
+            /// banked an art every few kills. An elite still counts for up to this many.
+            /// </summary>
+            public const float KillWorthCap = 4f;
+
             // ---------------------------------------------------------------- combinations
             public const float PhoenixRise = 0.40f;
             public const float PhoenixRadius = 3f;
-            public const float DamasceneDamage = 25f;
-            public const int DamasceneBasics = 3;
+            public const float DamasceneDamage = 18f;
+            /// <summary>Damascene: hits on the scored body that get the bonus - the next chain's
+            /// basics AND its art. Basics alone were a fifth of a chain's damage.</summary>
+            public const int DamasceneHits = 3;
             public const float HuntSeconds = 3f;
-            public const float CataclysmStagger = 1f;
+            /// <summary>Wellspring: every Nth release fires twice. "The first each floor" was one
+            /// release in three or four - a boon the model priced at 4%.</summary>
+            public const int WellspringEvery = 2;
+            public const float CataclysmStagger = 2f;
             public const float GlassBonesBelow = 0.5f;
-            public const float GlassBonesTaken = 0.25f;
+            public const float GlassBonesTaken = 0.40f;
             public const float SolNigerBeyond = 6f;
             public const float HaemophiliaFraction = 0.15f;
             public const float HaemophiliaSeconds = 3f;
@@ -850,8 +976,8 @@ namespace Convergence.Core
             /// <summary>Bloodstone: one Damage point for every this-much health missing.</summary>
             public const float BloodstoneMissingPerPoint = 0.02f;
             public const float BloodstoneCap = 30f;
-            public const float SlowFirePowerPerSecond = 2f;
-            public const float SlowFireCap = 40f;
+            public const float SlowFirePowerPerSecond = 3f;
+            public const float SlowFireCap = 60f;
             public const float BlindsightCrit = 0.10f;
             public const float RetrogradeMotionMove = 40f;
             public const float RetrogradeMotionTakenMul = 0.70f;

@@ -42,17 +42,29 @@ namespace Convergence.Balance
 
         /// <summary>Mean offers refused per run.</summary>
         public float Refused;
+
+        /// <summary>Per run on average: costs transmuted at a circle, Rubedos reached (boons held
+        /// at max stacks), combinations taken - the Phase 5 catalogue's per-run targets.</summary>
+        public float Transmuted, Rubedos, Combinations;
+
+        /// <summary>Each simulated run's ledger as it stood on the last floor - for attribution.</summary>
+        public readonly List<RunModifiers> Finals = new();
     }
 
     public static partial class Assay
     {
         static readonly Dictionary<string, Curve> _curves = new();
 
+        /// <summary>False runs the ledger with no transmutation circles - to see what they are
+        /// worth. A setting for eval, never a model of the game.</summary>
+        public static bool Circles = true;
+
         /// <summary>Forget every cached curve and build - after a tuning change, from eval.</summary>
         public static void Invalidate()
         {
             _curves.Clear();
             _builds.Clear();
+            _attribution.Clear();
         }
 
         /// <summary>
@@ -63,7 +75,7 @@ namespace Convergence.Balance
         public static Curve Run(Build b, Policy policy, int runs = 100,
                                 int refusalCap = int.MaxValue, int refusalStreak = int.MaxValue, int offerEvery = 0)
         {
-            string key = $"{b.Key}|{policy}|{runs}|{refusalCap}|{refusalStreak}|{offerEvery}|{StatCurves.Enabled}";
+            string key = $"{b.Key}|{policy}|{runs}|{refusalCap}|{refusalStreak}|{offerEvery}|{StatCurves.Enabled}|{Circles}";
             if (_curves.TryGetValue(key, out var cached)) return cached;
 
             var curve = new Curve();
@@ -99,6 +111,16 @@ namespace Convergence.Balance
                         // The floor clears before the deal: Withering takes its cut first.
                         ledger.FloorCleared();
 
+                        // A transmutation circle, on the floors before each Rift: a held Nigredo
+                        // leaves the ledger and its Albedo joins it. PlayerPower never had them, so
+                        // a legacy build skips them and still replays it.
+                        if (Circles && !b.Legacy && floor % Assume.CircleEveryFloors == 0 && ledger.HoldsNigredo
+                            && ledger.CanTransmute)   // the run's cap, as GameBootstrap.CircleDue
+                        {
+                            ledger.Transmute(ChooseNigredo(b, policy, ledger, floor, pick));
+                            curve.Transmuted++;
+                        }
+
                         // The game's own cadence (ExchangeOffers.DealAfter), or every Nth floor
                         // when a report asks for another.
                         if (offerEvery <= 0 ? !ExchangeOffers.DealAfter(floor) : floor % offerEvery != 0) continue;
@@ -122,10 +144,13 @@ namespace Convergence.Balance
                         if (chosen.Cost != null) ledger.Take(chosen.Cost);
                     }
 
+                    curve.Finals.Add(ledger);
                     foreach (var e in ledger.Held)
                     {
                         held.TryGetValue(e.Id, out var count);
                         held[e.Id] = count + ledger.StacksOf(e.Id);
+                        if (e.Kind == ExchangeKind.Boon && e.Stackable && ledger.AtCap(e)) curve.Rubedos++;
+                        if (e.IsCombination) curve.Combinations++;
                     }
                 }
             }
@@ -145,6 +170,9 @@ namespace Convergence.Balance
             }
             foreach (var kv in held) curve.Held[kv.Key] = kv.Value / runs;
             curve.Refused = refused / (float)runs;
+            curve.Transmuted /= runs;
+            curve.Rubedos /= runs;
+            curve.Combinations /= runs;
 
             _curves[key] = curve;
             return curve;
@@ -190,7 +218,7 @@ namespace Convergence.Balance
                     {
                         int w = wither + (pair.Cost?.Id == "withering" ? 1 : 0);
                         var trial = Trial(b, ledger, pair, floor, w - wither);
-                        float u = Utility(trial);
+                        float u = Utility(trial) + Lookahead(b, ledger, pair, floor);
                         if (u >= fallbackBest) { fallbackBest = u; fallback = pair; }
                         if (trial.EffectiveHp < floorHp || trial.Ehp < minEhp) continue;
                         if (u < best) continue;
@@ -201,6 +229,67 @@ namespace Convergence.Balance
                     return chosen ?? (offer.CanRefuse ? null : fallback);
                 }
             }
+        }
+
+        /// <summary>Which held Nigredo a circle takes: the policy's own measure of the ledger after
+        /// it - at random, by damage, or by the sensible utility.</summary>
+        static ExchangeEntry ChooseNigredo(Build b, Policy policy, RunModifiers ledger, int floor, System.Random pick)
+        {
+            var nigredos = ledger.Nigredos();
+            if (nigredos.Count == 1 || policy == Policy.Random) return nigredos[pick.Next(nigredos.Count)];
+            ExchangeEntry best = nigredos[0];
+            float bestScore = float.MinValue;
+            foreach (var cost in nigredos)
+            {
+                var after = ledger.Clone();
+                after.Transmute(cost);
+                var w = Evaluate(b, after.Current, after.StacksOf, floor);
+                float score = policy == Policy.Greedy ? w.Dps : Utility(w);
+                if (score > bestScore) { bestScore = score; best = cost; }
+            }
+            return best;
+        }
+
+        /// <summary>
+        /// A deal-shaping entry's price, which lands on the NEXT deal (Debt, Indenture, Caput
+        /// Mortuum, Speculum): the next deal built with it taken and without, the same draw for
+        /// both, and the difference in the best the careful player could do there. Without it the
+        /// policy saw them as free - they change nothing about the character now - and took them in
+        /// four runs of five.
+        /// </summary>
+        static float Lookahead(Build b, RunModifiers ledger, ExchangePair pair, int floor)
+        {
+            float u = 0f;
+            if (pair.Cost != null && pair.Cost.Recurring) u += NextDealWith(b, ledger, pair.Cost, floor) - NextDealWith(b, ledger, null, floor);
+            if (pair.Boon != null && pair.Boon.Recurring) u += NextDealWith(b, ledger, pair.Boon, floor) - NextDealWith(b, ledger, null, floor);
+            return u;
+        }
+
+        /// <summary>The best utility the careful player could reach at the next deal, with
+        /// <paramref name="shaper"/> taken now (or nothing) - averaged over a few draws of that
+        /// deal (one draw is mostly noise), each the same with and without. A pair that is itself
+        /// a deal shaper is left out: it would need a lookahead of its own.</summary>
+        static float NextDealWith(Build b, RunModifiers ledger, ExchangeEntry shaper, int floor)
+        {
+            const int Draws = 4;
+            int next = ExchangeOffers.NextDealFloor(floor);
+            float sum = 0f;
+            for (int d = 0; d < Draws; d++)
+            {
+                var c = ledger.Clone();
+                if (shaper != null) c.Take(shaper);
+                var offer = ExchangeOffers.Build(c, next, new System.Random(floor * 7919 + 17 + d * 104729));
+                float stay = Utility(Evaluate(b, c.Current, c.StacksOf, next));
+                float best = float.MinValue;
+                foreach (var p in offer.Pairs)
+                {
+                    if ((p.Cost != null && p.Cost.Recurring) || (p.Boon != null && p.Boon.Recurring)) continue;
+                    best = Mathf.Max(best, Utility(Trial(b, c, p, next, 0)));
+                }
+                if (offer.CanRefuse || best == float.MinValue) best = Mathf.Max(best, stay);
+                sum += best;
+            }
+            return sum / Draws;
         }
 
         /// <summary>What the sensible player maximises: damage and survival weighted equally.</summary>

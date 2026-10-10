@@ -17,6 +17,8 @@ namespace Convergence.Balance
         public float BasicHit, ArtHit;
         public float CritChance, CritMul, CritFactor;
         public float HitsPerSecond;
+        /// <summary>Share of the chain spent locked by the weapon art (Committed, Overextended).</summary>
+        public float LockShare;
 
         /// <summary>The average hit of the chain on a CRIT - what a crit-triggered status is a share of.</summary>
         public float CritHit => (Basics * BasicHit + ArtHit) / Mathf.Max(1, Basics + 1) / Mathf.Max(1e-4f, CritFactor) * CritMul;

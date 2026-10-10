@@ -11,7 +11,6 @@ namespace Convergence.Exchange
     {
         // ---------------------------------------------------------------- state
 
-        float _barrenRemaining;
         float _fillSeconds;
         float _trapRemaining;
 
@@ -27,7 +26,6 @@ namespace Convergence.Exchange
 
         void TickElement(float dt, float meter01)
         {
-            Countdown(ref _barrenRemaining, dt);
             if (meter01 < 0.999f) _fillSeconds += dt;
 
             // The trap boons' stack II: the bonus is held while touching the element's own
@@ -60,9 +58,8 @@ namespace Convergence.Exchange
 
         // ---------------------------------------------------------------- the meter
 
-        /// <summary>The run's side of how fast the meter builds: the ledger's Element Growth,
-        /// nothing at all through Barren's seconds.</summary>
-        public float GainMul => _barrenRemaining > 0f ? 0f : M.GainMul;
+        /// <summary>The run's side of how fast the meter builds: the ledger's Element Growth.</summary>
+        public float GainMul => M.GainMul;
 
         /// <summary>How fast the meter fades or decays (Leaky Vessel; Sealed Vessel stops it).</summary>
         public float DecayMul => M.DecayMul;
@@ -116,12 +113,10 @@ namespace Convergence.Exchange
                                    T.ResidueSeconds, _pc);
 
             if (Has("twin_spark")) ScheduleRepeat(T.TwinSparkDelay, T.TwinSparkScale);
-            if (Has("wellspring") && !_wellspringSpent)
+            if (Has("wellspring") && ++_wellspringCount % T.WellspringEvery == 0)
             {
-                _wellspringSpent = true;
                 ScheduleRepeat(T.TwinSparkDelay * 0.6f, 1f);
             }
-            if (AtMax("stubborn_ore")) _barrenRemaining = T.BarrenSeconds;   // Barren
             _fillSeconds = 0f;
 
             // The elements' own capstones.

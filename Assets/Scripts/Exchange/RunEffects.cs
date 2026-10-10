@@ -49,7 +49,8 @@ namespace Convergence.Exchange
         float _floorSeconds;
         bool _secondWindSpent;
         int _openStanceHits;
-        bool _wellspringSpent;
+        /// <summary>Releases this run, for Wellspring's every-Nth.</summary>
+        int _wellspringCount;
 
         /// <summary>Seconds on this floor, for Souring, Maturation and Acetum.</summary>
         public float FloorSeconds => _floorSeconds;
@@ -85,9 +86,9 @@ namespace Convergence.Exchange
             _floorSeconds = 0f;
             _secondWindSpent = false;
             _openStanceHits = 0;
-            _wellspringSpent = false;
             _wardReady = Has("aegis_cycle");
             _wardTimer = 0f;
+            _negationLock = 0f;
             _retroTimer = RetrogradeEvery;
             _projectionTimer = ProjectionEvery * 0.5f;
             _leyTimer = T.LeyLinesEvery * 0.5f;

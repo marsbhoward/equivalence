@@ -14,6 +14,10 @@ namespace Convergence.Exchange
         float _reactiveRemaining, _reactiveCooldown;
         float _ghostRemaining, _ghostCooldown;
         int _vapourCount;
+
+        /// <summary>The one clock every ledger negation shares (Tuning.Exchange.NegationGapSeconds):
+        /// while it runs, the ward holds, Vapour lets the hit land and Ghostwalk does not start.</summary>
+        float _negationLock;
         float _secondWindHealLeft;
         float _riseTo;
 
@@ -26,6 +30,7 @@ namespace Convergence.Exchange
             Countdown(ref _reactiveCooldown, dt);
             Countdown(ref _ghostRemaining, dt);
             Countdown(ref _ghostCooldown, dt);
+            Countdown(ref _negationLock, dt);
 
             var hp = Hp;
 
@@ -96,40 +101,95 @@ namespace Convergence.Exchange
         }
 
         /// <summary>
-        /// Incoming damage after mitigation and before it is subtracted - OUTSIDE the floor, so
-        /// these bite every build alike. The ward and the untouchable windows come first (nothing
-        /// lands), then the multipliers, then whatever a hit taken sets going.
+        /// The ledger's conditional REDUCTIONS right now - Lapis, Reactive Plate, Fortitude,
+        /// Committed, Retrograde Motion. Mitigation like any other, so PlayerController folds it
+        /// INSIDE the one floor (StatCurves.Incoming): they used to land after it, so a build at
+        /// the floor could still halve and halve again.
+        /// </summary>
+        public float MitigationNow
+        {
+            get
+            {
+                if (_mods == null) return 1f;
+                float f = 1f;
+                if (LapisReady) f *= T.LapisMul;
+                if (_reactiveRemaining > 0f)
+                    f *= 1f - (AtMax("reactive_plate") ? T.ReactivePlateReductionII : T.ReactivePlateReduction);
+                var hp = Hp;
+                float mine = hp != null && hp.Max > 0f ? hp.Current / hp.Max : 1f;
+                if (AtMax("thickened_hide") && mine < T.FortitudeBelow) f *= T.FortitudeMul;
+                if (Has("committed") && _pc != null && _pc.AttackLocked) f *= 1f - T.CommittedTaken;
+                if (Has("retrograde_motion") && Has("retrograde") && InputsInverted) f *= T.RetrogradeMotionTakenMul;
+                return f;
+            }
+        }
+
+        /// <summary>
+        /// The Nigredos' exposures right now - each cost's own weak moment, a window of damage taken
+        /// OUTSIDE the mitigation floor: Shackled (the defensive ability recharging), Barren (the
+        /// meter under half), Wet Ash (Fire under three heat), Ebb (Water out of its surge),
+        /// Doldrums (Air under half momentum).
+        /// </summary>
+        public float ExposureNow
+        {
+            get
+            {
+                if (_mods == null) return 1f;
+                float f = 1f;
+                if (AtMax("encumbered") && _pc != null && !_pc.DefenseReady) f *= 1f + T.ShackledTaken;
+                var r = Resource;
+                if (r == null) return f;
+                if (AtMax("stubborn_ore") && r.Fill01 < T.BarrenBelow) f *= 1f + T.BarrenTaken;
+                if (AtMax("smother") && r is Player.FireResource fire && fire.Stacks < T.WetAshBelowStacks) f *= 1f + T.WetAshTaken;
+                if (AtMax("low_water") && r is Player.WaterResource water && !water.Surging) f *= 1f + T.EbbTaken;
+                if (AtMax("becalmed") && r is Player.AirResource air && air.Momentum < T.DoldrumsBelow) f *= 1f + T.DoldrumsTaken;
+                return f;
+            }
+        }
+
+        /// <summary>Corrosion: worn armour's penalty lands outside the floor.</summary>
+        public bool WearOutsideFloor => AtMax("rust");
+
+        /// <summary>Lapis: a second planted halves the next hit.</summary>
+        bool LapisReady => AtMax("stonestance") && _stillSeconds >= T.LapisStillSeconds;
+
+        /// <summary>
+        /// Incoming damage after mitigation and before it is subtracted. The ward and the
+        /// untouchable windows come first (nothing lands - and they share ONE clock,
+        /// NegationGapSeconds), then the costs' multipliers, which sit OUTSIDE the floor so they
+        /// bite every build alike, then whatever a hit taken sets going.
         /// </summary>
         public float ModifyIncoming(float amount)
         {
             if (_mods == null || amount <= 0f) return amount;
 
-            if (_wardReady && Has("aegis_cycle"))
+            if (_ghostRemaining > 0f) return 0f;   // the window already spent the clock
+            if (_negationLock <= 0f)
             {
-                _wardReady = false;
-                _wardTimer = AtMax("aegis_cycle") ? T.AegisRenewSecondsII : T.AegisRenewSeconds;
-                if (_pc != null)
+                if (_wardReady && Has("aegis_cycle"))
                 {
-                    Spr.Flash(_pc.transform.position, 1.2f, new Color(0.7f, 0.85f, 1f), 0.3f);
-                    if (AtMax("aegis_cycle")) Push(_pc.transform.position, T.TinWardRadius, T.TinWardKnockback);
+                    _wardReady = false;
+                    _wardTimer = AtMax("aegis_cycle") ? T.AegisRenewSecondsII : T.AegisRenewSeconds;
+                    _negationLock = T.NegationGapSeconds;
+                    if (_pc != null)
+                    {
+                        Spr.Flash(_pc.transform.position, 1.2f, new Color(0.7f, 0.85f, 1f), 0.3f);
+                        if (AtMax("aegis_cycle")) Push(_pc.transform.position, T.TinWardRadius, T.TinWardKnockback);
+                    }
+                    return 0f;
                 }
-                return 0f;
-            }
-            if (_ghostRemaining > 0f) return 0f;
-            if (AtMax("evanescence") && _pc != null && _pc.IsMoving && ++_vapourCount % T.VapourEvery == 0)
-            {
-                Spr.Flash(_pc.transform.position, 0.8f, new Color(0.85f, 0.95f, 1f, 0.6f), 0.2f);
-                return 0f;
+                if (AtMax("evanescence") && _pc != null && _pc.IsMoving && ++_vapourCount % T.VapourEvery == 0)
+                {
+                    _negationLock = T.NegationGapSeconds;
+                    Spr.Flash(_pc.transform.position, 0.8f, new Color(0.85f, 0.95f, 1f, 0.6f), 0.2f);
+                    return 0f;
+                }
             }
 
+            // Lapis is spent by the hit it softened (MitigationNow already halved it).
+            if (LapisReady) _stillSeconds = 0f;
+
             float f = 1f;
-            if (AtMax("stonestance") && _stillSeconds >= T.LapisStillSeconds)
-            {
-                f *= T.LapisMul;
-                _stillSeconds = 0f;   // the next one wants another second planted
-            }
-            if (_reactiveRemaining > 0f)
-                f *= 1f - (AtMax("reactive_plate") ? T.ReactivePlateReductionII : T.ReactivePlateReduction);
             if (Has("open_stance") && _openStanceHits < T.OpenStanceHits)
             {
                 _openStanceHits++;
@@ -138,20 +198,31 @@ namespace Convergence.Exchange
 
             var hp = Hp;
             float mine = hp != null && hp.Max > 0f ? hp.Current / hp.Max : 1f;
-            if (AtMax("thickened_hide") && mine < T.FortitudeBelow) f *= T.FortitudeMul;
             if (Has("glass_bones") && mine < T.GlassBonesBelow) f *= 1f + T.GlassBonesTaken;
-            if (_pc != null && _pc.AttackLocked)
-            {
-                if (AtMax("overcommitted")) f *= 1f + T.OverextendedTaken;
-                if (Has("committed")) f *= 1f - T.CommittedTaken;
-            }
+            if (_pc != null && _pc.AttackLocked && AtMax("overcommitted")) f *= 1f + T.OverextendedTaken;
             int restless = N("restless");
             if (restless > 0 && _stillSeconds >= T.RestlessStillSeconds) f *= 1f + T.RestlessTaken * restless;
-            if (Has("retrograde_motion") && Has("retrograde") && InputsInverted) f *= T.RetrogradeMotionTakenMul;
 
             amount *= f;
             OnHitTaken(amount);
             return amount;
+        }
+
+        /// <summary>The chest's parry turned a hit (not Riposte's guard): Unshackled staggers the
+        /// crowd round you.</summary>
+        public void OnParried()
+        {
+            if (_mods == null || _pc == null || !Has("unshackled")) return;
+            Enemies.EnemyRegistry.Prune();
+            Vector2 at = _pc.transform.position;
+            foreach (var e in Enemies.EnemyRegistry.All)
+            {
+                if (e == null) continue;
+                var hp = e.GetComponent<Health>();
+                if (hp == null || hp.IsDead) continue;
+                if (((Vector2)e.transform.position - at).sqrMagnitude > T.UnshackledRadius * T.UnshackledRadius) continue;
+                _pc.Stagger(hp, T.UnshackledStagger);
+            }
         }
 
         /// <summary>The windows and spills a hit taken sets going.</summary>
@@ -160,13 +231,14 @@ namespace Convergence.Exchange
             if (Has("reactive_plate") && _reactiveCooldown <= 0f)
             {
                 _reactiveRemaining = T.ReactivePlateSeconds;
-                _reactiveCooldown = T.ReactivePlateCooldown;
-                if (AtMax("reactive_plate")) _pc?.ShortenDefenseCooldown(T.TemperedCooldownCut);   // Tempered
+                _reactiveCooldown = AtMax("reactive_plate") ? T.ReactivePlateCooldownTempered   // Tempered
+                                                            : T.ReactivePlateCooldown;
             }
-            if (Has("ghostwalk") && _ghostCooldown <= 0f)
+            if (Has("ghostwalk") && _ghostCooldown <= 0f && _negationLock <= 0f)
             {
                 _ghostRemaining = T.GhostwalkSeconds;
                 _ghostCooldown = T.GhostwalkCooldown;
+                _negationLock = T.GhostwalkSeconds + T.NegationGapSeconds;
             }
             if (AtMax("retrograde")) _contraryRemaining = T.ContrarySeconds;   // Contrary
             if (AtMax("leaky_vessel")) Resource?.Spill(T.CrackedVesselSpill);   // Cracked Vessel

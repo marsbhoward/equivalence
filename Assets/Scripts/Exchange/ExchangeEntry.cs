@@ -121,6 +121,17 @@ namespace Convergence.Exchange
         /// <summary>Graze and Brace from the run, as damage factors (StatPercents.ReductionFactor).</summary>
         public float GrazeFactor = 1f, BraceFactor = 1f;
 
+        /// <summary>Resilience from the run (Adamant), as a damage factor - inside the one floor.</summary>
+        public float ResilienceFactor = 1f;
+
+        /// <summary>Cleave the run adds to the character's (Cleaving Habit, Boomerang) - the same
+        /// per-body falloff gear's Cleave shrinks.</summary>
+        public float CleavePoints;
+
+        /// <summary>Floors cleared while Senescence is held - read by the balance model; the game
+        /// reads RunModifiers.Senescence.</summary>
+        public int SenescenceFloors;
+
         /// <summary>Pierce the run adds - a share of an arrow's hit, bows only.</summary>
         public float PierceAdd;
 
@@ -139,8 +150,9 @@ namespace Convergence.Exchange
         /// of defence softens a cost.</summary>
         public float DamageTakenOutside = 1f;
 
-        /// <summary>The mitigation floor when an entry moves it (Exposed, Adamant); below zero
-        /// keeps Tuning.Stats.IncomingFloor.</summary>
+        /// <summary>The mitigation floor when a COST moves it (Exposed); below zero keeps
+        /// Tuning.Stats.IncomingFloor. No boon lowers it - it is the threshold every mitigation
+        /// stat is tuned against.</summary>
         public float MitigationFloor = -1f;
 
         public float HealMul = 1f;
@@ -168,7 +180,6 @@ namespace Convergence.Exchange
         public float StrikeWidthMul = 1f;
 
         public float DefenseCooldownMul = 1f;
-        public float ParryWindowMul = 1f;
 
         /// <summary>How eagerly auto-target leaves its target for a better one.</summary>
         public float SwitchAdvantageDelta;
@@ -188,9 +199,15 @@ namespace Convergence.Exchange
         /// say how a fight on an enemy is going.</summary>
         public bool HideEnemyReadouts;
 
-        /// <summary>A spire boon's strength (Desecrated), and the floors it outlasts its own (Lodestone).</summary>
-        public float SpireBoonMul = 1f;
+        /// <summary>The floors a spire boon outlasts its own (Lodestone).</summary>
         public int SpireExtraFloors;
+
+        /// <summary>Every enemy's health when it spawns, bosses' excepted (Induration,
+        /// Mollification), and an elite's on top of that (Coagulation).</summary>
+        public float EnemyHealthMul = 1f, EliteHealthMul = 1f;
+
+        /// <summary>Slag (Dross III): weapon arts never crit.</summary>
+        public bool ArtsCantCrit;
 
         public int BasicsPerChainDelta;
 
@@ -209,10 +226,7 @@ namespace Convergence.Exchange
         /// <summary>Rooted: no moving while ANY swing plays.</summary>
         public bool RootedWhileSwinging;
 
-        /// <summary>Locked Rotation: the next weapon art is drawn at random from the wheel.</summary>
-        public bool RotationShuffled;
-
-        /// <summary>Extra slide when you stop, 0 for none (Drag).</summary>
+        /// <summary>Extra slide when you stop, 0 for none (Mired).</summary>
         public float ExtraSlide;
     }
 
@@ -230,14 +244,31 @@ namespace Convergence.Exchange
         public bool Forced;
         public bool NoBoon;
 
+        /// <summary>Weight added to the next deal's drawn boons (Indenture: -1).</summary>
+        public int BoonWeightDelta;
+
+        /// <summary>Pairs taken off the deal AFTER the next (Caput Mortuum's second deal) - moved
+        /// into PairsDelta when the next deal is built.</summary>
+        public int PairsDeltaNext;
+
+        /// <summary>The deal AFTER the next can't be refused either (Caput Mortuum's second).</summary>
+        public bool ForcedNext;
+
         public void Clear()
         {
             PairsDelta = 0;
             Forced = false;
             NoBoon = false;
+            BoonWeightDelta = 0;
+            PairsDeltaNext = 0;
+            ForcedNext = false;
         }
 
-        public PendingOffer Copy() => new PendingOffer { PairsDelta = PairsDelta, Forced = Forced, NoBoon = NoBoon };
+        public PendingOffer Copy() => new PendingOffer
+        {
+            PairsDelta = PairsDelta, Forced = Forced, NoBoon = NoBoon,
+            BoonWeightDelta = BoonWeightDelta, PairsDeltaNext = PairsDeltaNext, ForcedNext = ForcedNext,
+        };
     }
 
     /// <summary>

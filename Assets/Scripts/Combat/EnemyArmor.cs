@@ -60,13 +60,31 @@ namespace Convergence.Combat
         /// </summary>
         public bool PierceNextHit;
 
+        /// <summary>The pool scaled as the body spawns, full (the exchange's Induration and
+        /// Mollification - GameBootstrap.Harden).</summary>
+        public void Scale(float mul)
+        {
+            Max *= mul;
+            Current = Max;
+            BarSize *= mul;
+        }
+
+        /// <summary>
+        /// Set for one incoming hit by the ledger's Keen Edge: that hit spends the pool this much
+        /// faster (it takes amount x shred off the pool, and what was left over passes on at its
+        /// own size). 1 is an ordinary hit. A flag like PierceNextHit, for the same reason.
+        /// </summary>
+        public float ShredNextHit = 1f;
+
         float Absorb(float amount)
         {
+            float shred = Mathf.Max(1f, ShredNextHit);
+            ShredNextHit = 1f;
             if (PierceNextHit) { PierceNextHit = false; return amount; }
             if (Current <= 0f) return amount;
-            float absorbed = Mathf.Min(Current, amount);
+            float absorbed = Mathf.Min(Current, amount * shred);
             Current -= absorbed;
-            return amount - absorbed;
+            return amount - absorbed / shred;
         }
     }
 }

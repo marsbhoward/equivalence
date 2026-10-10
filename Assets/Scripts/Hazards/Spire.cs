@@ -74,12 +74,11 @@ namespace Convergence.Hazards
         {
             // Points, added exactly as the ledger's own entries add them (ExchangeCatalog), so the
             // Vessel bends a spire and a boon as one total.
-            // Desecrated (Mods.SpireBoonMul) shrinks every one of them.
-            SpireBoon.Might => m => m.Add(Art.Gear.StatKind.Damage, Tuning.Spire.DamagePoints * m.SpireBoonMul),
-            SpireBoon.Haste => m => m.Add(Art.Gear.StatKind.AttackSpeed, Tuning.Spire.AttackSpeedPoints * m.SpireBoonMul),
-            SpireBoon.Swiftness => m => m.Add(Art.Gear.StatKind.MoveSpeed, Tuning.Spire.MoveSpeedPoints * m.SpireBoonMul),
-            SpireBoon.Precision => m => m.BonusCrit += Tuning.Spire.CritChance * m.SpireBoonMul,
-            SpireBoon.Aegis => m => m.DamageTakenMul *= 1f - (1f - Tuning.Spire.DamageTakenMul) * m.SpireBoonMul,
+            SpireBoon.Might => m => m.Add(Art.Gear.StatKind.Damage, Tuning.Spire.DamagePoints),
+            SpireBoon.Haste => m => m.Add(Art.Gear.StatKind.AttackSpeed, Tuning.Spire.AttackSpeedPoints),
+            SpireBoon.Swiftness => m => m.Add(Art.Gear.StatKind.MoveSpeed, Tuning.Spire.MoveSpeedPoints),
+            SpireBoon.Precision => m => m.BonusCrit += Tuning.Spire.CritChance,
+            SpireBoon.Aegis => m => m.DamageTakenMul *= Tuning.Spire.DamageTakenMul,
             _ => null,
         };
 

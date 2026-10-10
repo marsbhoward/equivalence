@@ -70,7 +70,12 @@ namespace Convergence.Exchange
             int pairs = Mathf.Clamp(T.BasePairs + pending.PairsDelta, 1, T.MaxPairs);
             offer.Forced = pending.Forced;
             bool noBoon = pending.NoBoon;
+            int boonShift = pending.BoonWeightDelta;
+            int carry = pending.PairsDeltaNext;
+            bool forcedNext = pending.ForcedNext;
             pending.Clear();
+            pending.PairsDelta = carry;   // Caput Mortuum's second deal
+            pending.Forced = forcedNext;
             offer.RefusalsLeft = mods.RefusalsLeft;
             offer.CanRefuse = !offer.Forced && mods.RefusalsLeft > 0;
 
@@ -96,7 +101,9 @@ namespace Convergence.Exchange
                 int costWeight = Mathf.Max(1, target - (i % 2));
                 if (costWeight > 1 && rng.NextDouble() < T.LightShareDeep) costWeight = 1;
                 int bonus = rng.NextDouble() < bargain ? 1 : 0;
-                int boonWeight = Mathf.Clamp(costWeight + bonus, 1, 3);
+                // Indenture: the boon is drawn lighter than its cost would earn. (Heavier costs did
+                // nothing past floor 20, where costs are drawn at the top weight already.)
+                int boonWeight = Mathf.Clamp(costWeight + bonus + boonShift, 1, 3);
 
                 var cost = Draw(mods, ExchangeKind.Cost, costWeight, used, rng);
                 var boon = Draw(mods, ExchangeKind.Boon, boonWeight, used, rng);
@@ -146,7 +153,8 @@ namespace Convergence.Exchange
                 int wait = mods.DealsSince(e);
                 if (e.Kind == ExchangeKind.Cost)
                 {
-                    if (e.AlbedoId == null || held != e.MaxStacks - 1 || wait < T.MercyDeals) continue;
+                    // No mercy once the run's transmutations are spent: there is no Albedo to chase.
+                    if (!mods.CanTransmute || e.AlbedoId == null || held != e.MaxStacks - 1 || wait < T.MercyDeals) continue;
                     if (wait > mercyWait) { mercy = e; mercyWait = wait; }
                 }
                 else

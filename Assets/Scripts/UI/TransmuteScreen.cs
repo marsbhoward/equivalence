@@ -43,7 +43,8 @@ namespace Convergence.UI
             UiKit.Label(UiKit.Rect(full, "t", new Vector2(0, 1), new Vector2(1, 1), new Vector2(0, -150), new Vector2(0, -80)),
                 "THE CIRCLE IS LIT", 40, new Color(0.86f, 0.72f, 0.38f), TextAnchor.MiddleCenter);
             UiKit.Label(UiKit.Rect(full, "s", new Vector2(0, 1), new Vector2(1, 1), new Vector2(0, -190), new Vector2(0, -150)),
-                "choose one Nigredo to transmute - the others wait for the next circle", 18,
+                $"choose one Nigredo to transmute - the others wait for the next circle  " +
+                $"({mods.TransmutedCount + 1} of {Core.Tuning.Exchange.TransmutationsPerRun} this run)", 18,
                 new Color(0.55f, 0.58f, 0.66f), TextAnchor.MiddleCenter);
 
             const float w = 340f, gap = 24f;

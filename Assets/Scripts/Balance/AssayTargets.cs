@@ -118,9 +118,13 @@ namespace Convergence.Balance
             Row(sb, "damage-only over sensible", $"<= {Targets.GreedyOverSensible:0.00}x", $"{greedy / sensible:0.00}x",
                 greedy / sensible <= Targets.GreedyOverSensible);
 
-            var bites = CostBites(Make(Archetype.Striker, ElementType.Fire, Kit.Max), 50);
-            int severe = bites.Count(r => r.Bite >= Targets.CostAtMaxStacks);
-            Row(sb, "costs at max stacks severe for Max", $"all >= {Targets.CostAtMaxStacks:P0}",
+            // Each stackable cost on the build it hurts most (an element's own costs on that
+            // element) - checked on one Fire Striker, every other element's costs read as free.
+            var bites = Exchange.ExchangeCatalog.All
+                .Where(e => e.Kind == Exchange.ExchangeKind.Cost && e.Stackable && e.Origin == Exchange.EntryOrigin.Base)
+                .Select(e => MaxBite(e, 50)).ToList();
+            int severe = bites.Count(b => b >= Targets.CostAtMaxStacks);
+            Row(sb, "stackable costs at max severe for Max", $"all >= {Targets.CostAtMaxStacks:P0}",
                 $"{severe} of {bites.Count}", severe == bites.Count);
 
             var fresh = Run(Reference(ElementType.Fire), Policy.Sensible, 60);

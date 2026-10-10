@@ -129,14 +129,14 @@ namespace Convergence.Exchange
             // ---- Edge: strikes ----
             B("whetstone", "Whetstone", Edge, Bar, 2, 3, $"+{N(T.WhetstoneDamage)} Damage.",
               (m, n) => m.Add(StatKind.Damage, T.WhetstoneDamage * n), conditional: true)
-              .Cap("Keen Edge", "your hits ignore enemy armour.");
+              .Cap("Keen Edge", $"your hits strip enemy armour {Pct(T.KeenEdgeShred - 1f)} faster.");
             B("quickening", "Quickening", Edge, Dot2, 2, 3, $"+{N(T.QuickeningSpeed)} Attack Speed.",
               (m, n) =>
               {
                   m.Add(StatKind.AttackSpeed, T.QuickeningSpeed * n);
-                  if (n >= 3) m.LockMul *= 0.5f;
+                  if (n >= 3) m.LockMul *= T.CelerityLockMul;
               })
-              .Cap("Celerity", "weapon arts lock you for half as long.");
+              .Cap("Celerity", $"weapon arts lock you {Pct(1f - T.CelerityLockMul)} less long.");
             B("vein_finder", "Vein Finder", Edge, Dot3, 2, 3, $"+{Pct(T.VeinFinderCrit)} crit chance.",
               (m, n) => m.BonusCrit += T.VeinFinderCrit * n, conditional: true)
               .Cap("Fulminate", $"a crit bursts for {Pct(T.FulminateFraction)} of the hit onto enemies around its target.");
@@ -144,25 +144,30 @@ namespace Convergence.Exchange
               $"+{N(T.ExecutionerDamage)} Damage against enemies under {Pct(T.ExecutionerBelow)} health.", conditional: true)
               .Cap("Coup de Grace", $"a non-elite you hit below {Pct(T.CoupDeGraceBelow)} health dies outright.");
             B("first_blood", "First Blood", Edge, Dot1, 2, 1,
-              $"Your first hit on each full-health enemy gets +{N(T.FirstBloodDamage)} Damage.", conditional: true);
+              $"The first time an attack's main target is a full-health enemy, it also loses {Pct(T.FirstBloodShare)} of its health (not a boss).",
+              conditional: true);
             B("reiteration", "Reiteration", Edge, Ring, 2, 2,
-              $"Every {T.ReiterationEvery}th landed hit ({T.ReiterationEvery - 1}th at II) strikes again for {Pct(T.ReiterationFraction)}.",
+              $"Every {T.ReiterationEvery}th attack that lands ({T.ReiterationEvery - 1}th at II) strikes its target again for {Pct(T.ReiterationFraction)}.",
               conditional: true)
               .Cap("Rota", "a repeat that kills leaps to the nearest enemy and repeats again.");
             B("long_reach", "Long Reach", Edge, Stroke, 1, 3, $"+{N(T.LongReachRange)} Range.",
               (m, n) => m.Add(StatKind.Range, T.LongReachRange * n), conditional: true)
               .Cap("Far Strike", $"hits in the outer quarter of your reach get +{N(T.FarStrikeDamage)} Damage.");
             B("wide_arc", "Wide Arc", Edge, Cross, 1, 2, $"+{Pct(T.WideArcWidth)} swing width.",
-              (m, n) => m.StrikeWidthMul += T.WideArcWidth * n, conditional: true)
-              .Cap("Cleaving Habit", "basics lose nothing for each body they pass through.")
+              (m, n) =>
+              {
+                  m.StrikeWidthMul += T.WideArcWidth * n;
+                  if (n >= 2) m.Add(StatKind.Cleave, T.CleavingHabitCleave);
+              })
+              .Cap("Cleaving Habit", $"+{N(T.CleavingHabitCleave)} Cleave.")
               .ForClasses(WeaponClass.Greatsword, WeaponClass.Disc);
 
             // ---- Anvil: weapon arts ----
             B("heavy_payoff", "Heavy Payoff", Anvil, Bar, 2, 3, $"+{N(T.HeavyPayoffArt)} Weapon Art.",
               (m, n) => m.Add(StatKind.FinisherPower, T.HeavyPayoffArt * n), conditional: true)
-              .Cap("Crushing Blow", "every weapon art flinches what it hits, armoured or not.");
+              .Cap("Crushing Blow", $"every weapon art staggers what it hits for {Sec(T.CrushingBlowStagger)}.");
             B("ouroboros", "Ouroboros", Anvil, Ring, 2, 3,
-              $"A kill has a {Pct(T.OuroborosChance)} chance to bank your weapon art at once.", conditional: true)
+              $"A kill has a {Pct(T.OuroborosChance)} chance to bank your weapon art at once (an elite's counts for more).", conditional: true)
               .Cap("The Serpent Eats", "a weapon art that kills banks the next one at once.");
             B("green_lion", "Green Lion", Anvil, Drop, 2, 2, $"PERFECT weapon arts get +{N(T.GreenLionArt)} Weapon Art.",
               conditional: true)
@@ -187,9 +192,10 @@ namespace Convergence.Exchange
               $"After a hit, {Sec(T.ReactivePlateSeconds)} of -{Pct(T.ReactivePlateReduction)} damage taken " +
               $"(-{Pct(T.ReactivePlateReductionII)} at II), at most once every {Sec(T.ReactivePlateCooldown)}.",
               conditional: true)
-              .Cap("Tempered", $"the window also takes {Sec(T.TemperedCooldownCut)} off your defensive ability's cooldown.");
+              .Cap("Tempered", $"the window comes back after {Sec(T.ReactivePlateCooldownTempered)} instead of {Sec(T.ReactivePlateCooldown)}.");
             B("aegis_cycle", "Aegis Cycle", Hide, Ring, 3, 2,
-              $"A ward that cancels one hit, renewing every {Sec(T.AegisRenewSeconds)} ({Sec(T.AegisRenewSecondsII)} at II).",
+              $"A ward that cancels one hit, renewing every {Sec(T.AegisRenewSeconds)} ({Sec(T.AegisRenewSecondsII)} at II). " +
+              $"Nothing in the ledger cancels another hit for {Sec(T.NegationGapSeconds)} after.",
               conditional: true)
               .Cap("Tin Ward", "when the ward breaks it throws nearby enemies back.");
             B("second_wind", "Second Wind", Hide, Stroke, 3, 1,
@@ -202,31 +208,33 @@ namespace Convergence.Exchange
             B("fleetfoot", "Fleetfoot", Quick, Dot2, 1, 3, $"+{N(T.FleetfootMove)} Move Speed.",
               (m, n) => m.Add(StatKind.MoveSpeed, T.FleetfootMove * n), conditional: true)
               .Cap("Wake", $"after {Sec(T.WakeAfterSeconds)} at full speed, your next basic gets +{N(T.WakeDamage)} Damage.");
-            B("eagle", "Eagle", Quick, Stroke, 2, 2,
+            B("eagle", "Eagle", Quick, Stroke, 1, 2,
               $"After a kill, +{N(T.EagleMove)} Move Speed for {Sec(T.EagleSeconds)} ({Sec(T.EagleSecondsII)} at II).",
               conditional: true)
-              .Cap("Stoop", $"after a kill, your next hit within {Sec(T.StoopSeconds)} is a crit.");
+              .Cap("Stoop", $"after a kill, your next hit within {Sec(T.StoopSeconds)} has +{Pct(T.ForcedCritChance)} crit chance.");
             B("evanescence", "Evanescence", Quick, Bar, 2, 3, $"+{N(T.EvanescenceGraze)} Graze (mitigation while moving).",
               (m, n) => m.Add(StatKind.Graze, T.EvanescenceGraze * n), conditional: true)
-              .Cap("Vapour", $"while moving, every {T.VapourEvery}th hit you take passes through you.");
+              .Cap("Vapour", $"while moving, every {T.VapourEvery}th hit you take passes through you " +
+                              $"(nothing else in the ledger cancels one for {Sec(T.NegationGapSeconds)} after).");
             B("ghostwalk", "Ghostwalk", Quick, Ring, 3, 1,
-              $"After a hit, {Sec(T.GhostwalkSeconds)} untouchable, at most once every {Sec(T.GhostwalkCooldown)}.",
+              $"After a hit, {Sec(T.GhostwalkSeconds)} untouchable, at most once every {Sec(T.GhostwalkCooldown)}. " +
+              $"Nothing in the ledger cancels another hit for {Sec(T.NegationGapSeconds)} after.",
               conditional: true);
 
             // ---- Azoth: the element ----
             B("attunement", "Attunement", Azoth, Dot1, 1, 2, $"Start each floor with {Pct(T.AttunementFill)} of your meter.",
               (m, n) => m.StartMeterFraction = n >= 2 ? 1f : T.AttunementFill * n, conditional: true)
               .Cap("Primed", "you start each floor with it full instead.");
-            B("rich_vein", "Rich Vein", Azoth, Dot3, 2, 3, $"+{N(T.RichVeinGrowth)} Element Growth (Fire: heat lasts longer).",
+            B("rich_vein", "Rich Vein", Azoth, Dot3, 1, 3, $"+{N(T.RichVeinGrowth)} Element Growth (Fire: heat lasts longer).",
               (m, n) => m.Add(StatKind.ElementGrowth, T.RichVeinGrowth * n), conditional: true)
-              .Cap("Mother Lode", $"a kill refills {Pct(T.MotherLodeRefill)} of your meter.");
-            B("elixir", "Elixir", Azoth, Drop, 2, 3, $"+{N(T.ElixirPower)} Elemental Power.",
+              .Cap("Mother Lode", $"a kill refills {Pct(T.MotherLodeRefill)} of your meter (an elite's more).");
+            B("elixir", "Elixir", Azoth, Drop, 1, 3, $"+{N(T.ElixirPower)} Elemental Power.",
               (m, n) => m.Add(StatKind.ElementalEffectiveness, T.ElixirPower * n), conditional: true)
               .Cap("Grand Elixir", "your releases can crit.");
             B("dilation", "Dilation", Azoth, Ring, 1, 3, $"+{N(T.DilationArea)} Area.",
               (m, n) => m.Add(StatKind.AoeRadius, T.DilationArea * n), conditional: true)
-              .Cap("Expansion", "area attacks deal full damage out to their edge.");
-            B("residue", "Residue", Azoth, Cross, 2, 1,
+              .Cap("Expansion", $"area attacks lose {Pct(1f - T.ExpansionEdgeLoss)} less damage toward their edge.");
+            B("residue", "Residue", Azoth, Cross, 1, 1,
               $"A release leaves {Sec(T.ResidueSeconds)} of your element on the ground: Fire burns, Water soaks, Earth slows, Air pulls in.",
               conditional: true);
             B("overflow", "Overflow", Azoth, Bar, 3, 1, $"A release refunds {Pct(T.OverflowRefund)} of its meter.",
@@ -242,7 +250,7 @@ namespace Convergence.Exchange
               conditional: true);
             B("scrying_glass", "Scrying Glass", Ledger, Dot2, 2, 1,
               "See what the next floor holds - and its roster, if it is a fight.", conditional: true);
-            B("lodestone", "Lodestone", Ledger, Stroke, 2, 1, "A spire boon you capture lasts one more floor.",
+            B("lodestone", "Lodestone", Ledger, Stroke, 1, 1, "A spire boon you capture lasts one more floor.",
               (m, n) => m.SpireExtraFloors += T.LodestoneFloors);
             B("prima_materia", "Speculum", Ledger, Cross, 2, 1, "The next deal shows three pairs.")
               .Recurs(p => p.PairsDelta += 1);
@@ -269,6 +277,20 @@ namespace Convergence.Exchange
             C("overcommitted", "Overcommitted", Blunt, Dot3, 2, 3, $"Weapon arts lock you {Pct(T.OvercommittedLock)} longer.",
               (m, n) => m.LockMul *= 1f + T.OvercommittedLock * n, conditional: true)
               .Cap("Overextended", $"+{Pct(T.OverextendedTaken)} damage taken while an art locks you (outside the floor).");
+            C("dross", "Dross", Blunt, Ring, 2, 3, $"-{N(T.DrossArt)} Weapon Art.",
+              (m, n) =>
+              {
+                  m.Add(StatKind.FinisherPower, -T.DrossArt * n);
+                  if (n >= 3) m.ArtsCantCrit = true;
+              })
+              .Cap("Slag", "your weapon arts can't crit.");
+            C("induration", "Induration", Blunt, Drop, 2, 3, $"Enemies have {Pct(T.IndurationHealth)} more health and armour (not bosses).",
+              (m, n) =>
+              {
+                  m.EnemyHealthMul *= 1f + T.IndurationHealth * n;
+                  if (n >= 3) m.EliteHealthMul *= 1f + T.CoagulationEliteHealth;
+              })
+              .Cap("Coagulation", $"elites have {Pct(T.CoagulationEliteHealth)} more on top.");
             C("short_arm", "Short Arm", Blunt, Stroke, 1, 3, $"-{N(T.ShortArmRange)} Range.",
               (m, n) => m.Add(StatKind.Range, -T.ShortArmRange * n), conditional: true)
               .Cap("Cramped", $"hits beyond half your reach get -{N(T.CrampedDamage)} Damage.");
@@ -298,9 +320,10 @@ namespace Convergence.Exchange
                   m.ArmourWearMul *= 1f + T.RustWear * n;
                   if (n >= 3) m.RepairMul *= T.CorrosionRepairMul;
               })
-              .Cap("Corrosion", "repairs from every source are halved.");
+              .Cap("Corrosion", "repairs from every source are halved, and the damage worn armour adds can't be mitigated.");
             C("open_stance", "Open Stance", Brittle, Dot1, 1, 1,
-              $"The first {T.OpenStanceHits} hits you take each floor deal double.", conditional: true);
+              T.OpenStanceHits == 1 ? "The first hit you take each floor deals double."
+                                    : $"The first {T.OpenStanceHits} hits you take each floor deal double.", conditional: true);
 
             // ---- Tithe: prices paid ----
             C("blood_price", "Blood Price", Tithe, Bar, 3, 2, $"Every swing costs {Pct(T.BloodPriceSwing)} of max health.",
@@ -312,7 +335,7 @@ namespace Convergence.Exchange
               .Cap("Desiccation", "the loss no longer stops.");
             C("toll", "Toll", Tithe, Dot2, 1, 3, $"Clearing a floor costs {Pct(T.TollFraction)} of current health.",
               conditional: true)
-              .Cap("Usury", "the toll is taken from max health instead.");
+              .Cap("Usury", "the toll is a share of MAX health instead of what you have left.");
             C("souring", "Souring", Tithe, Stroke, 2, 3,
               $"-{N(T.SouringDamage)} Damage for every {Sec(T.SouringEverySeconds)} on a floor (resets each floor).",
               conditional: true)
@@ -320,49 +343,45 @@ namespace Convergence.Exchange
             C("backfire", "Backfire", Tithe, Cross, 2, 3, $"A release costs you {Pct(T.BackfireFraction)} of max health.",
               conditional: true)
               .Cap("Recoil", $"a release also roots you for {Sec(T.RecoilSeconds)} - no moving or attacking.");
-            C("desecrated", "Desecrated", Tithe, Drop, 1, 1, "Spire boons are halved.",
-              (m, n) => m.SpireBoonMul *= T.DesecratedMul);
-            C("caput_mortuum", "Caput Mortuum", Tithe, Ring, 2, 1, "The next deal shows one pair.")
-              .Recurs(p => p.PairsDelta -= 1);
-            C("indenture", "Indenture", Tithe, Dot1, 2, 1, "The next deal can't be refused.")
-              .Recurs(p => p.Forced = true);
-            C("debt", "Debt", Tithe, NoMark, 3, 1, "The next deal gives its cost and no boon.")
-              .Recurs(p => p.NoBoon = true);
+            // The deal shapers were free (2026-10-10): run with them out of the pool, careful runs
+            // ended no stronger - they filled a cost slot a real cost would have. Each now takes
+            // something a deal is worth.
+            C("caput_mortuum", "Caput Mortuum", Tithe, Ring, 2, 1, "The next two deals show one pair each, and can't be refused.")
+              .Recurs(p => { p.PairsDelta -= 1; p.PairsDeltaNext -= 1; p.Forced = true; p.ForcedNext = true; });
+            C("indenture", "Indenture", Tithe, Dot1, 2, 1, "The next deal can't be refused, and its boons are one weight lighter.")
+              .Recurs(p => { p.Forced = true; p.BoonWeightDelta -= 1; });
+            C("debt", "Debt", Tithe, NoMark, 3, 1, "The next deal gives its cost and no boon, and can't be refused.")
+              .Recurs(p => { p.NoBoon = true; p.Forced = true; });
 
             // ---- Leaden: movement ----
             C("anchored", "Anchored", Leaden, Bar, 2, 3, $"-{N(T.AnchoredMove)} Move Speed.",
-              (m, n) => m.Add(StatKind.MoveSpeed, -T.AnchoredMove * n), conditional: true)
-              .Cap("Mired", "sand and mire slow you twice as much.");
-            C("encumbered", "Encumbered", Leaden, Dot3, 2, 3, $"Defensive ability cooldown +{Pct(T.EncumberedCooldown)}.",
               (m, n) =>
               {
-                  m.DefenseCooldownMul *= 1f + T.EncumberedCooldown * n;
-                  if (n >= 3) m.ParryWindowMul *= T.ShackledWindow;
-              })
-              .Cap("Shackled", "your parry window is halved.");
+                  m.Add(StatKind.MoveSpeed, -T.AnchoredMove * n);
+                  if (n >= 3) m.ExtraSlide += T.MiredSlide;
+              }, conditional: true)
+              .Cap("Mired", "sand and mire slow you twice as much, and you slide after you stop, as if in water.");
+            C("encumbered", "Encumbered", Leaden, Dot3, 2, 3, $"Defensive ability cooldown +{Pct(T.EncumberedCooldown)}.",
+              (m, n) => m.DefenseCooldownMul *= 1f + T.EncumberedCooldown * n, conditional: true)
+              .Cap("Shackled", $"while your defensive ability recharges, you take {Pct(T.ShackledTaken)} more damage.");
             C("rooted", "Rooted", Leaden, Cross, 2, 1, "You can't move while any swing plays, basics included.",
               (m, n) => m.RootedWhileSwinging = true);
-            C("drag", "Drag", Leaden, Stroke, 1, 1, "You slide after you stop, everywhere, as if in water.",
-              (m, n) => m.ExtraSlide += T.DragSlide);
 
             // ---- Leaking: the element and the chain ----
             C("stubborn_ore", "Stubborn Ore", Leaking, Dot3, 2, 3,
               $"-{N(T.StubbornOreGrowth)} Element Growth (the meter fills slower; Fire's heat fades sooner).",
               (m, n) => m.Add(StatKind.ElementGrowth, -T.StubbornOreGrowth * n), conditional: true)
-              .Cap("Barren", $"after a release, nothing fills your meter for {Sec(T.BarrenSeconds)}.");
+              .Cap("Barren", $"while your meter is under {Pct(T.BarrenBelow)}, you take {Pct(T.BarrenTaken)} more damage.");
             C("leaky_vessel", "Leaky Vessel", Leaking, Drop, 1, 3, $"Your meter fades {Pct(T.LeakyVesselDecay)} faster.",
               (m, n) => m.DecayMul *= 1f + T.LeakyVesselDecay * n, conditional: true)
               .Cap("Cracked Vessel", $"every hit you take spills {Pct(T.CrackedVesselSpill)} of your meter.");
-            C("long_chain", "Long Chain", Leaking, Dot2, 3, 2, "One more basic before every weapon art.",
+            C("long_chain", "Long Chain", Leaking, Dot2, 2, 2, "One more basic before every weapon art.",
               (m, n) =>
               {
                   m.BasicsPerChainDelta += n;
                   if (n >= 2) m.ComboTimeMul *= T.FrayingComboMul;
               })
               .Cap("Fraying", "partial chains lapse twice as fast.");
-            C("locked_rotation", "Locked Rotation", Leaking, Ring, 1, 1,
-              "Your weapon art rotation is shuffled instead of advancing in order.",
-              (m, n) => m.RotationShuffled = true);
 
             // ---- Blindfold: what you can read ----
             C("fog", "Fog", Blind, Ring, 1, 3,
@@ -415,7 +434,7 @@ namespace Convergence.Exchange
               .Cap("Sylph II", $"passing through a tornado: {trap} for {Sec(T.TrapBonusSeconds)}.")
               .ForElement(ElementType.Air);
 
-            B("banked_embers", "Banked Embers", Azoth, Dot1, 2, 2, "Your heat never falls below one stack (two at II).",
+            B("banked_embers", "Banked Embers", Azoth, Dot1, 1, 2, "Your heat never falls below one stack (two at II).",
               conditional: true)
               .Cap("Hearth", $"a release leaves you at {T.HearthStacks} heat stacks.")
               .ForElement(ElementType.Fire);
@@ -434,11 +453,11 @@ namespace Convergence.Exchange
 
             C("smother", "Smother", Leaking, Dot1, 2, 3, $"Each heat stack gives {N(T.SmotherPoints)} less Damage.",
               conditional: true)
-              .Cap("Wet Ash", "Fuel stops working.")
+              .Cap("Wet Ash", $"Fuel stops working, and below {T.WetAshBelowStacks} heat stacks you take {Pct(T.WetAshTaken)} more damage.")
               .ForElement(ElementType.Fire);
             C("low_water", "Low Water", Leaking, Dot2, 2, 3, $"Your surge gives {N(T.LowWaterSurge)} less Attack Speed.",
               conditional: true)
-              .Cap("Ebb", "soaked enemies stop filling your meter double.")
+              .Cap("Ebb", $"soaked enemies stop filling your meter double, and outside a surge you take {Pct(T.EbbTaken)} more damage.")
               .ForElement(ElementType.Water);
             C("restless", "Restless", Leaking, Dot3, 2, 3,
               $"After {Sec(T.RestlessStillSeconds)} standing still you take +{Pct(T.RestlessTaken)} damage (outside the floor).",
@@ -447,28 +466,42 @@ namespace Convergence.Exchange
               .ForElement(ElementType.Earth);
             C("becalmed", "Becalmed", Leaking, Stroke, 2, 3,
               $"Your crit floor climbs {Pct(T.BecalmedCritPerHit)} less per hit.", conditional: true)
-              .Cap("Doldrums", "a hit you take resets your streak.")
+              .Cap("Doldrums", $"a hit you take resets your streak, and below {Pct(T.DoldrumsBelow)} momentum you take {Pct(T.DoldrumsTaken)} more damage.")
               .ForElement(ElementType.Air);
 
             // ============================================================ WEAPON CLASSES
 
             B("fletching", "Fletching", Edge, Dot3, 1, 2, $"+{N(T.FletchingPierce)} Pierce.",
-              (m, n) => m.Add(StatKind.Pierce, T.FletchingPierce * n), conditional: true)
-              .Cap("Broadhead", "pierced enemies take the full hit.")
+              (m, n) =>
+              {
+                  m.Add(StatKind.Pierce, T.FletchingPierce * n);
+                  if (n >= 2) m.Add(StatKind.Pierce, T.BroadheadPierce);
+              })
+              .Cap("Broadhead", $"+{N(T.BroadheadPierce)} Pierce.")
               .ForClasses(WeaponClass.Bow);
             B("ricochet", "Ricochet", Edge, Ring, 1, 2, "Thrown discs bounce to one more enemy.",
-              (m, n) => m.ExtraRicochets += T.RicochetBounces * n, conditional: true)
-              .Cap("Boomerang", "ricochets lose nothing.")
+              (m, n) =>
+              {
+                  m.ExtraRicochets += T.RicochetBounces * n;
+                  if (n >= 2) m.Add(StatKind.Cleave, T.BoomerangCleave);
+              })
+              .Cap("Boomerang", $"+{N(T.BoomerangCleave)} Cleave.")
               .ForClasses(WeaponClass.Disc);
 
             // ============================================================ ALBEDOS (made only by a circle)
 
-            A("honed", "Honed", "dulled", Edge, Bar, "Your first hit on each enemy is always a crit.", conditional: true);
+            A("gilding", "Gilding", "dross", Anvil, Cross, $"+{N(T.GildingArt)} Weapon Art.",
+              (m, n) => m.Add(StatKind.FinisherPower, T.GildingArt));
+            A("mollification", "Mollification", "induration", Edge, Drop,
+              $"Enemies have {Pct(T.MollificationHealth)} less health and armour (not bosses).",
+              (m, n) => m.EnemyHealthMul *= 1f - T.MollificationHealth);
+            A("honed", "Honed", "dulled", Edge, Bar,
+              $"Your hits on enemies above {Pct(T.HonedAbove)} health have +{Pct(T.HonedCrit)} crit chance.", conditional: true);
             A("deliberate", "Deliberate", "heavy_arms", Edge, Dot2,
               $"Each basic in a chain gets +{N(T.DeliberateDamagePerBasic)} Damage for every basic before it, the weapon art too.",
               conditional: true);
             A("cementation", "Cementation", "cold_iron", Edge, Cross,
-              $"Every {T.CementationEvery}th hit on the same enemy is a crit.", conditional: true);
+              $"Every {T.CementationEvery}th hit on the same enemy has +{Pct(T.ForcedCritChance)} crit chance.", conditional: true);
             A("felicity", "Felicity", "fumbler", Edge, Dot1, "One swing in nine strikes twice.", conditional: true);
             A("committed", "Committed", "overcommitted", Anvil, Dot3,
               $"-{Pct(T.CommittedTaken)} damage taken while a weapon art locks you.", conditional: true);
@@ -476,9 +509,8 @@ namespace Convergence.Exchange
               $"Hits within half your reach get +{N(T.CloseQuartersDamage)} Damage.", conditional: true);
             A("fury_of_the_frail", "Fury of the Frail", "thin_blood", Hide, Drop,
               $"Below {Pct(T.FuryBelow)} health, +{N(T.FuryDamage)} Damage.", conditional: true);
-            A("adamant", "Adamant", "paper_guard", Hide, Bar,
-              $"Your mitigation floor drops from {Pct(Tuning.Stats.IncomingFloor)} to {Pct(T.AdamantFloor)}.",
-              (m, n) => m.MitigationFloor = m.MitigationFloor < 0f ? T.AdamantFloor : Mathf.Min(m.MitigationFloor, T.AdamantFloor));
+            A("adamant", "Adamant", "paper_guard", Hide, Bar, $"+{N(T.AdamantResilience)} Resilience.",
+              (m, n) => m.Add(StatKind.Resilience, T.AdamantResilience));
             A("vital_spark", "Vital Spark", "slow_knit", Hide, Ring,
               $"You regenerate {Pct(T.VitalSparkRegen)} of max health a second (inside the healing limit).", conditional: true);
             A("patina", "Patina", "rust", Hide, Stroke, "Worn armour no longer makes you take more damage.",
@@ -498,8 +530,9 @@ namespace Convergence.Exchange
             A("lightfoot", "Lightfoot", "anchored", Quick, Bar,
               $"+{N(T.LightfootMove)} Move Speed, and Graze counts double at full speed.",
               (m, n) => m.Add(StatKind.MoveSpeed, T.LightfootMove), conditional: true);
-            A("unshackled", "Unshackled", "encumbered", Quick, Dot3, "Your parry window is doubled.",
-              (m, n) => m.ParryWindowMul *= T.UnshackledWindow);
+            A("unshackled", "Unshackled", "encumbered", Quick, Dot3,
+              $"A parry staggers every enemy within {N(T.UnshackledRadius)} units for {Sec(T.UnshackledStagger)}.",
+              conditional: true);
             A("concentrate", "Concentrate", "stubborn_ore", Azoth, Dot3, $"+{N(T.ConcentratePower)} Elemental Power.",
               (m, n) => m.Add(StatKind.ElementalEffectiveness, T.ConcentratePower));
             A("sealed_vessel", "Sealed Vessel", "leaky_vessel", Azoth, Drop,
@@ -528,17 +561,18 @@ namespace Convergence.Exchange
             Combo(EntryOrigin.Conjunction, "oracle", "Oracle", "scrying_glass", "transmuters_eye", Ledger, Ring,
                   "Each slate shows the deal that would follow it.", conditional: true);
             Combo(EntryOrigin.Conjunction, "wellspring", "Wellspring", "overflow", "rich_vein", Azoth, Dot2,
-                  "Your first release each floor fires twice.", conditional: true);
+                  T.WellspringEvery == 2 ? "Every second release fires twice." : $"Every {T.WellspringEvery}th release fires twice.",
+                  conditional: true);
             Combo(EntryOrigin.Conjunction, "phoenix", "Phoenix", "second_wind", "thickened_hide", Hide, Stroke,
                   $"When Second Wind catches you, you rise at {Pct(T.PhoenixRise)} health and the blast throws enemies back.",
                   conditional: true);
             Combo(EntryOrigin.Conjunction, "gemini", "Gemini", "reiteration", "vein_finder", Edge, Ring,
-                  "Repeats are always crits.", conditional: true);
+                  "Repeats strike for the whole hit.", conditional: true);
             Combo(EntryOrigin.Conjunction, "damascene", "Damascene", "whetstone", "heavy_payoff", Anvil, Bar,
-                  $"A weapon art scores its target: your next {T.DamasceneBasics} basics on it get +{N(T.DamasceneDamage)} Damage.",
+                  $"A weapon art scores its target: your next {T.DamasceneHits} hits on it get +{N(T.DamasceneDamage)} Damage.",
                   conditional: true);
             Combo(EntryOrigin.Conjunction, "hunt", "Hunt", "eagle", "executioner", Edge, Drop,
-                  $"After a kill, your next hit within {Sec(T.HuntSeconds)} gets Executioner's bonus whatever the target's health.",
+                  $"After a kill, your hits for {Sec(T.HuntSeconds)} get Executioner's bonus whatever the target's health.",
                   conditional: true);
             Combo(EntryOrigin.Conjunction, "athanor", "Athanor", "stonestance", "aegis_cycle", Hide, Ring,
                   "The ward renews twice as fast while you stand still.", conditional: true);

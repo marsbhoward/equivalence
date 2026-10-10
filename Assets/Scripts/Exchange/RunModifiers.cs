@@ -133,6 +133,12 @@ namespace Convergence.Exchange
 
         public bool Transmuted(string id) => _transmuted.Contains(id);
 
+        /// <summary>Costs transmuted this run (each once - a transmuted cost never returns).</summary>
+        public int TransmutedCount => _transmuted.Count;
+
+        /// <summary>Whether a circle may still transmute this run (Tuning.Exchange.TransmutationsPerRun).</summary>
+        public bool CanTransmute => _transmuted.Count < T.TransmutationsPerRun;
+
         public void Take(ExchangeEntry entry)
         {
             if (entry == null || AtCap(entry)) return;
@@ -180,7 +186,7 @@ namespace Convergence.Exchange
         /// </summary>
         public ExchangeEntry Transmute(ExchangeEntry cost)
         {
-            if (cost == null || cost.AlbedoId == null || !AtCap(cost)) return null;
+            if (cost == null || cost.AlbedoId == null || !AtCap(cost) || !CanTransmute) return null;
             var albedo = ExchangeCatalog.Get(cost.AlbedoId);
             if (albedo == null) return null;
 
@@ -235,8 +241,13 @@ namespace Convergence.Exchange
             }
             if (e.Element != null && e.Element != Element) return false;
             if (!e.FitsClass(Weapon)) return false;
+            if (DevExcluded != null && DevExcluded.Contains(e.Id)) return false;
             return !Useless(e);
         }
+
+        /// <summary>Entries kept out of every deal - a testing switch, null in play. The balance model
+        /// prices an entry by simulating runs that can never be offered it.</summary>
+        public static HashSet<string> DevExcluded;
 
         /// <summary>A stack that would change nothing for this character is never offered.</summary>
         bool Useless(ExchangeEntry e)
@@ -364,6 +375,21 @@ namespace Convergence.Exchange
             return c;
         }
 
+        /// <summary>
+        /// A copy with one entry gone, every stack of it - clocks and counters kept. What the balance
+        /// model asks to see what one entry was worth in a finished run (Assay.PowerMap); the game
+        /// never removes an entry this way (a transmutation is <see cref="Transmute"/>).
+        /// </summary>
+        public RunModifiers Without(ExchangeEntry e)
+        {
+            var c = Clone();
+            if (e == null || !c._stacks.ContainsKey(e.Id)) return c;
+            c._stacks.Remove(e.Id);
+            c._order.Remove(e);
+            c.Recompute();
+            return c;
+        }
+
         // ---------------------------------------------------------------- what it adds up to
 
         void Recompute() => Current = Compute(null, null);
@@ -394,6 +420,8 @@ namespace Convergence.Exchange
             if (Withered > 0f && StacksOf("withering") > 0) m.Add(StatKind.MaxHp, -Withered);
             if (Virid > 0f && StacksOf("viriditas") > 0) m.Add(StatKind.MaxHp, Virid);
 
+            if (StacksOf("senescence") > 0) m.SenescenceFloors = Senescence;
+
             // Folded in before the Vessel, the same as any ledger entry.
             _floorBoon?.Invoke(m);
 
@@ -423,6 +451,8 @@ namespace Convergence.Exchange
             m.MaxHpMul = Mathf.Max(0.1f, 1f + m.Points(StatKind.MaxHp) / 100f);
             m.GrazeFactor = StatPercents.ReductionFactor(m.Points(StatKind.Graze));
             m.BraceFactor = StatPercents.ReductionFactor(m.Points(StatKind.Brace));
+            m.ResilienceFactor = StatPercents.ReductionFactor(m.Points(StatKind.Resilience));
+            m.CleavePoints = m.Points(StatKind.Cleave);
             m.PierceAdd = Mathf.Max(0f, m.Points(StatKind.Pierce) / 100f);
 
             m.DamageTakenMul = Mathf.Max(0.25f, m.DamageTakenMul);

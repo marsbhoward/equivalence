@@ -220,7 +220,7 @@ namespace Convergence.Combat
                 float near = NearFraction >= 1f ? 1f : Mathf.Lerp(NearFraction, 1f, t);
 
                 float dmg = _damage * far * near * _damageMul;
-                if (_player != null) dmg = _player.ScaleThrownHit(_seeking, dmg, _isFinisher, Crit, t);
+                if (_player != null) dmg = _player.ScaleThrownHit(_seeking, dmg, _isFinisher, Crit, t, first: _hit.Count == 1);
                 var info = new DamageInfo(dmg, _element, _owner)
                     { Thrown = true, IsFinisher = _isFinisher, Crit = Crit };
 

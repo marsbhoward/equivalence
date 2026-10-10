@@ -137,13 +137,13 @@ namespace Convergence.Balance
         {
             var b = Make(a, e, kit);
             var sb = new StringBuilder($"{b.Key}: the ledger's effect (x floor 1)\n");
-            sb.Append("policy      |  DPS @25    @50    @75   @100 | SURVIVAL @25  @50   @75  @100 | refused\n");
+            sb.Append("policy      |  DPS @25    @50    @75   @100 | SURVIVAL @25  @50   @75  @100 | refused | transmuted rubedos combos\n");
             foreach (Policy p in Enum.GetValues(typeof(Policy)))
             {
                 var c = Run(b, p, runs);
                 sb.Append($"{p,-11} | {Ratio(c.Dps, 25),7:0.00} {Ratio(c.Dps, 50),6:0.00} {Ratio(c.Dps, 75),6:0.00} {Ratio(c.Dps, 100),6:0.00} |" +
                           $" {Ratio(c.EffectiveHp, 25),11:0.00} {Ratio(c.EffectiveHp, 50),5:0.00} {Ratio(c.EffectiveHp, 75),5:0.00} {Ratio(c.EffectiveHp, 100),5:0.00} |" +
-                          $" {c.Refused,5:0.0}\n");
+                          $" {c.Refused,5:0.0}   | {c.Transmuted,10:0.0} {c.Rubedos,7:0.0} {c.Combinations,6:0.0}\n");
             }
             foreach (Policy p in new[] { Policy.Sensible, Policy.Greedy })
             {
@@ -195,7 +195,7 @@ namespace Convergence.Balance
                     for (int f = 0; f < Assume.WitheringHorizon; f++) ledger.FloorCleared();
                 var w = Evaluate(b, ledger.Current, ledger.StacksOf, floor);
                 float dps = 1f - w.Dps / bare.Dps, hp = 1f - w.EffectiveHp / bare.EffectiveHp;
-                rows.Add((entry.Id, entry.MaxStacks, dps, hp, Mathf.Max(dps, hp)));
+                rows.Add((entry.Id, entry.MaxStacks, dps, hp, 1f - (1f - dps) * (1f - hp)));   // both, as Entries
             }
             return rows;
         }
