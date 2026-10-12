@@ -17,8 +17,8 @@ namespace Convergence.Rifts
     /// The piece is rolled when it DROPS (its tier and stars belong to the floor it fell on) and
     /// only joins the carried loot when taken.
     ///
-    /// Drawn as a turning four-point glint in the tier's colour over a soft glow, one small star
-    /// circling it per star level - a glint, not a box, so it never reads as a Rift Box or a loot
+    /// Drawn as a turning star in the tier's colour over a soft glow, one small star
+    /// circling it per star level - a star, not a box, so it never reads as a Rift Box or a loot
     /// box, and the stars carry the level without leaning on colour alone. Stat-rolled gear has no
     /// picture of its own to show.
     /// </summary>
