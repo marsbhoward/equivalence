@@ -762,7 +762,7 @@ namespace Convergence.Core
             public const float TwinSparkScale = 0.75f;
 
             // ---------------------------------------------------------------- Ledger
-            public const int CuratorCards = 1;
+            public const int CuratorCards = 1;   // rerolls of the floor reward per stack
             public const int LodestoneFloors = 1;
 
             // ---------------------------------------------------------------- Blunted

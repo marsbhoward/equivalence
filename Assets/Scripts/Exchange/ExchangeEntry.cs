@@ -217,7 +217,7 @@ namespace Convergence.Exchange
         /// <summary>Extra weapon-art slots in the rotation - Extra Sigil, one stack.</summary>
         public int ExtraFinisherSlots;
 
-        /// <summary>Extra cards on the floor reward (Curator).</summary>
+        /// <summary>Rerolls of the floor reward's four rings, per floor (Curator).</summary>
         public int ExtraRewardOptions;
 
         /// <summary>Extra ricochets a thrown disc makes (Ricochet).</summary>

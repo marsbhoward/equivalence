@@ -244,7 +244,7 @@ namespace Convergence.Exchange
               conditional: true);
 
             // ---- Ledger: the run itself ----
-            B("curator", "Curator", Ledger, Dot1, 2, 1, "Floor rewards offer one more card.",
+            B("curator", "Curator", Ledger, Dot1, 2, 1, "Floor rewards can be rerolled once.",
               (m, n) => m.ExtraRewardOptions += T.CuratorCards);
             B("transmuters_eye", "Transmuter's Eye", Ledger, Ring, 2, 1, "See this floor's reward before you choose a deal.",
               conditional: true);

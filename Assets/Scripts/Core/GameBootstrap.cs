@@ -1547,13 +1547,19 @@ namespace Convergence.Core
             {
                 if (SettingsScreen.IsOpen)
                 {
-                    if (Controls.CancelTapped) { SettingsScreen.Close(); return; }
+                    if (Controls.CancelTapped) { SettingsScreen.Dismiss(); return; }
                 }
                 else if (!modal && Controls.SettingsTapped)
                 {
-                    SettingsScreen.Open(_canvas.transform, OpenControlsScreen);
+                    OpenSettings();
                     return;
                 }
+            }
+            // Mid-run, Settings is reached from the pause menu, and Escape hands back to it.
+            else if (_state == State.Playing && SettingsScreen.IsOpen && Controls.CancelTapped)
+            {
+                SettingsScreen.Dismiss();
+                return;
             }
 
             // Everything below drives the game itself, and a modal is by definition covering it.
@@ -2998,10 +3004,8 @@ namespace Convergence.Core
             // be a lie, and is the obvious way to get this wrong.
             _pendingReward = RollFloorReward();
             string preview = Modifiers.StacksOf("transmuters_eye") > 0
-                ? $"next: {RestoreText(_pendingReward.Restore, _pendingReward, 0)}" +
-                  (_pendingReward.Offered.Count > 0
-                      ? $"  or  {string.Join(" / ", _pendingReward.Offered.ConvertAll(m => m.DisplayName))}"
-                      : "")
+                ? $"next: {string.Join(" / ", System.Linq.Enumerable.Where(new[] { _pendingReward.Arts[0]?.DisplayName, _pendingReward.Arts[1]?.DisplayName }, n => n != null))}" +
+                  $"  or  {RestoreText(_pendingReward.Restore, _pendingReward, 0)}  or  {RestoreText(_pendingReward.Second, _pendingReward, 0)}"
                 : null;
 
             // Oracle: each slate shows the deal that would follow it - built on a copy of the ledger
@@ -3101,16 +3105,21 @@ namespace Convergence.Core
         }
 
         /// <summary>
-        /// The floor's reward, rolled once so it can be previewed and then handed over unchanged.
+        /// The floor's reward, rolled once so it can be previewed and then handed over unchanged:
+        /// the FOUR RINGS of UI.FloorRewardScreen - two weapon arts (up, down), a restore (left)
+        /// and Experience-or-Calx (right). Only the KINDS are fixed here; amounts are sized at the
+        /// screen (OfferFloorRewardCards), after the floor's taper is counted.
         /// </summary>
         class RolledReward
         {
-            /// <summary>The weapon art cards, distinct, 0..Tuning.FloorRewards.ArtOffers.</summary>
-            public List<Combat.Moveset> Offered;
-            /// <summary>The restore card: Heal, Repair or Xp (PickRestoreKinds).</summary>
+            /// <summary>The two weapon art rings, distinct; null where the class ran out.</summary>
+            public Combat.Moveset[] Arts = new Combat.Moveset[2];
+            /// <summary>The left ring: Heal or Repair (whichever would help), else the other of
+            /// Xp/Calx, else a third art (<see cref="ThirdArt"/>, kind Moveset), else Heal.</summary>
             public UI.FloorReward Restore;
-            /// <summary>Curator's extra restore card - another kind from the same draw - or null.</summary>
-            public UI.FloorReward? Extra;
+            public Combat.Moveset ThirdArt;
+            /// <summary>The right ring: Xp, or Calx while the depth allowance has one.</summary>
+            public UI.FloorReward Second;
             public float HealAmount;
         }
 
@@ -3123,32 +3132,39 @@ namespace Convergence.Core
 
         RolledReward RollFloorReward()
         {
-            var kinds = RestoreDraw();
-            int pick = UnityEngine.Random.Range(0, kinds.Count);
-            var restore = kinds[pick];
-            kinds.RemoveAt(pick);
-            // Curator: one more card - another kind from the same draw, when the draw has one.
-            UI.FloorReward? extra = Modifiers.Current.ExtraRewardOptions > 0 && kinds.Count > 0
-                ? kinds[UnityEngine.Random.Range(0, kinds.Count)]
-                : null;
-
-            // Heal Received boosts THIS card and nothing else - not lifesteal, not boons.
-            float healAmount = _player != null
-                ? _player.Health.Max * HealFraction * Art.Gear.StatPercents.Apply(1f, _player.Stats.HealReceived)
-                : 0f;
-
-            // Curator with nothing left to draw (full health, pristine armour): a third art instead.
-            int arts = Tuning.FloorRewards.ArtOffers
-                     + (Modifiers.Current.ExtraRewardOptions > 0 && extra == null ? 1 : 0);
-            return new RolledReward
+            var arts = _player != null
+                ? Combat.MovesetLibrary.RandomOffers(_player.Slots, _player.SlotLocked, _player.Weapon,
+                                                     Tuning.FloorRewards.ArtOffers + 1)
+                : new List<Combat.Moveset>();
+            var r = new RolledReward
             {
-                Offered = _player != null
-                    ? Combat.MovesetLibrary.RandomOffers(_player.Slots, _player.SlotLocked, _player.Weapon, arts)
-                    : new List<Combat.Moveset>(),
-                Restore = restore,
-                Extra = extra,
-                HealAmount = healAmount,
+                // Heal Received boosts THIS card and nothing else - not lifesteal, not boons.
+                HealAmount = _player != null
+                    ? _player.Health.Max * HealFraction * Art.Gear.StatPercents.Apply(1f, _player.Stats.HealReceived)
+                    : 0f,
             };
+            for (int i = 0; i < 2; i++) r.Arts[i] = i < arts.Count ? arts[i] : null;
+            var spare = arts.Count > 2 ? arts[2] : null;
+
+            bool calxOk = CalxAllowanceLeft() > 0;
+            r.Second = calxOk && UnityEngine.Random.value < Tuning.FloorRewards.CalxChance
+                ? UI.FloorReward.Calx : UI.FloorReward.Xp;
+
+            // The restore ring: only a kind that would help. A full player is offered the other
+            // of Xp/Calx beside it, then a third art; Heal only when nothing else is left.
+            var helpful = new List<UI.FloorReward>(2);
+            if (_player != null && _player.Health.Current < _player.Health.Max - 0.5f)
+                helpful.Add(UI.FloorReward.Heal);
+            // Armour only: weapons no longer wear.
+            if (_profile.Wear.Condition01(_profile.Gear, Art.Gear.SlotKind.Armor, _player?.Stats.Armor ?? 0f) < 0.995f)
+                helpful.Add(UI.FloorReward.Repair);
+
+            if (helpful.Count > 0) r.Restore = helpful[UnityEngine.Random.Range(0, helpful.Count)];
+            else if (r.Second == UI.FloorReward.Calx) r.Restore = UI.FloorReward.Xp;
+            else if (calxOk) r.Restore = UI.FloorReward.Calx;
+            else if (spare != null) { r.Restore = UI.FloorReward.Moveset; r.ThirdArt = spare; }
+            else r.Restore = UI.FloorReward.Heal;
+            return r;
         }
 
         /// <summary>The Experience card's mastery XP at the given taper - see Tuning.FloorRewards.</summary>
@@ -3157,11 +3173,73 @@ namespace Convergence.Core
 
         string RestoreText(UI.FloorReward kind, RolledReward r, int xpAmount) => kind switch
         {
-            UI.FloorReward.Heal   => $"+{Mathf.RoundToInt(r.HealAmount)} HP",
-            UI.FloorReward.Repair => $"+{Mathf.RoundToInt(RepairFractionNow * 100f)}% condition",
-            UI.FloorReward.Calx   => $"+{Tuning.FloorRewards.CalxPerCard} {Tuning.FloorRewards.CalxTier} calx",
-            _                     => xpAmount > 0 ? $"+{xpAmount} mastery XP" : "mastery XP",
+            UI.FloorReward.Heal    => $"+{Mathf.RoundToInt(r.HealAmount)} HP",
+            UI.FloorReward.Repair  => $"+{Mathf.RoundToInt(RepairFractionNow * 100f)}% condition",
+            UI.FloorReward.Calx    => $"+{Tuning.FloorRewards.CalxPerCard} {Tuning.FloorRewards.CalxTier} calx",
+            UI.FloorReward.Moveset => r.ThirdArt != null ? r.ThirdArt.DisplayName : "weapon art",
+            _                      => xpAmount > 0 ? $"+{xpAmount} mastery XP" : "mastery XP",
         };
+
+        /// <summary>One ring, worded. <paramref name="mastery"/> is what the floor itself paid.</summary>
+        UI.FloorRewardScreen.Option RingOption(UI.FloorReward kind, Combat.Moveset art, RolledReward r,
+                                               int xpAmount, int mastery, ElementType element)
+        {
+            switch (kind)
+            {
+                case UI.FloorReward.Moveset:
+                    return art == null
+                        ? new() { Kind = kind, Enabled = false, Value = "No art", Blurb = "You already hold every weapon art." }
+                        : new() { Kind = kind, Art = art, Enabled = true, Value = art.DisplayName, Blurb = art.FinisherDescription };
+                case UI.FloorReward.Heal:
+                {
+                    float max = _player != null ? _player.Health.Max : 0f;
+                    float cur = _player != null ? _player.Health.Current : 0f;
+                    float after = Mathf.Min(max, cur + r.HealAmount);
+                    return new()
+                    {
+                        Kind = kind, Enabled = true, Value = RestoreText(kind, r, xpAmount),
+                        Note = $"{Mathf.CeilToInt(cur)} → {Mathf.CeilToInt(after)} / {Mathf.CeilToInt(max)}",
+                        Blurb = "Patches you up. Does nothing for worn armour.",
+                    };
+                }
+                case UI.FloorReward.Repair:
+                {
+                    float now = _profile.Wear.Condition01(_profile.Gear, Art.Gear.SlotKind.Armor, _player?.Stats.Armor ?? 0f);
+                    return new()
+                    {
+                        Kind = kind, Enabled = true, Value = RestoreText(kind, r, xpAmount),
+                        Note = $"ARMOUR {Mathf.RoundToInt(now * 100f)}%",
+                        Blurb = "Restores worn armour. Does nothing for your health.",
+                    };
+                }
+                case UI.FloorReward.Calx:
+                    return new()
+                    {
+                        Kind = kind, Enabled = true,
+                        Value = $"+{Tuning.FloorRewards.CalxPerCard} {Tuning.FloorRewards.CalxTier}",
+                        Note = $"CARRIED {_runCalx} → {_runCalx + Tuning.FloorRewards.CalxPerCard}",
+                        Blurb = $"Carried. Kept if you extract, lost if you die. " +
+                                $"{Tuning.GearRoll.CalxPerBox} make a {Tuning.FloorRewards.CalxTier} box.",
+                    };
+                default:
+                    return new()
+                    {
+                        Kind = UI.FloorReward.Xp, Enabled = true, Value = $"+{xpAmount} XP",
+                        Note = $"{element.ToString().ToUpperInvariant()} MASTERY",
+                        Blurb = $"Banked when the run ends, on top of the {mastery} this floor already paid.",
+                    };
+            }
+        }
+
+        /// <summary>The four rings in screen order: up, down, left, right.</summary>
+        List<UI.FloorRewardScreen.Option> RingOptions(RolledReward r, int xpAmount, int mastery, ElementType element)
+            => new()
+            {
+                RingOption(UI.FloorReward.Moveset, r.Arts[0], r, xpAmount, mastery, element),
+                RingOption(UI.FloorReward.Moveset, r.Arts[1], r, xpAmount, mastery, element),
+                RingOption(r.Restore, r.ThirdArt, r, xpAmount, mastery, element),
+                RingOption(r.Second, null, r, xpAmount, mastery, element),
+            };
 
         void OfferFloorRewardCards()
         {
@@ -3179,7 +3257,8 @@ namespace Convergence.Core
                 taper = Tuning.Taper.Multiplier(_account.FloorsClearedToday);
             }
 
-            _pendingMastery += Mathf.RoundToInt(MasteryXpPerFloor * taper);
+            int mastery = Mathf.RoundToInt(MasteryXpPerFloor * taper);
+            _pendingMastery += mastery;
 
             // Reuses the roll the exchange row may already have shown. Rolling again here would
             // make Transmuter's Eye show one thing and deliver another.
@@ -3191,56 +3270,23 @@ namespace Convergence.Core
             // the deal - but only the KIND is fixed there, never the amount.)
             int xpAmount = XpCardAmount(taper);
             var element = _player && _player.Resource ? _player.Resource.Element : ElementType.Fire;
-            string xpBlurb = $"{element} mastery, banked when the run ends - " +
-                             $"on top of the {Mathf.RoundToInt(MasteryXpPerFloor * taper)} this floor already paid.";
 
-            var restores = new List<UI.FloorRewardScreen.RestoreCard>
+            // Curator: a reroll of all four rings per stack, spent on the screen. The heal amount
+            // rides each roll, so the callback reads whichever roll is showing.
+            var showing = r;
+            System.Func<List<UI.FloorRewardScreen.Option>> reroll = () =>
             {
-                new() { Kind = r.Restore, Value = RestoreText(r.Restore, r, xpAmount) },
+                showing = RollFloorReward();
+                return RingOptions(showing, xpAmount, mastery, element);
             };
-            if (r.Extra is UI.FloorReward extra)
-                restores.Add(new() { Kind = extra, Value = RestoreText(extra, r, xpAmount) });
-            int perBox = Tuning.GearRoll.CalxPerBox;
-            string calxBlurb = $"Carried: kept if you extract, lost if you die. {perBox} calx make a " +
-                               $"{Tuning.FloorRewards.CalxTier} box - you hold {_profile.Calx.Get(Tuning.FloorRewards.CalxTier)}" +
-                               (_runCalx > 0 ? $", carrying {_runCalx}." : ".");
-            foreach (var c in restores)
-                if (c.Kind == UI.FloorReward.Xp) c.Blurb = xpBlurb;
-                else if (c.Kind == UI.FloorReward.Calx) c.Blurb = calxBlurb;
 
             FloorRewardScreen.Show(
-                _canvas.transform, _floor, r.Offered,
+                _canvas.transform, _floor, RingOptions(r, xpAmount, mastery, element),
                 _player != null ? _player.Slots : System.Array.Empty<Combat.Moveset>(),
                 _player != null ? _player.SlotLocked : _ => false,
                 _player != null ? _player.RotationIndex : 0,
-                restores,
-                (outcome, slot, art) => ApplyFloorReward(outcome, slot, art, r.HealAmount, xpAmount));
-        }
-
-        /// <summary>
-        /// The restore card's draw: Heal while hurt, Repair while armour is worn, and always one of
-        /// Experience or Calx (Tuning.FloorRewards.CalxChance).
-        /// A heal at full health (or a repair on pristine gear) would waste the card, so a kind that
-        /// can't help is left out rather than offered - and a full player is always offered XP.
-        /// </summary>
-        List<UI.FloorReward> RestoreDraw()
-        {
-            bool hurt = _player != null && _player.Health.Current < _player.Health.Max - 0.5f;
-
-            // Armour only: weapons no longer wear, so counting them here would offer a repair
-            // card for damage that can never happen.
-            float armour = _profile.Wear.Condition01(_profile.Gear, Art.Gear.SlotKind.Armor,
-                                                      _player?.Stats.Armor ?? 0f);
-            bool worn = armour < 0.995f;
-
-            var kinds = new List<UI.FloorReward>(3);
-            if (hurt) kinds.Add(UI.FloorReward.Heal);
-            if (worn) kinds.Add(UI.FloorReward.Repair);
-            // The entry that is always there: Experience, or Calx in its place.
-            bool calxLeft = CalxAllowanceLeft() > 0;
-            kinds.Add(calxLeft && UnityEngine.Random.value < Tuning.FloorRewards.CalxChance
-                ? UI.FloorReward.Calx : UI.FloorReward.Xp);
-            return kinds;
+                element, reroll, Modifiers.Current.ExtraRewardOptions,
+                (outcome, slot, art) => ApplyFloorReward(outcome, slot, art, showing.HealAmount, xpAmount));
         }
 
         void ApplyFloorReward(UI.FloorOutcome outcome, int slot, Combat.Moveset offered, float healAmount,
@@ -4324,8 +4370,19 @@ namespace Convergence.Core
                 {
                     PauseScreen.Close();
                     AskAbandonRun();
+                },
+                onSettings: () =>
+                {
+                    PauseScreen.Close();
+                    OpenSettings();
                 });
         }
+
+        /// <summary>Settings, from the hub or the pause menu. Mid-run, closing it returns to the
+        /// pause menu - through Controller Configuration and back as well.</summary>
+        void OpenSettings()
+            => SettingsScreen.Open(_canvas.transform, OpenControlsScreen,
+                                   _state == State.Playing ? OpenPauseMenu : null);
 
         /// <summary>
         /// Closes SettingsScreen and opens ControlsScreen; ControlsScreen's own BACK button closes
@@ -4338,7 +4395,7 @@ namespace Convergence.Core
             ControlsScreen.Open(_canvas.transform, () =>
             {
                 ControlsScreen.Close();
-                SettingsScreen.Open(_canvas.transform, OpenControlsScreen);
+                OpenSettings();
             });
         }
 

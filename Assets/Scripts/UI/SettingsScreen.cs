@@ -5,8 +5,9 @@ using Convergence.Core;
 namespace Convergence.UI
 {
     /// <summary>
-    /// The hub's settings menu - opened with Escape (keyboard) or Start (gamepad), see
-    /// <see cref="Controls.SettingsTapped"/>. One entry today: CONTROLLER CONFIGURATION, which
+    /// The settings menu - from the hub with Escape (keyboard) or Start (gamepad), see
+    /// <see cref="Controls.SettingsTapped"/>, and mid-run from the pause menu's top ring (closing
+    /// it returns there). One entry today: CONTROLLER CONFIGURATION, which
     /// hands off to <see cref="ControlsScreen"/> the same closes-this-opens-that way
     /// <see cref="PauseScreen"/> hands off to CHARACTER/INVENTORY/END RUN - it never nests,
     /// GameBootstrap owns the wiring back.
@@ -23,16 +24,19 @@ namespace Convergence.UI
         // ConfirmDialog and PauseScreen.
         int _openedFrame = -1;
 
-        System.Action _onControls;
+        System.Action _onControls, _onClosed;
         RectTransform _controlsRect, _closeRect;
         readonly List<RectTransform> _focus = new();
 
-        public void Open(Transform canvas, System.Action onControls)
+        /// <summary><paramref name="onClosed"/> runs after CLOSE or <see cref="Dismiss"/> - mid-run
+        /// it is the pause menu this was opened from; from the hub, nothing.</summary>
+        public void Open(Transform canvas, System.Action onControls, System.Action onClosed = null)
         {
             if (IsOpen) return;
             IsOpen = true;
             _openedFrame = Time.frameCount;
             _onControls = onControls;
+            _onClosed = onClosed;
 
             GamePause.Hold(this);
             Build(canvas);
@@ -46,7 +50,15 @@ namespace Convergence.UI
             if (_root) Destroy(_root);
             _root = null;
             _controlsRect = _closeRect = null;
-            _onControls = null;
+            _onControls = _onClosed = null;
+        }
+
+        /// <summary>Closes and hands back to whoever opened it (Escape, or CLOSE).</summary>
+        public void Dismiss()
+        {
+            var cb = _onClosed;
+            Close();
+            cb?.Invoke();
         }
 
         // ------------------------------------------------------------------ ui
@@ -106,7 +118,7 @@ namespace Convergence.UI
             // against GameBootstrap's; reading CancelTapped here as well raced it and could
             // reopen this screen on the very frame it closed.
             if (!Controls.Tapped(out var p)) return;
-            if (Hit(_closeRect, p)) { Close(); return; }
+            if (Hit(_closeRect, p)) { Dismiss(); return; }
             if (Hit(_controlsRect, p)) { var cb = _onControls; cb?.Invoke(); return; }
         }
 

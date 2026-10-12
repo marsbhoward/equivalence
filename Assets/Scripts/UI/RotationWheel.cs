@@ -219,7 +219,7 @@ namespace Convergence.UI
             return p.Slots[index] ?? MovesetLibrary.Default;
         }
 
-        static int WeightOf(Moveset m)
+        internal static int WeightOf(Moveset m)
         {
             if (m == null || m.Id == EchoId || m.Finisher == null) return 0;
             return m.Finisher.Weight switch
