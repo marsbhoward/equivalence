@@ -67,7 +67,7 @@ namespace Convergence.Rifts
         ///     unity command eval 'Convergence.Rifts.FloorPlanner.DevForceCategory = Convergence.Rifts.FloorCategory.Puzzle; Convergence.Rifts.FloorPlanner.DevForcePuzzle = 2; return 0;'
         ///     unity command eval 'Convergence.Rifts.FloorPlanner.DevForceRift = Convergence.Rifts.RiftKind.Red; return 0;'
         ///
-        /// DevForcePuzzle is a PuzzleKind as an int (0 Echo, 1 Elements, 2 Lights), -1 for the draw.
+        /// DevForcePuzzle is a PuzzleKind as an int (0 Echo, 1 Elements, 2 Lights, 3 Maze), -1 for the draw.
         /// Statics, so a domain reload clears them - which is the right answer for a one-shot.
         /// </summary>
         public static FloorCategory? DevForceCategory;
@@ -228,6 +228,10 @@ namespace Convergence.Rifts
         /// <summary>Seeds the floor's room shape (Hazards.RoomShape.For) - the same room on a
         /// restart, and a shape a preview can name without building it.</summary>
         public int ShapeSeed(int floor) => unchecked(Seed * 6151 + floor * 92821 + 5);
+
+        /// <summary>Seeds the floor's SCENERY (Art.Scenery.Roll) - masonry, stone, windows - so a
+        /// restart meets the same-looking rooms. Its own stream: dressing a room moves no draw.</summary>
+        public int SceneSeed(int floor) => unchecked(Seed * 2909 + floor * 50021 + 19);
 
         /// <summary>The room shape <paramref name="floor"/> will have if it is a combat floor -
         /// null for the open rectangle. Pure: it moves no counter and spends no dev switch unless

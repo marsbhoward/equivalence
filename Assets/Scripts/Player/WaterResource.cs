@@ -249,6 +249,9 @@ namespace Convergence.Player
         public override int PipCount => 3;
         public override int PipsFilled => Tier;
         public override bool PipsAppearWhenReached => true;
+
+        public override string ReleaseName => Tier switch { 1 => "SOAK", 3 => "BURST", _ => "SURGE" };
+        public override string SealTag => Surging ? $"SURGE  {_surgeRemaining:0.0}s" : null;
         public override Combat.Glyph[] PipGlyphs => TierGlyphs;
 
         static readonly Combat.Glyph[] TierGlyphs =

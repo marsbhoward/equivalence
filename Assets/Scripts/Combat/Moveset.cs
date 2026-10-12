@@ -281,6 +281,16 @@ namespace Convergence.Combat
         public bool Boomerang;
 
         /// <summary>
+        /// SWARM, The Hive's weapon art (through the Hive Remote): the bow is drawn as for any
+        /// shot, but on the release the whole hive leaves instead of an arrow - every arrow the
+        /// bow is made of, as one swarm (Combat.HiveSwarm) that balls round the target, darting
+        /// in at it and at any enemy close by, then flies home and is the bow again. Handled by
+        /// <c>PlayerController.SwarmStrike</c>, ahead of the bow's own arrow path; strikes on the
+        /// release, as an arrow does.
+        /// </summary>
+        public bool Swarm;
+
+        /// <summary>
         /// KING AND QUEEN, the Aether Dual Discs' weapon art: after the Magnum Opus's gather
         /// (<see cref="ChargeSeconds"/>), both discs thrown in a pincer that meets on the target
         /// (Combat.PincerDisc), caught at the top of a jump as they come round, and hurled down
@@ -761,15 +771,16 @@ namespace Convergence.Combat
         }
 
         /// <summary>
-        /// The floor reward's weapon art offer: one the player does not hold, drawn from the class's
+        /// The floor reward's weapon art offers: arts the player does not hold, drawn from the class's
         /// rollable pool PLUS its standing art (Overhand) - unless every slot an offer could go
         /// into already holds the standing art (the start of a run), where offering it would change
         /// nothing. So a player who replaced Overhand can take it back. Relic rolls stay on
         /// <see cref="RollablePool"/>: a relic carrying the default would be a relic carrying
-        /// nothing. Null when there is nothing to offer.
+        /// nothing. Up to <paramref name="count"/> DISTINCT arts, fewer (or none) when the pool
+        /// runs short - two cards offering the same art would be one choice drawn twice.
         /// </summary>
-        public static Moveset RandomOffer(IReadOnlyList<Moveset> slots, System.Func<int, bool> locked,
-                                          Art.Gear.WeaponClass weapon)
+        public static List<Moveset> RandomOffers(IReadOnlyList<Moveset> slots, System.Func<int, bool> locked,
+                                                 Art.Gear.WeaponClass weapon, int count)
         {
             var pool = RollablePool(weapon);
             bool allStanding = true;
@@ -784,8 +795,14 @@ namespace Convergence.Combat
             var standing = DefaultFor(weapon);
             if (!allStanding && standing != null && standing.Class == weapon) pool.Add(standing);
 
-            if (pool.Count == 0) return null;
-            return pool[UnityEngine.Random.Range(0, pool.Count)];
+            var picks = new List<Moveset>();
+            while (picks.Count < count && pool.Count > 0)
+            {
+                int i = UnityEngine.Random.Range(0, pool.Count);
+                picks.Add(pool[i]);
+                pool.RemoveAt(i);
+            }
+            return picks;
         }
 
         public static Moveset RandomExcluding(IEnumerable<Moveset> held,
@@ -1372,6 +1389,33 @@ namespace Convergence.Combat
                     // throw. A charge in all but pose: the bow holds the throw's cocked first frame.
                     ChargeSeconds = Core.Tuning.MagnumOpus.GatherSeconds,
                     Boomerang = true,
+                },
+            },
+            new Moveset
+            {
+                FinisherDescription = "Draws the bow and lets the whole hive go: every arrow the bow is made of flies out together and swarms around your target, darting in at it and at any enemy nearby, then flies home and becomes the bow again.",
+                Id = Art.Gear.DemoGear.SwarmArtId, FinisherGlyph = Glyph.Swarm,
+                DisplayName = "Swarm", Class = Art.Gear.WeaponClass.Bow,
+
+                // The Hive's, through the Hive Remote - a Black Diamond ceiling privilege, same
+                // reasoning as Conflagration and the rest above.
+                SignatureOnly = true,
+                Flavor = "Every arrow knows its way home.",
+                // Two basics, as every chain has.
+                Basics = new[]
+                {
+                    new AttackStep { Name = "Shot", DamageMultiplier = 1f, IntervalMultiplier = 1f, Motion = AttackMotion.Draw },
+                    new AttackStep { Name = "Shot", DamageMultiplier = 1f, IntervalMultiplier = 1f, Motion = AttackMotion.Draw },
+                },
+                Finisher = new AttackStep
+                {
+                    // MEDIUM (the user's call, 2026-10-11): the target takes exactly one
+                    // (Tuning.Swarm's shares), and the swarm's last strike on it flinches it -
+                    // unarmoured only, and nothing is displaced.
+                    Name = "Swarm", DamageMultiplier = 5f, IntervalMultiplier = 1.5f,
+                    Weight = FinisherWeight.Medium, Motion = AttackMotion.Draw,
+                    Knockback = 0f, ChainFalloff = 0.85f,
+                    Swarm = true,
                 },
             },
             new Moveset

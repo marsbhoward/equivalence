@@ -98,6 +98,10 @@ namespace Convergence.Player
         public Health Target { get; private set; }
         public bool HasTarget => Target != null && !Target.IsDead;
 
+        /// <summary>A body going into a chasm is out of the fight before it is dead: its rim is
+        /// not masked with it, and would be left falling outside the hole.</summary>
+        static bool Gone(Health h) => h.TryGetComponent<EnemyController>(out var e) && e.FellIn;
+
         void Update()
         {
             EnemyRegistry.Prune();
@@ -111,7 +115,7 @@ namespace Convergence.Player
             // Drop a target that died or wandered off.
             if (Target != null)
             {
-                if (Target.IsDead || Vector2.Distance(origin, Target.transform.position) > Drop)
+                if (Target.IsDead || Gone(Target) || Vector2.Distance(origin, Target.transform.position) > Drop)
                     Target = null;
             }
 
@@ -129,7 +133,7 @@ namespace Convergence.Player
 
             foreach (var enemy in EnemyRegistry.All)
             {
-                if (enemy == null) continue;
+                if (enemy == null || enemy.FellIn) continue;
                 var hp = enemy.GetComponent<Health>();
                 if (hp == null || hp.IsDead) continue;
 
@@ -170,7 +174,7 @@ namespace Convergence.Player
             var near = new List<Health>();
             foreach (var enemy in EnemyRegistry.All)
             {
-                if (enemy == null) continue;
+                if (enemy == null || enemy.FellIn) continue;
                 var hp = enemy.GetComponent<Health>();
                 if (hp == null || hp.IsDead) continue;
                 if (Vector2.Distance(origin, enemy.transform.position) > Acquire) continue;

@@ -1072,7 +1072,7 @@ namespace Convergence.Enemies
                 return false;
             }
 
-            StartCoroutine(Fall());
+            StartCoroutine(Fall(_rb.linearVelocity));
             return true;
         }
 
@@ -1125,16 +1125,17 @@ namespace Convergence.Enemies
                 yield return null;
             }
             transform.position = target;
-            yield return Fall();
+            yield return Fall(target - from);
         }
 
         /// <summary>
-        /// Shrinking into the dark, then the kill - an ordinary death, so the wave counts it, the
-        /// spire rises on it and a Rift Box may drop (at the lip: RiftBoxPickup asks for floor).
-        /// The player's on-kill effects are credited here, the way an arrow or a disc credits
-        /// its own kills: nothing struck the final blow, but the player is why it fell.
+        /// Down a drop or under a lake (Enemies.ChasmFall, drawn), then the kill - an ordinary
+        /// death, so the wave counts it, the spire rises on it and a Rift Box may drop (at the
+        /// lip: RiftBoxPickup asks for floor). The player's on-kill effects are credited here, the
+        /// way an arrow or a disc credits its own kills: nothing struck the final blow, but the
+        /// player is why it fell. <paramref name="thrown"/> is the way it was going over the lip.
         /// </summary>
-        System.Collections.IEnumerator Fall()
+        System.Collections.IEnumerator Fall(Vector2 thrown)
         {
             _fellIn = true;
             _health.Immune = true;
@@ -1142,25 +1143,13 @@ namespace Convergence.Enemies
             _rb.simulated = false;
             foreach (var col in GetComponentsInChildren<Collider2D>()) col.enabled = false;
 
-            var from = transform.localScale;
             var start = transform.position;
-            var renderers = GetComponentsInChildren<SpriteRenderer>();
-            var colours = new Color[renderers.Length];
-            for (int i = 0; i < renderers.Length; i++) colours[i] = renderers[i].color;
-
-            for (float t = 0f; t < Tuning.Chasm.FallSeconds; t += Time.deltaTime)
-            {
-                float k = t / Tuning.Chasm.FallSeconds;
-                transform.localScale = from * Mathf.Lerp(1f, 0.15f, k * k);
-                transform.position = start + Vector3.down * (0.35f * k);
-                for (int i = 0; i < renderers.Length; i++)
-                    if (renderers[i] != null)
-                        renderers[i].color = Color.Lerp(colours[i], new Color(0f, 0f, 0f, colours[i].a), k);
-                yield return null;
-            }
+            if (Arena.ChasmIsWater) yield return ChasmFall.Sink(transform);
+            else yield return ChasmFall.Drop(transform, thrown);
 
             // The fall is an ordinary death: the run's ledger hears it through Died like any
-            // other (GameBootstrap.HookDeath), credited at the lip.
+            // other (GameBootstrap.HookDeath, which draws nothing for a body that fell in),
+            // credited at the lip.
             transform.position = Arena.NearestFloor(start, 0.3f);
             _health.Immune = false;
             _health.Kill();

@@ -291,6 +291,12 @@ namespace Convergence.Player
 
         public override float Fill01 => Momentum;
 
+        public override string SealTag
+            => Gusting ? $"GUST  {_gustRemaining:0.0}s"
+             : HitStreak > 0 ? $"CRIT {CritChance * 100f:0}%" : null;
+        public override int RimPips => StreakCap;
+        public override int RimPipsLit => Mathf.Min(StreakCap, HitStreak);
+
         // ---- SQUALL: the second ability, chosen on the board in place of Gust ----
 
         /// <summary>How many vortices a squall scatters.</summary>

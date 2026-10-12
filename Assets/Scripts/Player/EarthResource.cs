@@ -169,6 +169,15 @@ namespace Convergence.Player
 
         public override float Fill01 => Charge;
 
+        /// <summary>The aftershocks a release right now would carry - the rule Release spends.</summary>
+        int Aftershocks => Mathf.FloorToInt(Charge * ChargeSeconds / AftershockPerSeconds);
+
+        public override string ReleaseName => Aftershocks > 0 ? $"QUAKE +{Aftershocks}" : "QUAKE";
+        public override string SealTag
+            => _quaking ? "AFTERSHOCKS" : _still ? "PLANTED" : Charge > 0f ? "MOVING" : null;
+        public override int RimPips => Mathf.FloorToInt(ChargeSeconds / AftershockPerSeconds + 0.001f);
+        public override int RimPipsLit => _quaking ? 0 : Aftershocks;
+
         public override string StatusLine
         {
             get

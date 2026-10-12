@@ -49,6 +49,7 @@ namespace Convergence.Core
         Camera _cam;
         int _lastW, _lastH;
         float _lastTarget;
+        bool _lastSnap;
 
         void Awake() => _cam = GetComponent<Camera>();
 
@@ -61,11 +62,12 @@ namespace Convergence.Core
         {
             if (_cam == null) return;
             if (Screen.width == _lastW && Screen.height == _lastH
-                && Mathf.Approximately(TargetSize, _lastTarget)) return;
+                && Mathf.Approximately(TargetSize, _lastTarget) && Snap == _lastSnap) return;
 
             _lastW = Screen.width;
             _lastH = Screen.height;
             _lastTarget = TargetSize;
+            _lastSnap = Snap;
             _cam.orthographicSize = Snap ? SizeFor(Screen.height, TargetSize) : TargetSize;
         }
 

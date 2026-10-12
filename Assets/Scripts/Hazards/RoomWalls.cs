@@ -30,11 +30,13 @@ namespace Convergence.Hazards
         [SerializeField] bool[] _chasm;
         [SerializeField] int _cols, _rows;
         [SerializeField] string _shapeName;
+        [SerializeField] bool _lake;
 
         static RoomWalls _current;
 
-        /// <summary>The shape standing now ("open" for none).</summary>
-        public static string CurrentName => _current != null ? _current._shapeName : "open";
+        /// <summary>The shape standing now ("open" for none), "(lake)" when its chasms are water.</summary>
+        public static string CurrentName
+            => _current == null ? "open" : _current._lake ? $"{_current._shapeName} (lake)" : _current._shapeName;
 
         /// <summary>
         /// Replace the floor's walls with <paramref name="shape"/>'s, or take them down (null).
@@ -58,14 +60,14 @@ namespace Convergence.Hazards
             var walls = go.AddComponent<RoomWalls>();
             walls.Build(shape);
             _current = walls;
-            Debug.Log($"[Room] {shape.Name}");
+            Debug.Log($"[Room] {shape.Describe}");
         }
 
         void OnEnable()
         {
             if (_wall == null || _wall.Length == 0) return;
             _current = this;
-            Arena.SetWalls(_wall, _chasm, _cols, _rows);
+            Arena.SetWalls(_wall, _chasm, _cols, _rows, _lake);
         }
 
         void OnDestroy()
@@ -92,6 +94,7 @@ namespace Convergence.Hazards
         void Build(RoomShape shape)
         {
             _shapeName = shape.Name;
+            _lake = shape.Lake;
             _cols = RoomShape.Cols;
             _rows = RoomShape.Rows;
             _wall = new bool[_cols * _rows];
@@ -169,6 +172,11 @@ namespace Convergence.Hazards
             // Outside the room counts as chasm here, so a chasm against the outer wall shows the
             // wall's own face going down rather than a lip that is not there.
             bool Void(int x, int y) => x < 0 || y < 0 || x >= _cols || y >= _rows || At(x, y) == '~';
+            // A LAKE is drawn as one surface per connected body of water instead (LakeSurface):
+            // its shore is rounded and its depth runs out from the bank, neither of which a cell
+            // drawn alone can know.
+            if (_lake) LakeSurface.BuildAll(transform, _cols, _rows, cell, Corner, (x, y) => At(x, y) == '~', Void);
+            else
             for (int y = 0; y < _rows; y++)
             for (int x = 0; x < _cols; x++)
             {
@@ -187,7 +195,7 @@ namespace Convergence.Hazards
 
             // Published HERE, not only in OnEnable: AddComponent runs OnEnable before Build has
             // filled the mask, so the first floor in a shape was placed as if it were open.
-            Arena.SetWalls(_wall, _chasm, _cols, _rows);
+            Arena.SetWalls(_wall, _chasm, _cols, _rows, _lake);
         }
 
         /// <summary>Which sides of cell (x, y) face open floor: bit 0 north, 1 south, 2 west, 3 east.</summary>

@@ -1087,6 +1087,57 @@ namespace Convergence.Core
         }
 
         /// <summary>
+        /// The between-floors reward screen (UI.FloorRewardScreen): two weapon art cards and one
+        /// RESTORE card drawn from Heal / Repair / Experience. Heal is in the draw only while hurt,
+        /// Repair only while armour is worn; Experience always is, so a full player is offered it.
+        /// </summary>
+        public static class FloorRewards
+        {
+            /// <summary>Weapon art cards offered side by side (fewer when the class pool runs short).</summary>
+            public const int ArtOffers = 2;
+
+            /// <summary>
+            /// The Experience card's element MASTERY XP, as a share of what the floor itself paid
+            /// (GameBootstrap.MasteryXpPerFloor, after the daily taper - so the card tapers with it).
+            /// It used to grant a flat 150 to the character's profile XP, untapered: fifteen kills'
+            /// worth into a number that drives nothing.
+            /// </summary>
+            public const float XpCardFloorShare = 0.5f;
+
+            /// <summary>
+            /// The odds the restore draw's always-present entry is CALX instead of Experience. Calx
+            /// only competes with XP - never with a Heal or Repair a hurt player needs.
+            /// </summary>
+            public const float CalxChance = 0.5f;
+
+            /// <summary>
+            /// Calx one card pays, always of <see cref="CalxTier"/>, within the allowance
+            /// (<see cref="FloorsPerCalx"/>).
+            /// </summary>
+            public const int CalxPerCard = 1;
+
+            /// <summary>
+            /// BRONZE ONLY, whatever the depth. Banding it with the drops (Gold from floor 50) would
+            /// make a calx card a third of a Gold box every floor of a deep run; Bronze can't be
+            /// farmed into anything that matters.
+            /// </summary>
+            public const Art.Gear.LootTier CalxTier = Art.Gear.LootTier.Bronze;
+
+            /// <summary>
+            /// The calx ALLOWANCE grows with depth: one calx per this many floors cleared, an
+            /// unspent one carried forward. While none is left, the draw's entry is Experience.
+            ///
+            /// Sized against the drop budget (Tuning.GearRoll.EnemyGearDropChance + boss boxes) in
+            /// calx-equivalents (a piece ~1.3 with stars, a box 3): an extract at floor 25 drops
+            /// ~10, a full clear ~48. The allowance is 2 and 10 - about a fifth either way, and
+            /// all Bronze where the drops are mostly Silver and Gold deep down. A flat per-run cap
+            /// was tried first and paid shallow runs the most: 6 calx was half again a floor-25
+            /// extract's drops.
+            /// </summary>
+            public const int FloorsPerCalx = 10;
+        }
+
+        /// <summary>
         /// The daily reward taper - the run economy's anti-farming measure.
         ///
         /// IT APPLIES TO XP ONLY, AND NOT TO LOOT. That is a change from the original design note,
@@ -1602,6 +1653,48 @@ namespace Convergence.Core
             public const int LightsPressesEvery = 35;
             public const int LightsPressesMax = 5;
             public const int LightsSlack = 3;
+
+            /// <summary>THE LABYRINTH (Puzzles.MazePuzzle) - the whole floor a maze, seen through
+            /// the close view. Its own wall mask over the 24x14 arena: MazeGridCols x MazeGridRows
+            /// cells of 0.4 units, a corridor MazeCorridorCells wide (1.2; the player is 0.84
+            /// across) and a wall MazeWallCells - so 15 x 9 maze cells, the spare column going to
+            /// the middle one.</summary>
+            public const int MazeGridCols = 60;
+            public const int MazeGridRows = 35;
+            public const int MazeCorridorCells = 3;
+            public const int MazeWallCells = 1;
+
+            /// <summary>The shortest path's band, in maze cells. The backtracker alone ranges from
+            /// 10 to 100+ between the start and the door (median ~44, simulated); up to MazeTries
+            /// draws are made from the seed and the first inside the band kept. 50-80 cells is
+            /// 21-35 s of straight walking at the base move speed.</summary>
+            public const int MazePathMin = 50;
+            public const int MazePathMax = 80;
+            public const int MazeTries = 32;
+
+            /// <summary>The clock, the same on every floor (the user's call, 2026-10-11): 1:15 for
+            /// a path of at most 35 s straight walking - the rest is wrong turns, which the close
+            /// view is what makes. Shown as a countdown on the HUD (Hud.SetCountdown), urgent
+            /// under MazeUrgentSeconds.</summary>
+            public const float MazeSeconds = 75f;
+            public const float MazeUrgentSeconds = 15f;
+
+            /// <summary>The walls' picture: texels per world unit (a mask cell is 30), and the
+            /// share of a wall cell its south face takes - RoomWalls' 0.42 of a whole unit would be
+            /// more than a whole 0.4 cell.</summary>
+            public const float MazeArtPpu = 75f;
+            public const float MazeFaceFraction = 0.6f;
+
+            /// <summary>The collapse on a failure: a wave running outward from the player at this
+            /// speed (units/s - the far corner goes ~1.8 s in), each piece rattling, then sinking
+            /// into the floor.</summary>
+            public const float MazeCollapseSpeed = 14f;
+            public const float MazeCollapseShake = 0.18f;
+            public const float MazeCollapseSink = 0.35f;
+
+            /// <summary>How long the camera takes to pull back out of the close view once a
+            /// puzzle no longer wants it. Unscaled.</summary>
+            public const float CloseViewOutSeconds = 0.9f;
         }
 
         /// <summary>
@@ -1732,7 +1825,7 @@ namespace Convergence.Core
         /// The Flurry art (Light, rebuilt 2026-10-08): cut down, cut back up, then the hilt turned
         /// and the POMMEL driven into the target. One fixed-time sequence (PlayerController's
         /// FlurryStrike, AttackMotion.Flurry). The two cuts land while the timing bar fills, at its
-        /// provisional GOOD rate as the katana's sheathed cuts do; the bar judges the pommel.
+        /// provisional GOOD rate (StrikeJudge.Multiplier); the bar judges the pommel.
         /// Absolute seconds, so the three beats read at the same speed whatever the attack speed.
         /// The rig keys its own phases off these same numbers.
         /// </summary>
@@ -2013,8 +2106,9 @@ namespace Convergence.Core
 
         /// <summary>
         /// Zanmato - the katana signature. The finisher runs as a coroutine
-        /// (<c>PlayerController.SheathDrawStrike</c>): quick-sheathe, two crescent cuts across the
-        /// target while sheathed, then an unsheathing vertical draw-cut. Heavy damage, single
+        /// (<c>PlayerController.SheathDrawStrike</c>): quick-sheathe and WAIT sheathed while the
+        /// timing bar fills, then - the press decided - two crescent cuts across the target, then
+        /// an unsheathing vertical draw-cut. The wait is the bar's shortfall, paid back by parity. Heavy damage, single
         /// target, and its killing blow leaves a non-boss body in two halves.
         /// </summary>
         public static class Katana
@@ -2098,7 +2192,7 @@ namespace Convergence.Core
         /// Light art stays a quick double tap, and a Medium or Heavy one puts the green past
         /// reaction time, so its fill is READ rather than reacted to - and the classes stop
         /// sharing one memorised rhythm. A finisher that already delays its damage (a charge, a
-        /// leap, Separatio's hold, the katana's sheathe, the bow's draw) shows the bar during the
+        /// leap, Separatio's hold, the bow's draw) shows the bar during the
         /// end of that delay and gains no time - and shows it for up to
         /// <see cref="DelayedBarSeconds"/>, since that time is already spent; one that resolved on
         /// the press (an ordinary swing, a disc volley, a thrown blade) gains a wind-up of exactly
@@ -2519,6 +2613,83 @@ namespace Convergence.Core
 
             /// <summary>After the last shot leaves, before the stone comes down and time runs again.</summary>
             public const float SettleSeconds = 0.18f;
+        }
+
+        /// <summary>
+        /// THE HIVE'S DRAW AND LOOSE (Combat.HiveLoose): every shot is one of the bow's own arrows,
+        /// peeled off a limb to the string hand, loosed, and flown home to the limb's tip. A picture
+        /// only. Scaled seconds.
+        /// </summary>
+        public static class HiveLoose
+        {
+            /// <summary>The share of the draw the peel takes - the rig's reach beat (Draw's
+            /// ReachEnd), so the arrow reaches the string hand as the pull begins.</summary>
+            public const float PeelEnd = 0.3f;
+
+            /// <summary>How far the peeled arrow lifts off its limb on the way to the hand (units).</summary>
+            public const float PeelArc = 0.12f;
+
+            /// <summary>The lane's slide, as shares of the draw: from, to.</summary>
+            public const float SlideFrom = 0.05f, SlideTo = 0.4f;
+
+            /// <summary>The way home: speed, the bounds on how long it takes, and how high it arcs
+            /// as a share of the distance.</summary>
+            public const float ReturnSpeed = 9f, ReturnMinSeconds = 0.25f, ReturnMaxSeconds = 0.7f, ReturnArc = 0.25f;
+
+            /// <summary>A nocked arrow never told of its release goes home this long after the draw.</summary>
+            public const float ReleaseGraceSeconds = 0.3f;
+        }
+
+        /// <summary>
+        /// SWARM: The Hive's weapon art (the Hive Remote's). The bow is drawn as for a shot; on the
+        /// release every arrow it is made of leaves as one swarm (Combat.HiveSwarm), balls round the
+        /// locked target and darts in at it and at the enemies near it, then flies home and is the
+        /// bow again. Scaled seconds. The player moves freely while it is out, but cannot attack -
+        /// the bow is only its grip.
+        /// </summary>
+        public static class Swarm
+        {
+            /// <summary>How fast an arrow flies (out, darting, home) and how hard it turns, units/s and units/s^2.</summary>
+            public const float Speed = 13f, DiveSpeed = 19f, ReturnSpeed = 17f, Accel = 120f;
+
+            /// <summary>The arrows leave the bow over this, grip first, so the bow comes apart
+            /// rather than vanishing.</summary>
+            public const float LaunchSeconds = 0.14f;
+
+            /// <summary>The ball: how far from the target's middle the arrows circle (each its own
+            /// radius in this range), how fast (radians/s), and how high over the target's feet
+            /// its middle sits.</summary>
+            public const float OrbitRadiusMin = 0.32f, OrbitRadiusMax = 0.8f,
+                               OrbitSpeedMin = 6f, OrbitSpeedMax = 10f, BodyLift = 0.3f;
+
+            /// <summary>Seconds between strikes once the ball has formed - one arrow darts in each time.</summary>
+            public const float StrikeEvery = 0.11f;
+
+            /// <summary>
+            /// Shares of the art's damage (its step's whole Medium). The TARGET takes TargetHits
+            /// strikes of TargetShare - exactly one Medium (10 x 0.1). Every enemy within NearRadius
+            /// of it (up to MaxNear, nearest first) takes NearHits strikes of NearShare, less a
+            /// swing's falloff per enemy before it. Strikes alternate between the target and the
+            /// enemies near it while both are owed.
+            /// </summary>
+            public const int TargetHits = 10, NearHits = 3, MaxNear = 5;
+            public const float TargetShare = 0.1f, NearShare = 0.12f, NearRadius = 2.6f;
+
+            /// <summary>An arrow darting in strikes when it comes this close to its mark.</summary>
+            public const float HitRadius = 0.2f;
+
+            /// <summary>How much of its speed an arrow keeps through its mark, and how close to its
+            /// place on the bow a homing arrow stops steering and flies straight in.</summary>
+            public const float DiveCarry = 0.45f, SettleDistance = 0.6f;
+
+            /// <summary>With nothing locked, the swarm goes this far down the facing and takes
+            /// the nearest enemy within NearRadius of there; finding none it circles a moment
+            /// (EmptySeconds) and comes home.</summary>
+            public const float ReachNoTarget = 4f, EmptySeconds = 0.6f;
+
+            /// <summary>The swarm comes home after this whatever is still owed (a target that is
+            /// immune, say) - and is forced home after the second.</summary>
+            public const float MaxSeconds = 4f, ForceHomeSeconds = 3f;
         }
 
         /// <summary>
@@ -3890,6 +4061,43 @@ namespace Convergence.Core
         /// Room shapes (Hazards.RoomShape): interior walls carving the arena rectangle into a
         /// plaza, a hall, three chambers... on ordinary combat floors. Seeded per floor.
         /// </summary>
+        /// <summary>
+        /// The arena's SCENERY (Art.Scenery): every floor rolls its own masonry and stone for the
+        /// floor and the boundary walls, and from <see cref="EveningFrom"/> the north wall may
+        /// carry WINDOWS whose light says how high the climb is - evening, dawn, noon, and floor
+        /// 100's crimson. Purely visual: nothing reads it.
+        /// </summary>
+        public static class Scenery
+        {
+            /// <summary>Chance a floor in a daylight band has windows. Floor 100 always does.</summary>
+            public const float WindowChance = 0.45f;
+
+            /// <summary>The bands: 1-25 none, 26-50 a dark evening glow, 51-75 dawn, 76-99 high
+            /// noon, 100 crimson.</summary>
+            public const int EveningFrom = 26, DawnFrom = 51, NoonFrom = 76, CrimsonFloor = 100;
+
+            /// <summary>Chance the boundary walls are the floor's own stone rather than another.</summary>
+            public const float WallMatchesFloorChance = 0.5f;
+
+            /// <summary>Chance a floor scatters a second stone through its masonry, and how much.</summary>
+            public const float AccentChance = 0.45f, AccentMin = 0.06f, AccentMax = 0.22f;
+
+            /// <summary>The north wall's drawn face (world units, from its inner face up) - the one
+            /// wall the 3/4 camera sees the side of, and so the one that can hold a window.</summary>
+            public const float FaceHeight = 2.2f;
+
+            /// <summary>The capstones above the north face, and the visible top of the other three
+            /// walls, before the dark beyond.</summary>
+            public const float CapHeight = 0.45f, TopBand = 0.9f;
+
+            /// <summary>Half the containing walls' thickness: the walls are centred on the arena's
+            /// half extents, so their inner faces stand this far inside.</summary>
+            public const float WallInset = 0.3f;
+
+            /// <summary>Keep windows clear of the exit door, which stands at the north wall's middle.</summary>
+            public const float DoorClearance = 1.6f;
+        }
+
         public static class Rooms
         {
             /// <summary>Floors before this are always the open rectangle - the basics are learned
@@ -3932,8 +4140,22 @@ namespace Convergence.Core
             /// <summary>The glide over the lip before the fall.</summary>
             public const float ThrowSeconds = 0.14f;
 
-            /// <summary>The fall itself: shrinking into the dark, before the kill lands.</summary>
-            public const float FallSeconds = 0.4f;
+            /// <summary>A body going down a DROP (Enemies.ChasmFall.Drop): this long from the lip
+            /// to the kill, falling DropDepth down the screen under gravity's ease (the near lip
+            /// swallows it on the way), carried DropCarry further along its throw, tumbling up to
+            /// DropSpinDegrees the way it was thrown, receding to DropShrink of its size and going
+            /// dark. DropGrit crumbs of the lip fall with it.</summary>
+            public const float DropSeconds = 0.65f, DropDepth = 1.3f, DropCarry = 0.3f;
+            public const float DropShrink = 0.55f, DropSpinDegrees = 75f;
+            public const int DropGrit = 6;
+            public const float DropGritGravity = 6f;
+
+            /// <summary>A body going under a LAKE (Enemies.ChasmFall.Sink): this long from the
+            /// splash to the kill - plunging SinkPlunge, bobbing back up SinkBob, then sinking
+            /// until its top is under. The waterline sits SinkWaterline above its feet; it
+            /// wobbles up to SinkWobbleDegrees and darkens, wet (ChasmFall.Wet).</summary>
+            public const float SinkSeconds = 1.0f, SinkPlunge = 0.22f, SinkBob = 0.09f;
+            public const float SinkWaterline = 0.06f, SinkWobbleDegrees = 6f;
 
             /// <summary>Where the player's walk stops: the body's centre this far from the void.</summary>
             public const float EdgeMargin = 0.12f;
@@ -3947,6 +4169,15 @@ namespace Convergence.Core
             /// MECHANIC hit, like the bosses' - Tuning.Boss's rule), and a return to the last
             /// ground they stood on.</summary>
             public const float PlayerFallFraction = 0.15f;
+
+            /// <summary>Chance a floor's chasms are a LAKE rather than a drop (RoomShape.Lake) -
+            /// the same void by every rule, drawn as deep water. Rolled per floor from its seed.</summary>
+            public const float LakeChance = 0.5f;
+
+            /// <summary>The lake's surface: a ring somewhere on open water every this many seconds
+            /// (a still lake reads as a blue floor), and the size each grows to.</summary>
+            public const float LakeRippleIntervalMin = 0.5f, LakeRippleIntervalMax = 1.4f;
+            public const float LakeRippleSize = 0.55f, LakeRippleSeconds = 1.3f;
         }
 
         /// <summary>
@@ -4636,12 +4867,16 @@ namespace Convergence.Core
             public const float DropThreeStarMin = 0.0005f, DropThreeStarMax = 0.005f;
 
             /// <summary>
-            /// Chance a floor-clear drop hands over a loot box (of that floor's own banded tier,
-            /// see RunLoot.TierFor) instead of a directly-rolled item. Boxes are the Forge's own
-            /// currency - see the costs below - so this is what feeds re-rolling and targeted
-            /// redemption, not just random redemption.
+            /// Chance any ENEMY drops a gear piece, PER BASIC CHASER IT IS WORTH - the Rift Box's
+            /// measure (Tuning.Boss.RiftBoxDropChance), at four times its rate. Gear used to drop
+            /// once per CLEARED FLOOR, so a full clear came home with ~100 pieces (the user's call,
+            /// 2026-10-11: way too much). Now ordinary floors drop nothing on the clear; BOSS
+            /// floors pay a guaranteed box (RunLoot.RollBossBox), and enemies drop gear at this
+            /// rate. Off the composer's 1166 Chasers' worth a full clear: ~1.2 pieces by floor 25,
+            /// ~3.9 by 50, ~6.9 by 75, ~9.3 at 100 - plus 12 boss boxes, ~21 things a full clear
+            /// (the target was 20-25, boxes counted).
             /// </summary>
-            public const float FloorBoxChance = 0.25f;
+            public const float EnemyGearDropChance = 1f / 125f;
 
             /// <summary>
             /// The design-box drops (the user's calls, 2026-10-09). The avatar bosses at 25, 50 and

@@ -83,9 +83,6 @@ namespace Convergence.Core
         [Header("Experience")]
         [Tooltip("XP each kill is worth.")]
         public int XpPerKill = 10;
-        [Tooltip("Account XP granted by one XP upgrade card. Placeholder - the progression " +
-                 "system this feeds has not been designed yet.")]
-        public int XpPerPick = 150;
 
         [Header("Floors")]
         [Tooltip("Every Nth floor guarantees one elite, paid for out of the wave's pool. When each " +
@@ -264,17 +261,27 @@ namespace Convergence.Core
         System.Action<Combat.Health> _onPlayerDied;
 
         /// <summary>
-        /// Account XP banked from floor upgrades this run. Global progression, not run-scoped -
-        /// it is added to the profile at the run-end checkpoint alongside kill XP.
-        /// </summary>
-        int _bonusXp;
-
-        /// <summary>
         /// Element mastery earned this run, unbanked. Held here rather than written straight to
         /// the profile so a false start can throw it away - giving up current progression for
         /// another attempt to go deeper is the whole point of that mechanic.
         /// </summary>
         int _pendingMastery;
+
+        /// <summary>
+        /// Calx taken from floor reward cards this run - CARRIED, like unsecured loot: banked by
+        /// EndRun on an extraction, dropped on a death.
+        /// </summary>
+        int _runCalx;
+
+        /// <summary>Calx the cards have paid this run, against the depth allowance
+        /// (CalxAllowanceLeft). Separate from _runCalx so nothing that ever spends or clears
+        /// carried calx re-opens it.</summary>
+        int _runCalxTaken;
+
+        /// <summary>One calx per Tuning.FloorRewards.FloorsPerCalx floors cleared, less what the
+        /// cards already paid. _floor is the floor whose reward is being offered - cleared.</summary>
+        int CalxAllowanceLeft()
+            => Mathf.Max(0, _floor / Tuning.FloorRewards.FloorsPerCalx - _runCalxTaken);
 
         /// <summary>
         /// Bumped by every teardown. Async continuations and coroutines capture it and bail if it
@@ -1105,6 +1112,24 @@ namespace Convergence.Core
             MakeWall(new Vector2(0, -HalfHeight), new Vector2(HalfWidth * 2f + t, t));
             MakeWall(new Vector2(-HalfWidth, 0), new Vector2(t, HalfHeight * 2f + t));
             MakeWall(new Vector2(HalfWidth, 0), new Vector2(t, HalfHeight * 2f + t));
+
+            // The walls' tops, the north face and the dark beyond are drawn by the scenery, which
+            // every floor re-rolls (DressArena); this is the look before the first floor.
+            Art.Scenery.Dress(_arenaRoot, Art.Scenery.Default, new Vector2(HalfWidth, HalfHeight), FloorMargin);
+        }
+
+        /// <summary>
+        /// The floor's scenery - masonry, stone, and past floor 25 the chance of windows and the
+        /// time of day through them (Art.Scenery). Seeded per floor, so a restart meets the same
+        /// rooms. Runs behind the floor transition's black screen, so the swap is never seen.
+        /// </summary>
+        void DressArena(int floor)
+        {
+            if (_arenaRoot == null) return;
+            int seed = _planner != null ? _planner.SceneSeed(floor) : floor * 7919 + 1;
+            var theme = Art.Scenery.Roll(floor, seed);
+            Art.Scenery.Dress(_arenaRoot, theme, new Vector2(HalfWidth, HalfHeight), FloorMargin);
+            Debug.Log($"[Floor] scenery {theme}");
         }
 
         /// <summary>Repeats one floor tile across the arena - the usual shape for authored 2D art.</summary>
@@ -1150,14 +1175,12 @@ namespace Convergence.Core
             go.transform.localScale = new Vector3(size.x, size.y, 1f);
 
             var wallArt = Art.GameArt.I.WallSprite;
-            var sr = go.AddComponent<SpriteRenderer>();
-            sr.sprite = wallArt != null ? wallArt : Spr.Square;
-            // A warm dark stone, to sit with the brick floor - the old cold grey read as a
-            // different, unlit material next to it.
-            sr.color = wallArt != null ? Color.white : new Color(0.21f, 0.17f, 0.13f);
-            sr.sortingOrder = -8;
-
             go.AddComponent<BoxCollider2D>();
+            // No authored wall: Art.Scenery draws the boundary, and this is only the collider.
+            if (wallArt == null) return;
+            var sr = go.AddComponent<SpriteRenderer>();
+            sr.sprite = wallArt;
+            sr.sortingOrder = -8;
         }
         
         // ------------------------------------------------------------------ hub (main menu)
@@ -1606,7 +1629,7 @@ namespace Convergence.Core
                 }
 
                 _alive.RemoveAll(e => e == null);
-                _hud?.SetFloorInfo(_floor, _alive.Count, _player ? _player.Kills : 0);
+                _hud?.SetFloorInfo(_floor, _alive.Count, _player ? _player.Kills : 0, GroundGearCount());
 
                 // Practice-dummy mode holds the floor open forever: its target is never in
                 // _alive, so without this the floor would read as cleared on the first frame and
@@ -1778,6 +1801,7 @@ namespace Convergence.Core
         /// </summary>
         void TrackCamera()
         {
+            TrackCloseView();
             float halfH = _cam.orthographicSize;
             float halfW = halfH * _cam.aspect;
 
@@ -1806,7 +1830,9 @@ namespace Convergence.Core
 
             // Framerate-independent, and tight: a soft follow reads as the camera lagging behind
             // the player rather than carrying them.
-            anchor = Vector3.Lerp(
+            // Except while the close view pulls back out: the clamp widens faster than the follow
+            // catches up, and the view swung out over the void past the walls.
+            anchor = _viewEase >= 0f ? want : Vector3.Lerp(
                 anchor, want, 1f - Mathf.Exp(-CameraFollow * Time.deltaTime));
 
             _camKick = CameraKick.Offset;
@@ -1901,8 +1927,9 @@ namespace Convergence.Core
 
             int token = _runToken;
             _runId = Guid.NewGuid().ToString("N")[..8];
-            _bonusXp = 0;
             _pendingMastery = 0;
+            _runCalx = 0;
+            _runCalxTaken = 0;
             _runStartTime = Time.time;
             _floor = 0;
             // A LOCAL stand-in for the server's sticky run seed - the day the service issues
@@ -1961,7 +1988,7 @@ namespace Convergence.Core
             _hud.SetWearSource(
                 () => _profile.Wear.Condition01(_profile.Gear, Art.Gear.SlotKind.Armor, _player.Stats.Armor),
                 () => _player.IncomingReadout,
-                () => _bonusXp);
+                () => _pendingMastery);
             _hud.Build(_player, _canvas.transform);
             var staked = GearStake.Staked(_profile);
             if (staked != null)
@@ -2527,6 +2554,12 @@ namespace Convergence.Core
 
         IEnumerator NextFloor()
         {
+            LeaveGroundGear();
+            // A Rift Box left lying stays with its floor too. It lives under _enemyRoot, which
+            // outlives floors, and its collapse clock is scaled time - frozen through the
+            // transition - so one dropped by the door used to lie in the next room.
+            foreach (var box in FindObjectsByType<Rifts.RiftBoxPickup>(FindObjectsInactive.Exclude))
+                if (box != null) { box.gameObject.SetActive(false); Destroy(box.gameObject); }
             _spawning = true;
             CloseRift();   // a Rift left unanswered closes behind the player
             ClearPuzzle();
@@ -2541,6 +2574,7 @@ namespace Convergence.Core
             _plan = _planner != null ? _planner.Plan(_floor)
                                      : new Rifts.FloorPlan(_floor, Rifts.FloorCategory.Combat, Rifts.RiftKind.None, false);
             Debug.Log($"[Floor] plan {_plan}");
+            DressArena(_floor);
 
             // The floor decides which of a kind's two looks is on screen, once, before any of
             // this floor's enemies of that kind spawn - see Enemies.EnemyLooks. Same enemy either
@@ -2919,6 +2953,10 @@ namespace Convergence.Core
             // of popping in afterward.
             OpenFloorDoor();
             RollFloorDrop();
+            int lying = GroundGearCount();
+            if (lying > 0)
+                _hud?.Flash(lying == 1 ? "a piece of gear is still on the floor"
+                                       : $"{lying} pieces of gear are still on the floor");
             SettleFloorRift();
 
             // Floor-clear costs settle FIRST, so the exchange row is read against the health you
@@ -2960,8 +2998,10 @@ namespace Convergence.Core
             // be a lie, and is the obvious way to get this wrong.
             _pendingReward = RollFloorReward();
             string preview = Modifiers.StacksOf("transmuters_eye") > 0
-                ? $"next: {_pendingReward.RestoreText}" +
-                  (_pendingReward.Offered != null ? $"  or  {_pendingReward.Offered.DisplayName}" : "")
+                ? $"next: {RestoreText(_pendingReward.Restore, _pendingReward, 0)}" +
+                  (_pendingReward.Offered.Count > 0
+                      ? $"  or  {string.Join(" / ", _pendingReward.Offered.ConvertAll(m => m.DisplayName))}"
+                      : "")
                 : null;
 
             // Oracle: each slate shows the deal that would follow it - built on a copy of the ledger
@@ -3065,9 +3105,12 @@ namespace Convergence.Core
         /// </summary>
         class RolledReward
         {
-            public Combat.Moveset Offered;
+            /// <summary>The weapon art cards, distinct, 0..Tuning.FloorRewards.ArtOffers.</summary>
+            public List<Combat.Moveset> Offered;
+            /// <summary>The restore card: Heal, Repair or Xp (PickRestoreKinds).</summary>
             public UI.FloorReward Restore;
-            public string RestoreText;
+            /// <summary>Curator's extra restore card - another kind from the same draw - or null.</summary>
+            public UI.FloorReward? Extra;
             public float HealAmount;
         }
 
@@ -3080,23 +3123,45 @@ namespace Convergence.Core
 
         RolledReward RollFloorReward()
         {
-            var restore = PickRestoreKind();
+            var kinds = RestoreDraw();
+            int pick = UnityEngine.Random.Range(0, kinds.Count);
+            var restore = kinds[pick];
+            kinds.RemoveAt(pick);
+            // Curator: one more card - another kind from the same draw, when the draw has one.
+            UI.FloorReward? extra = Modifiers.Current.ExtraRewardOptions > 0 && kinds.Count > 0
+                ? kinds[UnityEngine.Random.Range(0, kinds.Count)]
+                : null;
+
             // Heal Received boosts THIS card and nothing else - not lifesteal, not boons.
             float healAmount = _player != null
                 ? _player.Health.Max * HealFraction * Art.Gear.StatPercents.Apply(1f, _player.Stats.HealReceived)
                 : 0f;
+
+            // Curator with nothing left to draw (full health, pristine armour): a third art instead.
+            int arts = Tuning.FloorRewards.ArtOffers
+                     + (Modifiers.Current.ExtraRewardOptions > 0 && extra == null ? 1 : 0);
             return new RolledReward
             {
                 Offered = _player != null
-                    ? Combat.MovesetLibrary.RandomOffer(_player.Slots, _player.SlotLocked, _player.Weapon)
-                    : null,
+                    ? Combat.MovesetLibrary.RandomOffers(_player.Slots, _player.SlotLocked, _player.Weapon, arts)
+                    : new List<Combat.Moveset>(),
                 Restore = restore,
+                Extra = extra,
                 HealAmount = healAmount,
-                RestoreText = restore == UI.FloorReward.Heal
-                    ? $"+{Mathf.RoundToInt(healAmount)} HP"
-                    : $"+{Mathf.RoundToInt(RepairFractionNow * 100f)}% condition",
             };
         }
+
+        /// <summary>The Experience card's mastery XP at the given taper - see Tuning.FloorRewards.</summary>
+        int XpCardAmount(float taper)
+            => Mathf.Max(1, Mathf.RoundToInt(MasteryXpPerFloor * taper * Tuning.FloorRewards.XpCardFloorShare));
+
+        string RestoreText(UI.FloorReward kind, RolledReward r, int xpAmount) => kind switch
+        {
+            UI.FloorReward.Heal   => $"+{Mathf.RoundToInt(r.HealAmount)} HP",
+            UI.FloorReward.Repair => $"+{Mathf.RoundToInt(RepairFractionNow * 100f)}% condition",
+            UI.FloorReward.Calx   => $"+{Tuning.FloorRewards.CalxPerCard} {Tuning.FloorRewards.CalxTier} calx",
+            _                     => xpAmount > 0 ? $"+{xpAmount} mastery XP" : "mastery XP",
+        };
 
         void OfferFloorRewardCards()
         {
@@ -3121,32 +3186,44 @@ namespace Convergence.Core
             var r = _pendingReward ?? RollFloorReward();
             _pendingReward = null;
 
-            string xpText = $"+{XpPerPick} XP";
-            string xpBlurb = "Account experience, kept whether you survive or not. " +
-                             $"You are level {_profile.Level} with {_profile.Xp} XP.";
+            // Sized HERE, after the taper was counted for this floor, so the card pays at the
+            // same rate the floor did. (The roll may be older - Transmuter's Eye rolls it before
+            // the deal - but only the KIND is fixed there, never the amount.)
+            int xpAmount = XpCardAmount(taper);
+            var element = _player && _player.Resource ? _player.Resource.Element : ElementType.Fire;
+            string xpBlurb = $"{element} mastery, banked when the run ends - " +
+                             $"on top of the {Mathf.RoundToInt(MasteryXpPerFloor * taper)} this floor already paid.";
 
-            // Curator: one more card - the restore the roll did not pick, beside the one it did.
-            string otherRestore = Modifiers.Current.ExtraRewardOptions > 0
-                ? (r.Restore == UI.FloorReward.Heal
-                    ? $"+{Mathf.RoundToInt(RepairFractionNow * 100f)}% condition"
-                    : $"+{Mathf.RoundToInt(r.HealAmount)} HP")
-                : null;
+            var restores = new List<UI.FloorRewardScreen.RestoreCard>
+            {
+                new() { Kind = r.Restore, Value = RestoreText(r.Restore, r, xpAmount) },
+            };
+            if (r.Extra is UI.FloorReward extra)
+                restores.Add(new() { Kind = extra, Value = RestoreText(extra, r, xpAmount) });
+            int perBox = Tuning.GearRoll.CalxPerBox;
+            string calxBlurb = $"Carried: kept if you extract, lost if you die. {perBox} calx make a " +
+                               $"{Tuning.FloorRewards.CalxTier} box - you hold {_profile.Calx.Get(Tuning.FloorRewards.CalxTier)}" +
+                               (_runCalx > 0 ? $", carrying {_runCalx}." : ".");
+            foreach (var c in restores)
+                if (c.Kind == UI.FloorReward.Xp) c.Blurb = xpBlurb;
+                else if (c.Kind == UI.FloorReward.Calx) c.Blurb = calxBlurb;
 
             FloorRewardScreen.Show(
                 _canvas.transform, _floor, r.Offered,
                 _player != null ? _player.Slots : System.Array.Empty<Combat.Moveset>(),
                 _player != null ? _player.SlotLocked : _ => false,
                 _player != null ? _player.RotationIndex : 0,
-                r.Restore, r.RestoreText, xpText, xpBlurb,
-                (outcome, slot) => ApplyFloorReward(outcome, slot, r.Offered, r.HealAmount),
-                otherRestore);
+                restores,
+                (outcome, slot, art) => ApplyFloorReward(outcome, slot, art, r.HealAmount, xpAmount));
         }
 
         /// <summary>
-        /// Heal and repair share a slot, so the roll is weighted by what would actually help:
-        /// offering a repair on pristine gear (or a heal at full health) wastes the card.
+        /// The restore card's draw: Heal while hurt, Repair while armour is worn, and always one of
+        /// Experience or Calx (Tuning.FloorRewards.CalxChance).
+        /// A heal at full health (or a repair on pristine gear) would waste the card, so a kind that
+        /// can't help is left out rather than offered - and a full player is always offered XP.
         /// </summary>
-        UI.FloorReward PickRestoreKind()
+        List<UI.FloorReward> RestoreDraw()
         {
             bool hurt = _player != null && _player.Health.Current < _player.Health.Max - 0.5f;
 
@@ -3156,13 +3233,18 @@ namespace Convergence.Core
                                                       _player?.Stats.Armor ?? 0f);
             bool worn = armour < 0.995f;
 
-            if (hurt && worn) return UnityEngine.Random.value < 0.5f
-                ? UI.FloorReward.Heal : UI.FloorReward.Repair;
-            if (worn) return UI.FloorReward.Repair;
-            return UI.FloorReward.Heal;
+            var kinds = new List<UI.FloorReward>(3);
+            if (hurt) kinds.Add(UI.FloorReward.Heal);
+            if (worn) kinds.Add(UI.FloorReward.Repair);
+            // The entry that is always there: Experience, or Calx in its place.
+            bool calxLeft = CalxAllowanceLeft() > 0;
+            kinds.Add(calxLeft && UnityEngine.Random.value < Tuning.FloorRewards.CalxChance
+                ? UI.FloorReward.Calx : UI.FloorReward.Xp);
+            return kinds;
         }
 
-        void ApplyFloorReward(UI.FloorOutcome outcome, int slot, Combat.Moveset offered, float healAmount)
+        void ApplyFloorReward(UI.FloorOutcome outcome, int slot, Combat.Moveset offered, float healAmount,
+                              int xpAmount)
         {
             switch (outcome)
             {
@@ -3175,8 +3257,17 @@ namespace Convergence.Core
                     break;
 
                 case UI.FloorOutcome.Xp:
-                    _bonusXp += XpPerPick;
-                    Debug.Log($"[Convergence] banked {XpPerPick} account XP (run total {_bonusXp})");
+                    // Element mastery, banked with the floors' own at the run-end checkpoint.
+                    _pendingMastery += xpAmount;
+                    Debug.Log($"[Mastery] reward card +{xpAmount} xp (run total {_pendingMastery})");
+                    break;
+
+                case UI.FloorOutcome.Calx:
+                    // Carried, not banked: EndRun adds it to the profile only on an extraction.
+                    int give = Mathf.Min(Tuning.FloorRewards.CalxPerCard, CalxAllowanceLeft());
+                    _runCalx += give;
+                    _runCalxTaken += give;
+                    Debug.Log($"[Convergence] reward card +{give} calx (carrying {_runCalx}, {_runCalxTaken} taken this run)");
                     break;
 
                 case UI.FloorOutcome.Repair:
@@ -3501,18 +3592,14 @@ namespace Convergence.Core
         void RollFloorDrop()
         {
             if (_floor <= 0) return;
-            var drop = _loot.Roll(_floor);
-            if (drop != null)
+            // Only a BOSS floor pays on the clear - a guaranteed box. Every other floor's gear came
+            // off its enemies (TryDropGear); see Tuning.GearRoll.EnemyGearDropChance.
+            if (IsBossFloor(_floor))
             {
-                _loot.Add(drop);
-                Debug.Log($"[Rift] floor {_floor} dropped {drop.DisplayName} " +
-                          $"(carrying {_loot.CarriedCount}, secured {_loot.SecuredCount}, " +
-                          $"boxes {_loot.TotalBoxes})");
-            }
-            else
-            {
-                Debug.Log($"[Rift] floor {_floor} dropped a loot box instead of an item " +
+                var tier = _loot.RollBossBox(_floor);
+                Debug.Log($"[Rift] boss floor {_floor} paid a {tier} box " +
                           $"(carrying {_loot.CarriedCount}, secured {_loot.SecuredCount})");
+                if (!Chain.DesignDrops.IsDesignTier(tier)) _hud?.Flash($"{tier.ToString().ToUpper()} BOX");
             }
 
             // An avatar's own design-box rolls, on top of the floor's drop.
@@ -3696,6 +3783,20 @@ namespace Convergence.Core
 
             // Far left or right, from the seed, OPEN from the moment the room is entered: the
             // player may decline the puzzle at any point, before trying it or after failing it.
+            // Except where the puzzle fills the floor (the labyrinth) - there it opens on a failure.
+            if (_puzzle.SideDoorFromStart) SpawnSideDoor();
+
+            // Built under the transition's black, so the close view snaps rather than eases.
+            SetCloseView(_puzzle.CloseView, ease: false);
+
+            _hud?.Flash(_puzzle.Intro);
+            Debug.Log($"[Floor] puzzle floor {_floor}: {kind}");
+        }
+
+        void SpawnSideDoor()
+        {
+            if (_sideDoor != null || _player == null || _planner == null) return;
+            int token = _runToken;
             float side = (_planner.PuzzleSeed(_floor) & 1) == 0 ? -1f : 1f;
             var sideAt = new Vector2(side * (Arena.HalfExtents.x - Tuning.Puzzle.SideDoorInset),
                                      Arena.NorthDoorPoint.y);
@@ -3705,15 +3806,84 @@ namespace Convergence.Core
                 if (token != _runToken) return;
                 StartCoroutine(AdjacentRoom());
             });
+        }
 
-            _hud?.Flash("solve it and the door opens  -  or take the side door and fight");
-            Debug.Log($"[Floor] puzzle floor {_floor}: {kind}, side door {(side < 0 ? "west" : "east")}");
+        // ------------------------------------------------------------------ the close view
+
+        /// <summary>True while the camera is at menu density for a puzzle (the labyrinth).</summary>
+        bool _closeView;
+        /// <summary>The pull back out: 0..1 while easing, -1 at rest. Not serialized on purpose -
+        /// a reload mid-ease just lands the camera at the arena's zoom on the next frame.</summary>
+        float _viewEase = -1f, _viewEaseFrom;
+
+        /// <summary>The armoury's zoom - a whole number of screen pixels per MENU texel.</summary>
+        static float CloseViewSize => Tuning.Armoury.ViewHalfHeight(Screen.height);
+
+        /// <summary>
+        /// The CLOSE VIEW: the camera at the armoury's zoom and the character in its MENU art at
+        /// scale 1 - the armoury's own reason for dropping the arena's 4/3: at this zoom 4/3 puts
+        /// a body texel on a fractional number of pixels, and it shimmers. Both are undone here
+        /// and only here, so a puzzle can never leave the run zoomed in or drawn in menu art.
+        /// </summary>
+        void SetCloseView(bool on, bool ease)
+        {
+            // A snap still lands an ease that is under way (a run torn down mid-pull-back must not
+            // leave the zoom unsnapped).
+            if (on == _closeView && (ease || _viewEase < 0f)) return;
+            _closeView = on;
+            var rig = _player != null ? _player.Rig : null;
+            if (rig != null)
+            {
+                rig.SetVisualScale(on ? 1f : Tuning.Player.ArenaVisualScale);
+                rig.SetDetailArt(on);
+            }
+            if (_cam == null) return;
+            var zoom = _cam.GetComponent<PixelPerfectZoom>();
+            float target = on ? CloseViewSize : ArenaViewSize;
+            if (zoom == null) { _cam.orthographicSize = target; return; }
+            if (ease)
+            {
+                // Through every size between, unsnapped - snapped, the way out from 1.8 at 1080p
+                // is three hard steps (1.8, 2.4, 3.6). Snap comes back on at the end.
+                _viewEaseFrom = _cam.orthographicSize;
+                _viewEase = 0f;
+                zoom.Snap = false;
+            }
+            else
+            {
+                _viewEase = -1f;
+                zoom.Snap = true;
+                zoom.TargetSize = target;
+            }
+        }
+
+        /// <summary>Every arena frame, before the follow: keeps a held close view snapped to the
+        /// window (a resize), and runs the ease back out.</summary>
+        void TrackCloseView()
+        {
+            if (!_closeView && _viewEase < 0f) return;
+            var zoom = _cam.GetComponent<PixelPerfectZoom>();
+            if (zoom == null) return;
+            float target = _closeView ? CloseViewSize : ArenaViewSize;
+            if (_viewEase < 0f) { zoom.TargetSize = target; return; }
+
+            _viewEase += Time.unscaledDeltaTime / Tuning.Puzzle.CloseViewOutSeconds;
+            float k = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(_viewEase));
+            zoom.TargetSize = Mathf.Lerp(_viewEaseFrom, target, k);
+            if (_viewEase >= 1f)
+            {
+                _viewEase = -1f;
+                zoom.Snap = true;
+                zoom.TargetSize = target;
+            }
         }
 
         /// <summary>Reads the puzzle's state once per frame and answers it ONCE.</summary>
         void TickPuzzle()
         {
             _hud?.SetPuzzle(_puzzle.Title, _puzzle.Body);
+            _hud?.SetCountdown(_puzzle.Countdown);
+            SetCloseView(_puzzle.CloseView, ease: true);
             if (_puzzleSettled || _puzzle.State == Puzzles.PuzzleState.Active) return;
             _puzzleSettled = true;
 
@@ -3731,6 +3901,7 @@ namespace Convergence.Core
             else
             {
                 _puzzleDoor?.Seal();
+                SpawnSideDoor();   // already standing unless the puzzle filled the floor
                 _hud?.Flash("the sigil door is sealed  -  take the side door");
                 Debug.Log($"[Floor] puzzle floor {_floor} failed");
             }
@@ -3773,12 +3944,16 @@ namespace Convergence.Core
 
         void ClearPuzzle()
         {
-            if (_puzzle != null) { Destroy(_puzzle.gameObject); _puzzle = null; }
+            // Switched off before the deferred Destroy: the labyrinth takes its wall mask down in
+            // OnDisable, and the adjacent room publishes its own on this same frame.
+            if (_puzzle != null) { _puzzle.gameObject.SetActive(false); Destroy(_puzzle.gameObject); _puzzle = null; }
+            SetCloseView(false, ease: false);
             if (_sideDoor != null) { Destroy(_sideDoor.gameObject); _sideDoor = null; }
             // Only while still shut: once solved it is _activeDoor and the walk-through owns it.
             if (_puzzleDoor != null && _puzzleDoor != _activeDoor) Destroy(_puzzleDoor.gameObject);
             _puzzleDoor = null;
             _hud?.SetPuzzle(null, null);
+            _hud?.SetCountdown(-1f);
         }
 
         /// <summary>
@@ -3863,17 +4038,24 @@ namespace Convergence.Core
                 // own Died handler and its own set-piece, and a weapon's cosmetic has no business
                 // overriding how a boss dies. Elites come through here too and are included, being
                 // a tier on an ordinary enemy rather than a kind of their own.
-                if (RiftBladeDrawn())
-                    Rifts.RiftImplosion.At(h.transform.position, 0.85f);
-                else if (h.LastDamage.Bisects && KatanaDrawn())
-                    Combat.Bisection.At(h.transform, Tuning.Katana.Tint);
-                else if (h.LastDamage.Disintegrates && ReactiveWeaponDrawn())
-                    Combat.Disintegration.At(h.transform, h.LastDamage);
-                else
-                    Spr.Flash(h.transform.position, 0.9f, new Color(1f, 0.9f, 0.7f), 0.3f);
+                // A body that FELL IN has had its death drawn already - down the drop or under
+                // the water (Enemies.ChasmFall). A flash or a weapon's death at the lip, where
+                // the kill is credited, would show it dying a second time somewhere else.
+                if (!enemy.FellIn)
+                {
+                    if (RiftBladeDrawn())
+                        Rifts.RiftImplosion.At(h.transform.position, 0.85f);
+                    else if (h.LastDamage.Bisects && KatanaDrawn())
+                        Combat.Bisection.At(h.transform, Tuning.Katana.Tint);
+                    else if (h.LastDamage.Disintegrates && ReactiveWeaponDrawn())
+                        Combat.Disintegration.At(h.transform, h.LastDamage);
+                    else
+                        Spr.Flash(h.transform.position, 0.9f, new Color(1f, 0.9f, 0.7f), 0.3f);
+                }
 
                 _spireKilled += cost;
                 TryDropRiftBox(h.transform.position, worth);
+                TryDropGear(h.transform.position, worth);
                 _alive.Remove(enemy);
                 Destroy(h.gameObject);
 
@@ -3913,6 +4095,55 @@ namespace Convergence.Core
                 Debug.Log($"[Rift] picked up a RIFT BOX (boxes {_loot.TotalBoxes})");
                 _hud?.Flash("RIFT BOX");
             });
+        }
+
+        /// <summary>
+        /// A gear piece from any enemy, at Tuning.GearRoll.EnemyGearDropChance per basic Chaser it
+        /// was worth - the Rift Box's measure, so the yield grows with depth the same way. Straight
+        /// into the carried loot (at risk until secured or extracted), announced where it fell.
+        /// </summary>
+        void TryDropGear(Vector2 at, float chasers)
+        {
+            if (_player == null || _floor <= 0) return;
+            if (UnityEngine.Random.value >= Tuning.GearRoll.EnemyGearDropChance * chasers) return;
+
+            var drop = _loot.RollGear(_floor);
+            Debug.Log($"[Rift] floor {_floor} enemy dropped {drop.DisplayName} (on the ground)");
+            _groundGear ??= new List<Rifts.GearPickup>();
+            _groundGear.Add(Rifts.GearPickup.Drop(at, drop, _enemyRoot, _player.transform, taken =>
+            {
+                _loot.Add(taken);
+                _hud?.Flash(taken.DisplayName);
+                Debug.Log($"[Rift] picked up {taken.DisplayName} " +
+                          $"(carrying {_loot.CarriedCount}, secured {_loot.SecuredCount})");
+            }));
+        }
+
+        /// <summary>
+        /// Gear dropped this floor and still lying on it. Non-readonly and null-guarded (a reload
+        /// gives a fresh list; a lost entry only means a piece that isn't cleared at the door).
+        /// The pickups live under _enemyRoot, which survives floor changes - so leaving the floor
+        /// has to clear them here, or they would lie in the next room.
+        /// </summary>
+        List<Rifts.GearPickup> _groundGear = new();
+
+        int GroundGearCount()
+        {
+            if (_groundGear == null) return 0;
+            _groundGear.RemoveAll(g => g == null);
+            return _groundGear.Count;
+        }
+
+        /// <summary>Leaving the floor leaves what is still on the ground behind - it was never
+        /// picked up, so it was never the player's.</summary>
+        void LeaveGroundGear()
+        {
+            if (_groundGear == null) return;
+            int left = 0;
+            foreach (var g in _groundGear)
+                if (g != null) { left++; g.gameObject.SetActive(false); Destroy(g.gameObject); }
+            _groundGear.Clear();
+            if (left > 0) Debug.Log($"[Rift] left {left} piece(s) of gear behind on floor {_floor}");
         }
 
         Vector2 RandomEdgePoint()
@@ -3977,7 +4208,7 @@ namespace Convergence.Core
                 RunId = _runId,
                 Element = element,
                 Kills = kills,
-                XpEarned = kills * XpPerKill + _bonusXp,
+                XpEarned = kills * XpPerKill,
                 Floors = _floor,
                 DurationSeconds = Time.time - _runStartTime,
                 Survived = survived,
@@ -4005,6 +4236,19 @@ namespace Convergence.Core
             // extraction is a bad payday rather than a wasted hour.
             int lost = _loot.CarriedCount;
             _loot.ForfeitCarried();
+            // The reward card's calx rides with the carried loot: home on an extraction, gone on a
+            // death. Added before the checkpoint so both stores serialise the same profile.
+            if (_runCalx > 0)
+            {
+                if (survived)
+                {
+                    int calxBoxes = GearForge.AddCalx(_profile, Tuning.FloorRewards.CalxTier, _runCalx);
+                    Debug.Log($"[Rift] banked {_runCalx} calx" +
+                              (calxBoxes > 0 ? $" -> {calxBoxes} {Tuning.FloorRewards.CalxTier} box(es)" : ""));
+                }
+                else Debug.Log($"[Rift] lost {_runCalx} carried calx");
+                _runCalx = 0;
+            }
             int banked = _loot.Bank(_profile);
             if (banked > 0 || lost > 0)
                 Debug.Log($"[Rift] banked {banked} piece(s), lost {lost} carried");

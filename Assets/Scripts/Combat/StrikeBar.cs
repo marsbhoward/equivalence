@@ -30,13 +30,8 @@ namespace Convergence.Combat
     /// only channel. Drawn on an OVERLAY order (<see cref="SortingOrders.StrikeBar"/>), so a body
     /// standing in front never hides it and DepthSorted leaves it alone.
     ///
-    /// THE STREAK PIPS run up the arc's outer side, two texels clear of its rim: one per
-    /// consecutive perfect up to <see cref="T.StreakCap"/>, in groups of five so seven reads as
-    /// "a group and two" at a glance. Mint while building, the perfect segment's green (on a slow
-    /// pulse) at the cap; an empty slot is a faint dot with no outline, so a pip lighting changes
-    /// SHAPE as well as colour. A new pip pops near-white; a broken streak flashes every lit pip
-    /// red and drains them top to bottom over the linger. Shown only with the meter - the HUD
-    /// counter carries the streak between finishers.
+    /// The perfect streak's pips used to run up the arc's outer side; they live on the rotation
+    /// wheel now (<see cref="UI.RotationWheel"/>), where they are on screen between finishers too.
     ///
     /// Domain reload: the texture and renderer are [SerializeField] Object references and
     /// survive; the pixel buffer is a plain, non-readonly array rebuilt on demand (see CLAUDE.md).
@@ -53,18 +48,7 @@ namespace Convergence.Combat
         int Rows => _leadRows + 3 * _segRows;
         int Height => Rows + 2;                                          // a rim cap at each end
         static int ArcWidth => T.ArcBowTexels + T.ArcCoreTexels + 1 + 2; // bow + widest core + rims
-        static int Width => ArcWidth + PipGap + PipLitWidth + 2;          // + clear gap + pip + rims
-
-        // The streak pips. A pip is PipLitWidth x PipLitRows inside a one-texel rim; neighbours
-        // in a group share a rim row, and the groups stand PipGroupGap rows apart.
-        const int PipGap = 2;
-        const int PipLitWidth = 2;
-        const int PipLitRows = 3;
-        const int PipGroup = 5;
-        const int PipGroupGap = 3;
-        static int PipGroupRows => PipGroup * (PipLitRows + 1) + 1;
-        static int PipGroups => (T.StreakCap + PipGroup - 1) / PipGroup;
-        static int PipColumnRows => PipGroups * PipGroupRows + (PipGroups - 1) * PipGroupGap;
+        static int Width => ArcWidth;
 
         [SerializeField] SpriteRenderer _renderer;
         [SerializeField] Texture2D _texture;
@@ -82,10 +66,6 @@ namespace Convergence.Combat
         float _alpha = 1f;
         bool _dirty;
 
-        int _pips;              // lit pips, 0..StreakCap
-        int _popPip = -1;       // the pip that just lit, popping
-        float _pipFlash;
-        int _brokenPips;        // > 0 while a broken streak flashes and drains
 
         /// <summary>The meter beside this player, made on first use and found by NAME after
         /// that, so a domain reload re-attaches instead of welding on a second one.</summary>
@@ -135,7 +115,7 @@ namespace Convergence.Combat
         /// meter stands on the OTHER side, and stays there until it is gone.
         /// <paramref name="barSeconds"/> is how long it is on screen before the strike.
         /// </summary>
-        public void Begin(float facingX, int streak, float barSeconds)
+        public void Begin(float facingX, float barSeconds)
         {
             float seg = T.SegmentSeconds;
             _barSeconds = Mathf.Max(barSeconds, seg * 4f);
@@ -157,36 +137,7 @@ namespace Convergence.Combat
             _flash = 0f;
             _linger = 0f;
             _alpha = 1f;
-            _pips = Mathf.Min(streak, T.StreakCap);
-            _popPip = -1;
-            _pipFlash = 0f;
-            _brokenPips = 0;
             _renderer.enabled = true;
-            _dirty = true;
-        }
-
-        /// <summary>A perfect connected: light the next pip. Ignored once the meter has gone -
-        /// a thrown finisher can connect after it - since the HUD counter says it too.</summary>
-        public void StreakGained(int streak)
-        {
-            if (_renderer == null || !_renderer.enabled) return;
-            _brokenPips = 0;
-            if (streak <= T.StreakCap)
-            {
-                _pips = streak;
-                _popPip = streak - 1;
-                _pipFlash = 1f;
-            }
-            _dirty = true;
-        }
-
-        /// <summary>The streak broke: every lit pip flashes red, then drains over the linger.</summary>
-        public void StreakBroken(int was)
-        {
-            if (_renderer == null || !_renderer.enabled) return;
-            _brokenPips = Mathf.Min(was, T.StreakCap);
-            _pips = 0;
-            _popPip = -1;
             _dirty = true;
         }
 
@@ -288,47 +239,6 @@ namespace Convergence.Combat
             return BowAt(r) + core + 2;
         }
 
-        Color PipColor(int i)
-        {
-            if (_brokenPips > 0)
-            {
-                // Drains top to bottom as the linger runs out.
-                float left = _live ? 1f : Mathf.Clamp01(_linger / T.LingerSeconds);
-                return i < Mathf.CeilToInt(_brokenPips * left) ? T.PipBroken : Color.clear;
-            }
-            if (i >= _pips) return Color.clear;
-
-            Color c = _pips >= T.StreakCap
-                ? Bright(T.Perfect, 1f + 0.3f * (0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 5f)))
-                : T.PipLit;
-            return i == _popPip ? Color.Lerp(c, T.PipPop, _pipFlash) : c;
-        }
-
-        void PaintPips()
-        {
-            int y0 = (Height - PipColumnRows) / 2;
-            for (int i = 0; i < T.StreakCap; i++)
-            {
-                int bottom = y0 + (i / PipGroup) * (PipGroupRows + PipGroupGap) + (i % PipGroup) * (PipLitRows + 1);
-                int top = bottom + PipLitRows + 1;
-
-                // Follow the arc's curve: clear the widest of the rows this pip stands beside.
-                int x = 0;
-                for (int y = bottom; y <= top; y++) x = Mathf.Max(x, OuterAt(y - 1));
-                x += PipGap;
-
-                Color lit = PipColor(i);
-                bool on = lit.a > 0f;
-                for (int y = bottom; y <= top; y++)
-                    for (int dx = 0; dx < PipLitWidth + 2; dx++)
-                    {
-                        bool inner = dx >= 1 && dx <= PipLitWidth && y > bottom && y < top;
-                        if (on) Put(x + dx, y, inner ? lit : T.Track);
-                        else if (inner) Put(x + dx, y, T.PipEmpty);   // a faint dot, no outline
-                    }
-            }
-        }
-
         void Repaint()
         {
             int w = Width, h = Height;
@@ -370,8 +280,6 @@ namespace Convergence.Combat
                 }
             }
 
-            PaintPips();
-
             if (_alpha < 1f)
                 for (int i = 0; i < _pixels.Length; i++)
                     _pixels[i].a = (byte)(_pixels[i].a * _alpha);
@@ -403,13 +311,6 @@ namespace Convergence.Combat
                 _flash = Mathf.Max(0f, _flash - dt / 0.16f);
                 _dirty = true;
             }
-
-            if (_pipFlash > 0f)
-            {
-                _pipFlash = Mathf.Max(0f, _pipFlash - dt / 0.16f);
-                _dirty = true;
-            }
-            if (_pips >= T.StreakCap || _brokenPips > 0) _dirty = true;   // the cap's pulse, the drain
 
             // A perfect strike pops the meter and lets it settle back to size.
             var s = transform.localScale;

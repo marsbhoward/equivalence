@@ -8,11 +8,10 @@ using Convergence.Combat;
 namespace Convergence.UI
 {
     /// <summary>
-    /// Heal and Repair share one card slot - only one of them is offered on any given floor,
-    /// chosen at random. They are both "patch yourself up" picks, so competing against each
-    /// other wasted a slot that XP now occupies.
+    /// Two weapon art cards (Moveset), and ONE restore card drawn from Heal / Repair / Xp - only
+    /// the kinds that would help (see GameBootstrap.RestoreDraw), so a full player gets Xp.
     /// </summary>
-    public enum FloorReward { Heal, Repair, Moveset, Xp }
+    public enum FloorReward { Heal, Repair, Moveset, Xp, Calx }
 
     /// <summary>What the player ended up doing with the floor's reward.</summary>
     public enum FloorOutcome
@@ -22,12 +21,13 @@ namespace Convergence.UI
         Xp,
         MovesetInto,   // SlotIndex says where
         Forfeit,       // backed out of the swap; the reward is spent either way
+        Calx,
     }
 
     /// <summary>
     /// The between-floors screen, in three phases on one surface:
     ///
-    ///   Choosing     - the three finisher slots sit above the three power-ups, purely to be read.
+    ///   Choosing     - the weapon art slots sit above the reward cards, purely to be read.
     ///                  The player can weigh what they already have before committing.
     ///   PickingSlot  - after taking the moveset, the slots light up as the choice.
     ///   Confirming   - a side-by-side of the outgoing finisher against the incoming one.
@@ -54,8 +54,9 @@ namespace Convergence.UI
         /// </summary>
         public bool CanDismiss => _phase == Phase.Confirming;
         GameObject _root, _confirmPanel;
-        Action<FloorOutcome, int> _done;
+        Action<FloorOutcome, int, Moveset> _done;
 
+        /// <summary>The art card taken - set when one is picked, carried to the confirm and the result.</summary>
         Moveset _offered;
         IReadOnlyList<Moveset> _slots;
 
@@ -86,26 +87,38 @@ namespace Convergence.UI
             public RectTransform Rect;
             public Image Bg, Accent;
             public FloorReward Reward;
+            public Moveset Art;   // the Moveset card's own art
             public bool Enabled;
             public Color AccentColor;
         }
 
         // ------------------------------------------------------------------ open
 
+        /// <summary>A Heal / Repair / Xp card: its kind, the amount line, and (optionally) its blurb.</summary>
+        public class RestoreCard
+        {
+            public FloorReward Kind;
+            public string Value;
+            public string Blurb;
+        }
+
         int _powerCount = 3;
 
-        public void Show(Transform canvas, int floor, Moveset offered, IReadOnlyList<Moveset> slots,
-                         Func<int, bool> slotLocked,
-                         int rotationIndex, FloorReward restoreKind, string restoreText,
-                         string xpText, string xpBlurb, Action<FloorOutcome, int> done,
-                         string otherRestoreText = null)
+        /// <summary>
+        /// <paramref name="offered"/> is the weapon art cards (distinct; empty when the class has
+        /// nothing left to give, which shows one unavailable card). <paramref name="done"/> gets
+        /// the art taken on MovesetInto, null otherwise.
+        /// </summary>
+        public void Show(Transform canvas, int floor, IReadOnlyList<Moveset> offered, IReadOnlyList<Moveset> slots,
+                         Func<int, bool> slotLocked, int rotationIndex,
+                         IReadOnlyList<RestoreCard> restores, Action<FloorOutcome, int, Moveset> done)
         {
-            // Curator (the exchange): one more card - the restore the roll did not pick.
-            _powerCount = otherRestoreText != null ? 4 : 3;
             if (IsOpen) return;
+            int arts = Mathf.Max(1, offered?.Count ?? 0);
+            _powerCount = arts + (restores?.Count ?? 0);
             IsOpen = true;
             _phase = Phase.Choosing;
-            _offered = offered;
+            _offered = null;
             _slots = slots;
             _slotLocked = slotLocked ?? (_ => false);
             _rotationIndex = rotationIndex;
@@ -148,32 +161,41 @@ namespace Convergence.UI
             UiKit.Label(powerLabel, "FLOOR REWARD", 16,
                 new Color(0.42f, 0.45f, 0.52f), TextAnchor.MiddleCenter);
 
-            bool healing = restoreKind == FloorReward.Heal;
-            BuildPowerCard(full, 0, restoreKind,
-                healing ? "SMALL HEAL" : "REPAIR GEAR", restoreText,
-                healing
-                    ? "Patches you up. Does nothing for worn equipment."
-                    : "Restores worn armour and weapons. Does nothing for your health.",
-                healing ? new Color(0.45f, 0.85f, 0.55f) : new Color(0.55f, 0.75f, 1f), true);
+            int card = 0;
+            var gold = new Color(0.95f, 0.78f, 0.32f);
+            if (offered == null || offered.Count == 0)
+                BuildPowerCard(full, card++, FloorReward.Moveset, "NO WEAPON ART", "-",
+                    "You already hold every weapon art.", gold, false);
+            else
+                foreach (var art in offered)
+                    BuildPowerCard(full, card++, FloorReward.Moveset, "NEW WEAPON ART", art.DisplayName,
+                        "Replaces one of your weapon arts.", gold, true, art);
 
-            BuildPowerCard(full, 1, FloorReward.Moveset,
-                offered != null ? "NEW WEAPON ART" : "NO WEAPON ART",
-                offered != null ? offered.DisplayName : "-",
-                offered != null
-                    ? "Replaces one of your three weapon arts."
-                    : "You already hold every weapon art.",
-                new Color(0.95f, 0.78f, 0.32f), offered != null);
-
-            BuildPowerCard(full, 2, FloorReward.Xp, "EXPERIENCE", xpText, xpBlurb,
-                new Color(0.78f, 0.55f, 0.95f), true);
-
-            if (otherRestoreText != null)
-                BuildPowerCard(full, 3, healing ? FloorReward.Repair : FloorReward.Heal,
-                    healing ? "REPAIR GEAR" : "SMALL HEAL", otherRestoreText,
-                    healing
-                        ? "Restores worn armour and weapons. Does nothing for your health."
-                        : "Patches you up. Does nothing for worn equipment.",
-                    healing ? new Color(0.55f, 0.75f, 1f) : new Color(0.45f, 0.85f, 0.55f), true);
+            if (restores != null)
+                foreach (var r in restores)
+                    switch (r.Kind)
+                    {
+                        case FloorReward.Heal:
+                            BuildPowerCard(full, card++, r.Kind, "SMALL HEAL", r.Value,
+                                r.Blurb ?? "Patches you up. Does nothing for worn equipment.",
+                                new Color(0.45f, 0.85f, 0.55f), true);
+                            break;
+                        case FloorReward.Repair:
+                            BuildPowerCard(full, card++, r.Kind, "REPAIR GEAR", r.Value,
+                                r.Blurb ?? "Restores worn armour. Does nothing for your health.",
+                                new Color(0.55f, 0.75f, 1f), true);
+                            break;
+                        case FloorReward.Calx:
+                            BuildPowerCard(full, card++, r.Kind, "CALX", r.Value,
+                                r.Blurb ?? "Carried: kept if you extract, lost if you die.",
+                                new Color(0.80f, 0.62f, 0.42f), true);
+                            break;
+                        default:
+                            BuildPowerCard(full, card++, FloorReward.Xp, "EXPERIENCE", r.Value,
+                                r.Blurb ?? "Element mastery, banked when the run ends.",
+                                new Color(0.78f, 0.55f, 0.95f), true);
+                            break;
+                    }
 
             SetPhase(Phase.Choosing);
         }
@@ -237,10 +259,10 @@ namespace Convergence.UI
         }
 
         void BuildPowerCard(RectTransform parent, int index, FloorReward reward, string heading,
-                            string value, string blurb, Color accentColor, bool enabled)
+                            string value, string blurb, Color accentColor, bool enabled, Moveset art = null)
         {
             // Centred on however many cards there are - three, or four under Curator.
-            float w = _powerCount >= 4 ? 268f : 316f;
+            float w = _powerCount >= 5 ? 222f : _powerCount == 4 ? 268f : 316f;
             const float gap = 24f;
             float x = -(_powerCount * w + (_powerCount - 1) * gap) / 2f + index * (w + gap);
 
@@ -265,25 +287,25 @@ namespace Convergence.UI
                 TextAnchor.MiddleCenter);
 
             // For the finisher card, show what it actually does.
-            if (reward == FloorReward.Moveset && _offered != null)
+            if (art != null)
             {
                 var gRt = UiKit.Rect(card, "g", new Vector2(0.5f, 1), new Vector2(0.5f, 1),
                     new Vector2(-27, -160), new Vector2(27, -106));
                 var gi = gRt.gameObject.AddComponent<Image>();
-                gi.sprite = Glyphs.Get(_offered.FinisherGlyph);
+                gi.sprite = Glyphs.Get(art.FinisherGlyph);
                 gi.color = accentColor;
                 gi.preserveAspect = true;
                 gi.raycastTarget = false;
 
                 var sRt = UiKit.Rect(card, "s", new Vector2(0, 1), new Vector2(1, 1),
                     new Vector2(18, -252), new Vector2(-18, -162));
-                var sTxt = UiKit.Label(sRt, _offered.FinisherDescription, 15,
+                var sTxt = UiKit.Label(sRt, art.FinisherDescription, 15,
                     new Color(0.62f, 0.65f, 0.72f), TextAnchor.UpperCenter);
                 sTxt.horizontalOverflow = HorizontalWrapMode.Wrap;
             }
 
             var b = UiKit.Rect(card, "b", new Vector2(0, 0), new Vector2(1, 1),
-                new Vector2(20, 46), new Vector2(-20, reward == FloorReward.Moveset ? -256 : -196));
+                new Vector2(20, 46), new Vector2(-20, art != null ? -256 : -196));
             var blurbTxt = UiKit.Label(b, blurb, 15,
                 enabled ? new Color(0.55f, 0.58f, 0.66f) : new Color(0.3f, 0.32f, 0.38f),
                 TextAnchor.UpperCenter);
@@ -297,7 +319,7 @@ namespace Convergence.UI
             _powerCards.Add(new PowerCard
             {
                 Rect = card, Bg = card.GetComponent<Image>(), Accent = accent,
-                Reward = reward, Enabled = enabled, AccentColor = accentColor,
+                Reward = reward, Art = art, Enabled = enabled, AccentColor = accentColor,
             });
         }
 
@@ -502,15 +524,17 @@ namespace Convergence.UI
                 case FloorReward.Heal:    Finish(FloorOutcome.Heal, -1); break;
                 case FloorReward.Repair:  Finish(FloorOutcome.Repair, -1); break;
                 case FloorReward.Xp:      Finish(FloorOutcome.Xp, -1); break;
-                case FloorReward.Moveset: SetPhase(Phase.PickingSlot); break;
+                case FloorReward.Calx:    Finish(FloorOutcome.Calx, -1); break;
+                case FloorReward.Moveset: _offered = card.Art; SetPhase(Phase.PickingSlot); break;
             }
         }
 
         void Finish(FloorOutcome outcome, int slot)
         {
             var done = _done;
+            var art = outcome == FloorOutcome.MovesetInto ? _offered : null;
             Close();
-            done?.Invoke(outcome, slot);
+            done?.Invoke(outcome, slot, art);
         }
 
         public void Close()

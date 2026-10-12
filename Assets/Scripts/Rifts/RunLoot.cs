@@ -301,40 +301,36 @@ namespace Convergence.Rifts
         }
 
         /// <summary>
-        /// Roll a floor's drop. Returns null when the drop was a loot box instead of an item -
-        /// see FloorBoxChance - in which case the box has already been credited via FindTieredBox
-        /// and the caller has nothing further to add to Carried.
+        /// A BOSS floor's guaranteed box, credited as found (FindTieredBox): the floor's banded
+        /// tier, or on floor 100 a Diamond box - a Black Diamond one instead at
+        /// FinalBlackDiamondBoxChance. Ordinary floors drop nothing on the clear; their gear comes
+        /// off enemies (<see cref="RollGear"/>). Returns the tier credited.
+        /// </summary>
+        public LootTier RollBossBox(int floor)
+        {
+            var tier = TierFor(floor);
+            if (floor == FinalFloor && Random.value < Tuning.GearRoll.FinalBlackDiamondBoxChance)
+                tier = LootTier.BlackDiamond;
+            FindTieredBox(tier);
+            return tier;
+        }
+
+        /// <summary>
+        /// A gear piece dropped by an enemy on <paramref name="floor"/> (Tuning.GearRoll.
+        /// EnemyGearDropChance). Always Bronze/Silver/Gold - floor 100's Diamond band is its
+        /// boss box alone, so a piece there rolls floor 99's band.
         ///
         /// The TIER comes from depth and the stats come from GearRoller as usual - but the roller
         /// picks its own tier from the seed, so the depth-banded tier is applied over the top. That
         /// keeps one source of truth for what a tier is WORTH (the roller) and another for how
         /// often you see one (depth), which are genuinely different questions.
         /// </summary>
-        public MintedGearRecord Roll(int floor)
+        public MintedGearRecord RollGear(int floor)
         {
-            var tier = TierFor(floor);
-            if (floor == FinalFloor && Random.value < Tuning.GearRoll.FinalBlackDiamondBoxChance)
-                tier = LootTier.BlackDiamond;
-
-            // DIAMOND AND BLACK DIAMOND DROP AS BOXES, ALWAYS (the user's call, 2026-10-09) -
-            // never as a design. The box is what extraction mints to the wallet (a tradeable
-            // token); the DESIGN only comes into being when the box is opened at the Forge, rolled
-            // by the server. A design handed out here would be rolled on the client, which is the
-            // one thing those tiers must not be. Bronze, Silver and Gold still drop as gear.
-            if (DesignDrops.IsDesignTier(tier))
-            {
-                FindTieredBox(tier);
-                return null;
-            }
-
-            // A BOX INSTEAD OF AN ITEM, some of the time - the Forge's own currency for
-            // combining/upgrading, not just an alternate item source. At risk exactly like the
-            // gear it substitutes for, hence FindTieredBox rather than a direct profile write.
-            if (Random.value < Tuning.GearRoll.FloorBoxChance)
-            {
-                FindTieredBox(tier);
-                return null;
-            }
+            // DIAMOND AND BLACK DIAMOND ARE NEVER GEAR (the user's call, 2026-10-09) - they drop
+            // as boxes, the design rolled by the server when one is opened. TierFor below 100
+            // never names them.
+            var tier = TierFor(Mathf.Min(floor, FinalFloor - 1));
 
             // RELICS DROP NOW. They used to be swapped out for a Torso because "the roller has no
             // relic table" - true while a relic was cosmetic and rolled nothing, and false since

@@ -252,7 +252,7 @@ namespace Convergence.Hazards
         // ---- noise ----
 
         /// <summary>Deterministic per-texel hash in [0,1]. No trig, no allocation, no state.</summary>
-        static float Hash(int x, int y, int seed)
+        internal static float Hash(int x, int y, int seed)
         {
             unchecked
             {
@@ -268,7 +268,7 @@ namespace Convergence.Hazards
         /// linear interpolation leaves visible creases along every lattice line, which on a crust
         /// come out as a grid of cracks rather than an organic one.
         /// </summary>
-        static float ValueNoise(float u, float v, int cells, int seed)
+        internal static float ValueNoise(float u, float v, int cells, int seed)
         {
             float fx = u * cells, fy = v * cells;
             int x0 = Mathf.FloorToInt(fx), y0 = Mathf.FloorToInt(fy);

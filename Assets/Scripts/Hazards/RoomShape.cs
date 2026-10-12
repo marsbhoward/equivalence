@@ -32,8 +32,24 @@ namespace Convergence.Hazards
         public readonly string Name;
         /// <summary>Rows NORTH first, exactly as authored (mirrors applied).</summary>
         public readonly string[] Grid;
+        /// <summary>The chasm cells are a LAKE rather than a drop - drawn as deep water, and a
+        /// body that goes in sinks with a splash. Every rule is the drop's (Tuning.Chasm): the
+        /// difference is only how the void looks. Rolled per floor by <see cref="For"/>.</summary>
+        public readonly bool Lake;
+        /// <summary>True when the grid has any chasm cell.</summary>
+        public readonly bool HasChasm;
 
-        RoomShape(string name, string[] grid) { Name = name; Grid = grid; }
+        RoomShape(string name, string[] grid, bool lake = false)
+        {
+            Name = name; Grid = grid; Lake = lake;
+            foreach (var row in grid) if (row.IndexOf('~') >= 0) { HasChasm = true; break; }
+        }
+
+        /// <summary>This shape with its chasms drawn as a lake (or as a drop).</summary>
+        public RoomShape AsLake(bool lake) => lake == Lake || !HasChasm ? this : new RoomShape(Name, Grid, lake);
+
+        /// <summary>The name with the chasm style, for logs and dev tools: "maw (lake)".</summary>
+        public string Describe => Lake ? $"{Name} (lake)" : Name;
 
         public char At(int col, int rowFromTop) => Grid[rowFromTop][col];
 
@@ -269,6 +285,10 @@ namespace Convergence.Hazards
         /// <summary>One-shot: the next shaped-eligible floor takes this shape ("open" for none).</summary>
         public static string DevForceNext;
 
+        /// <summary>One-shot: the next floor with chasms draws them as a lake (true) or a drop
+        /// (false), whatever its own roll says.</summary>
+        public static bool? DevForceLake;
+
         /// <summary>
         /// The shape for <paramref name="floor"/>, or null for the open rectangle. The caller
         /// decides eligibility (combat floors only). The same shape never comes twice running:
@@ -283,7 +303,7 @@ namespace Convergence.Hazards
                 string forced = DevForceNext;
                 DevForceNext = null;
                 if (_catalogue.TryGetValue(forced, out var fv))
-                    return fv[new System.Random(seed).Next(4)];
+                    return Styled(fv[new System.Random(seed).Next(4)], new System.Random(seed + 1));
                 return null;
             }
 
@@ -296,7 +316,17 @@ namespace Convergence.Hazards
                 int i = _names.IndexOf(name);
                 name = _names[(i + 1 + rng.Next(_names.Count - 1)) % _names.Count];
             }
-            return _catalogue[name][rng.Next(4)];
+            return Styled(_catalogue[name][rng.Next(4)], rng);
+        }
+
+        /// <summary>A chasm shape rolls drop or lake - drawn AFTER the shape and its mirror, so
+        /// adding the roll moved no floor's shape.</summary>
+        static RoomShape Styled(RoomShape shape, System.Random rng)
+        {
+            if (!shape.HasChasm) return shape;
+            bool lake = rng.NextDouble() < Tuning.Chasm.LakeChance;
+            if (DevForceLake is bool forced) { lake = forced; DevForceLake = null; }
+            return shape.AsLake(lake);
         }
 
         /// <summary>The raw draw for a floor: a name, or null for open.</summary>

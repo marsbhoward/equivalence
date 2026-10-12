@@ -10,6 +10,7 @@ namespace Convergence.EditorTools
     /// arena from straight above to a PNG.
     ///
     ///     unity command eval 'return Convergence.EditorTools.RoomSheet.Show("plaza", 0);'
+    ///     unity command eval 'return Convergence.EditorTools.RoomSheet.Show("maw", 0, true);'   (as a lake)
     ///     unity command eval 'return Convergence.EditorTools.RoomSheet.Capture("/tmp/room.png");'
     ///
     /// For a whole floor BUILT in a shape (pits, columns and the wave placed around it) set
@@ -17,11 +18,11 @@ namespace Convergence.EditorTools
     /// </summary>
     public static class RoomSheet
     {
-        public static string Show(string name, int variant = 0)
+        public static string Show(string name, int variant = 0, bool lake = false)
         {
             var root = GameObject.Find("Hazards");
             if (root == null) return "no Hazards root - start a run";
-            var shape = name == "open" ? null : RoomShape.Get(name, variant);
+            var shape = name == "open" ? null : RoomShape.Get(name, variant)?.AsLake(lake);
             if (shape == null && name != "open") return $"no shape '{name}': {string.Join(",", RoomShape.Names)}";
             RoomWalls.Apply(shape, root.transform);
             return RoomWalls.CurrentName;
@@ -40,7 +41,9 @@ namespace Convergence.EditorTools
             cam.backgroundColor = Color.black;
             camGo.transform.position = new Vector3(0f, 0f, -10f);
 
-            var rt = RenderTexture.GetTemporary(w, h, 16, RenderTextureFormat.ARGB32);
+            // 24 bits: depth WITH stencil - sprite masks (the spire, a falling body) need it, and
+            // without it a masked sprite draws as its whole quad.
+            var rt = RenderTexture.GetTemporary(w, h, 24, RenderTextureFormat.ARGB32);
             cam.targetTexture = rt;
             cam.Render();
             var prev = RenderTexture.active;

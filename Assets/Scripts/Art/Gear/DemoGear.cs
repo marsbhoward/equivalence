@@ -1291,6 +1291,15 @@ namespace Convergence.Art.Gear
                 Pixels(RigLayer.Weapon, "gear.weapon.bow", BowRows, bowPal, 0f, 0f,
                        pivotTexel: BowGrip, ppu: FinePpu, upscale2x: true))));
 
+            // The Artemis Hunting Bow: a crescent blade for an arch - DemoGear.Artemis.cs.
+            AddArtemis(items);
+
+            // Umbra: a bow of shadow on a silver ring - DemoGear.Umbra.cs.
+            AddUmbra(items);
+
+            // The Hive: a bow made of arrows, and the Hive Remote - DemoGear.Hive.cs.
+            AddHive(items);
+
             // ---- Verdant Warden: a living-tree gold-tier set (Shoulders/Torso) ----
             //
             // Built from a concept pass: a gold trunk rises from the belt across the cuirass and
@@ -1593,6 +1602,13 @@ namespace Convergence.Art.Gear
             item.SignatureFinisher = signature;
             return item;
         }
+
+        /// <summary>
+        /// The designed bows' height in authored rows - a greatsword's, for now. Shared so the open
+        /// size question (ART-NOTES, Prima Materia: held up at rest, a bow this tall covers the
+        /// wearer from the feet to above the helm) is answered once for every bow, not per bow.
+        /// </summary>
+        static int BowHeightRows => SwordHeightRows;
 
         /// <summary>
         /// Stamp a relic as granting a finisher. Class/TwoHanded default to the greatsword, since

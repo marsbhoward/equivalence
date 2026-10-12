@@ -54,11 +54,16 @@ namespace Convergence.Core
         /// <summary>True while the floor has at least one chasm cell.</summary>
         public static bool HasChasms { get; private set; }
 
+        /// <summary>True while the floor's chasms are a LAKE (Hazards.RoomShape.Lake). Every rule
+        /// is the same; what asks is only how a fall LOOKS - a splash, not the dark.</summary>
+        public static bool ChasmIsWater { get; private set; }
+
         /// <summary>Install a shape (each array cols x rows, bottom row first; chasm may be null),
         /// or clear it with null.</summary>
-        public static void SetWalls(bool[] wall, bool[] chasm, int cols, int rows)
+        public static void SetWalls(bool[] wall, bool[] chasm, int cols, int rows, bool chasmIsWater = false)
         {
             _wall = wall;
+            ChasmIsWater = wall != null && chasmIsWater;
             _chasm = wall != null ? chasm : null;
             _cols = cols;
             _rows = rows;
@@ -102,6 +107,20 @@ namespace Convergence.Core
                 if ((dx == 0f && dy == 0f) || dx * dx + dy * dy < margin * margin) return true;
             }
             return false;
+        }
+
+        /// <summary>The world y of the NEAR lip under <paramref name="p"/>: walking south from it
+        /// down its own column of chasm cells, the bottom edge of the last one. In this 3/4 view a
+        /// falling body moves down the screen, and this is the edge that swallows it. Void running
+        /// to the room's edge ends at the outer wall's inner face instead.</summary>
+        public static float ChasmLipBelow(Vector2 p)
+        {
+            var cell = CellSize;
+            var local = p + HalfExtents;
+            int x = Mathf.FloorToInt(local.x / cell.x), y = Mathf.FloorToInt(local.y / cell.y);
+            if (!ChasmAt(x, y)) return p.y;
+            while (y > 0 && ChasmAt(x, y - 1)) y--;
+            return y == 0 ? -HalfExtents.y + 0.3f : y * cell.y - HalfExtents.y;
         }
 
         /// <summary>Is there a chasm under <paramref name="p"/> or within <paramref name="margin"/>

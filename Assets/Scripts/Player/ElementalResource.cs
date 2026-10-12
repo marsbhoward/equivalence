@@ -161,5 +161,24 @@ namespace Convergence.Player
         /// </summary>
         public virtual bool PipsAppearWhenReached => false;
         public abstract string StatusLine { get; }
+
+        // ---- the seal (UI.ElementSeal) ----
+
+        /// <summary>What a press fires right now, named above the seal. The chosen ability by
+        /// default; an element whose release changes with its meter names it (Water's tiers,
+        /// Earth's aftershocks).</summary>
+        public virtual string ReleaseName
+            => UseSecondAbility && ElementInfo.SecondAbilityName(Element) != null
+                ? ElementInfo.SecondAbilityName(Element)
+                : ElementInfo.AbilityName(Element);
+
+        /// <summary>A few words of what the meter is doing - a rung reached, a buff's clock, a
+        /// stance. Null for nothing to say.</summary>
+        public virtual string SealTag => null;
+
+        /// <summary>Small pips along the top of the seal's rim, for a second count beside the
+        /// meter (Earth's aftershocks, Air's streak). Zero draws none.</summary>
+        public virtual int RimPips => 0;
+        public virtual int RimPipsLit => 0;
     }
 }

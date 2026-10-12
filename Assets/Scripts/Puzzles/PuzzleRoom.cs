@@ -4,7 +4,7 @@ using Convergence.Core;
 
 namespace Convergence.Puzzles
 {
-    public enum PuzzleKind { Echo, Elements, Lights }
+    public enum PuzzleKind { Echo, Elements, Lights, Maze }
     public enum PuzzleState { Active, Solved, Failed }
 
     /// <summary>
@@ -33,6 +33,22 @@ namespace Convergence.Puzzles
         public abstract string Title { get; }
         public abstract string Body { get; }
 
+        /// <summary>The line flashed as the room is entered.</summary>
+        public virtual string Intro => "solve it and the door opens  -  or take the side door and fight";
+
+        /// <summary>True while the puzzle wants the CLOSE VIEW - the camera at menu density and
+        /// the character in its menu art (GameBootstrap.SetCloseView). The labyrinth's, so its
+        /// walls cannot be read off the screen.</summary>
+        public virtual bool CloseView => false;
+
+        /// <summary>Whether the side door stands open from the moment the room is entered. A
+        /// puzzle that fills the floor has nowhere to put it - it opens only on a failure.</summary>
+        public virtual bool SideDoorFromStart => true;
+
+        /// <summary>Seconds left on the puzzle's clock, shown as the HUD countdown; negative for a
+        /// puzzle with no clock (or one already answered).</summary>
+        public virtual float Countdown => -1f;
+
         /// <summary>Where the puzzle's middle sits: a little north of the room's centre, between
         /// the player's arrival point and the door line.</summary>
         protected static Vector2 Centre => new(0f, 0.3f);
@@ -45,6 +61,7 @@ namespace Convergence.Puzzles
             {
                 PuzzleKind.Echo => go.AddComponent<EchoPuzzle>(),
                 PuzzleKind.Elements => go.AddComponent<ElementsPuzzle>(),
+                PuzzleKind.Maze => go.AddComponent<MazePuzzle>(),
                 _ => go.AddComponent<LightsPuzzle>(),
             };
             r.Player = player;

@@ -285,6 +285,17 @@ namespace Convergence.Player
         public override int PipCount => MaxStacks;
         public override int PipsFilled => Stacks;
 
+        public override string SealTag
+            => Igniting ? $"IGNITE  {_igniteRemaining:0.0}s"
+             : Stacks switch
+               {
+                   1 => "1 · FUEL",
+                   2 => "2 · HASTE",
+                   3 => "3 · STOKE",
+                   4 => "4 · SPLASH",
+                   _ => null,
+               };
+
         public override string StatusLine
         {
             get

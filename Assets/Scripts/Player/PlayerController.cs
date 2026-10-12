@@ -1227,7 +1227,8 @@ namespace Convergence.Player
             }
 
             var back = _haveSafe ? _lastSafe : Arena.NearestFloor(p, 0.5f);
-            Spr.Flash(p, 1.0f, new Color(0.25f, 0.22f, 0.3f), 0.35f);
+            if (Arena.ChasmIsWater) Hazards.LakeSurface.Splash(p);
+            else Spr.Flash(p, 1.0f, new Color(0.25f, 0.22f, 0.3f), 0.35f);
             _rb.position = back;
             transform.position = back;
             _rb.linearVelocity = Vector2.zero;
@@ -1931,7 +1932,7 @@ namespace Convergence.Player
 
         /// <summary>What every finisher hit is multiplied by: parity x the timing result. Before
         /// the bar closes it reads as GOOD (see StrikeJudge.Multiplier) for any hit that lands
-        /// early - the katana's two sheathed cuts.</summary>
+        /// early - the Flurry's two cuts.</summary>
         float _strikeMul = 1f;
 
         /// <summary>Every hit of the settled weapon art crits (the board's Cinnabar, on a PERFECT).</summary>
@@ -1999,19 +2000,29 @@ namespace Convergence.Player
         float StrikeDelay(AttackStep step, float swingWindow)
         {
             if (step.Boomerang || step.Pincer) return step.ChargeSeconds;   // the gather, then the throw   // the Prima Materia art: the gather, then the throw
+            if (step.Swarm) return AttackMotions.SwingSeconds(swingWindow);   // the Swarm art: the draw, then the hive
             if (Weapon == Art.Gear.WeaponClass.Bow) return AttackMotions.SwingSeconds(swingWindow);  // ReleaseArrow's draw
             if (step.DiscThrows > 0) return 0f;
             if (step.LeapSeconds > 0f) return step.LeapSeconds;                    // the landing
             if (step.ReverseCones) return Core.Tuning.Quintessence.MergeSeconds;   // the first cone
             if (step.SplitsThreeWays) return Core.Tuning.Separatio.HoldSeconds;    // the first figure
             if (step.ChargeSeconds > 0f) return step.ChargeSeconds;                // the release
-            if (step.SheathDraw && SheatheDrawn)                                   // the draw-cut
-                return Core.Tuning.Katana.SheathSeconds + Core.Tuning.Katana.CutSeconds * 2f
-                     + Core.Tuning.Katana.DrawSeconds;
+            if (step.SheathDraw && SheatheDrawn)                                   // the blade home
+                return Core.Tuning.Katana.SheathSeconds;   // the bar's shortfall is held sheathed
             if (step.LungeDistance > 0f) return Core.Tuning.Impale.LungeSeconds;   // the end of the lunge
             if (step.PommelFlurry) return Core.Tuning.Flurry.PommelAt;             // the pommel
             return 0f;   // an ordinary swing or a thrown blade strikes on dispatch
         }
+
+        /// <summary>
+        /// Seconds a finisher still spends AFTER its bar is judged before its own swing starts -
+        /// Crosscut's two cuts and the draw out of the saya, which wait for the verdict. Part of
+        /// the chain's time, so parity counts it; it is not a gained wind-up.
+        /// </summary>
+        float StrikeTail(AttackStep step)
+            => step.SheathDraw && SheatheDrawn
+                ? Core.Tuning.Katana.CutSeconds * 2f + Core.Tuning.Katana.DrawSeconds
+                : 0f;
 
         /// <summary>
         /// The parity factor for this finisher, from the chain actually being swung: the same
@@ -2033,7 +2044,7 @@ namespace Convergence.Player
                 basicDamage += b.DamageMultiplier;
                 seconds += AttackMotions.CooldownFor(IntervalFor(b));
             }
-            seconds += delay + AttackMotions.CooldownFor(finisherWindow);
+            seconds += delay + StrikeTail(finisher) + AttackMotions.CooldownFor(finisherWindow);
 
             float finisherDamage = finisher.DamageMultiplier * Mods.FinisherDamageMul * FinisherPowerMul;
             return StrikeJudge.Parity(basicDamage, finisherDamage, seconds, pad);
@@ -2056,7 +2067,7 @@ namespace Convergence.Player
 
             if (_strikeIn > _barSeconds) return false;
 
-            if (!_barShown) { _barShown = true; Bar.Begin(Facing.x, _perfectStreak, _barSeconds); }   // off-hand side, held
+            if (!_barShown) { _barShown = true; Bar.Begin(Facing.x, _barSeconds); }   // off-hand side, held
             Bar.Tick(_strikeIn);
 
             if (!tapped || _verdict != StrikeVerdict.Pending || Time.frameCount == _barOpenedFrame)
@@ -2096,8 +2107,8 @@ namespace Convergence.Player
                 Spr.Flash(transform.position, 1.3f, Tuning.StrikeTiming.Perfect, 0.24f);
 
             // The perfect streak. Anything but PERFECT breaks it now. A perfect counts once the
-            // finisher CONNECTS: already, for the katana's sheathed cuts; on this same frame, for
-            // a swing (its hits resolve right after this call); or later, for anything thrown or
+            // finisher CONNECTS: already, for the Flurry's cuts; on this same frame, for a swing or
+            // Crosscut's first cut (its hits resolve right after this call); or later, for anything thrown or
             // fired - so it waits. Sublimate is judged on timing alone: by design it deals nothing
             // until the NEXT finisher sets it off, which would otherwise always read as air.
             // Red Lion: a GOOD neither builds the streak nor breaks it.
@@ -2159,13 +2170,10 @@ namespace Convergence.Player
             if (gained)
             {
                 _perfectStreak++;
-                Bar.StreakGained(_perfectStreak);
             }
             else if (_perfectStreak > 0)
             {
-                int was = _perfectStreak;
                 _perfectStreak = 0;
-                Bar.StreakBroken(was);
             }
         }
 
@@ -2224,6 +2232,16 @@ namespace Convergence.Player
             // convention ChargeSeconds lives by. The chain advances when that wind-up ENDS, not
             // now, so everything the strike reads off NextStep/CurrentRange still describes it.
             float pad = isFinisher ? BeginStrike(step, swingWindow) : 0f;
+
+            // Crosscut spends its wind-up SHEATHED, not holding the swing's first frame: the
+            // blade goes home at once and waits in the saya for the bar (SheathDrawStrike).
+            _sheathHold = 0f;
+            if (pad > 0f && step.SheathDraw && SheatheDrawn)
+            {
+                _sheathHold = pad;
+                pad = 0f;
+            }
+
             if (pad > 0f)
             {
                 // The gate covers the wind-up too, or the swing after it comes for free. The
@@ -2275,6 +2293,16 @@ namespace Convergence.Player
             {
                 _cooldown = 60f;
                 StartCoroutine(KingAndQueenStrike(step, swingWindow));
+                AdvanceCombo(isFinisher);
+                return;
+            }
+
+            // The Swarm art: drawn like a shot, but the whole hive leaves - ahead of the arrow path.
+            if (step.Swarm)
+            {
+                // Held shut until the hive is home; the coroutine hands the gate back.
+                _cooldown = 60f;
+                StartCoroutine(SwarmStrike(step, swingWindow));
                 AdvanceCombo(isFinisher);
                 return;
             }
@@ -2500,7 +2528,7 @@ namespace Convergence.Player
         /// the target (Tuning.Flurry). One motion plays the whole thing (AttackMotion.Flurry, keyed
         /// off the same Tuning numbers), and the hits land on its beats. The cuts are ordinary
         /// ResolveArc calls on a clone of the step at the cut's share, landing before the bar
-        /// closes at its provisional GOOD (the katana's sheathed cuts do the same); the pommel is
+        /// closes at its provisional GOOD; the pommel is
         /// the strike the bar judges - short, narrow, and the sequence's one hit-stop. The chain
         /// already advanced at dispatch, so every resolve passes advanceCombo: false. Committed for
         /// its whole length (_lockTimer), so the three blows land where the press aimed them.
@@ -2783,6 +2811,71 @@ namespace Convergence.Player
             _cooldown = AttackMotions.CooldownFor(swingWindow) * 0.5f;
             // A throw that struck nothing never connected: a perfect on it was thrown at air.
             if (struck == null && _streakAwaiting) ResolveStreak(false);
+        }
+
+        /// <summary>
+        /// SWARM (AttackStep.Swarm), The Hive's weapon art.
+        ///
+        ///   draw      the bow is drawn exactly as for a shot; the release is the judged strike.
+        ///   release   instead of an arrow, every arrow the bow is made of leaves as one swarm
+        ///             (Combat.HiveSwarm) - the bow in the hand is only its grip until they are back.
+        ///   swarm     the arrows ball round the locked target and dart in one at a time: the target
+        ///             takes TargetHits of TargetShare (one Heavy), and the enemies near it NearHits
+        ///             of NearShare each, less a swing's falloff per enemy. The target's last strike
+        ///             is the art's flinch (and, were the art ever Heavy, its displacement).
+        ///   home      the arrows fly back to their places and the bow is whole.
+        ///
+        /// Damage is rolled ONCE at the release and carried by every strike (the thrown blade's
+        /// rule). The player is free to move while the hive is out - only the draw locks - but
+        /// cannot attack until it is home.
+        /// </summary>
+        IEnumerator SwarmStrike(AttackStep step, float swingWindow)
+        {
+            float draw = AttackMotions.SwingSeconds(swingWindow);
+            Rig?.PlayAttack(step.Motion, draw, false);
+            yield return new WaitForSeconds(draw);
+            SettleStrike();   // the release is the strike
+
+            float dmg = (BaseDamage + Mods.BonusDamage) * step.DamageMultiplier;
+            dmg *= DamageRoll();
+            dmg *= RollCritFor(true, out bool crit);
+            dmg *= Mods.FinisherDamageMul * FinisherPowerMul * _strikeMul;
+            if (DamageDealtMultiplier != null) dmg *= DamageDealtMultiplier();
+            var element = Resource?.Element ?? ElementType.Fire;
+            OnWeaponUsed?.Invoke();   // one release's wear
+
+            bool struck = false;
+            var target = Targeting != null ? Targeting.Target : null;
+            GetComponent<Combat.HiveLoose>()?.Cancel();   // a shot's arrow still out comes home first
+            var swarm = Combat.HiveSwarm.Launch(gameObject, Rig?.WeaponRenderer, target, Facing,
+                CleaveFalloff(step.ChainFalloff), MinChainFraction,
+                (hp, share, main, sting) =>
+                {
+                    if (hp == null || hp.IsDead) return;
+                    struck = true;
+                    float hit = ScaleThrownHit(hp, dmg * share, true, crit, 0.5f, main);
+                    var away = ((Vector2)hp.transform.position - (Vector2)transform.position).normalized;
+                    bool heavy = step.Weight == FinisherWeight.Heavy;
+                    var info = new DamageInfo(hit, element, gameObject)
+                    {
+                        Knockback = sting && heavy ? away * step.Knockback * Art.Gear.StatPercents.Apply(1f, Stats.FinisherKnockback) : Vector2.zero,
+                        Displaces = sting && heavy, Thrown = true, IsFinisher = true, Crit = crit,
+                        SuppressHitstop = !sting,   // one freeze for the art - the last sting's
+                    };
+                    var where = hp.transform.position;
+                    hp.Take(info);
+                    // The finisher's flinch, as a swing's (ResolveArc): Medium is refused by armour.
+                    if (sting && !hp.IsDead && step.Weight != FinisherWeight.Light)
+                        hp.GetComponent<Enemies.EnemyController>()?.Flinch(Core.Tuning.Finisher.FlinchSeconds, heavy);
+                    Resource?.OnHitLanded(hp, info);
+                    NotifyThrownHit(hp, info, 0.5f, main);
+                    Spr.Flash(where, sting ? 0.45f : 0.22f, ElementInfo.Tint(element), 0.1f, false);
+                });
+
+            while (swarm != null && !swarm.Home) yield return null;
+            _cooldown = AttackMotions.CooldownFor(swingWindow) * 0.5f;
+            // A swarm that struck nothing never connected: a perfect on it was loosed at air.
+            if (!struck && _streakAwaiting) ResolveStreak(false);
         }
 
         void OnDisable() => GamePause.Unslow(this);
@@ -3452,10 +3545,14 @@ namespace Convergence.Player
 
         const string KatanaSignatureId = "crosscut";
 
-        /// <summary>Total wall-clock length of the sheathe -> twin-cut -> draw sequence, so the
-        /// dispatch and the coroutine agree on one number.</summary>
+        /// <summary>How long Crosscut waits SHEATHED for its timing bar to close - the bar's
+        /// shortfall, set on the press (see the timing bar in OnAttack).</summary>
+        float _sheathHold;
+
+        /// <summary>Total wall-clock length of the sheathe -> hold -> twin-cut -> draw sequence,
+        /// so the dispatch and the coroutine agree on one number.</summary>
         float SheathDrawLength(float swingWindow)
-            => Core.Tuning.Katana.SheathSeconds
+            => Core.Tuning.Katana.SheathSeconds + _sheathHold
              + Core.Tuning.Katana.CutSeconds * 2f
              + Core.Tuning.Katana.DrawSeconds
              + AttackMotions.SwingSeconds(swingWindow);
@@ -3466,7 +3563,9 @@ namespace Convergence.Player
         ///
         ///   1. SHEATHE - the REAL blade sprite leaves the fist, turns onto the scabbard's axis
         ///      and slides in behind it (Art.Gear.KatanaSheathe), leaving the tsuka standing out
-        ///      of the mouth. The rig's own weapon layer is hidden for the duration.
+        ///      of the mouth. The rig's own weapon layer is hidden for the duration. It then WAITS
+        ///      there while the timing bar fills (<see cref="_sheathHold"/>); the bar closes as
+        ///      the wait ends, so every hit after it - cuts and draw alike - lands at the verdict.
         ///   2. TWIN CUTS - two crescents cross the target while the blade is away. Each is an
         ///      ordinary <see cref="ResolveArc"/> on a small step of its own, so it still wears the
         ///      weapon, feeds fire heat and trips the echo passive - only the numbers are smaller.
@@ -3475,16 +3574,16 @@ namespace Convergence.Player
         ///      carries <c>Bisects</c> and a non-boss it finishes is left in two halves (see
         ///      Combat.Bisection, wired from GameBootstrap).
         ///
-        /// The whole sequence is a committed Heavy: <c>_lockTimer</c> is set to its full length up
-        /// front, which freezes movement AND facing (FaceAim reads _lockTimer), so the draw lands
-        /// where the player was aiming when they pressed - a drawn cut, not a tracking swing.
+        /// The sheathe and the wait are MOBILE (the other arts' wind-up rule); from the bar's close
+        /// the rest is a committed Heavy: <c>_lockTimer</c> covers the cuts, the draw and the swing,
+        /// freezing movement AND facing (FaceAim reads _lockTimer), so the draw lands where the
+        /// player was aiming as the bar closed - a drawn cut, not a tracking swing.
         ///
         /// Scaled time throughout (WaitForSeconds), so a screen opening mid-sequence pauses it.
         /// </summary>
         IEnumerator SheathDrawStrike(AttackStep step, bool isFinisher, float swingWindow)
         {
             var tint = Core.Tuning.Katana.Tint;
-            _lockTimer = SheathDrawLength(swingWindow) * Mods.LockMul;
 
             // ---- beat 1: sheathe ----
             //
@@ -3503,6 +3602,14 @@ namespace Convergence.Player
             var hipAt = Rig?.TrinketRenderer != null
                 ? (Vector2)Rig.TrinketRenderer.transform.position : (Vector2)transform.position;
             Spr.Flash(hipAt, 0.26f, tint, 0.12f, false);
+
+            // ---- the bar: held sheathed until it closes, then the press is decided ----
+            // Mobile and still aiming until here, like every other art's wind-up; the lock
+            // starts with the cuts, so the draw goes where the player faces as the bar closes.
+            if (_sheathHold > 0f) yield return new WaitForSeconds(_sheathHold);
+            SettleStrike();
+            _lockTimer = (SheathDrawLength(swingWindow) - Core.Tuning.Katana.SheathSeconds - _sheathHold)
+                       * Mods.LockMul;
 
             // ---- beat 2: two crossing cuts, blade still away ----
             var cut = new AttackStep
@@ -3547,9 +3654,7 @@ namespace Convergence.Player
             Spr.Slice(drawAt, Facing, CurrentRange * 0.7f, tint, 0.30f);
             Spr.Flash((Vector2)transform.position + Facing * CurrentRange, CurrentRange * 0.35f, tint, 0.20f);
 
-            // The draw is the strike the bar judges; the two sheathed cuts above landed before it
-            // closed, at the provisional GOOD rate (StrikeJudge.Multiplier).
-            SettleStrike();
+            // The bar was settled before the cuts, so all three hits land at its verdict.
             ResolveArc(step, isFinisher, advanceCombo: false);
         }
 
@@ -3936,6 +4041,8 @@ namespace Convergence.Player
                 return;
             }
 
+            // The Hive: the shot is one of the bow's own arrows, peeled off a limb (HiveLoose).
+            Combat.HiveLoose.For(this).Draw(animSeconds);
             StartCoroutine(ReleaseArrow(step, isFinisher, animSeconds));
         }
 
@@ -3957,9 +4064,14 @@ namespace Convergence.Player
             // The release is the finisher's strike, whether or not anything is left to shoot.
             if (isFinisher) SettleStrike();
 
+            var loose = GetComponent<Combat.HiveLoose>();
             var target = Targeting != null ? Targeting.Target : null;
-            if (target == null || target.IsDead) yield break;
-            if (Vector2.Distance(transform.position, target.transform.position) > CurrentRange) yield break;
+            if (target == null || target.IsDead
+                || Vector2.Distance(transform.position, target.transform.position) > CurrentRange)
+            {
+                loose?.Release(null);   // nothing to loose at: the Hive's nocked arrow goes home
+                yield break;
+            }
 
             float dmg = (BaseDamage + Mods.BonusDamage)
                         * step.DamageMultiplier
@@ -3973,6 +4085,7 @@ namespace Convergence.Player
                              CurrentRange, Tuning.Bow.NearFraction, isFinisher, crit);
             arrow.SplashFraction = SplashFraction;
             arrow.PierceFraction = PierceFraction;   // Fletching and Broadhead add run Pierce
+            loose?.Release(arrow);
         }
 
         /// <summary>

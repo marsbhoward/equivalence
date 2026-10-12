@@ -66,6 +66,10 @@ namespace Convergence.Combat
         /// body lunging with the thrust (Spike is Piercing Lunge's standing thrust). Appended, for
         /// the reason above.</summary>
         Impale,
+
+        /// <summary>A hive's cell with three arrowheads swarming inside it - the Swarm art.
+        /// Appended, for the reason above.</summary>
+        Swarm,
     }
 
     /// <summary>
@@ -244,6 +248,23 @@ namespace Convergence.Combat
                                  Rect(x, y, -0.62f,  0.30f, 0.20f, 0.05f) ||       // speed lines
                                  Rect(x, y, -0.70f,  0f,    0.16f, 0.05f) ||
                                  Rect(x, y, -0.62f, -0.30f, 0.20f, 0.05f)),
+
+            // A hexagonal cell, and three small heads circling inside it.
+            Glyph.Swarm    => Render((x, y) =>
+                             {
+                                 float hex = Mathf.Max(Mathf.Abs(y), Mathf.Abs(x) * 0.866f + Mathf.Abs(y) * 0.5f);
+                                 if (hex > 0.70f && hex < 0.86f) return true;
+                                 for (int i = 0; i < 3; i++)
+                                 {
+                                     float a = i * 2.0944f + 0.5f;
+                                     float cx = Mathf.Cos(a) * 0.32f, cy = Mathf.Sin(a) * 0.32f;
+                                     // a wedge pointing round the circle
+                                     float tx = -Mathf.Sin(a), ty = Mathf.Cos(a);
+                                     float u = (x - cx) * tx + (y - cy) * ty, v = (x - cx) * ty - (y - cy) * tx;
+                                     if (u > -0.14f && u < 0.14f && Mathf.Abs(v) < (0.14f - u) * 0.7f) return true;
+                                 }
+                                 return false;
+                             }),
 
             _              => Render((x, y) =>
                                  RotRect(x, y, 0f, 0f, 0.80f, 0.12f, 45f) ||

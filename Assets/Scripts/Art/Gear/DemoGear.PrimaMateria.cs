@@ -24,11 +24,11 @@ namespace Convergence.Art.Gear
     //
     // One field over authored cells (x across the canvas, string at the left, the bow's back to
     // the right; y down from the upper tip) sampled for the arena and (x4) the menu, so the two
-    // can never disagree. As tall as every greatsword (SwordHeightRows).
+    // can never disagree. As tall as every greatsword (BowHeightRows).
     public static partial class DemoGear
     {
         const int PrimaCanvas = 22;
-        static int PrimaHeightRows => SwordHeightRows;
+        static int PrimaHeightRows => BowHeightRows;
 
         /// <summary>The middle of the wrapped grip - the bow's pivot, a little below its middle like
         /// a real bow's.</summary>

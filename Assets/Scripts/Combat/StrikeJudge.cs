@@ -45,8 +45,8 @@ namespace Convergence.Combat
 
         /// <summary>
         /// The damage multiplier a verdict pays. PENDING pays GOOD: it is only ever read by a hit
-        /// that lands before the bar has closed (the katana's two sheathed cuts, which resolve
-        /// before its draw), and GOOD is exactly today's damage once parity is applied - so a
+        /// that lands before the bar has closed (the Flurry's two cuts, which resolve before its
+        /// pommel), and GOOD is exactly today's damage once parity is applied - so a
         /// hit that could not be judged is neither rewarded nor punished.
         /// </summary>
         public static float Multiplier(StrikeVerdict v) => v switch
