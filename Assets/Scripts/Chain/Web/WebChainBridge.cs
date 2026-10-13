@@ -48,10 +48,9 @@ namespace Convergence.Chain.Web
     /// <summary>
     /// The single point where the game talks to the browser.
     ///
-    /// Nothing above this knows the chain exists: <see cref="ChainProfileStore"/> and
-    /// <see cref="ChainAccountStore"/> implement the same interfaces LocalJson does, so
-    /// GameBootstrap's awaits are unchanged. This class only converts Unity's one-way JS
-    /// interop into a Task.
+    /// The WALLET's half only - connecting, proving, the PFP, opening boxes, what the wallet holds.
+    /// Saves never come through here: they are plain HTTP to the service (Chain/Service), which a
+    /// native build can use too. This class only converts Unity's one-way JS interop into a Task.
     ///
     /// OUTSIDE A WEBGL PLAYER THIS IS INERT. <see cref="Available"/> is false in the Editor and
     /// on every native target, which is what lets StoreFactory fall back to local JSON without

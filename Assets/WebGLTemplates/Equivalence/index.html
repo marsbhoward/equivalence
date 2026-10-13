@@ -45,10 +45,13 @@
   </div>
   <div id="unity-rotate">rotate your device to play</div>
 
-  <!-- The chain connector. Loaded BEFORE the Unity instance so StoreFactory, which decides once,
-       sees window.EquivalenceChain on its first look. Absent or failed, the game falls back to
-       local storage and stays playable. -->
-  <script>window.EQUIVALENCE_SERVICE = "/api";</script>
+  <!-- The wallet connector (web/connector, built by esbuild into connector/). Loaded BEFORE the
+       Unity instance so the game sees window.EquivalenceChain on its first look. Absent or failed,
+       the game plays on without wallet features - saves never depend on it: C# writes them to the
+       service over HTTP. The service serves this page (/play), so its API is SAME-ORIGIN: "" is
+       the page's own origin. A page hosted anywhere else names the service's full URL here and is
+       added to the service's ALLOWED_ORIGINS. -->
+  <script>window.EQUIVALENCE_SERVICE = "";</script>
   <script src="connector/equivalence-chain.js" onerror="console.warn('[Equivalence] no chain connector; running on local storage')"></script>
 
   <script src="Build/%UNITY_WEBGL_LOADER_URL%"></script>

@@ -72,10 +72,21 @@ namespace Convergence.Chain
             return Task.FromResult(found);
         }
 
+        public Task<string> DefaultProfileIdAsync() => Task.FromResult("local-dev-0");
+
+        public string NewProfileId(System.Collections.Generic.ICollection<string> taken)
+        {
+            for (int i = 0; i < 64; i++)
+            {
+                var candidate = $"local-dev-{i}";
+                if (!taken.Contains(candidate)) return candidate;
+            }
+            return null;
+        }
+
         public async Task BeginRunAsync(CharacterProfile profile, string runId, ElementType element)
         {
-
-            profile.LastElement = element;
+            ProfileRules.RunStart(profile, element);
             Save(profile);
             Debug.Log($"[ProfileStore] CHECKPOINT run-start  run={runId} element={element}");
 
@@ -87,16 +98,7 @@ namespace Convergence.Chain
 
         public async Task CommitRunAsync(CharacterProfile profile, RunSummary summary)
         {
-
-            profile.TotalRuns += 1;
-            profile.TotalKills += summary.Kills;
-            profile.BestKills = Mathf.Max(profile.BestKills, summary.Kills);
-            profile.BestFloor = Mathf.Max(profile.BestFloor, summary.Floors);
-            profile.Xp += summary.XpEarned;
-            profile.Level = 1 + profile.Xp / 100;
-            profile.RecentRuns.Add(summary);
-            if (profile.RecentRuns.Count > 10) profile.RecentRuns.RemoveAt(0);
-
+            ProfileRules.RunEnd(profile, summary);
             Save(profile);
             Debug.Log($"[ProfileStore] CHECKPOINT run-end    run={summary.RunId} " +
                       $"kills={summary.Kills} totalRuns={profile.TotalRuns} " +

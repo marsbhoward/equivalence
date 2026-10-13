@@ -30,6 +30,15 @@ namespace Convergence.Chain
         /// </summary>
         Task<System.Collections.Generic.List<CharacterProfile>> ListAsync();
 
+        /// <summary>The character to play at start-up when nothing chose one: the local store's
+        /// first slot, or the service identity's earliest character (or a new one).</summary>
+        Task<string> DefaultProfileIdAsync();
+
+        /// <summary>An id for a new character, never one in <paramref name="taken"/>. Local saves use
+        /// device slots (local-dev-N); the service needs ids unique to the whole service, since the
+        /// chain paths - runs, boxes, the PFP - key on them.</summary>
+        string NewProfileId(System.Collections.Generic.ICollection<string> taken);
+
         /// <summary>Run-start checkpoint. Claims the run before play begins.</summary>
         Task BeginRunAsync(CharacterProfile profile, string runId, Core.ElementType element);
 

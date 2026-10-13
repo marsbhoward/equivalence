@@ -11,8 +11,14 @@ import { serviceAddress } from './chain.js';
 import { challenge, prove, requireSession } from './session.js';
 import { beginRun, boxes, commitRun } from './routes/player.js';
 import { openBoxes, submitOpen } from './routes/openBoxes.js';
+import { graduate, loadAccount, loadCharacter, roster, saveAccount, saveCharacter } from './routes/saves.js';
+import { newGuest, requireIdentity } from './identity.js';
+import { hasDatabase, migrate } from './db.js';
+import { playRouter } from './play.js';
 
 const app = express();
+// Behind Railway's proxy: req.ip is the player's address (the guest rate limit reads it), not the proxy's.
+app.set('trust proxy', 1);
 app.use(cors);
 // Two authorities, two prefixes:
 //   /op/*     the OPERATOR - WRITE_TOKEN (writeAuth.ts). Never reachable from the browser build.
@@ -24,6 +30,9 @@ app.use('/op', requireWriteToken);
 // 100 kB parser (which then sees the body already parsed and steps aside). OPERATOR only: the
 // art index is shared, so one tampered upload would be every later mint's picture.
 app.post('/op/art', express.json({ limit: '16mb' }), postArt);
+// Saves carry a whole CharacterProfile - ~12 KB today, growing with gear and history - so they get
+// room past the default 100 kB, mounted before it for the same reason.
+app.use('/saves', express.json({ limit: '512kb' }));
 app.use(express.json());
 
 app.get('/health', (_req, res) => {
@@ -86,7 +95,33 @@ app.post('/write/open-boxes/submit', submitOpen);
 app.get('/boxes/:profileId', requireSession, boxes);
 app.get('/art/:artKey', getArt);
 
+// Saves (routes/saves.ts): every browser player's characters and hub room, guest or wallet.
+app.post('/guest', newGuest);
+app.use('/saves', requireIdentity);
+app.get('/saves/characters', roster);
+app.get('/saves/characters/:profileId', loadCharacter);
+app.put('/saves/characters/:profileId', saveCharacter);
+app.get('/saves/account', loadAccount);
+app.put('/saves/account', saveAccount);
+app.post('/saves/graduate', graduate);
+
+// The game (play.ts), same origin as everything above.
+const play = playRouter();
+if (play) {
+  // Relative Build/ paths need the trailing slash. Express matches /play and /play/ alike, so the
+  // redirect checks the raw path - or /play/ would redirect to itself.
+  app.get('/play', (req, res, next) => (req.path === '/play' && !req.originalUrl.startsWith('/play/')
+    ? res.redirect(301, '/play/') : next()));
+  app.use('/play', play);
+}
+
 const port = Number(process.env.PORT ?? 8787);
-app.listen(port, () => {
-  console.log(`[equivalence-service] listening on :${port}`);
-});
+// The schema is brought up to date BEFORE the first request is served. Without DATABASE_URL the
+// saves routes answer 503 and everything else runs as it always has.
+(hasDatabase() ? migrate() : Promise.resolve()).then(
+  () => app.listen(port, () => console.log(`[equivalence-service] listening on :${port}`)),
+  (e) => {
+    console.error('[equivalence-service] database migration failed:', e);
+    process.exit(1);
+  },
+);

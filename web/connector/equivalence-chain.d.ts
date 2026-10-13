@@ -1,19 +1,20 @@
 /**
  * The contract Unity calls. The page assigns an implementation to `window.EquivalenceChain`.
  *
+ * THE WALLET'S HALF ONLY. Saves - characters and the hub room - are plain HTTP from C# to the
+ * service (Assets/Scripts/Chain/Service), guest or wallet; they never come through here
+ * (2026-10-13). This contract is what needs the browser: connecting, proving, what the wallet
+ * holds, opening boxes and the PFP.
+ *
  * THE AUTHORITY SPLIT, which is the design this contract exists to express:
  *
- *   the PLAYER's wallet   holds the component art and the assembled PFP.
- *                         Signs exactly two things: a message to prove the address
- *                         (`proveOwnership`, no fee, moves nothing) and the PFP mint
- *                         (`assemblePfp`, an asset going TO them).
+ *   the PLAYER's wallet   holds the component art, its boxes and the assembled PFP. Signs a
+ *                         message to prove the address (`proveOwnership`, no fee, moves
+ *                         nothing) and transactions moving its own tokens (`openBoxes`, the PFP).
  *
- *   the SERVICE's wallet  writes progression and room layout. No player signature, because
+ *   the SERVICE           writes progression and room layout. No player signature, because
  *                         these are things the GAME asserts - and a player who could sign
  *                         their own progression datum could write whatever they liked into it.
- *
- * So beginRun / commitRun / unlock / saveAccount must NOT prompt the player. If one of them
- * opens a wallet dialog, the split has been broken somewhere.
  *
  * SHAPE RULES, enforced by the jslib rather than by types at runtime:
  *
@@ -45,27 +46,24 @@ export interface EquivalenceChain {
 
   disconnect(args: {}): void | Promise<void>;
 
+  /**
+   * The service SESSION `proveOwnership` obtained, or "" before a proof. C# hands it to the save
+   * store (ServiceIdentity) so the guest's saves can graduate onto the wallet and every save after
+   * carries the wallet's authority.
+   */
+  session(args: {}): string;
+
   // ---- what the wallet owns -------------------------------------------------------------
 
   /**
-   * The component art this wallet holds, wrapped: {"items":[{ Key, Title, Collection, Slot,
-   * ImageUrl }]}. `Slot` names the rig slot a component can fill ("Head", "Weapon", ...) or is
+   * The component art this wallet holds, as the service returns it: {"items":[{ Key, Title,
+   * Collection, Slot, ImageUrl }], truncated, held} - ALREADY wrapped, so pass it through. `Slot` names the rig slot a component can fill ("Head", "Weapon", ...) or is
    * empty for display-only art. `ImageUrl` is fetched lazily by the game and capped - do not
    * inline image data here.
    */
   listComponents(args: { accountId: string }): Promise<{ items: unknown[] } | string>;
 
   // ---- reads (no signature) -------------------------------------------------------------
-
-  /** The character datum as JSON, or "" when this id has no record yet. */
-  loadProfile(args: { profileId: string }): Promise<string>;
-
-  /** Every character this wallet owns, wrapped: {"items":[ ...CharacterProfile ]}. */
-  listProfiles(args: {}): Promise<{ items: unknown[] } | string>;
-
-  loadAccount(args: { accountId: string }): Promise<string>;
-
-  accountExists(args: { accountId: string }): Promise<boolean | string>;
 
   /**
    * The portrait this character has, as its PfpRecipe datum JSON, or "" if it has none.
@@ -75,18 +73,6 @@ export interface EquivalenceChain {
    * caller to the mint path, and a duplicate token cannot be undone.
    */
   currentPfp(args: { profileId: string }): Promise<string>;
-
-  // ---- SERVICE-signed writes: the three checkpoints, plus the room ----------------------
-  //
-  // These must not prompt the player. Each resolves with a transaction hash; an empty string
-  // is recorded as a FAILED checkpoint in the in-game terminal.
-
-  beginRun(args: { profileId: string; runId: string; element: string; datum: string }): Promise<string>;
-  commitRun(args: { profileId: string; datum: string; summary: string }): Promise<string>;
-  unlock(args: { profileId: string; datum: string }): Promise<string>;
-
-  /** Room layout and account record. Keyed by wallet address, or "local" when unconnected. */
-  saveAccount(args: { accountId: string; datum: string }): Promise<string>;
 
   // ---- design boxes (tokens; the SERVER rolls, the player approves the open) --------------
 

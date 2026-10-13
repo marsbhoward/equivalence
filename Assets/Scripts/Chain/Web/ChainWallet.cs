@@ -40,6 +40,10 @@ namespace Convergence.Chain.Web
         /// </summary>
         public static bool Proven { get; private set; }
 
+        /// <summary>The service's session for the proven address (/auth/prove) - what the saves
+        /// carry once a guest graduates onto this wallet (Chain/Service). Empty until proven.</summary>
+        public static string Session { get; private set; } = "";
+
         public static event Action Changed;
 
         /// <summary>Wallet keys the page can see - "eternl", "lace". Names, not addresses.</summary>
@@ -70,6 +74,7 @@ namespace Convergence.Chain.Web
                 var address = await WebChainBridge.Call("connect", new ChainArgs { wallet = walletKey });
                 Address = address ?? "";
                 Proven = false;
+                Session = "";
 
                 if (Connected)
                 {
@@ -84,7 +89,7 @@ namespace Convergence.Chain.Web
             catch (Exception e)
             {
                 Debug.LogWarning($"[Chain] connect({walletKey}) refused or failed: {e.Message}");
-                Address = ""; Proven = false;
+                Address = ""; Proven = false; Session = "";
                 Changed?.Invoke();
                 return "";
             }
@@ -110,6 +115,7 @@ namespace Convergence.Chain.Web
                     new ChainArgs { accountId = Address, datum = nonce });
                 Proven = !string.IsNullOrEmpty(sig);
                 if (!Proven) Debug.LogWarning("[Chain] ownership proof declined; playing unproven");
+                else Session = await WebChainBridge.Call("session") ?? "";
                 return Proven;
             }
             catch (Exception e)
@@ -122,7 +128,7 @@ namespace Convergence.Chain.Web
 
         public static async void Disconnect()
         {
-            Address = ""; Proven = false;
+            Address = ""; Proven = false; Session = "";
             WalletInventory.Clear();
             Changed?.Invoke();
             try { await WebChainBridge.Call("disconnect"); }

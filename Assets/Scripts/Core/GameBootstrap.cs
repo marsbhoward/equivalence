@@ -418,7 +418,7 @@ namespace Convergence.Core
                 : _player.Blade != null && _player.Blade.Airborne ? 1f
                 : _player.Resource != null ? _player.Resource.Fill01 : 0f;
 
-            _profile = await _store.LoadAsync("local-dev-0");
+            _profile = await _store.LoadAsync(await _store.DefaultProfileIdAsync());
 
             // No wallet is connected, so the account is the local one. Connecting a wallet later
             // means loading by its address, and adopting this record if that address has none.
@@ -975,6 +975,7 @@ namespace Convergence.Core
         public async void ConnectWallet(string walletAddress)
         {
             if (string.IsNullOrWhiteSpace(walletAddress)) return;
+            if (StoreFactory.UsingService) { await GraduateOntoWalletAsync(walletAddress); return; }
 
             if (await _accounts.ExistsAsync(walletAddress))
             {
@@ -997,6 +998,83 @@ namespace Convergence.Core
 
             Debug.Log($"[Convergence] account is now {_account.AccountId}");
             if (_state == State.Hub) ShowHub();
+        }
+
+        /// <summary>
+        /// The wallet chooser: every CIP-30 wallet the page can see, offered one at a time (a
+        /// two-button dialog - "another wallet" moves to the next). Connecting signs a MESSAGE only.
+        /// </summary>
+        async void BeginConnectWallet()
+        {
+            if (ConfirmDialog == null || ConfirmDialog.IsOpen) return;
+            var wallets = await Chain.Web.ChainWallet.ListAsync();
+            if (wallets.Length == 0)
+            {
+                ConfirmDialog.Show(_canvas.transform, "NO WALLET FOUND",
+                    "This browser has no Cardano wallet extension. Install one, then reload the page.",
+                    "OK", "Close", null);
+                return;
+            }
+            OfferWallet(wallets, 0);
+        }
+
+        void OfferWallet(string[] wallets, int i)
+        {
+            bool last = i == wallets.Length - 1;
+            ConfirmDialog.Show(_canvas.transform, $"CONNECT {wallets[i].ToUpperInvariant()}?",
+                "The wallet signs a message proving the address - no fee, and nothing moves. If it has no " +
+                "characters of its own, this browser's characters and room move onto it.",
+                "Connect", last ? "Not now" : "Another wallet",
+                async () =>
+                {
+                    var address = await Chain.Web.ChainWallet.ConnectAsync(wallets[i]);
+                    if (!string.IsNullOrEmpty(address)) ConnectWallet(address);
+                    _hub?.RefreshBooth();
+                },
+                last ? null : () => OfferWallet(wallets, i + 1));
+        }
+
+        /// <summary>
+        /// A proven wallet takes over this browser's saves (Chain/Service): the guest GRADUATES onto it
+        /// when the wallet has no records of its own, and the hub reloads from the wallet either way.
+        /// An unproven wallet changes nothing - the service writes only for a proof.
+        /// </summary>
+        async System.Threading.Tasks.Task GraduateOntoWalletAsync(string walletAddress)
+        {
+            if (!Chain.Web.ChainWallet.Proven || string.IsNullOrEmpty(Chain.Web.ChainWallet.Session))
+            {
+                Debug.LogWarning("[Convergence] wallet connected but not proven - saves stay with this browser's guest");
+                return;
+            }
+
+            var result = await Chain.Service.ServiceIdentity.AttachWalletAsync(walletAddress, Chain.Web.ChainWallet.Session);
+            if (result == Chain.Service.ServiceIdentity.Graduation.Failed)
+            {
+                ConfirmDialog?.Show(_canvas.transform, "SAVES NOT MOVED",
+                    "The service could not move this browser's characters to the wallet. You are still playing " +
+                    "them here; connect again to retry.", "OK", "Close", null);
+                return;
+            }
+
+            bool same = result is Chain.Service.ServiceIdentity.Graduation.Moved
+                               or Chain.Service.ServiceIdentity.Graduation.AlreadyMoved;
+            if (_state == State.Hub)
+            {
+                await BecomeAsync(same ? _profile.ProfileId : await _store.DefaultProfileIdAsync(), force: true);
+                _account = await _accounts.LoadAsync(walletAddress);
+                ShowHub();
+            }
+
+            string body = result switch
+            {
+                Chain.Service.ServiceIdentity.Graduation.Moved =>
+                    "Your characters and room now belong to this wallet.",
+                Chain.Service.ServiceIdentity.Graduation.WalletHasRecords =>
+                    "This wallet already has characters, so you are now playing them. The characters from " +
+                    "this browser stay here, and come back if you disconnect.",
+                _ => "You are now playing this wallet's characters.",
+            };
+            ConfirmDialog?.Show(_canvas.transform, "WALLET CONNECTED", body, "OK", "Close", null);
         }
 
         /// <summary>Same write point as Equip - a cosmetic preference, but still worth persisting.</summary>
@@ -1312,7 +1390,8 @@ namespace Convergence.Core
         async void TakePortrait()
         {
             if (_hub == null || _profile == null) return;
-            if (!Chain.Web.ChainWallet.Connected) return;   // the booth's own prompt already gates this
+            // No wallet yet: the booth's key is "connect a wallet", and it lands here.
+            if (!Chain.Web.ChainWallet.Connected) { BeginConnectWallet(); return; }
 
             string diff;
             try { diff = await Chain.Web.ChainPfp.DescribeAsync(_profile); }
@@ -1339,13 +1418,22 @@ namespace Convergence.Core
 
                 async void SwitchCharacter(string profileId)
         {
-            if (_state != State.Hub) return;
-            if (string.IsNullOrEmpty(profileId) || profileId == _profile.ProfileId) return;
+            if (await BecomeAsync(profileId, force: false)) ShowHub();   // rebuilds the room, the standing character and the couch
+        }
+
+        /// <summary>
+        /// Loads a character and makes it the one being played. <paramref name="force"/> reloads even
+        /// the current one - after a wallet takes over the saves, the same id now reads from the wallet.
+        /// </summary>
+        async System.Threading.Tasks.Task<bool> BecomeAsync(string profileId, bool force)
+        {
+            if (_state != State.Hub) return false;
+            if (string.IsNullOrEmpty(profileId) || (!force && profileId == _profile.ProfileId)) return false;
 
             try
             {
                 var next = await _store.LoadAsync(profileId);
-                if (_state != State.Hub) return;   // a run started while the load was in flight
+                if (_state != State.Hub) return false;   // a run started while the load was in flight
 
                 _profile = next;
                 _profile.Gear.DropStale();
@@ -1355,20 +1443,22 @@ namespace Convergence.Core
                 if (EnsureStarterGear(_profile)) await _store.UnlockAsync(_profile);
 
                 Debug.Log($"[Convergence] now playing {_profile.DisplayName} ({_profile.ProfileId})");
-                ShowHub();   // rebuilds the room, the standing character and the couch
+                return true;
             }
             catch (Exception e)
             {
                 Debug.LogError($"[Convergence] could not switch to {profileId}: {e}");
+                return false;
             }
         }
 
         /// <summary>
-        /// Start a new character on the next free id.
+        /// Start a new character on an id the store hands out (IProfileStore.NewProfileId): the
+        /// next free device slot locally, an id unique to the whole service on the service.
         ///
-        /// Ids are scanned rather than counted: deleting profile_local-dev-1 and then counting
-        /// files would hand the next character an id that is already taken and silently overwrite
-        /// somebody.
+        /// Local slots are scanned rather than counted: deleting profile_local-dev-1 and then
+        /// counting files would hand the next character an id that is already taken and silently
+        /// overwrite somebody.
         /// </summary>
         async void NewCharacter()
         {
@@ -1377,14 +1467,7 @@ namespace Convergence.Core
             var taken = new HashSet<string> { _profile.ProfileId };
             foreach (var p in _roster) taken.Add(p.ProfileId);
 
-            string id = null;
-            for (int i = 0; i < 64; i++)
-            {
-                var candidate = $"local-dev-{i}";
-                if (taken.Contains(candidate)) continue;
-                id = candidate;
-                break;
-            }
+            string id = _store.NewProfileId(taken);
             if (id == null) { Debug.LogWarning("[Convergence] no free character slot."); return; }
 
             try

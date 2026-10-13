@@ -1,5 +1,6 @@
 import type { Request, Response } from 'express';
-import { assetInfo, assetNameText, assetsAt, resolveImage } from '../blockfrost.js';
+import { assetNameText, assetsAt, resolveImage } from '../blockfrost.js';
+import { cachedAssetInfo } from '../assetCache.js';
 
 /**
  * GET /components?address=addr_test1...
@@ -38,7 +39,7 @@ export async function components(req: Request, res: Response) {
     // Resolved in parallel but capped, because an address can hold hundreds and each one is its
     // own Blockfrost call - an unbounded fan-out here would rate-limit the key on one request.
     const units = held.slice(0, MAX_ASSETS).map(a => a.unit);
-    const infos = await Promise.all(units.map(u => assetInfo(u).catch(() => null)));
+    const infos = await Promise.all(units.map(u => cachedAssetInfo(u).catch(() => null)));
 
     const items = infos.filter(Boolean).map(a => {
       const m = (a!.onchain_metadata ?? a!.metadata ?? {}) as Record<string, unknown>;

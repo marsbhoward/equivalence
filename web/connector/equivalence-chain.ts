@@ -1,17 +1,15 @@
 /**
- * Reference connector.
- *
- * The identity half is complete - that is the part that ports from donada. The chain half is
- * left as marked seams, because that is where your transaction building goes.
+ * The browser connector - the WALLET's half of the game (equivalence-chain.d.ts). Saves never
+ * come through here: C# writes them to the service over HTTP (Assets/Scripts/Chain/Service).
  *
  * WHO SIGNS WHAT. Ordinary play never prompts the player: progression and room layout are
- * written by the SERVICE with its own key, because they are things the game asserts rather than
- * things the player authorises - and a player who could sign their own progression could write
- * whatever they liked into it. The player's wallet signs exactly twice: once over a message to
- * prove the address, and once over the mint that puts their assembled PFP in their own wallet.
+ * written by the SERVICE, because they are things the game asserts rather than things the
+ * player authorises - and a player who could sign their own progression could write whatever
+ * they liked into it. The player's wallet signs a message to prove the address, and the
+ * transactions that move its own tokens: opening boxes, and the PFP.
  */
 
-import type { EquivalenceChain } from './equivalence-chain';
+import type { EquivalenceChain } from './equivalence-chain.d';   // the CONTRACT - the bare name is this file
 
 // CIP-68 asset name prefixes. The REFERENCE token carries the datum; the USER token is what the
 // player holds. Components and PFPs are user tokens; progression lives on a reference token the
@@ -116,40 +114,23 @@ export const connector: EquivalenceChain = {
     session = '';
   },
 
+  session() {
+    return session;
+  },
+
   // ---- what the wallet owns ---------------------------------------------------------------
 
   async listComponents({ accountId }) {
     if (!accountId) return { items: [] };
     // SEAM: every component token this address holds, resolved to its metadata. Return the image
     // URL rather than the image - the game fetches lazily and caps how many it keeps resident.
+    // The service already wraps the list ({"items":[...], truncated, held}) - JsonUtility cannot
+    // read a bare array. Wrapping it again handed Unity {"items":{"items":[...]}} and an empty list.
     const r = await service(`/components?address=${encodeURIComponent(accountId)}`);
-    return { items: await r.json() };       // MUST stay wrapped - JsonUtility cannot read a bare array
+    return r.json();
   },
 
   // ---- reads ------------------------------------------------------------------------------
-
-  async loadProfile({ profileId }) {
-    const r = await service(`/profile/${encodeURIComponent(profileId)}`);
-    const body = await r.text();
-    return body === 'null' ? '' : body;     // "" means no record yet; Unity starts a fresh character
-  },
-
-  async listProfiles() {
-    if (!address) return { items: [] };
-    const r = await service(`/profiles?address=${encodeURIComponent(address)}`);
-    return { items: await r.json() };
-  },
-
-  async loadAccount({ accountId }) {
-    const r = await service(`/account/${encodeURIComponent(accountId)}`);
-    const body = await r.text();
-    return body === 'null' ? '' : body;
-  },
-
-  async accountExists({ accountId }) {
-    const r = await fetch(`${SERVICE}/account/${encodeURIComponent(accountId)}`, { method: 'HEAD' });
-    return r.ok;
-  },
 
   async currentPfp({ profileId }) {
     // Rejects on a transport failure rather than resolving "" - "" means "no portrait yet" and
@@ -157,30 +138,6 @@ export const connector: EquivalenceChain = {
     const r = await service(`/pfp/${encodeURIComponent(profileId)}`);
     const body = await r.text();
     return body === 'null' || body === '' ? '' : body;   // the PfpRecipe datum, verbatim
-  },
-
-  // ---- SERVICE-signed writes ---------------------------------------------------------------
-  //
-  // No signTx, no dialog, no player interaction. The service builds, signs with its own key and
-  // submits; the browser only says what happened. If you ever find yourself adding a signature
-  // step to one of these, the authority split has been broken.
-
-  beginRun({ profileId, runId, element, datum }) {
-    return write('begin-run', { profileId, runId, element, datum });
-  },
-
-  commitRun({ profileId, datum, summary }) {
-    return write('commit-run', { profileId, datum, summary });
-  },
-
-  unlock({ profileId, datum }) {
-    return write('unlock', { profileId, datum });
-  },
-
-  saveAccount({ accountId, datum }) {
-    // Room layout. Very likely off-chain - how a hub room was arranged is not something a
-    // transaction should pay for - but it is still service-authored and still keyed by address.
-    return write('account', { accountId, datum });
   },
 
   // ---- design boxes (tokens in the wallet; opening them is the one other thing a player signs) -
@@ -252,20 +209,6 @@ async function trophy(endpoint: string, profileId: string, accountId: string, da
   const { hash } = await done.json();
   if (!hash) throw new Error('submit returned no hash');
   return hash;
-}
-
-/**
- * A service-authored write. Built, signed and submitted server-side; the player is not involved.
- * The address is sent so the service can check it against the proof from `proveOwnership` -
- * without that check anyone could post progression for anyone.
- */
-async function write(kind: string, payload: Record<string, string>): Promise<string> {
-  const r = await service(`/write/${kind}`, {
-    method: 'POST',
-    body: JSON.stringify({ ...payload, address }),
-  });
-  const { hash } = await r.json();
-  return hash ?? '';                        // "" is recorded as a failed checkpoint, not a silent success
 }
 
 // The game reads window.EquivalenceChain lazily, but StoreFactory decides ONCE - assign before

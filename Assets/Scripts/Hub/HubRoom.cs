@@ -786,13 +786,15 @@ namespace Convergence.Hub
                             ? Chain.Web.ChainWallet.Short(Chain.Web.ChainWallet.Address)
                             : "no wallet connected",
                         Body = _booth.CachedLine,
-                        Key = _booth.Actionable ? "[ E ]  take a portrait" : "[ E ]  refresh",
+                        Key = NeedsWallet ? "[ E ]  connect a wallet"
+                            : _booth.Actionable ? "[ E ]  take a portrait" : "[ E ]  refresh",
                         Accent = new Color(0.78f, 0.30f, 0.42f),
                     },
                 () =>
                 {
                     if (_editMode) { BeginCarryFixture("booth"); return; }
-                    if (_booth.Actionable) _onTakePortrait?.Invoke();
+                    // With no wallet, the portrait's own callback connects one first (GameBootstrap.TakePortrait).
+                    if (NeedsWallet || _booth.Actionable) _onTakePortrait?.Invoke();
                     else RefreshBooth();   // e.g. the player just equipped the missing piece
                 },
                 on => _booth.SetFocus(on));
@@ -817,6 +819,9 @@ namespace Convergence.Hub
         }
 
         public void FlashBooth() => _booth?.Flash();
+
+        /// <summary>The page can reach a wallet, but none is connected - the booth offers to connect one.</summary>
+        static bool NeedsWallet => Chain.StoreFactory.UsingChain && !Chain.Web.ChainWallet.Connected;
 
         async System.Threading.Tasks.Task RefreshBoothAsync()
         {

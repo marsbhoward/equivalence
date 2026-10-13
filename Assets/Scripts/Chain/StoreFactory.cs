@@ -3,51 +3,51 @@ using UnityEngine;
 namespace Convergence.Chain
 {
     /// <summary>
-    /// Picks the backend once, so no gameplay code ever branches on "are we on chain".
+    /// Picks the backend once, so no gameplay code ever branches on where saves live.
     ///
-    /// THE AUTHORITY SPLIT, which is the shape everything below this depends on:
+    ///     a WebGL build      the SERVICE (Chain/Service): every browser player is a guest saved by
+    ///                        equivalence-service from the first run, graduating onto a wallet when
+    ///                        one is proven (the user's call, 2026-10-13). No local-only web tier.
+    ///     the Editor, native local JSON - unless DevServiceUrl points at a service to test against.
     ///
-    ///     the PLAYER's wallet    holds the component art and the assembled PFP. Signs exactly
-    ///                            two things - a MESSAGE proving the address (no fee, moves
-    ///                            nothing) and the PFP mint, an asset going to them.
-    ///
-    ///     the SERVICE's wallet   writes progression (IProfileStore's three checkpoints) and
-    ///                            room layout (IAccountStore). No player signature.
-    ///
-    /// Progression is service-authored for two reasons and the second is the stronger one. It
-    /// spares the player a wallet dialog on every floor - approving transactions constantly is
-    /// how a player learns to approve transactions without reading them. But more importantly a
-    /// player who can sign their own progression datum can write whatever they like into it, so
-    /// game-authored progression is the anti-cheat, not a compromise on decentralisation. What
-    /// the player owns is the ASSET; what the game authors is its metadata.
-    ///
-    /// The whole point of IProfileStore/IAccountStore being interfaces is that this is the only
-    /// file that knows there is a choice. In the Editor and on every native target the browser
-    /// bridge reports unavailable and the local JSON stores are used, which is what keeps the
-    /// existing `unity command eval` workflow working unchanged.
+    /// THE AUTHORITY SPLIT is unchanged by where saves live. The PLAYER's wallet signs exactly two
+    /// kinds of thing - a MESSAGE proving the address, and transactions moving their own tokens
+    /// (the PFP, opening boxes). Progression and the room are written by the SERVICE: a player who
+    /// could author their own progression could write whatever they liked into it, so
+    /// game-authored progression is the anti-cheat. The wallet features themselves (connecting,
+    /// the PFP, boxes, inventory) go through the JS connector - <see cref="UsingChain"/>.
     /// </summary>
     public static class StoreFactory
     {
-        /// <summary>
-        /// Forces local JSON even in a browser that has a connector. For testing the fallback
-        /// path in a real build, where you cannot simply not have a wallet extension installed.
-        /// </summary>
+        /// <summary>Forces local JSON even in a WebGL build - for testing the fallback path.</summary>
         public static bool ForceLocal = false;
 
+        /// <summary>
+        /// Points the Editor or a native build at a service (`http://localhost:8787` for a local
+        /// `npm run dev`). Set BEFORE the stores are first read - GameBootstrap picks them once.
+        /// </summary>
+        public static string DevServiceUrl = "";
+
+        /// <summary>Saves go to equivalence-service.</summary>
+        public static bool UsingService =>
+            !ForceLocal && (Application.platform == RuntimePlatform.WebGLPlayer || !string.IsNullOrEmpty(DevServiceUrl));
+
+        /// <summary>The page carries the wallet connector (window.EquivalenceChain) - the wallet's
+        /// features are reachable. Says nothing about where saves live.</summary>
         public static bool UsingChain => !ForceLocal && Web.WebChainBridge.Available;
 
         public static IProfileStore Profiles()
         {
-            if (UsingChain)
+            if (UsingService)
             {
-                Debug.Log("[Convergence] profile store: CIP-68 connector");
-                return new Web.ChainProfileStore();
+                Debug.Log($"[Convergence] profile store: equivalence-service at {Service.ServiceClient.BaseUrl}");
+                return new Service.ServiceProfileStore();
             }
             Debug.Log("[Convergence] profile store: local JSON");
             return new LocalJsonProfileStore();
         }
 
         public static IAccountStore Accounts()
-            => UsingChain ? new Web.ChainAccountStore() : (IAccountStore)new LocalJsonAccountStore();
+            => UsingService ? new Service.ServiceAccountStore() : (IAccountStore)new LocalJsonAccountStore();
     }
 }
