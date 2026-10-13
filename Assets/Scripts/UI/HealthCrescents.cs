@@ -28,11 +28,11 @@ namespace Convergence.UI
         const float U = ElementSeal.UnitsPerTexel;
 
         // Interiors; a one-texel frame stands round each.
-        const float HpIn = 25f, HpOut = 29f, ArmIn = 32f, ArmOut = 34f;
+        const float HpIn = 50f, HpOut = 58f, ArmIn = 64f, ArmOut = 68f;
         // Clock degrees (0 at the top, clockwise): the seal's right side.
         const float From = 30f, To = 150f;
         const int Plates = 10;
-        const float PlateGapDegrees = 1.6f;
+        const float PlateGapDegrees = 0.8f;
 
         const float LowFraction = 0.3f;
         const float ChipHoldSeconds = 0.4f, ChipDrainPerSecond = 0.6f;
@@ -89,7 +89,7 @@ namespace Convergence.UI
 
             // The numbers stand just clear of the armour crescent, on the seal's centre line.
             var mid = new Vector2(0.5f, 0.5f);
-            float x0 = (ArmOut + 2.5f) * U;
+            float x0 = (ArmOut + 5f) * U;
             var hpRt = UiKit.Rect(rt, "hp", mid, mid, new Vector2(x0, -6), new Vector2(x0 + 320, 44));
             h._hpText = UiKit.Label(hpRt, "", 36, HpColour, TextAnchor.LowerLeft);
             h._hpText.supportRichText = true;
@@ -228,7 +228,7 @@ namespace Convergence.UI
             return notch ? Color32.Lerp(c, Frame, 0.45f) : c;
         }
 
-        static bool Near(float u, float at) => Mathf.Abs(u - at) < 0.012f;
+        static bool Near(float u, float at) => Mathf.Abs(u - at) < 0.006f;
 
         Color32 PlateTexel(float d, float u, float a, float armour01, float shatter)
         {
@@ -242,7 +242,7 @@ namespace Convergence.UI
             float along = (within - half) / ((To - From) / Plates - PlateGapDegrees);
             Color32 c;
             if (along < f) c = d >= ArmOut - 1f ? SteelLt : SteelMd;
-            else c = f <= 0f && ((int)(a * 1.7f) + (int)d + k * 3) % 5 == 0 ? Crack : PlateEmpty;
+            else c = f <= 0f && ((int)(a * 3.4f) + (int)d + k * 3) % 5 == 0 ? Crack : PlateEmpty;
 
             if (k == _shatterPlate && shatter > 0f) c = Color32.Lerp(c, Color.white, shatter);
             return c;

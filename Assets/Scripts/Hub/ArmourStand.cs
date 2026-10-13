@@ -312,15 +312,25 @@ namespace Convergence.Hub
         }
 
         /// <summary>
-        /// Enum order, except <see cref="RigLayer.NeckOver"/> - appended to the enum, so at its
-        /// raw value it would draw over the head - which goes directly above BackOver, where the
-        /// rig's front-facing stacks put it.
+        /// Enum order, except the two layers appended to the enum, which at their raw values would
+        /// draw over the head: <see cref="RigLayer.NeckOver"/> goes directly above BackOver, and
+        /// <see cref="RigLayer.TrinketBack"/> directly above Back - where the rig's front-facing
+        /// stacks put them.
         /// </summary>
-        static int StandRank(RigLayer layer)
+        static int StandRank(RigLayer layer) => _standRanks[(int)layer];
+
+        static readonly int[] _standRanks = BuildStandRanks();
+
+        static int[] BuildStandRanks()
         {
-            if (layer == RigLayer.NeckOver) return (int)RigLayer.BackOver + 1;
-            int raw = (int)layer;
-            return raw > (int)RigLayer.BackOver ? raw + 1 : raw;
+            var ranked = new System.Collections.Generic.List<RigLayer>();
+            foreach (var l in RigLayers.All)
+                if (l != RigLayer.NeckOver && l != RigLayer.TrinketBack) ranked.Add(l);
+            ranked.Insert(ranked.IndexOf(RigLayer.BackOver) + 1, RigLayer.NeckOver);
+            ranked.Insert(ranked.IndexOf(RigLayer.Back) + 1, RigLayer.TrinketBack);
+            var ranks = new int[ranked.Count];
+            for (int i = 0; i < ranked.Count; i++) ranks[(int)ranked[i]] = i;
+            return ranks;
         }
 
         /// <summary>The joint a layer hangs from, and the stand's draw rank for it - read by

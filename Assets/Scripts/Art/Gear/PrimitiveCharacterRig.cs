@@ -1104,6 +1104,26 @@ namespace Convergence.Art.Gear
         bool _trinketLeftHip;
 
         /// <summary>
+        /// The hip relic's pictures as Apply painted them, near hip and far, and what each shows
+        /// after a half turn (<see cref="GearItem.TurnedLayers"/>) - null for a relic without
+        /// them. <see cref="AnimateHipPieces"/> swaps by IDENTITY, so a hit flash or Medusa's
+        /// stone, which put a different sprite on the layer, is never overwritten.
+        /// </summary>
+        Sprite _trinketNear, _trinketTurned, _trinketBackNear, _trinketBackTurned;
+
+        /// <summary>Where Apply placed <see cref="RigLayer.TrinketBack"/>, torso-local.</summary>
+        Vector3 _trinketBackRest;
+
+        /// <summary>The worn hip relic's hang point (<see cref="GearItem.HipSwingPivot"/>) - zero,
+        /// it does not swing - and its spring, in degrees.</summary>
+        Vector2 _hipSwingPivot;
+        float _hipSwingAngle, _hipSwingVelocity;
+
+        /// <summary>How far a swinging hip piece swings back at full walking speed, in degrees,
+        /// on top of whatever lean it is drawn with. On the cape's springs.</summary>
+        const float HipSwing = 30f;
+
+        /// <summary>
         /// The equipped Back item's drape seen from behind (<see cref="GearItem.DrapeBack"/>),
         /// and the front sprite it stands in for while turned away - the same pair, for the
         /// same reason, as <see cref="_hoodBack"/>/<see cref="_hoodFront"/>. Set fresh by Apply.
@@ -2400,6 +2420,7 @@ namespace Convergence.Art.Gear
             SyncHoodFacing(away);
             SetLayerEnabled(RigLayer.Ring,      !away);
             SetLayerEnabled(RigLayer.Trinket,   !away);
+            SetLayerEnabled(RigLayer.TrinketBack, !away);
             SetLayerEnabled(RigLayer.Neck,      !away);
             SyncDrapeFacing(away);
             SyncDrapeSide();
@@ -3056,6 +3077,11 @@ namespace Convergence.Art.Gear
             _faceMaskOnly = false;
             _headSealed = false;
             _trinketLeftHip = false;
+            _trinketNear = null;
+            _trinketTurned = null;
+            _trinketBackNear = null;
+            _trinketBackTurned = null;
+            _hipSwingPivot = Vector2.zero;
             _clothDyed = false;
             bool wantGlowEye = false;
 
@@ -3247,7 +3273,17 @@ namespace Convergence.Art.Gear
             {
                 _trinketRest = sr.transform.localPosition;
                 _trinketLeftHip = item.WornOnLeftHip;
+                _trinketNear = sprite;
+                _trinketTurned = TurnedPicture(item, layer);
+                _hipSwingPivot = item.HipSwingPivot;
                 sr.flipX = false;
+            }
+            if (layer == RigLayer.TrinketBack)
+            {
+                _trinketBackRest = sr.transform.localPosition;
+                _trinketBackNear = sprite;
+                _trinketBackTurned = TurnedPicture(item, layer);
+                _hipSwingPivot = item.HipSwingPivot;
             }
             sr.transform.localRotation = Quaternion.identity;
             sr.drawMode = SpriteDrawMode.Simple;
@@ -3526,6 +3562,14 @@ namespace Convergence.Art.Gear
             => Inserted(table, RigLayer.NeckOver, RigLayer.Back, above: false);
 
         /// <summary>
+        /// Add <see cref="RigLayer.TrinketBack"/> directly above <see cref="RigLayer.Back"/>: a
+        /// relic worn on the FAR hip hangs behind the whole body and over the cape. Every table,
+        /// either facing (turned away the hip relics are hidden anyway).
+        /// </summary>
+        static int[] TrinketBehindBody(int[] table)
+            => Inserted(table, RigLayer.TrinketBack, RigLayer.Back, above: true);
+
+        /// <summary>
         /// Put <paramref name="layer"/> directly above or below <paramref name="anchor"/>, adding
         /// it if the table does not have it yet (a layer appended to the enum after the table was
         /// written - see <see cref="RigLayer.NeckOver"/>). A permutation in, a permutation out.
@@ -3637,7 +3681,7 @@ namespace Convergence.Art.Gear
         /// <see cref="WeaponBehindOrder"/> now all keep. HeadArmor and Hood already sat well above
         /// HairBack in every stack and needed no change.
         /// </summary>
-        static readonly int[] OneHandedOrder = PauldronsCapArms(NeckOverDrape(DrapeOverShoulders(WithForearms(new[]
+        static readonly int[] OneHandedOrder = TrinketBehindBody(PauldronsCapArms(NeckOverDrape(DrapeOverShoulders(WithForearms(new[]
         {
             1,   // Back           - over the mane; see the note above
             0,   // HairBack       - under the cape now; nothing else moves
@@ -3668,7 +3712,7 @@ namespace Convergence.Art.Gear
             26,  // HeadArmor
             27,  // Hood
             28,  // Weapon
-        }))));
+        })))));
 
         /// <summary>
         /// Back-to-front order while both hands are on one hilt, indexed by <see cref="RigLayer"/>.
@@ -3709,7 +3753,7 @@ namespace Convergence.Art.Gear
         ///
         /// A PERMUTATION of 0..24, same contract as the other two - verified in Construct.
         /// </summary>
-        static readonly int[] DualWieldOrder = DiscOverHood(PauldronsCapArms(NeckOverDrape(DrapeOverShoulders(WithForearms(new[]
+        static readonly int[] DualWieldOrder = TrinketBehindBody(DiscOverHood(PauldronsCapArms(NeckOverDrape(DrapeOverShoulders(WithForearms(new[]
         {
             1,   // Back           - over the mane; see OneHandedOrder's own note
             0,   // HairBack       - under the cape, under the body, on every permutation
@@ -3743,9 +3787,9 @@ namespace Convergence.Art.Gear
             27,  // HeadArmor
             28,  // Hood           - a cowl frames whatever the head is doing, helmed or bare
             22,  // Weapon         - in front of the pauldron, behind the fist and the head
-        })))));
+        }))))));
 
-        static readonly int[] TwoHandedOrder = PauldronsCapArms(NeckOverDrape(DrapeOverShoulders(WithForearms(new[]
+        static readonly int[] TwoHandedOrder = TrinketBehindBody(PauldronsCapArms(NeckOverDrape(DrapeOverShoulders(WithForearms(new[]
         {
             1,   // Back           - over the mane; see OneHandedOrder's own note
             0,   // HairBack       - under the cape, under the body, on every permutation
@@ -3783,7 +3827,7 @@ namespace Convergence.Art.Gear
             23,  // HeadArmor
             24,  // Hood           - a cowl frames whatever the head is doing, helmed or bare
             25,  // Weapon         - over the body, under the near hand
-        }))));
+        })))));
 
         /// <summary>
         /// Back-to-front order while the weapon is on the FAR side of the body, indexed by
@@ -3994,7 +4038,7 @@ namespace Convergence.Art.Gear
             return order;
         }
 
-        static readonly int[] WeaponBehindOrder = PauldronsCapArms(NeckOverDrape(DrapeOverShoulders(WithForearms(new[]
+        static readonly int[] WeaponBehindOrder = TrinketBehindBody(PauldronsCapArms(NeckOverDrape(DrapeOverShoulders(WithForearms(new[]
         {
             1,   // Back           - still hangs behind the body; over the mane now (see
                  // OneHandedOrder's own note), same swap as every other stack
@@ -4027,7 +4071,7 @@ namespace Convergence.Art.Gear
             27,  // HeadArmor
             28,  // Hood           - a cowl frames whatever the head is doing, helmed or bare
             2,   // Weapon         - behind the body, in front of the hair and the cape only
-        }))));
+        })))));
 
         /// <summary>
         /// Back-to-front order while <see cref="_facingAway"/> is on - see
@@ -4095,7 +4139,7 @@ namespace Convergence.Art.Gear
         /// stay UNDER the promoted cape, which is still the outermost garment back here. Every
         /// other layer's relative order is untouched.
         /// </summary>
-        static readonly int[] FacingAwayOrder = PauldronsCapArms(ManeOverCape(DrapeOverCape(NeckUnderCape(WithForearms(new[]
+        static readonly int[] FacingAwayOrder = TrinketBehindBody(PauldronsCapArms(ManeOverCape(DrapeOverCape(NeckUnderCape(WithForearms(new[]
         {
             22, // Back
             0,  // HairBack
@@ -4126,7 +4170,7 @@ namespace Convergence.Art.Gear
             25, // HeadArmor  - over HeadBack: a helm's back view (GearItem.HelmBack) covers the skull
             26, // Hood       - over HeadBack: the cowl's back view covers the skull stand-in
             27, // Weapon   - over the head, UNDER the fist holding it
-        })))));
+        }))))));
 
         /// <summary>
         /// Back-to-front order while <see cref="_facingAway"/> is on and the weapon is HELD rather
@@ -4144,7 +4188,7 @@ namespace Convergence.Art.Gear
         /// The pauldron sinks back beside its far twin, since nothing rests on it here. Every other
         /// layer keeps its relative order from FacingAwayOrder.
         /// </summary>
-        static readonly int[] FacingAwayHeldOrder = PauldronsCapArms(ManeOverCape(DrapeOverCape(NeckUnderCape(WithForearms(new[]
+        static readonly int[] FacingAwayHeldOrder = TrinketBehindBody(PauldronsCapArms(ManeOverCape(DrapeOverCape(NeckUnderCape(WithForearms(new[]
         {
             24, // Back         - still the outermost garment
             6,  // HairBack
@@ -4175,7 +4219,7 @@ namespace Convergence.Art.Gear
             27, // HeadArmor    - over HeadBack, as in FacingAwayOrder
             28, // Hood         - over HeadBack: the cowl's back view covers the skull stand-in
             0,  // Weapon       - under everything; only what clears the body shows
-        })))));
+        }))))));
 
         static bool WeaponIsTwoHanded(Loadout loadout)
         {
@@ -4330,6 +4374,9 @@ namespace Convergence.Art.Gear
             // hip, facing left), so it takes arm.front's rank for the duration.
             if (_reaching && CarryInBackArm && !_facingAway) table = SwapArms(table);
 
+            // Two hands each holding something in front of the body: the disc pair's stack.
+            if (_twinReach && !_facingAway) table = DualWieldOrder;
+
             // A shroud worn as the outermost garment (GearItem.ShroudOverCloak). Under a hood it
             // goes directly over the HOOD in either facing - and so over the chin, or the back of
             // the head, where the cowl would cover them; the weapon and the gripping hands stay
@@ -4473,6 +4520,11 @@ namespace Convergence.Art.Gear
         /// coroutine that would have handed the arm back does not survive one, and a restored
         /// flag would hold the arm out for the rest of the session.</summary>
         [System.NonSerialized] bool _reaching;
+
+        /// <summary>Both fists on targets of their own (SetTwinHandTargets). NonSerialized like the
+        /// reach: whatever was driving them does not survive a reload.</summary>
+        [System.NonSerialized] bool _twinReach;
+        [System.NonSerialized] Vector2 _twinFront, _twinBack;
         [System.NonSerialized] Vector2 _reachTarget;
         [System.NonSerialized] float _reachOffHand;
 
@@ -4499,7 +4551,70 @@ namespace Convergence.Art.Gear
         void LateUpdate()
         {
             if (_stone) return;     // a statue holds the pose it was caught in
-            if (_reaching) ApplyReach();
+            if (_twinReach) ApplyTwinReach();
+            else if (_reaching) ApplyReach();
+        }
+
+        /// <summary>
+        /// The two shoulders at REST, in the root's local frame, and how far an arm reaches from
+        /// one (upper arm plus forearm) - so something held in each hand (GeminiSplit) can pose
+        /// itself where the fists can actually get to. Rest, not live: the twin reach moves the far
+        /// shoulder, and posing off that would chase itself.
+        /// </summary>
+        public bool TryGetShoulders(out Vector2 front, out Vector2 back, out float reach)
+        {
+            front = back = Vector2.zero;
+            reach = 0f;
+            if (_armFront == null || _armBack == null || _elbowFront == null
+                || _armFront.parent == null || _armBack.parent == null) return false;
+            front = transform.InverseTransformPoint(_armFront.parent.TransformPoint(_armFrontRest));
+            back = transform.InverseTransformPoint(_armBack.parent.TransformPoint(_armBackRest));
+            float upper = Mathf.Abs(_elbowFront.localPosition.y);
+            reach = upper + Mathf.Abs(CarryGrip.y);
+            return true;
+        }
+
+        public void SetTwinHandTargets(Vector2? front, Vector2? back)
+        {
+            bool on = front.HasValue && back.HasValue;
+            if (on) { _twinFront = front.Value; _twinBack = back.Value; }
+            if (on == _twinReach) return;
+            _twinReach = on;
+            ApplyLayerOrder();   // both hands hold something in front of the body
+        }
+
+        /// <summary>
+        /// Both arms reach targets of their own - ApplyReach's two-bone solve run once per arm, each
+        /// from its own shoulder, the far shoulder relocating toward the grip's only as far as its
+        /// fist needs (the reach's rule). Nothing is opened or released: each hand holds its own.
+        /// </summary>
+        void ApplyTwinReach()
+        {
+            SolveArmTo(_armFront, _elbowFront, _armFrontRest, _twinFront, back: false);
+            SolveArmTo(_armBack, _elbowBack, _armBackRest, _twinBack, back: true);
+        }
+
+        void SolveArmTo(Transform arm, Transform elbow, Vector3 rest, Vector2 rootTarget, bool back)
+        {
+            if (arm == null || elbow == null || arm.parent == null) return;
+            Vector2 t = arm.parent.InverseTransformPoint(transform.TransformPoint(rootTarget));
+            float upper = Mathf.Abs(elbow.localPosition.y);
+            float fore = Mathf.Abs(CarryGrip.y);
+
+            Vector2 s = rest;
+            if (back) s = ShoulderToReach(rest, ArmBackGripRest, t, upper + fore - 1e-3f);
+            arm.localPosition = new Vector3(s.x, s.y, arm.localPosition.z);
+
+            var toTarget = t - s;
+            float d = Mathf.Clamp(toTarget.magnitude, Mathf.Abs(upper - fore) + 1e-4f, upper + fore - 1e-4f);
+            float cos = (upper * upper + d * d - fore * fore) / (2f * upper * d);
+            float bend = Mathf.Acos(Mathf.Clamp(cos, -1f, 1f)) * Mathf.Rad2Deg;
+            float upperDeg = Mathf.Atan2(toTarget.y, toTarget.x) * Mathf.Rad2Deg + (back ? -bend : bend);
+            var elbowAt = s + upper * new Vector2(Mathf.Cos(upperDeg * Mathf.Deg2Rad), Mathf.Sin(upperDeg * Mathf.Deg2Rad));
+            var toFist = t - elbowAt;
+            float foreDeg = Mathf.Atan2(toFist.y, toFist.x) * Mathf.Rad2Deg;
+            arm.localRotation = Quaternion.Euler(0f, 0f, upperDeg + 90f);
+            elbow.localRotation = Quaternion.Euler(0f, 0f, Mathf.DeltaAngle(upperDeg, foreDeg));
         }
 
         /// <summary>
@@ -5521,6 +5636,7 @@ namespace Convergence.Art.Gear
             FaceAim();
             ApplyWeightShift(wasFacingLeft);
             AnimateCape(dt, speed);
+            AnimateHipPieces(dt);
             AnimateScarf(dt, speed);
             AnimateVials(dt);
             AnimateLegCloth(dt, speed);
@@ -7043,6 +7159,63 @@ namespace Convergence.Art.Gear
         /// Two springs now - the cloth under the hinge chasing the run, the hem chasing THAT -
         /// and the bend blends between them down the cloth, pinned at the hinge.
         /// </summary>
+        /// <summary>What <paramref name="item"/> shows on <paramref name="layer"/> after a half
+        /// turn, or null. Drawn at the arena's density - the menu's detail art has none.</summary>
+        Sprite TurnedPicture(GearItem item, RigLayer layer)
+        {
+            if (_detailArt || item.TurnedLayers == null) return null;
+            foreach (var ls in item.TurnedLayers)
+                if (ls != null && ls.Layer == layer) return ls.Sprite;
+            return null;
+        }
+
+        /// <summary>
+        /// The hip relic, every frame. A PAIR worn one on each hip (the Gemini Saya) turns its
+        /// other side to the camera with the body: each half turn shows the other piece nearer.
+        /// Facing LEFT is the whole rig reflected (its root's scale), which on its own keeps the
+        /// same piece in front; turning AWAY mirrors the trinket (SyncTrinketSide). Either one
+        /// alone shows the other side, both together the first again.
+        ///
+        /// And a piece that HANGS (<see cref="GearItem.HipSwingPivot"/>) swings back from its hang
+        /// point as the body walks forward, on the cape's springs, and settles when it stops.
+        /// </summary>
+        void AnimateHipPieces(float dt)
+        {
+            bool turned = _facingLeft != CarryInBackArm;
+            SwapTurned(RigLayer.Trinket, _trinketNear, _trinketTurned, turned);
+            SwapTurned(RigLayer.TrinketBack, _trinketBackNear, _trinketBackTurned, turned);
+
+            if (_hipSwingPivot == Vector2.zero) return;
+            float forward = Body != null ? Body.linearVelocity.x : 0f;
+            if (_facingLeft) forward = -forward;   // into the frame the rig is drawn in
+            float reference = Player != null ? Mathf.Max(0.1f, Player.MoveSpeed) : CapeReferenceSpeed;
+            // Walking forward swings the tip BACK, toward -x in the drawn frame: clockwise.
+            float target = -Mathf.Clamp(forward / reference, -1f, 1f) * HipSwing;
+            _hipSwingVelocity += (target - _hipSwingAngle) * CapeStiffness * dt;
+            _hipSwingVelocity *= Mathf.Exp(-CapeDamping * dt);
+            _hipSwingAngle += _hipSwingVelocity * dt;
+
+            var turn = Quaternion.Euler(0f, 0f, _hipSwingAngle);
+            Vector3 hang = _hipSwingPivot;
+            SwingAbout(RigLayer.Trinket, _trinketRest, turn, hang);
+            SwingAbout(RigLayer.TrinketBack, _trinketBackRest, turn, hang);
+        }
+
+        void SwapTurned(RigLayer layer, Sprite near, Sprite turnedSprite, bool turned)
+        {
+            if (turnedSprite == null || !_layers.TryGetValue(layer, out var sr) || sr == null) return;
+            if (turned && sr.sprite == near) sr.sprite = turnedSprite;
+            else if (!turned && sr.sprite == turnedSprite) sr.sprite = near;
+        }
+
+        /// <summary>Turn a layer about its hang point, which stays where Apply put it.</summary>
+        void SwingAbout(RigLayer layer, Vector3 rest, Quaternion turn, Vector3 hang)
+        {
+            if (!_layers.TryGetValue(layer, out var sr) || sr == null || sr.sprite == null) return;
+            sr.transform.localRotation = turn;
+            sr.transform.localPosition = rest + hang - turn * hang;
+        }
+
         void AnimateCape(float dt, float speed)
         {
             if (!_hasCape || !_pivots.TryGetValue(RigLayer.Back, out var cape) || cape == null) return;

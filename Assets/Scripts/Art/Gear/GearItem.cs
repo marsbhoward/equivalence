@@ -113,11 +113,34 @@ namespace Convergence.Art.Gear
                  "it just swings; there is no scabbard on that character to draw from.")]
         public bool HasSheathAnimation;
 
+        [Tooltip("Weapon slot only. Solve et Coagula plays its split-and-sheathe sequence instead of " +
+                 "resolving as an ordinary swing - read from the DRAWN weapon, HasSheathAnimation's " +
+                 "rule. The Gemini Blade.")]
+        public bool HasGeminiSplit;
+
+        [Tooltip("HasGeminiSplit only. The blade's two halves, the near hip's and the far's, each on " +
+                 "the WHOLE sword's canvas and pivot with the other half's columns blank - placed on " +
+                 "one pose, the two are the sword.")]
+        public Sprite[] HalfBlades;
+
         [Tooltip("Relic slot only. Worn on the character's LEFT hip whichever way they face: the " +
                  "rig mirrors it with the carry, the way it mirrors the Wraithguard's drape, so it " +
                  "stays opposite the sword hand. The saya - the right hand crosses the body to put " +
                  "the blade in it, and facing left it would otherwise hang under that same hand.")]
         public bool WornOnLeftHip;
+
+        [Tooltip("Relic slot only. What each of this relic's layers shows after a HALF TURN - facing " +
+                 "left, or turned away (both together is the first picture again) - matched by " +
+                 "RigLayer. A mirror alone keeps the same piece in front; a pair worn one on each hip " +
+                 "(the Gemini Saya's sheaths) shows the other one nearer as the body turns. Empty " +
+                 "for everything else.")]
+        public LayerSprite[] TurnedLayers;
+
+        [Tooltip("Relic slot only. The point each worn hip layer HANGS from, in world units from the " +
+                 "sprite's centre (the sheath's mouth on the belt). Non-zero, the piece swings back " +
+                 "from it as the body walks forward, on the cape's springs. Zero for a piece that " +
+                 "does not hang.")]
+        public Vector2 HipSwingPivot;
 
         [Tooltip("Weapon slot only. The blade has ONE edge, authored on the sprite's LEFT (-x) side " +
                  "with the spine on the right. The rig turns it over per swing so the edge leads the " +
@@ -531,6 +554,11 @@ namespace Convergence.Art.Gear
         /// picture. Same grid, ppu and pivot as the held layer.
         /// </summary>
         public LayerSprite DisplayLayer;
+
+        [Tooltip("Weapon slot only. The item's minted IMAGE (EditorTools.NftArt) is the HELD picture, " +
+                 "not the display pose. The Gemini Blade: it hangs as two halves apart, but its image " +
+                 "is the joined sword (the user's call).")]
+        public bool ImageShowsHeld;
         /// <summary>The display pose at menu density - see <see cref="DisplayLayer"/>.</summary>
         public LayerSprite DisplayMenuLayer;
         /// <summary>The off-hand half's display pose - see <see cref="DisplayLayer"/>.</summary>

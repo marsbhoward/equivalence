@@ -425,9 +425,19 @@ namespace Convergence.Core
             /// <summary>
             /// Range against the character's own melee reach. Must clear Disc's own throw circle
             /// (RangeMul 0.70 x ThrowRangeMul 2.0 = 1.40x reach) by a real margin - the widest
-            /// circle in the game is this class's whole identity.
+            /// circle in the game is this class's whole identity. Raised from 2.4 (2026-10-12).
             /// </summary>
-            public const float RangeMul = 2.4f;
+            public const float RangeMul = 2.7f;
+
+            /// <summary>
+            /// PLANT TO FIRE (the user's call, 2026-10-12): the bow never locks the player, but a
+            /// shot drawn on the move hits for less. This is the damage of a shot whose WHOLE draw
+            /// was spent moving; in between it scales with the share of the draw spent moving
+            /// (PlayerController.DrawWatch), so a step at the end of the draw costs a little and
+            /// a planted draw costs nothing. Every bow shot - basics, finishers, Swarm's draw,
+            /// Prima Materia's gather. Movement after the release is free.
+            /// </summary>
+            public const float MovingDamage = 0.7f;
 
             /// <summary>
             /// Damage at point-blank against damage at the rim, the floor of a curve shaped like
@@ -2145,6 +2155,45 @@ namespace Convergence.Core
             /// <summary>World units each half slides along its own vertical - one up, one down -
             /// over <see cref="BisectSeconds"/>. Deliberately small: a shear, not an explosion.</summary>
             public const float BisectSlide = 0.18f;
+        }
+
+        /// <summary>
+        /// Solve et Coagula - the Gemini Blade's art (Combat.Moveset "solve_et_coagula", run by
+        /// PlayerController.SplitDrawStrike, drawn by Art.Gear.GeminiSplit). LIGHT. The blade
+        /// splits and each half goes home to a hip (the Gemini Saya) - the wind-up, mobile, held
+        /// sheathed while the timing bar fills; then both are cross-drawn in an X that carries the
+        /// player forward; then the halves are slammed together and come down as one sword.
+        /// </summary>
+        public static class SolveCoagula
+        {
+            /// <summary>The ice of the blade's guard, for the cuts and flashes.</summary>
+            public static readonly UnityEngine.Color Tint = new(0.81f, 0.92f, 0.99f, 1f);
+
+            /// <summary>The sword cracking down its seam and the halves pulled apart, one in each
+            /// hand - the beat that says it SPLITS (the user: it was hard to tell it ever did).</summary>
+            public const float PartSeconds = 0.16f;
+
+            /// <summary>The halves carried from the hands and slid home. Part + this is StrikeDelay;
+            /// the bar's shortfall is then held sheathed, Crosscut's rule.</summary>
+            public const float SheatheSeconds = 0.22f;
+
+            /// <summary>The cross-draw: out of both sheaths, flung wide, then slashed inward across
+            /// each other into the X - the lunge riding all of it.</summary>
+            public const float DrawSeconds = 0.28f;
+
+            /// <summary>How far the X throws the player, world units - THROUGH whatever is in the
+            /// way (no stop short of the target, the user's call: it should clear space), stopped
+            /// only by a wall or a chasm's edge. Longer than Impale's 1.4.</summary>
+            public const float LungeDistance = 2.2f;
+
+            /// <summary>The halves rising apart overhead from the X, then clapped together onto the
+            /// slam's first frame.</summary>
+            public const float RejoinSeconds = 0.26f;
+
+            /// <summary>Shares of the step's damage (3 basics, a Light art): the X, then the slam.
+            /// Both land at the bar's verdict.</summary>
+            public const float CutShare = 0.4f;
+            public const float SlamShare = 0.6f;
         }
 
         /// <summary>The three-swings-then-finisher chain.</summary>

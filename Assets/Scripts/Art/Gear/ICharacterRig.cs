@@ -315,6 +315,16 @@ namespace Convergence.Art.Gear
         void SetHandTarget(UnityEngine.Vector2? rootLocal, float offHand = 1f);
 
         /// <summary>
+        /// Send BOTH fists to points of their own, in the rig root's local frame - the near arm
+        /// (arm.front) to <paramref name="front"/>, the far arm to <paramref name="back"/> - or
+        /// null for both to hand the arms back. For two things held one in each hand that the rig
+        /// is not drawing: the Gemini Blade's halves through Solve et Coagula. Both arms are drawn
+        /// in front of the body while it is set, the disc pair's way. Called every frame the points
+        /// move. A rig with no joints to solve may ignore this.
+        /// </summary>
+        void SetTwinHandTargets(UnityEngine.Vector2? front, UnityEngine.Vector2? back);
+
+        /// <summary>
         /// Hold the weapon out at arm's length, 0 (not at all) to 1 (fully out) - the Sniper's
         /// idle flourish after a finisher, showing the cylinder turn (see CylinderSpin). The
         /// caller eases the weight; the rig only lays the pose over whatever else it is doing,

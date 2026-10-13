@@ -631,6 +631,14 @@ namespace Convergence.Player
         /// </summary>
         public bool SheatheDrawn;
 
+        /// <summary>
+        /// The Gemini Blade's two halves while it is the DRAWN weapon (GearItem.HalfBlades), else
+        /// null - what Solve et Coagula splits the sword into. Set where SheatheDrawn is, for the
+        /// same reason: the relic grants the art, the drawn blade buys the sequence.
+        /// </summary>
+        public Sprite[] GeminiHalves;
+        bool GeminiDrawn => GeminiHalves is { Length: >= 2 };
+
         /// <summary>The moveset id Phantom's signature carries. Matched rather than compared by
         /// reference, for the same reason ShadowSignatureId is.</summary>
         const string PhantomSignatureId = "phantom_reckoning";
@@ -2009,6 +2017,9 @@ namespace Convergence.Player
             if (step.ChargeSeconds > 0f) return step.ChargeSeconds;                // the release
             if (step.SheathDraw && SheatheDrawn)                                   // the blade home
                 return Core.Tuning.Katana.SheathSeconds;   // the bar's shortfall is held sheathed
+            if (step.SplitDraw && GeminiDrawn)                                     // both halves home
+                return Core.Tuning.SolveCoagula.PartSeconds
+                     + Core.Tuning.SolveCoagula.SheatheSeconds;   // held sheathed, Crosscut's rule
             if (step.LungeDistance > 0f) return Core.Tuning.Impale.LungeSeconds;   // the end of the lunge
             if (step.PommelFlurry) return Core.Tuning.Flurry.PommelAt;             // the pommel
             return 0f;   // an ordinary swing or a thrown blade strikes on dispatch
@@ -2022,7 +2033,9 @@ namespace Convergence.Player
         float StrikeTail(AttackStep step)
             => step.SheathDraw && SheatheDrawn
                 ? Core.Tuning.Katana.CutSeconds * 2f + Core.Tuning.Katana.DrawSeconds
-                : 0f;
+                : step.SplitDraw && GeminiDrawn
+                    ? Core.Tuning.SolveCoagula.DrawSeconds + Core.Tuning.SolveCoagula.RejoinSeconds
+                    : 0f;
 
         /// <summary>
         /// The parity factor for this finisher, from the chain actually being swung: the same
@@ -2236,7 +2249,7 @@ namespace Convergence.Player
             // Crosscut spends its wind-up SHEATHED, not holding the swing's first frame: the
             // blade goes home at once and waits in the saya for the bar (SheathDrawStrike).
             _sheathHold = 0f;
-            if (pad > 0f && step.SheathDraw && SheatheDrawn)
+            if (pad > 0f && ((step.SheathDraw && SheatheDrawn) || (step.SplitDraw && GeminiDrawn)))
             {
                 _sheathHold = pad;
                 pad = 0f;
@@ -2415,6 +2428,16 @@ namespace Convergence.Player
                 return;
             }
 
+            // Solve et Coagula: the Gemini Blade apart - home to both hips, a cross-drawn X with a
+            // lunge, the halves slammed back together. Gated on the DRAWN blade, Crosscut's rule.
+            if (step.SplitDraw && GeminiDrawn)
+            {
+                _cooldown = SplitDrawLength(swingWindow) + AttackMotions.CooldownFor(swingWindow);
+                StartCoroutine(SplitDrawStrike(step, isFinisher, swingWindow));
+                AdvanceCombo(isFinisher);
+                return;
+            }
+
             // Impale: the body lunges with the thrust, and the hit lands where the lunge ends.
             if (step.LungeDistance > 0f)
             {
@@ -2582,12 +2605,12 @@ namespace Convergence.Player
         /// through it), and never off the floor - a wall or a chasm's edge stops it, so an attack
         /// can't carry the player into a fall.
         /// </summary>
-        float LungeReach(Vector2 dir, float max)
+        float LungeReach(Vector2 dir, float max, bool stopAtTarget = true)
         {
             Vector2 from = transform.position;
 
             var target = Target;
-            if (target != null && !target.IsDead)
+            if (stopAtTarget && target != null && !target.IsDead)
             {
                 Vector2 to = (Vector2)target.transform.position - from;
                 if (Vector2.Dot(to.normalized, dir) > 0.5f)
@@ -2658,6 +2681,8 @@ namespace Convergence.Player
             // The Magnum Opus's gather: the armour's and the bow's light drains to black, swells in
             // the stone, flashes back through the armour and floods the bow (with its lightning).
             var glow = Art.Gear.MagnumOpusGlow.Begin(Rig);
+            var watch = new DrawWatch();
+            StartCoroutine(WatchDraw(watch, step.ChargeSeconds));   // the gather is its draw
             yield return WindUp(step.ChargeSeconds, step.Motion);
 
             _lockTimer = 60f;
@@ -2671,6 +2696,7 @@ namespace Convergence.Player
             dmg *= RollCritFor(true, out bool crit);
             dmg *= Mods.FinisherDamageMul * FinisherPowerMul * _strikeMul;
             if (DamageDealtMultiplier != null) dmg *= DamageDealtMultiplier();
+            dmg *= watch.DamageMul;   // plant to fire
             var element = Resource?.Element ?? ElementType.Fire;
 
             var target = Targeting != null ? Targeting.Target : null;
@@ -2826,20 +2852,22 @@ namespace Convergence.Player
         ///   home      the arrows fly back to their places and the bow is whole.
         ///
         /// Damage is rolled ONCE at the release and carried by every strike (the thrown blade's
-        /// rule). The player is free to move while the hive is out - only the draw locks - but
+        /// rule). The player is free to move throughout (the draw is plant-to-fire) but
         /// cannot attack until it is home.
         /// </summary>
         IEnumerator SwarmStrike(AttackStep step, float swingWindow)
         {
             float draw = AttackMotions.SwingSeconds(swingWindow);
             Rig?.PlayAttack(step.Motion, draw, false);
-            yield return new WaitForSeconds(draw);
+            var watch = new DrawWatch();
+            yield return WatchDraw(watch, draw);
             SettleStrike();   // the release is the strike
 
             float dmg = (BaseDamage + Mods.BonusDamage) * step.DamageMultiplier;
             dmg *= DamageRoll();
             dmg *= RollCritFor(true, out bool crit);
             dmg *= Mods.FinisherDamageMul * FinisherPowerMul * _strikeMul;
+            dmg *= watch.DamageMul;   // plant to fire
             if (DamageDealtMultiplier != null) dmg *= DamageDealtMultiplier();
             var element = Resource?.Element ?? ElementType.Fire;
             OnWeaponUsed?.Invoke();   // one release's wear
@@ -3658,6 +3686,146 @@ namespace Convergence.Player
             ResolveArc(step, isFinisher, advanceCombo: false);
         }
 
+        /// <summary>Total length of Solve et Coagula - sheathe, the bar's hold, the X, the rejoin and
+        /// the slam's swing - so the dispatch and the coroutine agree on one number.</summary>
+        float SplitDrawLength(float swingWindow)
+            => Core.Tuning.SolveCoagula.PartSeconds + Core.Tuning.SolveCoagula.SheatheSeconds + _sheathHold
+             + Core.Tuning.SolveCoagula.DrawSeconds + Core.Tuning.SolveCoagula.RejoinSeconds
+             + AttackMotions.SwingSeconds(swingWindow);
+
+        /// <summary>
+        /// Solve et Coagula, the Gemini Blade's art (Tuning.SolveCoagula). Four beats:
+        ///
+        ///   1. SOLVE - the sword comes apart in the hand and each half goes home to its hip
+        ///      (Art.Gear.GeminiSplit; the Gemini Saya wears one sheath at each), the rig's weapon
+        ///      hidden. Then it WAITS there while the timing bar fills (<see cref="_sheathHold"/>),
+        ///      mobile and aiming - Crosscut's hold. The bar closes as the wait ends.
+        ///   2. THE X - both halves cross-drawn at once into an X in front of the body, the lunge
+        ///      riding it (Impale's: short of a locked target, never off the floor). The X's share
+        ///      lands where the lunge ends.
+        ///   3. COAGULA - the halves rise and close onto the rig's own sword, held at the slam's
+        ///      first frame (HoldSwingStart), so the two become the one exactly where it is drawn.
+        ///   4. THE SLAM - the whole sword's Chop, the rest of the damage and the sequence's one
+        ///      hit-stop.
+        ///
+        /// From the bar's close it is committed (<c>_lockTimer</c>), so the X and the slam go where
+        /// the player aimed as it closed. Scaled time throughout.
+        /// </summary>
+        IEnumerator SplitDrawStrike(AttackStep step, bool isFinisher, float swingWindow)
+        {
+            var tint = Core.Tuning.SolveCoagula.Tint;
+
+            // ---- beat 1: solve ----
+            Vector2 wSize = Vector2.one;
+            Rig?.TryGetWeaponVisual(out _, out _, out wSize);
+            Rig?.SetWeaponVisible(false);
+            var split = Rig == null ? null : Art.Gear.GeminiSplit.Attach(
+                Rig, GeminiHalves, wSize, Art.Gear.DemoGear.GeminiSayaHang, Art.Gear.DemoGear.GeminiSayaAxis);
+
+            // the crack down the seam, then the halves pulled apart
+            if (Rig?.WeaponAnchor != null)
+                Spr.Flash(Rig.WeaponAnchor.position, 0.30f, Color.white, 0.14f, false);
+            float part = Core.Tuning.SolveCoagula.PartSeconds;
+            for (float t = 0f; t < part; t += Time.deltaTime)
+            {
+                split?.SetPhase(Art.Gear.GeminiSplit.Phase.Part, t / part);
+                if (split != null) Rig?.SetTwinHandTargets(split.NearGrip, split.FarGrip);
+                yield return null;
+            }
+
+            float sheathe = Core.Tuning.SolveCoagula.SheatheSeconds;
+            for (float t = 0f; t < sheathe; t += Time.deltaTime)
+            {
+                split?.SetPhase(Art.Gear.GeminiSplit.Phase.Sheathe, t / sheathe);
+                if (split != null) Rig?.SetTwinHandTargets(split.NearGrip, split.FarGrip);
+                yield return null;
+            }
+            split?.SetPhase(Art.Gear.GeminiSplit.Phase.Home, 0f);
+
+            // both hilts meeting their mouths
+            if (Rig?.TrinketRenderer != null)
+                Spr.Flash(Rig.TrinketRenderer.transform.position, 0.22f, tint, 0.12f, false);
+
+            // ---- the bar: held sheathed until it closes, then the press is decided ----
+            for (float t = 0f; t < _sheathHold; t += Time.deltaTime)
+            {
+                if (split != null) Rig?.SetTwinHandTargets(split.NearGrip, split.FarGrip);
+                yield return null;
+            }
+            SettleStrike();
+            _lockTimer = (Core.Tuning.SolveCoagula.DrawSeconds + Core.Tuning.SolveCoagula.RejoinSeconds
+                          + AttackMotions.SwingSeconds(swingWindow)) * Mods.LockMul;
+
+            // ---- beat 2: the X, and the lunge it launches ----
+            //
+            // The X cuts as the blades leave the sheaths and THROWS the player through: the whole
+            // lunge, past whatever is in the way (no stop short of the target - the point is to
+            // come out the far side), stopped only by a wall or a chasm's edge. So the cut reaches
+            // the whole path at once, from where it starts.
+            float draw = Core.Tuning.SolveCoagula.DrawSeconds;
+            var dir = Facing.sqrMagnitude > 0.0001f ? Facing.normalized : Vector2.right;
+            float distance = LungeReach(dir, Core.Tuning.SolveCoagula.LungeDistance, stopAtTarget: false);
+
+            var cut = step.Clone();
+            cut.DamageMultiplier = step.DamageMultiplier * Core.Tuning.SolveCoagula.CutShare;
+            cut.RangeBonus += distance;
+            cut.SplitDraw = false;
+            cut.SuppressHitstop = true;   // the slam carries the sequence's freeze
+            ResolveArc(cut, isFinisher, advanceCombo: false);
+
+            var at = (Vector2)transform.position + dir * (distance * 0.5f + CurrentRange * 0.3f);
+            float span = distance * 0.5f + CurrentRange * 0.6f;
+            Spr.Slice(at, new Vector2(dir.x - dir.y, dir.y + dir.x).normalized, span, tint, 0.18f);
+            Spr.Slice(at, new Vector2(dir.x + dir.y, dir.y - dir.x).normalized, span, tint, 0.18f);
+            Spr.Flash(at, 0.34f, tint, 0.14f, false);
+
+            if (distance > 0.05f) Dash(dir, distance / draw, draw);
+            for (float t = 0f; t < draw; t += Time.deltaTime)
+            {
+                split?.SetPhase(Art.Gear.GeminiSplit.Phase.Draw, t / draw);
+                if (split != null) Rig?.SetTwinHandTargets(split.NearGrip, split.FarGrip);
+                yield return null;
+            }
+            split?.SetPhase(Art.Gear.GeminiSplit.Phase.Draw, 1f);
+
+            // Carried past the locked target: the slam turns back onto it.
+            var locked = Target;
+            if (locked != null && !locked.IsDead)
+            {
+                var back = (Vector2)locked.transform.position - (Vector2)transform.position;
+                if (Vector2.Dot(back, dir) < 0f && back.sqrMagnitude > 0.0001f) Facing = back.normalized;
+            }
+
+            // ---- beat 3: coagula - the halves close onto the sword at the slam's first frame ----
+            float rejoin = Core.Tuning.SolveCoagula.RejoinSeconds;
+            Rig?.HoldSwingStart(step.Motion, false, rejoin);
+            for (float t = 0f; t < rejoin; t += Time.deltaTime)
+            {
+                split?.SetJoin(Rig?.WeaponAnchor);
+                split?.SetPhase(Art.Gear.GeminiSplit.Phase.Rejoin, t / rejoin);
+                if (split != null) Rig?.SetTwinHandTargets(split.NearGrip, split.FarGrip);
+                yield return null;
+            }
+            Rig?.SetTwinHandTargets(null, null);
+            // the clap: the two halves meeting as one
+            if (Rig?.WeaponAnchor != null)
+                Spr.Flash(Rig.WeaponAnchor.position, 0.36f, Color.white, 0.14f, false);
+            split?.Release();
+            Rig?.SetWeaponVisible(true);
+
+            // ---- beat 4: the slam ----
+            _visual?.PlayAttack(step.Motion, swingWindow);
+            Rig?.SetSwingHop(0f);
+            Rig?.PlayAttack(step.Motion, swingWindow, alt: false);
+            Combat.WeaponTrail.Play(Rig, AttackMotions.SwingSeconds(swingWindow));
+            SmearSwing(swingWindow, isFinisher: true);
+            Spr.Flash((Vector2)transform.position + Facing * (CurrentRange * 0.7f), CurrentRange * 0.3f, tint, 0.18f);
+
+            var slam = step.Clone();
+            slam.DamageMultiplier = step.DamageMultiplier * Core.Tuning.SolveCoagula.SlamShare;
+            ResolveArc(slam, isFinisher, advanceCombo: false);
+        }
+
         /// <summary>
         /// Drive the sheathing blade from one progress value to another over a real span of
         /// SCALED time, so a screen opening mid-sequence pauses the slide with everything else.
@@ -4047,6 +4215,30 @@ namespace Convergence.Player
         }
 
         /// <summary>
+        /// PLANT TO FIRE: how much of a bow's draw the player spent moving. The bow never locks
+        /// the player - a draw on the move just hits for less (Tuning.Bow.MovingDamage, scaled by
+        /// the share of the draw spent moving). A class, not a struct: a coroutine fills it.
+        /// </summary>
+        sealed class DrawWatch
+        {
+            public float Moving, Total;
+            public float DamageMul => Total <= 0f ? 1f
+                : Mathf.Lerp(1f, Tuning.Bow.MovingDamage, Mathf.Clamp01(Moving / Total));
+        }
+
+        /// <summary>Waits <paramref name="seconds"/> (scaled time), counting the moving part.</summary>
+        IEnumerator WatchDraw(DrawWatch watch, float seconds)
+        {
+            while (watch.Total < seconds)
+            {
+                yield return null;
+                float dt = Mathf.Min(Time.deltaTime, seconds - watch.Total);
+                watch.Total += dt;
+                if (IsMoving) watch.Moving += dt;
+            }
+        }
+
+        /// <summary>
         /// Waits out the whole draw before the arrow actually leaves. It used to spawn on the
         /// same frame as the button press, so the shot was already in flight while the character
         /// was still visibly reaching for a vial - measured directly by checking for the arrow
@@ -4059,7 +4251,8 @@ namespace Convergence.Player
         /// </summary>
         IEnumerator ReleaseArrow(AttackStep step, bool isFinisher, float delaySeconds)
         {
-            yield return new WaitForSeconds(delaySeconds);
+            var watch = new DrawWatch();
+            yield return WatchDraw(watch, delaySeconds);
 
             // The release is the finisher's strike, whether or not anything is left to shoot.
             if (isFinisher) SettleStrike();
@@ -4079,6 +4272,7 @@ namespace Convergence.Player
             dmg *= DamageRoll();
             dmg *= RollCritFor(isFinisher, out bool crit);
             if (isFinisher) dmg *= Mods.FinisherDamageMul * FinisherPowerMul * _strikeMul;
+            dmg *= watch.DamageMul;   // plant to fire
 
             var arrow = ThrownArrow.Fire(gameObject, target, Facing, dmg,
                              Resource?.Element ?? ElementType.Fire,

@@ -337,6 +337,14 @@ namespace Convergence.Art.Gear
         /// in enum order - the helpers above insert it rather than every table restating it.
         /// </summary>
         NeckOver,
+
+        /// <summary>
+        /// A relic piece worn on the FAR hip - behind the whole body, over the cape - as opposed
+        /// to <see cref="Trinket"/> on the near one. The Gemini Saya's second sheath: one at each
+        /// hip, the far one mostly hidden by the body. APPENDED for NeckOver's reason; every table
+        /// inserts it (PrimitiveCharacterRig.TrinketBehindBody).
+        /// </summary>
+        TrinketBack,
     }
 
     /// <summary>

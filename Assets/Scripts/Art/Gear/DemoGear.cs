@@ -1381,6 +1381,10 @@ namespace Convergence.Art.Gear
             // See DemoGear.TriaPrima.cs.
             AddTriaPrima(items);
 
+            // ---- the Gemini Blade: two mirrored single-edged blades, spine to spine, an ice guard
+            // and a black cradle. See DemoGear.Gemini.cs.
+            AddGemini(items);
+
             // ---- menu art for everything that has none ----
             //
             // Six weapons carry HAND-DRAWN menu art, and those are left exactly as they are: a

@@ -512,6 +512,7 @@ namespace Convergence.Core
                 // is drawn now, no glow object to hide, just the flag flipping either way.
                 _player.PhantomFlicker = shown != null && shown.HasPhantomFlicker;
                 _player.SheatheDrawn   = shown != null && shown.HasSheathAnimation;
+                _player.GeminiHalves   = shown != null && shown.HasGeminiSplit ? shown.HalfBlades : null;
                 if (_player.Split != null) _player.Split.Blades = shown?.SplitBlades;
                 _player.CombinedFrames = shown?.CombinedFrames;          // Quintessence's overhead picture
                 if (shown != null) _player.CombinedFrameSeconds = shown.IdleFrameSeconds;
@@ -2527,6 +2528,7 @@ namespace Convergence.Core
                 else spinAnchor.GetComponentInChildren<Art.Gear.CylinderSpin>(true)?.SetShown(false);
             }
             pc.SheatheDrawn   = shown != null && shown.HasSheathAnimation;
+            pc.GeminiHalves   = shown != null && shown.HasGeminiSplit ? shown.HalfBlades : null;
 
             // Phantom's haze animation. SetWeaponSprite first (establishes frame 0 immediately,
             // and calls EnsureLayers internally), WeaponAnchor read after - the same ordering

@@ -360,6 +360,16 @@ namespace Convergence.Combat
         public bool SheathDraw;
 
         /// <summary>
+        /// Solve et Coagula, the Gemini Blade's art: the blade splits and each half goes home to a
+        /// hip, held sheathed through the timing bar; then a cross-drawn X that carries the player
+        /// forward, and the halves slammed back together into one sword's chop. Run by
+        /// <c>PlayerController.SplitDrawStrike</c> while the Gemini Blade is DRAWN (the relic alone,
+        /// beside another sword, swings it - Crosscut's rule). DamageMultiplier is the WHOLE art,
+        /// split by Tuning.SolveCoagula's shares.
+        /// </summary>
+        public bool SplitDraw;
+
+        /// <summary>
         /// This step's hits must not trigger <see cref="Combat.Hitstop"/>. Set on the katana
         /// sequence's two pre-cuts so the sequence produces one freeze - off the draw-cut, which
         /// carries the sequence's own weight - rather than three separate stutters roughly a
@@ -616,7 +626,7 @@ namespace Convergence.Combat
         {
             // These start from something other than the rig's own blend: a leap leaves the screen,
             // and the katana's draw and Separatio's figures run sequences of their own.
-            if (finisher.LeapSeconds > 0f || finisher.SheathDraw || finisher.SplitsThreeWays) return;
+            if (finisher.LeapSeconds > 0f || finisher.SheathDraw || finisher.SplitDraw || finisher.SplitsThreeWays) return;
             // The bow's and the discs' gathers hold their throw's own first frame, not a charge's
             // raised blade.
             if (finisher.Boomerang || finisher.Pincer) return;
@@ -695,7 +705,7 @@ namespace Convergence.Combat
                 var lead = Played(basics - 1, basics);
                 foreach (var f in new[] { m.Finisher, m.Finisher.ReleaseStep })
                 {
-                    if (f == null || f.LeapSeconds > 0f || f.SheathDraw || f.SplitsThreeWays || f.Pincer) continue;
+                    if (f == null || f.LeapSeconds > 0f || f.SheathDraw || f.SplitDraw || f.SplitsThreeWays || f.Pincer) continue;
                     Pair(lead, (f, f.AltVariant));
                     if (!f.ThrowsWeapon && !f.OrbitsWeapon && f.DiscThrows == 0)
                         Pair((f, f.AltVariant), Played(0, basics));
@@ -1271,6 +1281,31 @@ namespace Convergence.Combat
                     IntervalMultiplier = 2.5f, Weight = FinisherWeight.Heavy,
                     Motion = AttackMotion.Chop, SheathDraw = true,
                     ArcDot = 0.8f, StrikeWidth = 0.7f, Knockback = 10f, RangeBonus = 0.4f,
+                },
+            },
+            new Moveset
+            {
+                FinisherDescription = "Splits the blade and sends each half home to a sheath at either hip, cross-draws both in an X that carries you forward, then slams the halves together and brings them down as one sword.",
+                Id = "solve_et_coagula", FinisherGlyph = Glyph.Cross, DisplayName = "Solve et Coagula",
+
+                // The Gemini Blade's, and only its - a Black Diamond ceiling privilege, the same
+                // reasoning as Crosscut and Separatio. The sequence needs the Gemini Blade DRAWN;
+                // the Gemini Saya alone grants the art and it swings.
+                SignatureOnly = true,
+                Flavor = "Dissolve, then bind.",
+                Basics = new[]
+                {
+                    Basic("Part",   0.95f, 0.88f, 0.15f, 3.0f, AttackMotion.Chop),
+                    Basic("Mirror", 0.95f, 0.88f, 0.15f, 3.0f, AttackMotion.Rise),
+                },
+                Finisher = new AttackStep
+                {
+                    // LIGHT: three basics in all, the X's share and the slam's (Tuning.SolveCoagula).
+                    // The slam is this step's own swing - the rejoined sword's Chop.
+                    Name = "Solve et Coagula", DamageMultiplier = 3f,
+                    IntervalMultiplier = 1.0f, Weight = FinisherWeight.Light,
+                    Motion = AttackMotion.Chop, SplitDraw = true,
+                    ArcDot = 0.5f, StrikeWidth = 0.9f, Knockback = 2f, RangeBonus = 0.3f,
                 },
             },
             new Moveset

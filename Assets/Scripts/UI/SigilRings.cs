@@ -17,7 +17,9 @@ namespace Convergence.UI
     /// </summary>
     public static class SigilRings
     {
-        public const float U = ElementSeal.UnitsPerTexel;
+        /// <summary>Canvas units a texel - the seal's density before the HUD went to twice the
+        /// texels; these rings were drawn and tuned at it.</summary>
+        public const float U = 4f;
         public const int R = 47, D = 53, Tex = 2 * (D + R) + 8;
 
         /// <summary>The whole drawing's side, in canvas units.</summary>

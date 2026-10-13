@@ -121,6 +121,16 @@ namespace Convergence.EditorTools
             return dyed;
         }
 
+        /// <summary>The weapon as HELD, at menu density - for an item whose image is not its display
+        /// pose (GearItem.ImageShowsHeld): the tallest of its own menu layers.</summary>
+        static LayerSprite HeldPicture(GearItem item)
+        {
+            LayerSprite pick = null;
+            foreach (var l in item.LayersFor(menu: true))
+                if (l?.Sprite != null && (pick == null || l.Size.y > pick.Size.y)) pick = l;
+            return pick;
+        }
+
         static List<Piece> Collect(GearItem item, Transform root, out string why)
         {
             why = null;
@@ -138,7 +148,8 @@ namespace Convergence.EditorTools
 
             if (item.Slot == GearSlot.Weapon)
             {
-                var main = GearDisplay.Represent(item, menu: true, attuned: false);
+                var main = item.ImageShowsHeld ? HeldPicture(item)
+                                               : GearDisplay.Represent(item, menu: true, attuned: false);
                 if (main?.Sprite == null) { why = "no weapon picture"; return null; }
                 if (!AtOwnSize(main, out why)) return null;
                 pieces.Add(new Piece { Sprite = main.Sprite, At = Vector2.zero, Order = 1, Tint = main.Tint });

@@ -37,7 +37,7 @@ namespace Convergence.UI
     ///               comparing is a free look, the swap is the commitment).
     ///
     /// Curator's rerolls (<c>RunModifiers.ExtraRewardOptions</c>) replace all four rings.
-    /// The rings are drawn texel by texel at the seal's density (<see cref="ElementSeal.UnitsPerTexel"/>);
+    /// The rings are drawn texel by texel at <see cref="SigilRings.U"/> canvas units a texel;
     /// every layout number is the mockup's at 1.5x (1280x720 to the 1920x1080 canvas).
     /// </summary>
     public class FloorRewardScreen : MonoBehaviour

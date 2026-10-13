@@ -10,7 +10,8 @@ namespace Convergence.UI
 {
     /// <summary>
     /// The weapon art rotation as a geared bronze WHEEL meshed to the element seal's left side,
-    /// mirroring the health crescents on its right. It replaced the top-right swing panel, the
+    /// mirroring the health crescents on its right. Its teeth run only round the half that meets
+    /// the seal; the outer half of that ring carries the perfect streak instead. It replaced the top-right swing panel, the
     /// "next up" strip, the bottom-centre chain bar and the timing meter's streak pips.
     ///
     ///   - One socket per wheel slot. The art that fires next sits at the TOP under a fixed
@@ -24,12 +25,13 @@ namespace Convergence.UI
     ///   - A Black Diamond signature slot is framed in gilt with a diamond at its corner; Shadow's
     ///     Echo, a basic in the art slot, shows no weight.
     ///   - Fog II clouds the dial over: no sockets, no lamps, no name.
-    ///   - THE PERFECT STREAK runs round the wheel's foot as pips, in two groups of five up to
-    ///     <see cref="T.StreakCap"/> - mint while building, the perfect green pulsing at the cap. A
-    ///     new pip pops; a broken streak flashes red and drains. The crit it is worth is written
-    ///     under them.
+    ///   - THE PERFECT STREAK runs up the wheel's outer (left) half as pips, in the ring the
+    ///     teeth use on the other side - bottom to top, two groups of five up to
+    ///     <see cref="T.StreakCap"/>, the crit it is worth beside the gap between them - mint while building, the perfect green pulsing at the cap. A
+    ///     new pip pops; a broken streak flashes red and drains.
     ///
-    /// Drawn texel by texel like the seal (<see cref="ElementSeal"/>), at the same density; the
+    /// Drawn texel by texel like the seal (<see cref="ElementSeal"/>), at the same density and
+    /// with the same one-texel lines; the
     /// glyphs are Images laid over their sockets so they stay upright as the wheel turns. Reads
     /// the player each frame, so nothing pushes into it.
     ///
@@ -38,15 +40,18 @@ namespace Convergence.UI
     /// </summary>
     public class RotationWheel : MonoBehaviour
     {
-        public const int Size = 50;
+        public const int Size = 100;
         public const float UnitsPerTexel = ElementSeal.UnitsPerTexel;
         public const float Centre = Size * 0.5f;
 
         /// <summary>The wheel's outermost reach - its teeth - from the centre, in texels.</summary>
-        public const float OuterR = 19.5f;
+        public const float OuterR = 39f;
 
-        const float BodyR = 17f, OrbitR = 11.5f, HubR = 5.5f, PipR = 21.5f;
-        const int ActiveSocket = 10, OtherSocket = 8;
+        const float BodyR = 34f, OrbitR = 23f, HubR = 11f;
+        const int ActiveSocket = 20, OtherSocket = 16;
+        // The streak's pips: centred in the teeth's ring, clock degrees up the outer half, the
+        // second group of five a gap further on.
+        const float PipR = 37f, PipFrom = 195f, PipTo = 340f, PipGroupGap = 10f;
         const float TurnSeconds = 0.32f;
         const float PopSeconds = 0.18f, BrokenSeconds = 0.6f;
         const string EchoId = "shadow_echo";
@@ -113,14 +118,15 @@ namespace Convergence.UI
             w._image.texture = w._texture;
 
             var mid = new Vector2(0.5f, 0.5f);
-            float top = (OuterR + 4f) * UnitsPerTexel;
+            float top = (OuterR + 8f) * UnitsPerTexel;
             var nameRt = UiKit.Rect(rt, "name", mid, mid, new Vector2(-100, top), new Vector2(100, top + 28));
             w._name = UiKit.Label(nameRt, "", 20, NameRest, TextAnchor.MiddleCenter);
             Shadowed(w._name);
 
-            float foot = -(PipR + 2f) * UnitsPerTexel;
-            var streakRt = UiKit.Rect(rt, "streak", mid, mid, new Vector2(-100, foot - 24), new Vector2(100, foot));
-            w._streak = UiKit.Label(streakRt, "", 15, T.PipLit, TextAnchor.MiddleCenter);
+            // Beside the pips, level with the gap between their two groups.
+            float side = -(OuterR + 4f) * UnitsPerTexel;
+            var streakRt = UiKit.Rect(rt, "streak", mid, mid, new Vector2(side - 160, -12), new Vector2(side, 12));
+            w._streak = UiKit.Label(streakRt, "", 15, T.PipLit, TextAnchor.MiddleRight);
             Shadowed(w._streak);
 
             return w;
@@ -243,10 +249,10 @@ namespace Convergence.UI
                 UiKit.SetSprite(img, Combat.Glyphs.Get(m.FinisherGlyph));
                 float a = SlotAngle(j, step, turn) * Mathf.Deg2Rad;
                 var rt = (RectTransform)img.transform;
-                float size = (active ? ActiveSocket - 4 : OtherSocket - 3) * UnitsPerTexel;
-                // A texel up from the socket's middle, leaving its bottom row to the weight notches.
+                float size = (active ? ActiveSocket - 8 : OtherSocket - 6) * UnitsPerTexel;
+                // Two texels up from the socket's middle, leaving its bottom rows to the weight notches.
                 rt.anchoredPosition = new Vector2(Mathf.Sin(a), Mathf.Cos(a)) * OrbitR * UnitsPerTexel
-                                    + new Vector2(0f, UnitsPerTexel);
+                                    + new Vector2(0f, 2f * UnitsPerTexel);
                 rt.sizeDelta = new Vector2(size, size);
                 UiKit.SetColor(img, !active ? GlyphRest
                     : banked ? GlyphBanked
@@ -277,7 +283,9 @@ namespace Convergence.UI
             if (_px == null || _px.Length != Size * Size) _px = new Color32[Size * Size];
             float pulse = 0.5f + 0.5f * Mathf.Sin(now * 6f);
 
-            // The body and its teeth. The teeth turn with the sockets - it is one wheel.
+            // The body and its teeth. The teeth turn with the sockets - it is one wheel - and only
+            // the half facing the seal has them: a tooth is drawn whole while its middle is on
+            // that side, so one crossing the top or bottom pops rather than being cut.
             for (int y = 0; y < Size; y++)
             for (int x = 0; x < Size; x++)
             {
@@ -289,10 +297,10 @@ namespace Convergence.UI
                 {
                     if (d >= BodyR - 1f) c = dy > 0f ? BronzeLt : BronzeMd;
                     else if (d >= BodyR - 2f) c = BronzeDk;
-                    else if (fog) c = ((x * 7 + y * 3) % 9 < 4) ? CloudLt : Cloud;
+                    else if (fog) c = (((x >> 1) * 7 + (y >> 1) * 3) % 9 < 4) ? CloudLt : Cloud;
                     else c = Face;
                 }
-                else if (d < OuterR && Mathf.Repeat(a - turn, 20f) < 7f)
+                else if (d < OuterR && Mathf.Repeat(a - turn, 20f) < 7f && ToothFacesSeal(a, turn))
                     c = d >= OuterR - 0.8f ? BronzeSh : BronzeDk;
                 _px[y * Size + x] = c;
             }
@@ -312,6 +320,14 @@ namespace Convergence.UI
 
             _texture.SetPixels32(_px);
             _texture.Apply(false);
+        }
+
+        /// <summary>Whether the tooth at clock angle <paramref name="a"/> has its middle on the
+        /// seal's (right) side.</summary>
+        static bool ToothFacesSeal(float a, float turn)
+        {
+            float middle = Mathf.Floor((a - turn) / 20f) * 20f + turn + 3.5f;
+            return Mathf.Repeat(middle, 360f) < 180f;
         }
 
         void DrawSocket(int j, Moveset m, bool signature, float angle, bool banked, float pulse)
@@ -341,18 +357,18 @@ namespace Convergence.UI
                 }
             if (signature)
             {
-                // A diamond at the top-right corner.
-                int cx = x0 + size - 1, cy = y0 + size - 1;
-                Put(cx, cy + 1, Gilt); Put(cx - 1, cy, Gilt); Put(cx + 1, cy, Gilt); Put(cx, cy - 1, Gilt);
-                Put(cx, cy, BronzeHi);
+                // A diamond at the top-right corner, of two-texel blocks.
+                int cx = x0 + size - 2, cy = y0 + size - 2;
+                Block(cx, cy + 2, Gilt); Block(cx - 2, cy, Gilt); Block(cx + 2, cy, Gilt); Block(cx, cy - 2, Gilt);
+                Block(cx, cy, BronzeHi);
             }
 
             int weight = WeightOf(m);
             if (weight == 0) return;
             var ink = !active ? (Color32)GlyphRest : banked ? (Color32)GlyphBanked : (Color32)GlyphActive;
-            int width = weight * 2 - 1;
+            int width = (weight * 2 - 1) * 2;
             int nx = x0 + (size - width) / 2;
-            for (int i = 0; i < weight; i++) Put(nx + i * 2, y0 + 1, ink);
+            for (int i = 0; i < weight; i++) Block(nx + i * 4, y0 + 1, ink);
         }
 
         void DrawHub(PlayerController p)
@@ -368,30 +384,35 @@ namespace Convergence.UI
             int lamps = Mathf.Max(1, p.BasicsPerChain);
             int lit = Mathf.Min(p.ComboIndex, lamps);
             if (p.FinisherNext) lit = lamps;
-            int width = lamps * 2 + (lamps - 1);
-            int x0 = Mathf.FloorToInt(Centre) - width / 2, y0 = Mathf.FloorToInt(Centre) - 1;
+            int width = (lamps * 3 - 1) * 2;
+            int x0 = Mathf.FloorToInt(Centre) - width / 2, y0 = Mathf.FloorToInt(Centre) - 2;
             for (int i = 0; i < lamps; i++)
-            for (int y = 0; y < 2; y++)
-            for (int x = 0; x < 2; x++)
-                Put(x0 + i * 3 + x, y0 + y, i < lit ? LampOn : LampOff);
+            for (int y = 0; y < 4; y++)
+            for (int x = 0; x < 4; x++)
+                Put(x0 + i * 6 + x, y0 + y, i < lit ? LampOn : LampOff);
         }
 
-        /// <summary>The fixed pointer over the top socket: it does not turn with the wheel.</summary>
+        /// <summary>The fixed pointer over the top socket: it does not turn with the wheel. Steps
+        /// of two texels, outlined in one.</summary>
         void DrawPointer()
         {
             int cx = Mathf.FloorToInt(Centre);
-            int top = Mathf.FloorToInt(Centre + OuterR + 3f);
+            int top = Mathf.FloorToInt(Centre + OuterR + 5f);    // the bottom row of the top step
             for (int r = 0; r < 4; r++)
             {
-                int half = 3 - r;
-                for (int x = -half - 1; x <= half + 1; x++) Put(cx + x, top - r, BronzeSh);
-                for (int x = -half; x <= half; x++) Put(cx + x, top - r, r == 0 ? BronzeHi : BronzeLt);
+                int x0 = cx - (3 - r) * 2, x1 = cx + (4 - r) * 2;   // the step's lit span, [x0, x1)
+                for (int y = 0; y < 2; y++)
+                {
+                    int row = top - r * 2 + y;
+                    Put(x0 - 1, row, BronzeSh); Put(x1, row, BronzeSh);
+                    for (int x = x0; x < x1; x++) Put(x, row, r == 0 ? BronzeHi : BronzeLt);
+                }
             }
-            Put(cx, top - 4, BronzeSh);
+            Block(cx, top - 8, BronzeSh);
         }
 
-        /// <summary>The perfect streak round the wheel's foot: two groups of five, clockwise from
-        /// the lower right.</summary>
+        /// <summary>The perfect streak up the wheel's outer half, in the ring the teeth use on the
+        /// seal's side: two groups of five, clockwise from the bottom.</summary>
         void DrawStreak(int streak, float now)
         {
             int cap = T.StreakCap;
@@ -400,12 +421,14 @@ namespace Convergence.UI
             int lit = Mathf.Min(streak, cap);
             float capPulse = 0.5f + 0.5f * Mathf.Sin(now * 5f);
 
+            int group = Mathf.Max(1, cap / 2);
+            float step = cap > 1 ? (PipTo - PipFrom - PipGroupGap) / (cap - 1) : 0f;
             for (int i = 0; i < cap; i++)
             {
-                float deg = 125f + i * 10f + (i >= 5 ? 10f : 0f);
+                float deg = PipFrom + i * step + (i >= group ? PipGroupGap : 0f);
                 float a = deg * Mathf.Deg2Rad;
-                int x0 = Mathf.RoundToInt(Centre + Mathf.Sin(a) * PipR - 1f);
-                int y0 = Mathf.RoundToInt(Centre + Mathf.Cos(a) * PipR - 1f);
+                int x0 = Mathf.RoundToInt(Centre + Mathf.Sin(a) * PipR - 2f);
+                int y0 = Mathf.RoundToInt(Centre + Mathf.Cos(a) * PipR - 2f);
 
                 Color c;
                 if (broken > 0f && i < Mathf.CeilToInt(Mathf.Min(_brokenFrom, cap) * broken)) c = T.PipBroken;
@@ -417,12 +440,13 @@ namespace Convergence.UI
                 else
                 {
                     // An empty slot is a faint dot with no outline, so lighting changes its shape.
-                    Blend(x0, y0, T.PipEmpty);
+                    for (int y = 1; y < 3; y++)
+                    for (int x = 1; x < 3; x++) Blend(x0 + x, y0 + y, T.PipEmpty);
                     continue;
                 }
-                for (int y = -1; y <= 2; y++)
-                for (int x = -1; x <= 2; x++)
-                    Put(x0 + x, y0 + y, x < 0 || y < 0 || x > 1 || y > 1 ? Outline : (Color32)c);
+                for (int y = -1; y <= 4; y++)
+                for (int x = -1; x <= 4; x++)
+                    Put(x0 + x, y0 + y, x < 0 || y < 0 || x > 3 || y > 3 ? Outline : (Color32)c);
             }
         }
 
@@ -432,6 +456,12 @@ namespace Convergence.UI
         {
             if (x < 0 || y < 0 || x >= Size || y >= Size) return;
             _px[y * Size + x] = c;
+        }
+
+        /// <summary>A two-texel square: one texel of the wheel as it was first drawn.</summary>
+        void Block(int x, int y, Color32 c)
+        {
+            Put(x, y, c); Put(x + 1, y, c); Put(x, y + 1, c); Put(x + 1, y + 1, c);
         }
 
         void Blend(int x, int y, Color32 c)

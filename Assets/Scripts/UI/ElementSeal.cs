@@ -36,8 +36,11 @@ namespace Convergence.UI
     /// above that (<see cref="ElementalResource.SealTag"/>), and the ability key at its foot.
     ///
     /// Drawn TEXEL BY TEXEL into one point-filtered texture, as the deal screen's scales are
-    /// (<see cref="ExchangeScale"/>), at <see cref="UnitsPerTexel"/> canvas units a texel: whole
-    /// screen pixels per texel at 1080p. Redrawn every frame - something is always moving - on
+    /// (<see cref="ExchangeScale"/>), at <see cref="UnitsPerTexel"/> canvas units a texel: two
+    /// screen pixels a texel at 1080p, four at 2160p. Twice the texels it was first drawn at, with
+    /// frames, gaps and outlines kept ONE texel - so curves step half as far and lines are half as
+    /// heavy, while every fill keeps its size (mocked against the old density first:
+    /// https://claude.ai/artifact/3ZjApsHx8k1dEvc9QAy9sp). Redrawn every frame - something is always moving - on
     /// unscaled time, so the animations keep going under a pause screen as the HUD's other
     /// readouts do.
     ///
@@ -48,13 +51,13 @@ namespace Convergence.UI
     {
         /// <summary>The texture's side, in texels. The seal is at its centre; the room around it
         /// holds the effects and, on its own texture over this one, the crescents.</summary>
-        public const int Size = 72;
-        public const float UnitsPerTexel = 4f;
+        public const int Size = 144;
+        public const float UnitsPerTexel = 2f;
         public const float Centre = Size * 0.5f;
 
         /// <summary>The seal's outer edge - everything else is laid out from it.</summary>
-        public const float RimR = 19f;
-        const float InnerR = 13.5f, RingR = 17.5f, BadgeR = 20f, PipR = 21.5f, SpinR = 22.5f, HaloR = 24f;
+        public const float RimR = 38f;
+        const float InnerR = 27f, RingR = 35f, BadgeR = 40f, PipR = 43f, SpinR = 45f, HaloR = 48f;
         const float GapTexels = 1.2f;       // between segments, measured along the ring
         const float SigilStroke = 1.6f;
 
@@ -114,7 +117,7 @@ namespace Convergence.UI
             s._image.texture = s._texture;
 
             var mid = new Vector2(0.5f, 0.5f);
-            float top = (RimR + 2f) * UnitsPerTexel;
+            float top = (RimR + 4f) * UnitsPerTexel;
             var nameRt = UiKit.Rect(rt, "name", mid, mid, new Vector2(-80, top), new Vector2(80, top + 28));
             s._name = UiKit.Label(nameRt, "", 22, Unlit, TextAnchor.MiddleCenter);
             Shadowed(s._name);
@@ -262,30 +265,30 @@ namespace Convergence.UI
             {
                 float a = embers > 1 ? -60f + 120f * j / (embers - 1) : 0f;
                 float p = Mathf.Repeat(now / dur + (float)j / embers, 1f);
-                var at = At(a, RimR - 1f);
-                float x = at.x + (j % 2 == 0 ? 2.5f : -2.5f) * p, y = at.y + 16f * p;
+                var at = At(a, RimR - 2f);
+                float x = at.x + (j % 2 == 0 ? 5f : -5f) * p, y = at.y + 32f * p;
                 var c = WithAlpha(j % 2 == 0 ? FlameBody : FlameGold, 1f - p);
-                int s = p < 0.5f ? 2 : 1;
+                int s = p < 0.5f ? 4 : 2;
                 for (int oy = 0; oy < s; oy++)
                 for (int ox = 0; ox < s; ox++) Blend(Mathf.FloorToInt(x) + ox, Mathf.FloorToInt(y) + oy, c);
             }
 
             if (stacks < 3) return;
             int count = stacks switch { 3 => 5, 4 => 9, _ => 14 };
-            float baseLen = stacks switch { 3 => 2.5f, 4 => 3.5f, _ => 5f };
+            float baseLen = stacks switch { 3 => 5f, 4 => 7f, _ => 10f };
             float step = 360f / count;
             for (int y = 0; y < Size; y++)
             for (int x = 0; x < Size; x++)
             {
                 float dx = x + 0.5f - Centre, dy = y + 0.5f - Centre;
                 float d = Mathf.Sqrt(dx * dx + dy * dy);
-                float along = d - (RimR - 0.5f);
+                float along = d - (RimR - 1f);
                 if (along < 0f || along > baseLen * 1.4f) continue;
                 float a = Mathf.Atan2(dx, dy) * Mathf.Rad2Deg;
                 int k = Mathf.RoundToInt(Mathf.Repeat(a, 360f) / step) % count;
                 float off = Mathf.Abs(Mathf.DeltaAngle(a, k * step)) * Mathf.Deg2Rad * d;
                 float len = baseLen * (Mathf.Repeat(now * 4f + k * 0.37f, 1f) < 0.5f ? 1.35f : 1f);
-                if (along >= len || off >= 1.4f * (1f - along / len)) continue;
+                if (along >= len || off >= 2.8f * (1f - along / len)) continue;
                 float t = along / len;
                 Put(x, y, t < 0.35f ? FlameBase : t < 0.6f ? FlameBody : t < 0.85f ? FlameGold : FlameTip);
             }
@@ -306,19 +309,19 @@ namespace Convergence.UI
                     for (int j = 0; j < tier; j++)
                     {
                         float p = Mathf.Repeat(now / dur + (float)j / tier, 1f);
-                        if (Mathf.Abs(d - (RimR + 11f * p)) < 0.55f) Blend(x, y, WithAlpha(ramp.Lt, 0.75f * (1f - p)));
+                        if (Mathf.Abs(d - (RimR + 22f * p)) < 0.55f) Blend(x, y, WithAlpha(ramp.Lt, 0.75f * (1f - p)));
                     }
                 }
 
             if (!full) return;
             for (int j = 0; j < 3; j++)
             {
-                var at = At(now * 360f / 2.6f + j * 120f, 26f);
-                int x0 = Mathf.FloorToInt(at.x) - 1, y0 = Mathf.FloorToInt(at.y) - 1;
-                for (int y = -1; y <= 3; y++)
-                for (int x = -1; x <= 2; x++) Put(x0 + x, y0 + y, Outline);
-                for (int y = 0; y <= 2; y++)
-                for (int x = 0; x <= 1; x++) Put(x0 + x, y0 + y, y == 2 && x == 0 ? ramp.Hi : ramp.Lt);
+                var at = At(now * 360f / 2.6f + j * 120f, 52f);
+                int x0 = Mathf.FloorToInt(at.x) - 2, y0 = Mathf.FloorToInt(at.y) - 2;
+                for (int y = -1; y <= 6; y++)
+                for (int x = -1; x <= 4; x++) Put(x0 + x, y0 + y, Outline);
+                for (int y = 0; y < 6; y++)
+                for (int x = 0; x < 4; x++) Put(x0 + x, y0 + y, y >= 4 && x < 2 ? ramp.Hi : ramp.Lt);
             }
         }
 
@@ -327,8 +330,8 @@ namespace Convergence.UI
         {
             float speed = full ? 10f : Mathf.Lerp(3f, 8f, fill);
             float level = -InnerR + 2f * InnerR * fill;
-            float back = level + 0.8f + Mathf.Sin((dx - now * speed * 0.6f) * 0.3f + 1f) * 0.8f;
-            float front = level + Mathf.Sin((dx + now * speed) * 0.45f) * 0.9f;
+            float back = level + 1.6f + Mathf.Sin((dx - now * speed * 1.2f) * 0.15f + 1f) * 1.6f;
+            float front = level + Mathf.Sin((dx + now * speed * 2f) * 0.225f) * 1.8f;
             var c = inner;
             if (dy < back) c = Color32.Lerp(c, ramp.Lt, 0.25f);
             if (dy < front) c = Color32.Lerp(c, ramp.Md, 0.45f);
@@ -344,14 +347,14 @@ namespace Convergence.UI
             float[] angles = { -50f, -82f, -118f, -20f, -150f };
             for (int j = 0; j < stones; j++)
             {
-                var at = At(angles[j], 25f);
-                int bob = Mathf.RoundToInt(Mathf.Sin(now * Mathf.PI * 2f / 1.6f + j * 1.6f) * 1.5f);
-                int x0 = Mathf.FloorToInt(at.x) - 1, y0 = Mathf.FloorToInt(at.y) - 1 + bob;
-                for (int y = -1; y <= 3; y++)
-                for (int x = -1; x <= 3; x++)
+                var at = At(angles[j], 50f);
+                int bob = 2 * Mathf.RoundToInt(Mathf.Sin(now * Mathf.PI * 2f / 1.6f + j * 1.6f) * 1.5f);
+                int x0 = Mathf.FloorToInt(at.x) - 2, y0 = Mathf.FloorToInt(at.y) - 2 + bob;
+                for (int y = -1; y <= 6; y++)
+                for (int x = -1; x <= 6; x++)
                 {
-                    bool edge = x < 0 || y < 0 || x > 2 || y > 2;
-                    Put(x0 + x, y0 + y, edge ? Outline : y == 2 ? ramp.Lt : Stone);
+                    bool edge = x < 0 || y < 0 || x > 5 || y > 5;
+                    Put(x0 + x, y0 + y, edge ? Outline : y >= 4 ? ramp.Lt : Stone);
                 }
             }
 
@@ -360,13 +363,13 @@ namespace Convergence.UI
             for (int j = 0; j < puffs.Length; j++)
             {
                 float p = Mathf.Repeat(now / 1.1f + j / 3f, 1f);
-                var at = At(puffs[j], RimR - 1f);
-                float rad = 1f + 4f * p;
+                var at = At(puffs[j], RimR - 2f);
+                float rad = 2f + 8f * p;
                 var c = WithAlpha(Stone, 0.7f * (1f - p));
-                for (int y = -6; y <= 6; y++)
-                for (int x = -6; x <= 6; x++)
+                for (int y = -12; y <= 12; y++)
+                for (int x = -12; x <= 12; x++)
                     if (x * x + y * y <= rad * rad)
-                        Blend(Mathf.FloorToInt(at.x) + x, Mathf.FloorToInt(at.y + 2f * p) + y, c);
+                        Blend(Mathf.FloorToInt(at.x) + x, Mathf.FloorToInt(at.y + 4f * p) + y, c);
             }
         }
 
@@ -375,7 +378,7 @@ namespace Convergence.UI
         {
             float period = full ? 0.8f : Mathf.Lerp(6f, 1.2f, fill);
             int currents = fill < 0.05f ? 0 : fill < 0.4f ? 1 : fill < 0.7f ? 2 : full ? 5 : 3;
-            float[] radii = { 26f, 28.5f, 25f, 30.5f, 27.5f };
+            float[] radii = { 52f, 57f, 50f, 61f, 55f };
             float[] pace = { 1f, 0.8f, 1.3f, 0.7f, 1.1f };
             float ringRot = now * 360f / period;
             float ringAlpha = 0.25f + 0.45f * fill;
@@ -386,10 +389,10 @@ namespace Convergence.UI
             {
                 float dx = x + 0.5f - Centre, dy = y + 0.5f - Centre;
                 float d = Mathf.Sqrt(dx * dx + dy * dy);
-                if (d < RimR || d > 32f) continue;
+                if (d < RimR || d > 64f) continue;
                 float a = Mathf.Atan2(dx, dy) * Mathf.Rad2Deg;
 
-                if (Mathf.Abs(d - 23.5f) < 0.55f && Mathf.Repeat(a + ringRot, 20f) < 6f)
+                if (Mathf.Abs(d - 47f) < 0.55f && Mathf.Repeat(a + ringRot, 20f) < 6f)
                     Blend(x, y, WithAlpha(ramp.Lt, ringAlpha));
 
                 for (int j = 0; j < currents; j++)
@@ -402,8 +405,9 @@ namespace Convergence.UI
             }
         }
 
-        /// <summary>Earth's tremor and Fire's heat move the seal itself - by whole texels, on a
-        /// stepped clock, so it jolts rather than drifts.</summary>
+        /// <summary>Earth's tremor and Fire's heat move the seal itself - by whole PAIRS of texels
+        /// (the jolt it had at the old density), on a stepped clock, so it jolts rather than
+        /// drifts.</summary>
         void Shake(ElementType e, float fill, bool full, float now)
         {
             int amp = 0;
@@ -418,9 +422,9 @@ namespace Convergence.UI
 
             if (amp == 0) { _sx = _sy = 0; return; }
             int step = Mathf.FloorToInt(now / period);
-            _sx = Hash(step) % (2 * amp + 1) - amp;
+            _sx = 2 * (Hash(step) % (2 * amp + 1) - amp);
             // A light shake only moves sideways.
-            _sy = e == ElementType.Earth && fill < 0.75f ? 0 : Hash(step * 7 + 3) % (2 * amp + 1) - amp;
+            _sy = e == ElementType.Earth && fill < 0.75f ? 0 : 2 * (Hash(step * 7 + 3) % (2 * amp + 1) - amp);
         }
 
         static int Hash(int n) => (int)(Mathf.Abs(Mathf.Sin(n * 12.9898f) * 43758.5453f)) & 0x7fffffff;
@@ -429,10 +433,10 @@ namespace Convergence.UI
         // charge shows; all four glow at full.
         static readonly Vector2Int[][] Cracks =
         {
-            new[] { new Vector2Int(0, 0), new Vector2Int(-2, -3), new Vector2Int(-1, -6), new Vector2Int(-4, -9) },
-            new[] { new Vector2Int(0, 0), new Vector2Int(3, 3), new Vector2Int(2, 6), new Vector2Int(5, 9) },
-            new[] { new Vector2Int(0, 0), new Vector2Int(5, -3), new Vector2Int(9, -2) },
-            new[] { new Vector2Int(0, 0), new Vector2Int(-5, 2), new Vector2Int(-7, 1), new Vector2Int(-10, 3) },
+            new[] { new Vector2Int(0, 0), new Vector2Int(-4, -6), new Vector2Int(-2, -12), new Vector2Int(-8, -18) },
+            new[] { new Vector2Int(0, 0), new Vector2Int(6, 6), new Vector2Int(4, 12), new Vector2Int(10, 18) },
+            new[] { new Vector2Int(0, 0), new Vector2Int(10, -6), new Vector2Int(18, -4) },
+            new[] { new Vector2Int(0, 0), new Vector2Int(-10, 4), new Vector2Int(-14, 2), new Vector2Int(-20, 6) },
         };
 
         void DrawCracks(float fill, bool full, Ramp ramp)
@@ -452,7 +456,7 @@ namespace Convergence.UI
                     {
                         float k = steps == 0 ? 0f : (float)t / steps;
                         int x = Mathf.RoundToInt(Mathf.Lerp(p.x, q.x, k)), y = Mathf.RoundToInt(Mathf.Lerp(p.y, q.y, k));
-                        if (x * x + y * y < (InnerR - 1f) * (InnerR - 1f)) PutSeal(cx + x, cy + y, c);
+                        if (x * x + y * y < (InnerR - 2f) * (InnerR - 2f)) PutSeal(cx + x, cy + y, c);
                     }
                 }
             }
@@ -465,14 +469,14 @@ namespace Convergence.UI
         void DrawSigil(ElementType e, Color32 col)
         {
             float s = e == ElementType.Fire || e == ElementType.Air ? 1f : -1f;
-            var a = new Vector2(0f, 8f * s);
-            var b = new Vector2(7.5f, -5f * s);
-            var c = new Vector2(-7.5f, -5f * s);
-            float bar = e == ElementType.Air ? -1f : e == ElementType.Earth ? 1f : float.NaN;
+            var a = new Vector2(0f, 16f * s);
+            var b = new Vector2(15f, -10f * s);
+            var c = new Vector2(-15f, -10f * s);
+            float bar = e == ElementType.Air ? -2f : e == ElementType.Earth ? 2f : float.NaN;
             float wind = Mathf.Sign(Cross(b - a, c - a));
 
-            for (int y = -10; y <= 10; y++)
-            for (int x = -10; x <= 10; x++)
+            for (int y = -20; y <= 20; y++)
+            for (int x = -20; x <= 20; x++)
             {
                 var p = new Vector2(x + 0.5f, y + 0.5f);
                 float inside = Mathf.Min(EdgeDistance(a, b, p, wind),
@@ -488,7 +492,7 @@ namespace Convergence.UI
         static float EdgeDistance(Vector2 p, Vector2 q, Vector2 point, float wind)
             => Cross(q - p, point - p) / (q - p).magnitude * wind;
 
-        // 5 x 5, top row first.
+        // 5 x 5, top row first; drawn at two texels a cell.
         static readonly string[] Spiral = { "#####", "....#", ".##.#", ".#..#", ".####" };
         static readonly string[] Chevrons = { "..#..", ".#.#.", "..#..", ".#.#.", "#...#" };
         static readonly string[] Star = { "#.#.#", ".###.", "#####", ".###.", "#.#.#" };
@@ -509,20 +513,22 @@ namespace Convergence.UI
             for (int i = 0; i < n; i++)
             {
                 var at = At(i * 360f / n, BadgeR);
-                int x0 = Mathf.RoundToInt(at.x) - 3;
-                int y0 = Mathf.RoundToInt(at.y) - 3;
+                int x0 = Mathf.RoundToInt(at.x) - 7;
+                int y0 = Mathf.RoundToInt(at.y) - 7;
 
                 bool reached = i < r.PipsFilled, firing = i == r.PipsFilled - 1;
                 var border = firing ? Gilt : Rim;
                 var ink = firing ? GiltLit : reached ? ramp.Hi : ramp.Sh;
                 var icon = IconOf(i < glyphs.Length ? glyphs[i] : Combat.Glyph.Basic);
 
-                for (int y = 0; y < 7; y++)
-                for (int x = 0; x < 7; x++)
+                // A one-texel frame, a one-texel gap inside it, then the icon's 5 x 5 cells.
+                for (int y = 0; y < 14; y++)
+                for (int x = 0; x < 14; x++)
                 {
-                    bool edge = x == 0 || y == 0 || x == 6 || y == 6;
+                    bool edge = x == 0 || y == 0 || x == 13 || y == 13;
                     var c = edge ? border : Gap;
-                    if (!edge && icon[5 - y][x - 1] == '#') c = ink;
+                    int ix = (x - 2) / 2, iy = (y - 2) / 2;
+                    if (x >= 2 && y >= 2 && ix < 5 && iy < 5 && icon[4 - iy][ix] == '#') c = ink;
                     PutSeal(x0 + x, y0 + y, c);
                 }
             }
@@ -533,7 +539,7 @@ namespace Convergence.UI
             int k = r.RimPips;
             if (k <= 0) return;
             int lit = r.RimPipsLit;
-            int size = k <= 4 ? 3 : 2;
+            int size = k <= 4 ? 6 : 4;
             float span = Mathf.Min(140f, (k - 1) * 20f);
 
             for (int i = 0; i < k; i++)

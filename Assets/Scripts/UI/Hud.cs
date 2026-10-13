@@ -82,7 +82,7 @@ namespace Convergence.UI
             // It carries everything about what the attack button does: the art that fires next,
             // the chain's basics, the rotation, and the perfect streak.
             float wheelSize = RotationWheel.Size * RotationWheel.UnitsPerTexel;
-            float wheelX = sealCentre.x - (ElementSeal.RimR + RotationWheel.OuterR + 2f) * ElementSeal.UnitsPerTexel;
+            float wheelX = sealCentre.x - (ElementSeal.RimR + RotationWheel.OuterR + 4f) * ElementSeal.UnitsPerTexel;
             var wheelCentre = new Vector2(wheelX, sealCentre.y);
             var wheelRt = UiKit.Rect(canvas, "wheel", new Vector2(0.5f, 0), new Vector2(0.5f, 0),
                 wheelCentre - Vector2.one * wheelSize * 0.5f, wheelCentre + Vector2.one * wheelSize * 0.5f);
