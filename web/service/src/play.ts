@@ -27,13 +27,14 @@ function typeOf(file: string): string | undefined {
   return TYPES[path.extname(inner)];
 }
 
-export function playRouter(): express.RequestHandler | null {
-  const dir = path.resolve(process.env.PLAY_DIR || './play');
-  if (!existsSync(path.join(dir, 'index.html'))) {
-    console.log(`[play] no build at ${dir} - /play is not served`);
-    return null;
-  }
-  console.log(`[play] serving the game from ${dir}`);
+/** Where the live build sits - `/data/play` on Railway's volume. Uploaded there by the operator
+ * routes (routes/playUpload.ts), never shipped with a code deploy. */
+export const playDir = () => path.resolve(process.env.PLAY_DIR || './play');
+
+export function playRouter(): express.RequestHandler {
+  const dir = playDir();
+  // Served whether or not a build is there yet: an upload swaps one in under a running service.
+  console.log(`[play] serving the game from ${dir}${existsSync(path.join(dir, 'index.html')) ? '' : ' (no build yet)'}`);
   return express.static(dir, {
     index: 'index.html',
     setHeaders(res: Response, file: string) {
