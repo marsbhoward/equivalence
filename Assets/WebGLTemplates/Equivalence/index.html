@@ -8,7 +8,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="mobile-web-app-capable" content="yes">
-  <title>%UNITY_WEB_NAME%</title>
+  <title>{{{ PRODUCT_NAME }}}</title>
   <style>
     html, body { margin: 0; padding: 0; height: 100%; background: #0b0b10; overflow: hidden;
                  overscroll-behavior: none; }
@@ -54,16 +54,25 @@
   <script>window.EQUIVALENCE_SERVICE = "";</script>
   <script src="connector/equivalence-chain.js" onerror="console.warn('[Equivalence] no chain connector; running on local storage')"></script>
 
-  <script src="Build/%UNITY_WEBGL_LOADER_URL%"></script>
+  <!-- Unity 2020+ template variables (triple braces). The old percent-sign form is not replaced
+       any more - it shipped literally until 2026-10-13, unnoticed because the project built with
+       Unity's default template. -->
+  <script src="Build/{{{ LOADER_FILENAME }}}"></script>
   <script>
     createUnityInstance(document.querySelector("#unity-canvas"), {
-      dataUrl: "Build/%UNITY_WEBGL_DATA_URL%",
-      frameworkUrl: "Build/%UNITY_WEBGL_FRAMEWORK_URL%",
-      codeUrl: "Build/%UNITY_WEBGL_CODE_URL%",
+      dataUrl: "Build/{{{ DATA_FILENAME }}}",
+      frameworkUrl: "Build/{{{ FRAMEWORK_FILENAME }}}",
+      codeUrl: "Build/{{{ CODE_FILENAME }}}",
+#if MEMORY_FILENAME
+      memoryUrl: "Build/{{{ MEMORY_FILENAME }}}",
+#endif
+#if SYMBOLS_FILENAME
+      symbolsUrl: "Build/{{{ SYMBOLS_FILENAME }}}",
+#endif
       streamingAssetsUrl: "StreamingAssets",
-      companyName: "%UNITY_COMPANY_NAME%",
-      productName: "%UNITY_PRODUCT_NAME%",
-      productVersion: "%UNITY_PRODUCT_VERSION%",
+      companyName: {{{ JSON.stringify(COMPANY_NAME) }}},
+      productName: {{{ JSON.stringify(PRODUCT_NAME) }}},
+      productVersion: {{{ JSON.stringify(PRODUCT_VERSION) }}},
       // Retina matters here: the project's pixel-perfect snap works in real device pixels, and
       // at dpr 1 a texel would land on a fraction of a physical pixel on every phone.
       devicePixelRatio: window.devicePixelRatio || 1,
