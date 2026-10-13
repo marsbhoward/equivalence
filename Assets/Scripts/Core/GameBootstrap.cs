@@ -2496,6 +2496,8 @@ namespace Convergence.Core
             // Elemental Power. Read live: the ledger changes between floors.
             resource.ReleaseScale = () =>
                 effects.ReleaseScale * Art.Gear.StatPercents.Apply(1f, pc.Stats.ElementalEffectiveness);
+            // ...and the element's standing bonuses, by the CHARACTER's Elemental Power alone.
+            resource.PowerScale = () => Art.Gear.StatPercents.Apply(1f, pc.Stats.ElementalEffectiveness);
             ApplyLedgerReadouts();
 
             // Prism's four gems - purely cosmetic, unlike the heat cycle above: which element is

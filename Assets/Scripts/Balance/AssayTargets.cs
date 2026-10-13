@@ -28,13 +28,19 @@ namespace Convergence.Balance
         /// </summary>
         public static class Targets
         {
-            /// <summary>A Max character with no ledger, in multiples of the unbuffed player.</summary>
+            /// <summary>A Max character with no ledger, in multiples of the unbuffed player - its WORTH,
+            /// sqrt(damage x survival), averaged over every build and element. Worth rather than
+            /// damage because a Bulwark and an Earth character trade damage for survival by design:
+            /// held to a damage band, every one of them read as a failure (2026-10-12).</summary>
             public const float Character = 4.0f;
 
-            /// <summary>How far any build on any element may sit from <see cref="Character"/>.</summary>
+            /// <summary>How far that average may sit from <see cref="Character"/>. How far one cell
+            /// may sit from the rest is the spreads' job.</summary>
             public const float CharacterBand = 0.10f;
 
-            /// <summary>Per build, the four elements' damage: (max - min) / mean.</summary>
+            /// <summary>Per build, the four elements' worth, sqrt(damage x survival): (max - min) /
+            /// mean. Earth is heavy and slow and hard to kill, Air light and fast and fragile - each
+            /// element's trade counts both halves.</summary>
             public const float ElementSpread = 0.10f;
 
             /// <summary>Across builds, sqrt(damage x survival) - a bulwark trades damage for
@@ -53,8 +59,22 @@ namespace Convergence.Balance
             /// <summary>Every slot at three stars over the Max kit, no ledger.</summary>
             public const float CeilingDps = 1.25f, CeilingSurvival = 1.40f;
 
-            /// <summary>One release on one target, in seconds of the player's own damage.</summary>
+            /// <summary>One release on one target, in seconds of the player's own damage, on a FRESH
+            /// character - what every element's release gives everyone, before anything is invested
+            /// in it.</summary>
             public const float ReleaseSecondsMin = 3f, ReleaseSecondsMax = 5f;
+
+            /// <summary>The same on a Max Elementalist. Investing in releases pays as investing in
+            /// anything else does (2026-10-12: the band used to be measured HERE, so it capped the one
+            /// build whose plan is releases), up to this - past it a release is the whole game.</summary>
+            public const float ReleaseSecondsInvestedMax = 10f;
+
+            /// <summary>
+            /// NO BUILD ESCAPES THE GEAR GRIND (the user's rule, 2026-10-12): what gear multiplies each
+            /// build's worth by (Max over the same board with no gear, averaged over the elements) -
+            /// (max - min) / mean across the builds.
+            /// </summary>
+            public const float GearMultiplierSpread = 0.15f;
 
             /// <summary>The most healing per second, as a share of max health.</summary>
             public const float SustainCap = 0.025f;
@@ -82,19 +102,20 @@ namespace Convergence.Balance
         public static string Scorecard()
         {
             var none = new Exchange.Mods();
-            float unit = Unit;
             var sb = new StringBuilder("target                                   goal            now\n");
 
             // ---- the character, no ledger
             var cells = (from a in Archetypes from e in Elements
                          select (a, e, w: Evaluate(Make(a, e, Kit.Max), none, _ => 0, 1))).ToList();
-            float lo = cells.Min(c => c.w.Dps) / unit, hi = cells.Max(c => c.w.Dps) / unit;
+            var reference = Evaluate(Reference(), none, _ => 0, 1);
+            float WorthX(Worth w) => Mathf.Sqrt(w.Dps / reference.Dps * (w.Ehp / reference.Ehp));
+            float mean = cells.Average(c => WorthX(c.w));
             Row(sb, "Max character, no ledger (x unbuffed)",
                 $"{Targets.Character * (1 - Targets.CharacterBand):0.0}-{Targets.Character * (1 + Targets.CharacterBand):0.0}x",
-                $"{lo:0.0}-{hi:0.0}x",
-                lo >= Targets.Character * (1 - Targets.CharacterBand) && hi <= Targets.Character * (1 + Targets.CharacterBand));
+                $"{mean:0.0}x ({cells.Min(c => WorthX(c.w)):0.0}-{cells.Max(c => WorthX(c.w)):0.0})",
+                Mathf.Abs(mean - Targets.Character) <= Targets.Character * Targets.CharacterBand);
 
-            float elementSpread = Archetypes.Max(a => Spread(cells.Where(c => c.a == a).Select(c => c.w.Dps).ToArray()));
+            float elementSpread = Archetypes.Max(a => Spread(cells.Where(c => c.a == a).Select(c => WorthX(c.w)).ToArray()));
             Row(sb, "element spread, worst build", $"<= {Targets.ElementSpread:P0}", $"{elementSpread:P0}",
                 elementSpread <= Targets.ElementSpread);
 
@@ -144,10 +165,18 @@ namespace Convergence.Balance
                 $"{ceilDps:0.00} / {ceilHp:0.00}", ceilDps <= Targets.CeilingDps && ceilHp <= Targets.CeilingSurvival);
 
             // ---- releases
-            var seconds = Elements.Select(e => ReleaseSeconds(Make(Archetype.Elementalist, e, Kit.Max))).ToArray();
-            Row(sb, "one release, seconds of own damage", $"{Targets.ReleaseSecondsMin:0}-{Targets.ReleaseSecondsMax:0}s",
+            var seconds = Elements.Select(e => ReleaseSeconds(Reference(e))).ToArray();
+            Row(sb, "one release, fresh character", $"{Targets.ReleaseSecondsMin:0}-{Targets.ReleaseSecondsMax:0}s",
                 $"{seconds.Min():0.0}-{seconds.Max():0.0}s",
                 seconds.Min() >= Targets.ReleaseSecondsMin && seconds.Max() <= Targets.ReleaseSecondsMax);
+            var invested = Elements.Select(e => ReleaseSeconds(Make(Archetype.Elementalist, e, Kit.Max))).ToArray();
+            Row(sb, "one release, Max Elementalist", $"<= {Targets.ReleaseSecondsInvestedMax:0}s",
+                $"{invested.Min():0.0}-{invested.Max():0.0}s", invested.Max() <= Targets.ReleaseSecondsInvestedMax);
+
+            // ---- the gear grind
+            var gear = Archetypes.Select(GearMultiplier).ToArray();
+            Row(sb, "gear's multiplier, spread across builds", $"<= {Targets.GearMultiplierSpread:P0}",
+                $"{Spread(gear):P0} (x{gear.Min():0.00}-{gear.Max():0.00})", Spread(gear) <= Targets.GearMultiplierSpread);
 
             // ---- survival
             float sustain = 0f;

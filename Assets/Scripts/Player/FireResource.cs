@@ -42,8 +42,8 @@ namespace Convergence.Player
 
         public override ElementType Element => ElementType.Fire;
 
-        public override float DamagePoints => Stacks * (Ledger != null ? Ledger.HeatPoints(T.StackDamagePoints) : T.StackDamagePoints);
-        public override float AttackSpeedPoints => Stacks >= 2 ? T.HastePoints : 0f;
+        public override float DamagePoints => Grown(Stacks * (Ledger != null ? Ledger.HeatPoints(T.StackDamagePoints) : T.StackDamagePoints));
+        public override float AttackSpeedPoints => Stacks >= 2 ? Grown(T.HastePoints) : 0f;
 
         void Update()
         {

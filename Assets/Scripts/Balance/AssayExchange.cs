@@ -194,19 +194,14 @@ namespace Convergence.Balance
 
         /// <summary>
         /// What the ledger adds on bodies OTHER than the one being fought, credited at
-        /// <see cref="Assume.CrowdCredit"/>: Fulminate's bursts and the run's Cleave.
+        /// <see cref="Assume.CrowdCredit"/>: Fulminate's bursts. The run's Cleave and Area are in
+        /// AssayCrowd with the character's own.
         /// </summary>
         static float LedgerCrowd(Mods m, Func<string, int> n, Build b, ChainShape c)
         {
             float extra = 0f;
             if (AtMax(n, "vein_finder"))
                 extra += c.CritChance * T.FulminateFraction * Assume.CrowdBodies;
-            if (m.CleavePoints > 0f)
-            {
-                float lossNow = (1f - SwingFalloff) * StatPercents.ReductionFactor(b.Stats.Cleave);
-                float lossWith = (1f - SwingFalloff) * StatPercents.ReductionFactor(b.Stats.Cleave + m.CleavePoints);
-                extra += (lossNow - lossWith) * Assume.CrowdBodies;
-            }
             return 1f + Assume.CrowdCredit * extra;
         }
 

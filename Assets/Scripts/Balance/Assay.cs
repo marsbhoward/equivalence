@@ -12,9 +12,18 @@ namespace Convergence.Balance
     /// </summary>
     public struct Worth
     {
-        /// <summary>Sustained single-target damage per second: the weapon's chain, the element's
-        /// passives and burn, and its release spread over the release cadence.</summary>
+        /// <summary>What the build's damage is WORTH a second: <see cref="TargetDps"/> plus
+        /// <see cref="CrowdDps"/> at <see cref="Assay.Assume.CrowdCredit"/>. Everything that prices
+        /// damage reads this.</summary>
         public float Dps;
+
+        /// <summary>Sustained damage per second on the body being fought: the weapon's chain, the
+        /// element's passives and burn, and its release spread over the release cadence.</summary>
+        public float TargetDps;
+
+        /// <summary>Damage per second on the OTHER bodies round it (AssayCrowd) - the swing's
+        /// cleave, Splash, area releases - uncredited. Zero for a legacy build.</summary>
+        public float CrowdDps;
 
         /// <summary>The weapon's chain alone - basics, the weapon art, crits. With a legacy build
         /// this is exactly what Player.PlayerPower measures.</summary>
@@ -70,8 +79,10 @@ namespace Convergence.Balance
     /// often a player stands still, how full Air's momentum runs - is stated once, in
     /// <see cref="Assume"/>, and nowhere else.
     ///
-    /// SINGLE TARGET. Cleave, Splash, Fire's splash and every area release make a real crowd die
-    /// faster than this says, so a clear time derived from it is the slow end.
+    /// The body being fought, plus THE CROWD round it (AssayCrowd): Cleave, Splash, Fire's
+    /// splash and every release's radius reach the other bodies, credited into Dps at
+    /// Assume.CrowdCredit. Worth.TargetDps is the single-target figure a clear time of one body
+    /// derives from.
     ///
     /// Nothing in the game reads it yet. It replaces PlayerPower in WaveComposer once the stat
     /// core lands; until then it is measurement only.
@@ -215,8 +226,17 @@ namespace Convergence.Balance
             public const float CrowdBodies = 1.5f;
 
             /// <summary>What damage on those other bodies is worth against damage on the one being
-            /// fought. The model is single-target; crowd entries are credited at this rate.</summary>
+            /// fought. Crowd damage (AssayCrowd) is credited into Dps at this rate.</summary>
             public const float CrowdCredit = 0.5f;
+
+            /// <summary>Other enemies engaged round the fight - the most any area reaches. They
+            /// thin out with distance (<see cref="Assay.BodiesWithin"/>), so a sword's reach finds
+            /// <see cref="CrowdBodies"/> of them and a release's radius most of the rest. A wave's
+            /// pressure cap holds about a dozen swarm bodies or two or three elites on screen.</summary>
+            public const float CrowdPack = 5f;
+
+            /// <summary>Seconds a pack Borax drew together stays bunched for the swings after it.</summary>
+            public const float BoraxHoldSeconds = 3f;
 
             /// <summary>Share of the hits aimed at the player that the defensive ability turns -
             /// what Encumbered and Shackled take a cut of.</summary>
@@ -235,8 +255,8 @@ namespace Convergence.Balance
             public const float SpireFloorShare = 0.15f;
             public const float SpireWorth = 0.2f;
 
-            /// <summary>Fire's average heat when its ledger moves how long heat lasts: +0.5 stacks
-            /// per 30 run Element Growth points, between 2 and 5.</summary>
+            /// <summary>Fire's average heat when Element Growth moves how long heat lasts: +0.5 stacks
+            /// per 30 Element Growth points (the character's or the run's), between 2 and 5.</summary>
             public const float FireStacksPerGrowth = 0.5f / 30f;
 
             /// <summary>Share of kills that are not elites (Coup de Grace).</summary>
@@ -291,6 +311,9 @@ namespace Convergence.Balance
             public static float EarthDamagePoints, EarthAttackSpeedPoints, EarthShockHitUnits, EarthShockHitUnitsPerCharge;
             public static float AirDamagePoints, AirAttackSpeedPoints, AirAttackSpeedPointsPerMomentum,
                                 AirCritDamagePoints, AirGustDamagePoints, AirMoveSpeedPointsPerMomentum;
+            // The survival half: Earth's health and reduction, Air's health (Fire and Water's 115 is
+            // the reference), and Fire's fourth-rung splash, which the crowd made the biggest lever.
+            public static float FireSplashFraction, EarthHp, EarthStillDr, EarthMovingDr, AirHp;
 
             static ElementNumbers() => Reset();
 
@@ -312,6 +335,11 @@ namespace Convergence.Balance
                 AirCritDamagePoints = Tuning.Elements.Air.CritDamagePoints;
                 AirGustDamagePoints = Tuning.Elements.Air.GustDamagePoints;
                 AirMoveSpeedPointsPerMomentum = Tuning.Elements.Air.MoveSpeedPointsPerMomentum;
+                FireSplashFraction = Tuning.Elements.Fire.SplashFraction;
+                EarthHp = Tuning.Player.HpEarth;
+                EarthStillDr = Tuning.Elements.Earth.StillDamageReduction;
+                EarthMovingDr = Tuning.Elements.Earth.MovingDamageReduction;
+                AirHp = Tuning.Player.HpAir;
                 Invalidate();
             }
 
@@ -336,6 +364,48 @@ namespace Convergence.Balance
                 Check("AirCritDamagePoints", AirCritDamagePoints, Tuning.Elements.Air.CritDamagePoints);
                 Check("AirGustDamagePoints", AirGustDamagePoints, Tuning.Elements.Air.GustDamagePoints);
                 Check("AirMoveSpeedPointsPerMomentum", AirMoveSpeedPointsPerMomentum, Tuning.Elements.Air.MoveSpeedPointsPerMomentum);
+                Check("FireSplashFraction", FireSplashFraction, Tuning.Elements.Fire.SplashFraction);
+                Check("EarthHp (Tuning.Player.HpEarth)", EarthHp, Tuning.Player.HpEarth);
+                Check("EarthStillDr", EarthStillDr, Tuning.Elements.Earth.StillDamageReduction);
+                Check("EarthMovingDr", EarthMovingDr, Tuning.Elements.Earth.MovingDamageReduction);
+                Check("AirHp (Tuning.Player.HpAir)", AirHp, Tuning.Player.HpAir);
+                return off.Count == 0 ? "none" : string.Join("; ", off);
+            }
+        }
+
+        /// <summary>
+        /// The board numbers the build calibration may move - a COPY of Tuning.Board, as
+        /// <see cref="ElementNumbers"/> is of Tuning.Elements: the rules that decide how much the
+        /// Strikes, Weight, Element and Area branches pay.
+        /// </summary>
+        public static class BoardNumbers
+        {
+            public static float FermentationHitFractionPerSecond, PrecipitationFraction;
+            public static float VitriolMax, CohobationPerBasic, ExaltationDamagePoints, AlkahestRefund;
+
+            static BoardNumbers() => Reset();
+
+            public static void Reset()
+            {
+                FermentationHitFractionPerSecond = Tuning.Board.FermentationHitFractionPerSecond;
+                PrecipitationFraction = Tuning.Board.PrecipitationFraction;
+                VitriolMax = Tuning.Board.VitriolMax;
+                CohobationPerBasic = Tuning.Board.CohobationPerBasic;
+                ExaltationDamagePoints = Tuning.Board.ExaltationDamagePoints;
+                AlkahestRefund = Tuning.Board.AlkahestRefund;
+                Invalidate();
+            }
+
+            public static string Drift()
+            {
+                var off = new System.Collections.Generic.List<string>();
+                void Check(string name, float mine, float tuning) { if (!Mathf.Approximately(mine, tuning)) off.Add($"{name} {mine} (Tuning.Board {tuning})"); }
+                Check("FermentationHitFractionPerSecond", FermentationHitFractionPerSecond, Tuning.Board.FermentationHitFractionPerSecond);
+                Check("PrecipitationFraction", PrecipitationFraction, Tuning.Board.PrecipitationFraction);
+                Check("VitriolMax", VitriolMax, Tuning.Board.VitriolMax);
+                Check("CohobationPerBasic", CohobationPerBasic, Tuning.Board.CohobationPerBasic);
+                Check("ExaltationDamagePoints", ExaltationDamagePoints, Tuning.Board.ExaltationDamagePoints);
+                Check("AlkahestRefund", AlkahestRefund, Tuning.Board.AlkahestRefund);
                 return off.Count == 0 ? "none" : string.Join("; ", off);
             }
         }
@@ -357,6 +427,8 @@ namespace Convergence.Balance
             /// <summary>One release on one target, in hit units, before Elemental Power.</summary>
             public float ReleaseHitUnits;
             public float ReleasesPerSecond;
+            /// <summary>Fire's average heat - its fourth rung splashes (AssayCrowd).</summary>
+            public float FireHeat;
         }
 
         /// <summary>True while <see cref="ReleaseSeconds"/> measures a build WITHOUT what its
@@ -382,7 +454,7 @@ namespace Convergence.Balance
             // The ledger's Element Growth (Rich Vein, Stubborn Ore) multiplies the character's.
             float gain = StatPercents.Apply(1f, gainRatePoints) * (ledger ? m.GainMul : 1f);
             float refund = 1f + Tuning.Exchange.OverflowRefund * Mathf.Min(1, n("overflow"));   // Overflow hands part of the meter back
-            if (Owns(b, Progression.Notable.Alkahest)) refund /= 1f - Tuning.Board.AlkahestRefund;
+            if (Owns(b, Progression.Notable.Alkahest)) refund /= 1f - BoardNumbers.AlkahestRefund;
             float every = Assume.ReleaseEvery / (element == ElementType.Fire ? 1f : gain) / refund;
 
             switch (element.Value)
@@ -390,12 +462,14 @@ namespace Convergence.Balance
                 case ElementType.Fire:
                 {
                     float perStack = ElementNumbers.FireStackDamagePoints, stacks = Assume.FireStacks;
+                    // Fire reads Element Growth as heat lasting longer (FireResource's stack
+                    // lifetime x Gain) - the character's, gear and board, as well as the run's.
+                    stacks = Mathf.Clamp(stacks + Assume.FireStacksPerGrowth * gainRatePoints, 2f, 5f);
                     if (ledger)
                     {
                         // Smother takes from every stack, Phlogiston doubles it (RunEffects.HeatPoints).
                         perStack = Mathf.Max(0f, perStack - Tuning.Exchange.SmotherPoints * n("smother"));
                         if (n("phlogiston") > 0) perStack *= Tuning.Exchange.PhlogistonMul;
-                        // Fire reads Element Growth as heat lasting longer.
                         stacks += Assume.FireStacksPerGrowth * m.Points(StatKind.ElementGrowth);
                         // Banked Embers: the rebuild after a release starts from the floor, not zero.
                         stacks += 0.3f * n("banked_embers") + (AtMax(n, "banked_embers") ? 0.4f : 0f);
@@ -404,6 +478,7 @@ namespace Convergence.Balance
                         stacks = Mathf.Clamp(stacks, 2f, 5f);
                     }
                     p.DamagePoints = perStack * stacks;
+                    p.FireHeat = stacks;
                     p.AttackSpeedPoints = ElementNumbers.FireHastePoints * Assume.FireHasteUptime;
                     // Erupt: area denial - one target stands in one pool for part of its life.
                     p.ReleaseHitUnits = ElementNumbers.FirePoolHitUnitsPerSecond * Tuning.Elements.Fire.PoolSeconds
@@ -435,9 +510,8 @@ namespace Convergence.Balance
                     p.AttackSpeedPoints = ElementNumbers.EarthAttackSpeedPoints;
                     // Bedrock holds the planted reduction a second after moving.
                     float planted = Assume.EarthStillShare + (ledger && AtMax(n, "deep_roots") ? 0.1f : 0f);
-                    p.Dr = Tuning.Elements.Earth.StillDamageReduction * planted
-                         + Tuning.Elements.Earth.MovingDamageReduction * (1f - planted);
-                    p.BaseHp = Tuning.Player.HpEarth;
+                    p.Dr = ElementNumbers.EarthStillDr * planted + ElementNumbers.EarthMovingDr * (1f - planted);
+                    p.BaseHp = ElementNumbers.EarthHp;
                     // A full charge: the quake and floor(5 / 1.5) = 3 aftershocks at 0.55, 0.47, 0.39.
                     float shocks = 1f;
                     int after = Mathf.FloorToInt(Tuning.Elements.Earth.ChargeSeconds / Tuning.Elements.Earth.AftershockPerSeconds);
@@ -467,7 +541,7 @@ namespace Convergence.Balance
                     p.CritDamagePoints = ElementNumbers.AirCritDamagePoints;
                     p.CritAdd = Mathf.Min(0.75f, Tuning.Elements.Air.BaseCrit
                         + perStreak * Mathf.Min(Tuning.Elements.Air.StreakCap, streak));
-                    p.BaseHp = Tuning.Player.HpAir;
+                    p.BaseHp = ElementNumbers.AirHp;
                     // Gust deals nothing itself - it is damage, range, legs and lifesteal for six seconds.
                     p.LifestealAdd = Tuning.Elements.Air.GustLifesteal * gust;
                     break;
@@ -505,7 +579,8 @@ namespace Convergence.Balance
             finally { _releasesOff = false; }
             float gain = StatCurves.Character(StatKind.ElementGrowth, b.GainRatePoints);
             float every = 1f / Mathf.Max(1e-4f, Profile(b.Element, gain, _ => 0, false, b).ReleasesPerSecond);
-            return (on.Dps - off.Dps) / Mathf.Max(1e-3f, off.Dps) * every;
+            // ONE target, as the target is written - the crowd a release also reaches is in Dps.
+            return (on.TargetDps - off.TargetDps) / Mathf.Max(1e-3f, off.TargetDps) * every;
         }
 
         // ------------------------------------------------------------------ the floor
@@ -535,21 +610,26 @@ namespace Convergence.Balance
             // The element's head starts join the character's own points BEFORE the curve.
             var raw = new StatPercents();
             raw.Add(b.Stats);
-            raw.Damage += el.DamagePoints + el.GustDamagePoints * scale;
-            raw.AttackSpeed += el.AttackSpeedPoints;
+            // Elemental Power grows the element's standing bonuses too, never a penalty - by the
+            // CHARACTER's Elemental Power alone, as ElementalResource.Grown (not the ledger's release
+            // scale, which Twin Spark sets below 1).
+            float grow = StatPercents.Apply(1f, StatCurves.Character(StatKind.ElementalEffectiveness, b.Stats.ElementalEffectiveness));
+            float Up(float points) => points > 0f ? points * grow : points;
+            raw.Damage += Up(el.DamagePoints) + el.GustDamagePoints * scale;
+            raw.AttackSpeed += Up(el.AttackSpeedPoints);
             // The board's conditional points join the same way (Tartar, Exaltation, Circulation).
             var (boardDamage, boardSpeed) = BoardPoints(b, el.ReleasesPerSecond);
             raw.Damage += boardDamage;
             raw.AttackSpeed += boardSpeed;
-            raw.MoveSpeed += el.MoveSpeedPoints;
-            raw.CritDamage += el.CritDamagePoints;
+            raw.MoveSpeed += Up(el.MoveSpeedPoints);
+            raw.CritDamage += Up(el.CritDamagePoints);
             var s = StatCurves.Character(raw);
 
             float chain = ChainDps(b, s, m, n, el, b.Legacy, floor, out float hitUnit, out float hitsPerSecond,
                                    out var shape);
             float releaseHit = el.ReleaseHitUnits * hitUnit * scale;
             float releasesPerSecond = el.ReleasesPerSecond;
-            float dps = chain;
+            float dps = chain, crowd = 0f;
             if (ledger)
             {
                 var rel = LedgerReleases(b, m, n, el, shape, floor, chain);
@@ -558,13 +638,15 @@ namespace Convergence.Balance
                 if (element == null) releaseHit = 0f;
 
                 dps *= Mathf.Max(el.Vulnerability, BoardVulnerability(b, shape));
+                crowd = CrowdDps(b, s, m, el, shape, dps, hitUnit, scale * rel.HitMul, releasesPerSecond);
                 dps += releaseHit * releasesPerSecond;
                 dps *= BoardOffense(b, shape);
                 dps += BoardDamageOverTime(b, shape);
+                dps += FermentationDps(b, hitUnit, releasesPerSecond);
                 dps += LedgerFieldDps(n, hitUnit);
-                dps *= LedgerTimeLost(n, element, shape, releasesPerSecond);
-                dps *= LedgerCrowd(m, n, b, shape);
-                dps *= Judged.Offense(n);
+                float lost = LedgerTimeLost(n, element, shape, releasesPerSecond) * Judged.Offense(n);
+                dps *= lost * LedgerCrowd(m, n, b, shape);
+                crowd *= lost;
             }
 
             float maxHp = Mathf.Max(1f, (StatPercents.Apply(el.BaseHp, s.MaxHp) + b.GridHp) * m.MaxHpMul - witheringLost);
@@ -623,18 +705,20 @@ namespace Convergence.Balance
             // Lifesteal as one capped pool, healing no faster than PlayerController.Drain allows -
             // the ledger's own heals inside that limit (Vital Spark, Pelican) share it.
             float lifesteal = StatCurves.Lifesteal(b.Lifesteal + m.BonusLifesteal + el.LifestealAdd);
-            float withinLimit = lifesteal * dps + (ledger ? LedgerHealWithinLimit(n, maxHp, hitsPerSecond) : 0f);
+            float dealt = dps + crowd;   // lifesteal and kills come off every body hit
+            float withinLimit = lifesteal * dealt + (ledger ? LedgerHealWithinLimit(n, maxHp, hitsPerSecond) : 0f);
             float heal = (Mathf.Min(withinLimit, StatCurves.LifestealPerSecond(maxHp))
                           + (ledger ? LedgerHeal(n, maxHp, releasesPerSecond) : 0f))
                        * m.HealMul * (AtMax(n, "thin_blood") ? AnaemiaFactor : 1f)
-                       + BoardHealing(b, dps, maxHp, floor);
+                       + BoardHealing(b, dealt, maxHp, floor);
             // Cibation: lifesteal over the limit becomes a shield - health the next hits spend.
-            ehp += BoardShield(b, lifesteal * dps, maxHp) / Mathf.Max(0.01f, incoming);
+            ehp += BoardShield(b, lifesteal * dealt, maxHp) / Mathf.Max(0.01f, incoming);
             float bleed = LedgerBleed(n, maxHp, hitsPerSecond, releasesPerSecond);
 
             return new Worth
             {
-                Dps = dps, ChainDps = chain, ReleaseHit = releaseHit,
+                Dps = dps + Assume.CrowdCredit * crowd, TargetDps = dps, CrowdDps = crowd,
+                ChainDps = chain, ReleaseHit = releaseHit,
                 MaxHp = maxHp, Incoming = incoming, Ehp = Mathf.Max(1f, ehp), Sustain = heal - bleed,
             };
         }
@@ -678,7 +762,7 @@ namespace Convergence.Balance
             // The board: Cohobation steeps the art with every basic before it; Realgar quickens the
             // basics after it.
             if (Owns(b, Progression.Notable.Cohobation))
-                finisher *= 1f + Mathf.Min(Tuning.Board.CohobationMax, Tuning.Board.CohobationPerBasic * basics);
+                finisher *= 1f + Mathf.Min(Tuning.Board.CohobationMax, BoardNumbers.CohobationPerBasic * basics);
             if (Owns(b, Progression.Notable.Realgar))
                 seconds -= Mathf.Min(basics, Tuning.Board.RealgarBasics) * interval * (1f - 1f / Tuning.Board.RealgarSpeedMul);
 
@@ -781,7 +865,7 @@ namespace Convergence.Balance
                 f *= Per(n, "long_reach", 0.02f);
                 f *= Per(n, "wide_arc", 0.03f);
                 // Crowds and fields the single-target model cannot see.
-                f *= Per(n, "dilation", 0.03f) * Max(n, "dilation", 1.02f);               // Expansion
+                f *= Max(n, "dilation", 1.02f);   // Expansion - Dilation's Area is priced (AssayCrowd)
                 f *= Max(n, "reiteration", 1.02f);                                       // Rota
                 f *= Has(n, "residue", 1.02f);
                 f *= Has(n, "cataclysm", 1.02f);

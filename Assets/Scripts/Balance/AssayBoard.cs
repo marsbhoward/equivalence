@@ -26,8 +26,9 @@ namespace Convergence.Balance
 
     /// <summary>
     /// The mastery board's rules (Progression.BoardEffects), priced. Everything the single-target
-    /// model can see has a term here; what it cannot - a crowd (Aqua Fortis, Cineration,
-    /// Precipitation, Borax, Fermentation), a press timed PERFECT (Cinnabar; the model never prices
+    /// model can see has a term here, and the crowd rules Precipitation, Borax and Fermentation
+    /// are in AssayCrowd; what it cannot - spreading statuses (Aqua Fortis, Cineration), a press
+    /// timed PERFECT (Cinnabar; the model never prices
     /// perfect play), a parry or a dodge (Sal Ammoniac, Volatilization) - is left out and says so
     /// in GearWorth's note and the phase report. Every number is Tuning.Board's or a stated Assume.
     /// </summary>
@@ -47,7 +48,7 @@ namespace Convergence.Balance
             float damage = 0f, speed = 0f;
             if (Owns(b, Notable.Tartar)) damage += B.TartarDamagePoints * StillShare(b);
             if (Owns(b, Notable.Exaltation))
-                damage += B.ExaltationDamagePoints * Mathf.Min(1f, B.ExaltationSeconds * releasesPerSecond);
+                damage += BoardNumbers.ExaltationDamagePoints * Mathf.Min(1f, B.ExaltationSeconds * releasesPerSecond);
             if (Owns(b, Notable.Circulation)) speed += B.CirculationMaxPoints * Assume.FlowUptime;
             return (damage, speed);
         }
@@ -77,7 +78,7 @@ namespace Convergence.Balance
         {
             if (b == null || b.Legacy || b.Notables.Count == 0) return 1f;
             float f = 1f;
-            if (Owns(b, Notable.Vitriol)) f *= 1f + B.VitriolMax * Assume.SameTargetShare;
+            if (Owns(b, Notable.Vitriol)) f *= 1f + BoardNumbers.VitriolMax * Assume.SameTargetShare;
 
             if (Owns(b, Notable.Saltpetre) && Owns(b, Notable.Choler))
                 f *= 1f + B.SaltpetreBonus * Mathf.Min(1f, B.CholerSeconds / Mathf.Max(0.1f, c.Seconds));

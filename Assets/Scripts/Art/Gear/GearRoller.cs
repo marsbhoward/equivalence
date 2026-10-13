@@ -220,7 +220,7 @@ namespace Convergence.Art.Gear
             StatKind.AoeRadius => 0.5f,                 // 40
             StatKind.FinisherPower => 0.75f,            // 60
             StatKind.ElementGrowth => 0.625f,           // 50
-            StatKind.ElementalEffectiveness => 1f,      // 80
+            StatKind.ElementalEffectiveness => 1f,      // 80 - its knee is 120: a targeted piece fills a third
             StatKind.MaxHp => 0.75f,                    // 60
 
             // ---- the crit family: a roll worth a Damage roll on the Max player ----

@@ -225,17 +225,18 @@ namespace Convergence.Core
             // Starting max HP. 100% is whichever of these the element uses.
             //
             // For scale: a bomb enemy's blast hits for 20 and an elite for 15, so unarmoured
-            // these are about 6 / 4 / 7 bomb hits, or 8 / 6 / 10 elite ones. The spread between them is
+            // these are about 6 / 5 / 6 bomb hits, or 8 / 6.5 / 8.5 elite ones. The spread between them is
             // the element's whole durability identity.
 
             /// <summary>Fire and Water - the mid-durability elements. ~14 basic hits.</summary>
             public const float HpFireWater = 115f;
 
-            /// <summary>Air, the glass cannon. ~11 basic hits, or 6 from an elite.</summary>
-            public const float HpAir = 85f;
+            /// <summary>Air, the glass cannon. ~12 basic hits, or 6.5 from an elite. Calibrated with
+            /// the elements (Tuning.Elements).</summary>
+            public const float HpAir = 97.5f;
 
-            /// <summary>Earth, the tank. ~18 basic hits.</summary>
-            public const float HpEarth = 145f;
+            /// <summary>Earth, the tank. ~15 basic hits. Calibrated with the elements.</summary>
+            public const float HpEarth = 125f;
 
             /// <summary>
             /// How steeply travel has to point toward the top of the screen (away from the
@@ -498,13 +499,17 @@ namespace Convergence.Core
             /// <summary>Percentage points of a status's strength per unit - nine units, +45%.</summary>
             public const float StatusPowerUnit = 5f;
 
+            // Vitriol, Cohobation, Alkahest, Exaltation, Precipitation and Fermentation were
+            // CALIBRATED 2026-10-12 with the elements (Balance.Assay.CalibrateElements, build spread
+            // 37% -> 13%; docs/balance/2026-10-12-calibration.md) - re-run it before moving one.
+
             // ---- Strikes ----
-            public const float VitriolPerHit = 0.02f, VitriolMax = 0.10f;
-            public const float CohobationPerBasic = 0.08f, CohobationMax = 0.40f;
+            public const float VitriolPerHit = 0.02f, VitriolMax = 0.05f;
+            public const float CohobationPerBasic = 0.04f, CohobationMax = 0.40f;
 
             // ---- Element ----
-            public const float AlkahestRefund = 0.2f;
-            public const float ExaltationSeconds = 5f, ExaltationDamagePoints = 25f;
+            public const float AlkahestRefund = 0.3f;
+            public const float ExaltationSeconds = 5f, ExaltationDamagePoints = 40f;
 
             // ---- the four humours: status keystones any element can take ----
             /// <summary>Choler: a weapon art burns for this share of its hit each second. Low on
@@ -544,7 +549,7 @@ namespace Convergence.Core
             public const float RealgarSpeedMul = 1.2f;
             public const float CirculationWindow = 1f, CirculationPointsPerHit = 3f, CirculationMaxPoints = 30f;
             public const float TartarDamagePoints = 12f;
-            public const float PrecipitationFraction = 0.4f, PrecipitationRadius = 2f;
+            public const float PrecipitationFraction = 0.25f, PrecipitationRadius = 2f;
 
             // ---- Space ----
             public const float AquaRegiaReachFraction = 0.667f, AquaRegiaSlow = 0.7f, AquaRegiaSeconds = 1.5f;
@@ -554,7 +559,7 @@ namespace Convergence.Core
             /// differ in shape, so the board's area rules read one radius round the player.</summary>
             public const float ReleaseRadius = 4f;
             public const float FermentationSeconds = 3f, FermentationSlow = 0.7f;
-            public const float FermentationHitFractionPerSecond = 0.10f, FermentationRadius = 2.5f;
+            public const float FermentationHitFractionPerSecond = 0.35f, FermentationRadius = 2.5f;
         }
 
         /// <summary>
@@ -4661,7 +4666,10 @@ namespace Convergence.Core
             public const float RangeKnee = 25f, RangeCap = 50f;
             public const float AreaKnee = 40f, AreaCap = 80f;
             public const float ElementGrowthKnee = 50f, ElementGrowthCap = 120f;
-            public const float ElementalPowerKnee = 80f, ElementalPowerCap = 200f;
+            // Elemental Power reaches further than the rest (2026-10-12): it is the one stat an
+            // Elementalist's releases are made of, and at 80 a Max Elementalist's (100) was already
+            // bent. Its gear scale was left alone, so it takes MORE gear to fill (GearRoller.KindScale).
+            public const float ElementalPowerKnee = 120f, ElementalPowerCap = 240f;
             public const float MaxHpKnee = 60f, MaxHpCap = 150f;
 
             // ---- the run layer (the Vessel at full mastery): knee, cap ----
@@ -4722,11 +4730,13 @@ namespace Convergence.Core
         /// Area (StatKind.AoeRadius), like every other area attack.
         /// </summary>
         ///
-        /// CALIBRATED 2026-10-05 by Balance.Assay.CalibrateElements (element parity: the worst
-        /// build's spread across the four elements 42% -> 14%, every release worth 3-5 seconds of
-        /// the player's own damage), inside ranges that keep each element itself - Earth heavy and
-        /// clearly slower, Air light and fast. Re-run it after any change to gear, the board or the
-        /// curves, and copy what it finds back here.
+        /// CALIBRATED 2026-10-12 by Balance.Assay.CalibrateElements, on WORTH - sqrt(damage x
+        /// survival), the crowd counted (docs/balance/2026-10-12-calibration.md): the worst build's
+        /// spread across the four elements 41% -> 9%, with Tuning.Player.HpEarth/HpAir and Earth's
+        /// reductions searched alongside. Inside ranges that keep each element itself - Earth the
+        /// toughest and clearly slower, Air light, fast and the most fragile, Water's release its
+        /// whole identity (it sits at 5.9 s, over the 3-5 s band, by the user's call). Re-run it
+        /// after any change to gear, the board or the curves, and copy what it finds back here.
         public static class Elements
         {
             /// <summary>Fire: heat stacks, one banked per swing that lands, each fading on its own.</summary>
@@ -4736,20 +4746,20 @@ namespace Convergence.Core
                 public const float StackLifetime = 4f;
 
                 /// <summary>Damage points per stack held - the ladder's steady head start.</summary>
-                public const float StackDamagePoints = 7.5f;
+                public const float StackDamagePoints = 5f;
 
                 /// <summary>Rung 1, FUEL: a swing landing on a BURNING enemy banks this many stacks
                 /// instead of one - Fire's mirror of Water's soaked enemies filling its meter twice.</summary>
                 public const int FuelStacks = 2;
 
                 /// <summary>Rung 2: attack speed points while at least two stacks are held.</summary>
-                public const float HastePoints = 28f;
+                public const float HastePoints = 15f;
 
                 /// <summary>Rung 3, STOKE: stacks fade this much slower while three or more are held.</summary>
                 public const float StokeLifetimeMul = 2f;
 
                 /// <summary>Rung 4: a landed hit splashes this share of itself onto one more nearby enemy.</summary>
-                public const float SplashFraction = 0.5f;
+                public const float SplashFraction = 0.25f;
                 public const float SplashRadius = 2.2f;
 
                 // ---- ERUPT, the first release: burning ground around the player ----
@@ -4757,7 +4767,7 @@ namespace Convergence.Core
                 public const float EruptSpread = 5.5f;
                 public const float PoolRadius = 1.15f;
                 public const float PoolSeconds = 5f;
-                public const float PoolHitUnitsPerSecond = 7.7f;
+                public const float PoolHitUnitsPerSecond = 6.7f;
 
                 // ---- IGNITE, the second release: a window in which every landed hit burns ----
                 public const float IgniteSeconds = 8f;
@@ -4771,14 +4781,15 @@ namespace Convergence.Core
             /// <summary>Water: a tiered meter built by landing hits - soak, surge, burst.</summary>
             public static class Water
             {
-                public const float DamagePoints = 0f;
+                /// <summary>A standing head start - everything else Water has is its release.</summary>
+                public const float DamagePoints = 15f;
                 public const float GainPerHit = 0.09f;
                 public const float DecayPerSecond = 0.02f;
                 public const float SoakedGainMultiplier = 2f;
                 public const float Radius = 3.6f;
 
                 /// <summary>Attack speed points while a surge runs.</summary>
-                public const float SurgePoints = 37.5f;
+                public const float SurgePoints = 30f;
                 public const float SurgeSecondsTier2 = 6f;
                 public const float SurgeSecondsTier3 = 9f;
 
@@ -4795,9 +4806,9 @@ namespace Convergence.Core
             /// <summary>Earth: a stillness meter - stand to charge, quake to spend.</summary>
             public static class Earth
             {
-                public const float DamagePoints = 35f;
-                public const float AttackSpeedPoints = -10f;
-                public const float StillDamageReduction = 0.25f, MovingDamageReduction = 0.10f;
+                public const float DamagePoints = 30f;
+                public const float AttackSpeedPoints = -15f;
+                public const float StillDamageReduction = 0.15f, MovingDamageReduction = 0.05f;
                 public const float StillPoise = 0.9f, MovingPoise = 0.55f;
 
                 public const float ChargeSeconds = 5f;
@@ -4806,8 +4817,8 @@ namespace Convergence.Core
                 public const float Radius = 4.2f;
 
                 /// <summary>One shock: this plus PerCharge times the charge spent, in hit units.</summary>
-                public const float ShockHitUnits = 2.2f;
-                public const float ShockHitUnitsPerCharge = 4f;
+                public const float ShockHitUnits = 1.9f;
+                public const float ShockHitUnitsPerCharge = 3.3f;
                 public const float ShockKnockback = 7f;
                 public const float StaggerSeconds = 2.5f;
             }
@@ -4815,13 +4826,13 @@ namespace Convergence.Core
             /// <summary>Air: momentum built by moving, crits by an unbroken streak.</summary>
             public static class Air
             {
-                public const float DamagePoints = -50f;
+                public const float DamagePoints = -45f;
                 public const float AttackSpeedPoints = 0f;
-                public const float AttackSpeedPointsPerMomentum = 60f;
+                public const float AttackSpeedPointsPerMomentum = 70f;
                 public const float MoveSpeedPointsPerMomentum = 35f;
-                /// <summary>Crit damage points - Air's crits land at 2.0 where everyone else's
-                /// start at 1.8.</summary>
-                public const float CritDamagePoints = 17.5f;
+                /// <summary>Crit damage points - Air's crits land harder than anyone else's from the
+                /// start.</summary>
+                public const float CritDamagePoints = 12.5f;
 
                 public const float BaseCrit = 0.15f;
                 public const float CritPerStreak = 0.04f;
@@ -4839,7 +4850,7 @@ namespace Convergence.Core
                 public const float GustLifesteal = 0.15f;
                 /// <summary>Damage points while the gust runs - its damage payoff, scaled by
                 /// Elemental Power like every release's.</summary>
-                public const float GustDamagePoints = 35f;
+                public const float GustDamagePoints = 45f;
 
                 // ---- SQUALL, the second release: vortices scattered around the player ----
                 public const int VortexCount = 5;

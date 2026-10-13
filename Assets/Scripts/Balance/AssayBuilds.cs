@@ -4,6 +4,7 @@ using System.Linq;
 using Convergence.Art.Gear;
 using Convergence.Core;
 using Convergence.Progression;
+using UnityEngine;
 
 namespace Convergence.Balance
 {
@@ -86,14 +87,17 @@ namespace Convergence.Balance
             { Archetype.Striker, new[] { StatKind.Damage, StatKind.CritDamage, StatKind.CritChance,
                                          StatKind.Accuracy, StatKind.FinisherPower, StatKind.AttackSpeed,
                                          StatKind.MaxHp, StatKind.Resilience, StatKind.Graze } },
+            // No Move Speed: the model cannot price what it buys (positioning, kiting, Air's
+            // momentum), so a Tempo spending three slots on it read as needing gear least and
+            // weakest of the four (2026-10-12). Its real worth is unmeasured, not zero.
             { Archetype.Tempo, new[] { StatKind.AttackSpeed, StatKind.CritChance, StatKind.CritDamage,
-                                       StatKind.Damage, StatKind.Accuracy, StatKind.MoveSpeed, StatKind.Graze,
-                                       StatKind.MaxHp } },
+                                       StatKind.Damage, StatKind.Accuracy, StatKind.Graze, StatKind.MaxHp,
+                                       StatKind.Resilience } },
             { Archetype.Bulwark, new[] { StatKind.Resilience, StatKind.MaxHp, StatKind.Brace, StatKind.Graze,
                                          StatKind.Damage, StatKind.AttackSpeed, StatKind.CritChance } },
             { Archetype.Elementalist, new[] { StatKind.ElementalEffectiveness, StatKind.ElementGrowth,
                                               StatKind.Damage, StatKind.CritDamage, StatKind.AttackSpeed,
-                                              StatKind.MaxHp } },
+                                              StatKind.MaxHp, StatKind.Resilience, StatKind.Graze } },
         };
 
         /// <summary>
@@ -133,6 +137,31 @@ namespace Convergence.Balance
             }
             _builds[key] = b;
             return b;
+        }
+
+        /// <summary>The Max board with NO gear - what gear is measured against
+        /// (<see cref="GearMultiplier"/>).</summary>
+        public static Build BoardOnly(Archetype archetype, ElementType element)
+        {
+            string key = $"{archetype}/{element}/BoardOnly";
+            if (_builds.TryGetValue(key, out var cached)) return cached;
+            var b = new Build { Name = key, Archetype = archetype, Element = element, Kit = Kit.Max };
+            Spend(b);
+            _builds[key] = b;
+            return b;
+        }
+
+        /// <summary>What gear multiplies a build's worth, sqrt(damage x survival), by: its Max kit
+        /// over the same board bare, averaged over the four elements.</summary>
+        public static float GearMultiplier(Archetype archetype)
+        {
+            var none = new Exchange.Mods();
+            return Elements.Average(e =>
+            {
+                var max = Evaluate(Make(archetype, e, Kit.Max), none, _ => 0, 1);
+                var bare = Evaluate(BoardOnly(archetype, e), none, _ => 0, 1);
+                return Mathf.Sqrt(max.Dps / bare.Dps * (max.Ehp / bare.Ehp));
+            });
         }
 
         /// <summary>

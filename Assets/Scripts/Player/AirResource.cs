@@ -94,9 +94,11 @@ namespace Convergence.Player
 
         // The glass cannon as head starts (Tuning.Elements): lighter hits, faster swings, harder
         // crits - Air reaches the speed and crit caps sooner, never higher ones.
-        public override float CritDamagePoints => T.CritDamagePoints;
-        public override float DamagePoints => T.DamagePoints + (Gusting ? T.GustDamagePoints * Scale : 0f);
-        public override float AttackSpeedPoints => T.AttackSpeedPoints + Momentum * T.AttackSpeedPointsPerMomentum;
+        // Elemental Power grows the bonuses, never the light hits' penalty; Gust's damage is its
+        // release's, already scaled with the rest of it.
+        public override float CritDamagePoints => Grown(T.CritDamagePoints);
+        public override float DamagePoints => Grown(T.DamagePoints) + (Gusting ? T.GustDamagePoints * Scale : 0f);
+        public override float AttackSpeedPoints => Grown(T.AttackSpeedPoints + Momentum * T.AttackSpeedPointsPerMomentum);
 
         /// <summary>
         /// Momentum moves the CHARACTER, not the blade.
@@ -108,7 +110,7 @@ namespace Convergence.Player
         /// to close to normal distance to land a hit.
         /// </summary>
         public override float MoveSpeedPoints
-            => Momentum * T.MoveSpeedPointsPerMomentum + (Gusting ? T.GustMoveSpeedPoints : 0f);
+            => Grown(Momentum * T.MoveSpeedPointsPerMomentum + (Gusting ? T.GustMoveSpeedPoints : 0f));
 
         public override void OnMoved(bool moving) => _moving = moving;
 

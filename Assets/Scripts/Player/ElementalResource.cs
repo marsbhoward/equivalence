@@ -24,10 +24,22 @@ namespace Convergence.Player
         // reaches a threshold sooner, never past it, and a penalty means needing more gear for the
         // same cap rather than a lower one. Read live, because most of them change mid-fight - heat
         // stacks, momentum, a surge. See Tuning.Elements.
+        //
+        // ELEMENTAL POWER GROWS THEM (the user's call, 2026-10-12): every BONUS is multiplied by
+        // the character's Elemental Power (gear and the board - never the ledger's release scale,
+        // which Twin Spark sets below 1), a PENALTY never is. Each override passes its bonuses
+        // through Grown. Investing in the element is investing in all of it, not only the release.
         public virtual float DamagePoints => 0f;
         public virtual float AttackSpeedPoints => 0f;
         public virtual float MoveSpeedPoints => 0f;
         public virtual float CritDamagePoints => 0f;
+
+        /// <summary>The character's Elemental Power as a multiplier, supplied by the game (1 when
+        /// unset) - what <see cref="Grown"/> scales a standing bonus by.</summary>
+        public System.Func<float> PowerScale;
+
+        /// <summary>A standing bonus grown by Elemental Power; a penalty passes through as it is.</summary>
+        protected float Grown(float points) => points > 0f ? points * (PowerScale?.Invoke() ?? 1f) : points;
 
         public virtual float AttackRangeBonus => 0f;
 

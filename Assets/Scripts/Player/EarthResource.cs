@@ -45,8 +45,8 @@ namespace Convergence.Player
         public override ElementType Element => ElementType.Earth;
         // Heavy, slow swings - as head starts (Tuning.Elements): Earth reaches the damage cap
         // sooner and the attack-speed cap later, never a different cap.
-        public override float DamagePoints => T.DamagePoints;
-        public override float AttackSpeedPoints => T.AttackSpeedPoints;
+        public override float DamagePoints => Grown(T.DamagePoints);
+        public override float AttackSpeedPoints => Grown(T.AttackSpeedPoints);   // a penalty: never grown
         public override float PoiseBonus => _still ? T.StillPoise : T.MovingPoise;
         /// <summary>Planted - or just stepped off under Bedrock, which holds the planted reduction
         /// a moment after a move.</summary>

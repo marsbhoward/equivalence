@@ -34,6 +34,7 @@ namespace Convergence.Balance
         {
             StatKind.Damage, StatKind.AttackSpeed, StatKind.CritChance, StatKind.CritDamage, StatKind.Accuracy,
             StatKind.FinisherPower, StatKind.ElementalEffectiveness, StatKind.ElementGrowth,
+            StatKind.Cleave, StatKind.Splash, StatKind.AoeRadius,   // on the crowd (AssayCrowd)
         };
         static readonly StatKind[] SurvivalStats = { StatKind.MaxHp, StatKind.Resilience, StatKind.Graze, StatKind.Brace };
 

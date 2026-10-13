@@ -252,23 +252,28 @@ namespace Convergence.Balance
 
         /// <summary>
         /// The element calibration view: every build's damage on every element (Max, no ledger,
-        /// floor 1, x the unbuffed player) with the spread across elements, and each element's
-        /// release worth - the two numbers the element parity rule is judged on.
+        /// floor 1, x the unbuffed player) - its worth, sqrt(damage x survival), with the spread across
+        /// elements, then each half - and each element's release worth: the numbers the element
+        /// parity rule is judged on.
         /// </summary>
         public static string ElementTable(Kit kit = Kit.Max)
         {
-            float unit = Unit;
             var none = new Exchange.Mods();
-            var sb = new StringBuilder($"{kit}, no ledger, floor 1 - damage x unbuffed ({unit:0.0})\n");
-            sb.Append("build            Fire  Water  Earth    Air  spread | release worth: Fire Water Earth  Air\n");
+            var reference = Evaluate(Reference(), none, _ => 0, 1);
+            var sb = new StringBuilder($"{kit}, no ledger, floor 1 - x unbuffed: WORTH sqrt(damage x survival), then damage / survival\n");
+            sb.Append("build            Fire  Water  Earth    Air  spread | damage / survival: Fire      Water      Earth      Air   | release worth: Fire Water Earth  Air\n");
             foreach (var a in Archetypes)
             {
-                var d = Elements.Select(e => Evaluate(Make(a, e, kit), none, _ => 0, 1).Dps / unit).ToArray();
+                var w = Elements.Select(e => Evaluate(Make(a, e, kit), none, _ => 0, 1)).ToArray();
+                var d = w.Select(x => x.Dps / reference.Dps).ToArray();
+                var h = w.Select(x => x.Ehp / reference.Ehp).ToArray();
+                var v = d.Select((x, i) => Mathf.Sqrt(x * h[i])).ToArray();
                 var r = Elements.Select(e => ReleaseSeconds(Make(a, e, kit))).ToArray();
-                sb.Append($"{a,-13} {d[0],6:0.00} {d[1],6:0.00} {d[2],6:0.00} {d[3],6:0.00} {Spread(d),6:P0} |" +
+                sb.Append($"{a,-13} {v[0],6:0.00} {v[1],6:0.00} {v[2],6:0.00} {v[3],6:0.00} {Spread(v),6:P0} |" +
+                          $" {d[0],23:0.0}/{h[0]:0.0} {d[1],6:0.0}/{h[1]:0.0} {d[2],6:0.0}/{h[2]:0.0} {d[3],6:0.0}/{h[3]:0.0} |" +
                           $" {r[0],19:0.0}s {r[1],4:0.0}s {r[2],4:0.0}s {r[3],3:0.0}s\n");
             }
-            sb.Append($"model numbers differing from Tuning: {ElementNumbers.Drift()}\n");
+            sb.Append($"model numbers differing from Tuning: {ElementNumbers.Drift()}; board: {BoardNumbers.Drift()}\n");
             return sb.ToString();
         }
 

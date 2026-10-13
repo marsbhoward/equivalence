@@ -75,9 +75,9 @@ namespace Convergence.Player
         public float SurgeRemaining => _surgeRemaining;
 
         public override ElementType Element => ElementType.Water;
-        public override float DamagePoints => T.DamagePoints;
+        public override float DamagePoints => Grown(T.DamagePoints);
         public override float AttackSpeedPoints
-            => Surging ? Mathf.Max(0f, SurgePoints - (Ledger != null ? Ledger.SurgePointsLost : 0f)) : 0f;
+            => Surging ? Grown(Mathf.Max(0f, SurgePoints - (Ledger != null ? Ledger.SurgePointsLost : 0f))) : 0f;
 
         void Update()
         {
@@ -267,7 +267,7 @@ namespace Convergence.Player
             {
                 // The surge outranks the meter while it runs: it is on a clock the player has to
                 // spend, and the meter is not going anywhere.
-                if (Surging) return $"SURGE  +{SurgePoints:0}% attack speed  {_surgeRemaining:0.0}s";
+                if (Surging) return $"SURGE  +{AttackSpeedPoints:0}% attack speed  {_surgeRemaining:0.0}s";
 
                 return Tier switch
                 {
