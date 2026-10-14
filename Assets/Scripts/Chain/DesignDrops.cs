@@ -12,7 +12,8 @@ namespace Convergence.Chain
     /// slot or class, and the minted record wears it (MintedGearRecord.Design). One place, so the
     /// Forge's boxes and the floor-100 drop cannot disagree about what a Diamond is.
     ///
-    /// Never eligible: FORGE-ONLY designs (Tria Prima and its seal - fused, never dropped), and at
+    /// Never eligible: a RING (rings are never designs), FORGE-ONLY designs (Tria Prima and its
+    /// seal - fused, never dropped), and at
     /// Black Diamond a RELIC that belongs to a weapon. A Black Diamond weapon drops TOGETHER with
     /// its relic - the weapon is the look, the relic the finisher, and the pair is one payout - so
     /// the relic on its own is not a separate thing to land on.
@@ -31,6 +32,10 @@ namespace Convergence.Chain
             foreach (var item in GearCatalog.All.Values)
             {
                 if (item == null || item.Tier != tier || item.ForgeOnly) continue;
+                // NEVER A RING (the user's call, 2026-10-13): at their size in game rings can hardly
+                // be made unique, and they are not to be paid for - every ring is stat-bearing gear
+                // that does not trade. The service's pool refuses them too (designs.ts).
+                if (item.Slot == GearSlot.Ring) continue;
                 // Authored only: a minted instance is the catalogue entry for one player's copy.
                 if (!string.IsNullOrEmpty(item.StackKey) || !string.IsNullOrEmpty(item.DesignId)) continue;
                 if (slot.HasValue && item.Slot != slot.Value) continue;

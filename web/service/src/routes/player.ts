@@ -6,6 +6,7 @@ import { characterUnits } from '../characters.js';
 import { referenceDatum } from '../cip68.js';
 import { BOX_INFO, BOX_TIERS, BoxTier, boxPolicy, boxUnits, boxesHeld } from '../boxes.js';
 import { CharacterLedger, RunRecord, fresh, snapshot, transact } from '../ledger.js';
+import { FINAL_FLOOR, decisionFor } from '../finalFloor.js';
 
 type Claim = { status: 'unknown' | 'busy' | 'claimed' } | { status: 'repeat'; run: RunRecord };
 
@@ -24,18 +25,19 @@ type Claim = { status: 'unknown' | 'busy' | 'claimed' } | { status: 'repeat'; ru
  */
 
 /**
- * The most of each tier one run can plausibly SECURE: one per avatar boss reached (floors 25, 50,
- * 75, 100). Each avatar can drop a Diamond box (2%) or a Black Diamond box (0.5%) on top of its
- * floor's loot, and floor 100's own drop is a Diamond box - or, 1% of the time, a Black Diamond
- * one instead (RunLoot). Nothing below floor 25 can hold either. A claim past the cap is clamped,
- * and the clamp is reported.
+ * The most of each tier one run can plausibly SECURE. The avatar bosses at 25, 50 and 75 can each
+ * drop a Diamond box (2%) and a Black Diamond box (0.5%) - the game rolls those, so the cap is one
+ * per avatar reached. FLOOR 100's box is the SERVICE's decision (finalFloor.ts - the weekly
+ * guarantee): it adds one of its tier only when /saves/final-floor recorded it for this run. A
+ * claim past the cap is clamped, and the clamp is reported.
  *
  * Boxes are claimed whether the run ended in extraction or death: a box secured at a Rift, or by
  * clearing floor 100, is safe from that moment, so a death after it still mints it.
  */
 const AVATAR_INTERVAL = 25;
-const MAX_AVATARS = 4;
-const perRunCap = (floors: number) => Math.min(MAX_AVATARS, Math.floor(floors / AVATAR_INTERVAL));
+const ROLLED_AVATARS = 3;
+const avatarCap = (floors: number) =>
+  Math.min(ROLLED_AVATARS, Math.floor(Math.min(floors, FINAL_FLOOR - 1) / AVATAR_INTERVAL));
 
 const ID = /^[A-Za-z0-9_.:-]{1,96}$/;
 
@@ -152,10 +154,12 @@ export async function commitRun(req: Request, res: Response): Promise<void> {
     if (claim.status === 'repeat')
       return void res.json({ hash: claim.run.hash ?? `ledger:run-end:${runId}`, minted: claim.run.minted ?? {}, repeat: true });
 
+    const final = floors >= FINAL_FLOOR ? await decisionFor(profileId, runId) : null;
     const minted: Partial<Record<BoxTier, number>> = {};
     const clamped: Partial<Record<BoxTier, number>> = {};
     for (const tier of BOX_TIERS) {
-      const allowed = Math.min(claimed[tier], perRunCap(floors));
+      const cap = avatarCap(floors) + (final?.tier === tier ? final.count : 0);
+      const allowed = Math.min(claimed[tier], cap);
       if (allowed > 0) minted[tier] = allowed;
       if (allowed < claimed[tier]) clamped[tier] = claimed[tier] - allowed;
     }

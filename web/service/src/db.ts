@@ -104,6 +104,23 @@ const MIGRATIONS: string[] = [
     fetched_at    TIMESTAMPTZ NOT NULL DEFAULT now()
   );
   `,
+
+  // 2 - floor 100's box, decided by the service (finalFloor.ts): one row per run that claimed it.
+  // GUARANTEED marks the week's guaranteed box - at most one per character per week.
+  `
+  CREATE TABLE final_floor (
+    profile_id    TEXT NOT NULL,
+    run_id        TEXT NOT NULL,
+    owner         TEXT NOT NULL,
+    week          INTEGER NOT NULL,
+    guaranteed    BOOLEAN NOT NULL,
+    tier          TEXT NOT NULL,
+    count         INTEGER NOT NULL,
+    decided_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (profile_id, run_id)
+  );
+  CREATE UNIQUE INDEX final_floor_one_guarantee_a_week ON final_floor (profile_id, week) WHERE guaranteed;
+  `,
 ];
 
 /** Applies every migration not yet applied. Called once at start-up. */

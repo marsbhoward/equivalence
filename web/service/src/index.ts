@@ -13,6 +13,7 @@ import { beginRun, boxes, commitRun } from './routes/player.js';
 import { openBoxes, submitOpen } from './routes/openBoxes.js';
 import { graduate, loadAccount, loadCharacter, roster, saveAccount, saveCharacter } from './routes/saves.js';
 import { newGuest, requireIdentity } from './identity.js';
+import { claimFinalFloor, finalFloorStatus } from './routes/finalFloor.js';
 import { hasDatabase, migrate } from './db.js';
 import { playRouter } from './play.js';
 import { activatePlay, putPlayFile, rollbackPlay } from './routes/playUpload.js';
@@ -107,6 +108,9 @@ app.put('/saves/characters/:profileId', saveCharacter);
 app.get('/saves/account', loadAccount);
 app.put('/saves/account', saveAccount);
 app.post('/saves/graduate', graduate);
+// Floor 100's box - the one drop the service decides (routes/finalFloor.ts).
+app.post('/saves/final-floor', claimFinalFloor);
+app.get('/saves/final-floor/:profileId', finalFloorStatus);
 
 app.post('/op/play/:build/activate', activatePlay);
 app.post('/op/play/rollback', rollbackPlay);

@@ -128,6 +128,30 @@ namespace Convergence.Chain.Service
                     $"{{\"profileId\":{ServiceClient.Quote(profile.ProfileId)},\"summary\":{ServiceClient.Quote(JsonUtility.ToJson(summary))}}}");
         }
 
+        [Serializable]
+        class FinalReply { public string tier; public int count; public bool guaranteed; public int week; }
+
+        /// <summary>Floor 100's box, decided by the service (routes/finalFloor.ts) - the run must be
+        /// this character's latest run start. Null when there is no answer; the caller asks again
+        /// before the run's end, and the service answers the decision it recorded.</summary>
+        public async Task<FinalFloorReward?> FinalFloorRewardAsync(CharacterProfile profile, string runId)
+        {
+            _unreadable ??= new HashSet<string>();
+            if (_unreadable.Contains(profile.ProfileId)) return null;   // a stand-in was never saved
+            string body = $"{{\"profileId\":{ServiceClient.Quote(profile.ProfileId)},\"runId\":{ServiceClient.Quote(runId)}}}";
+            var r = await Ask(t => ServiceClient.Post("/saves/final-floor", body, t));
+            if (!r.Ok)
+            {
+                Debug.LogWarning($"[Service] floor 100's box: {r}");
+                return null;
+            }
+            FinalReply reply = null;
+            try { reply = JsonUtility.FromJson<FinalReply>(r.Body); }
+            catch (Exception e) { Debug.LogWarning($"[Service] floor 100's box unreadable: {e.Message}"); }
+            if (reply == null || !Enum.TryParse(reply.tier, out Art.Gear.LootTier tier) || reply.count < 1) return null;
+            return new FinalFloorReward { Tier = tier, Count = reply.count, Guaranteed = reply.guaranteed, Week = reply.week };
+        }
+
         public async Task UnlockAsync(CharacterProfile profile)
         {
             var tx = TxLog.Post(TxKind.Unlock, "Permanent unlocks written",

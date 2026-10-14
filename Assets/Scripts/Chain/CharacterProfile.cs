@@ -161,6 +161,14 @@ namespace Convergence.Chain
         /// Additive: older saves load false.</summary>
         public bool StakeInsured;
 
+        /// <summary>
+        /// The week (FinalFloorReward.WeekOf) this character last took floor 100's weekly GUARANTEED
+        /// box - what a LOCAL save decides the next one from. A service player's guarantee is the
+        /// service's own record; this copy only follows it. 0 = never (week 0 is 1970). Additive:
+        /// older saves load 0.
+        /// </summary>
+        public int GuaranteeWeek;
+
         /// <summary>Name for display, never blank.</summary>
         public string DisplayName => string.IsNullOrWhiteSpace(Name) ? ProfileId : Name;
     }
@@ -192,6 +200,10 @@ namespace Convergence.Chain
         /// </summary>
         public int SecuredDiamondBoxes;
         public int SecuredBlackDiamondBoxes;
+
+        /// <summary>The week whose guaranteed floor-100 box this run took, or 0 - applied to the
+        /// profile by ProfileRules.RunEnd. Additive: older summaries read 0.</summary>
+        public int GuaranteeWeek;
     }
 
     /// <summary>

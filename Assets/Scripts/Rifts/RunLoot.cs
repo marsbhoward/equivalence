@@ -141,7 +141,7 @@ namespace Convergence.Rifts
         /// <summary>
         /// An avatar boss's own design-box rolls (floors 25, 50, 75), ON TOP of the floor's drop:
         /// a Diamond box and a Black Diamond box, each rolled separately. Floor 100 is not here -
-        /// its floor drop already is the design box (see Roll).
+        /// its box is the store's decision (Chain/FinalFloorReward).
         /// </summary>
         public void RollAvatarBoxes(int floor)
         {
@@ -282,17 +282,14 @@ namespace Convergence.Rifts
         ///     1-24    Bronze 100%
         ///     25-49   Bronze 70   Silver 30
         ///     50-74   Bronze 40   Silver 45   Gold 15
-        ///     75-99   Bronze 15   Silver 45   Gold 40
-        ///     100     Diamond 100   (Black Diamond 1% instead - see Roll)
-        ///     101+    the 75-99 band
+        ///     75+     Bronze 15   Silver 45   Gold 40
         ///
-        /// Diamond never comes from an ordinary floor: it is floor 100's completion prize, and
-        /// otherwise only a rare EXTRA from the avatar bosses (RollAvatarBoxes).
+        /// Floor 100's box is the store's decision (Chain/FinalFloorReward - the weekly guarantee).
+        /// Diamond never comes from an ordinary floor: only from floor 100 and the avatar bosses'
+        /// rare EXTRA (RollAvatarBoxes).
         /// </summary>
         public static LootTier TierFor(int floor)
         {
-            if (floor == FinalFloor) return LootTier.Diamond;
-
             float r = Random.value;
             if (floor >= 75) return r < 0.15f ? LootTier.Bronze : r < 0.60f ? LootTier.Silver : LootTier.Gold;
             if (floor >= 50) return r < 0.40f ? LootTier.Bronze : r < 0.85f ? LootTier.Silver : LootTier.Gold;
@@ -302,17 +299,22 @@ namespace Convergence.Rifts
 
         /// <summary>
         /// A BOSS floor's guaranteed box, credited as found (FindTieredBox): the floor's banded
-        /// tier, or on floor 100 a Diamond box - a Black Diamond one instead at
-        /// FinalBlackDiamondBoxChance. Ordinary floors drop nothing on the clear; their gear comes
-        /// off enemies (<see cref="RollGear"/>). Returns the tier credited.
+        /// tier. NOT floor 100 - its box carries the weekly guarantee and is the store's decision
+        /// (Chain/FinalFloorReward, GameBootstrap.ClaimFinalFloor). Ordinary floors drop nothing on
+        /// the clear; their gear comes off enemies (<see cref="RollGear"/>). Returns the tier
+        /// credited.
         /// </summary>
         public LootTier RollBossBox(int floor)
         {
             var tier = TierFor(floor);
-            if (floor == FinalFloor && Random.value < Tuning.GearRoll.FinalBlackDiamondBoxChance)
-                tier = LootTier.BlackDiamond;
             FindTieredBox(tier);
             return tier;
+        }
+
+        /// <summary>Several boxes of one tier, credited as found.</summary>
+        public void FindTieredBoxes(LootTier tier, int count)
+        {
+            for (int i = 0; i < count; i++) FindTieredBox(tier);
         }
 
         /// <summary>

@@ -4941,14 +4941,23 @@ namespace Convergence.Core
             /// <summary>
             /// The design-box drops (the user's calls, 2026-10-09). The avatar bosses at 25, 50 and
             /// 75 can each drop a Diamond box and a Black Diamond box, rolled separately, ON TOP of
-            /// the floor's own loot. Floor 100's own drop is a Diamond box - the completion prize,
-            /// the one guaranteed design box - or, 1% of the time, a Black Diamond box INSTEAD
-            /// (doubled from the other avatars' rate so short runs to the first avatar are not the
-            /// best farm). Black Diamond is never guaranteed anywhere.
+            /// the floor's own loot.
+            ///
+            /// FLOOR 100's own box is the SERVICE's decision (Chain/FinalFloorReward; the service's
+            /// copy of these numbers is web/service/src/finalFloor.ts - keep them in step): the
+            /// FIRST floor-100 clear of the week per CHARACTER pays a Diamond box, a Black Diamond
+            /// box 1% of the time instead - the weekly guarantee, turning at Sunday 00:00 UTC; every
+            /// later clear that week pays Diamond 2%, Black Diamond 1%, otherwise 2-3 GOLD boxes
+            /// (the user's calls, 2026-10-13). A guaranteed Diamond box EVERY clear cost the service
+            /// more per heavy player than any price recovered - every design box opened mints a
+            /// token the service pays for.
             /// </summary>
             public const float AvatarDiamondBoxChance = 0.02f;
             public const float AvatarBlackDiamondBoxChance = 0.005f;
-            public const float FinalBlackDiamondBoxChance = 0.01f;
+            public const float FinalGuaranteedBlackDiamondChance = 0.01f;
+            public const float FinalLaterDiamondChance = 0.02f;
+            public const float FinalLaterBlackDiamondChance = 0.01f;
+            public const int FinalGoldBoxesMin = 2, FinalGoldBoxesMax = 3;
 
             /// <summary>
             /// Forge box costs, in boxes of the tier being spent. Combining costs NO boxes - two

@@ -46,6 +46,15 @@ namespace Convergence.Chain
         Task CommitRunAsync(CharacterProfile profile, RunSummary summary);
 
         /// <summary>
+        /// FLOOR 100's box - the one drop the game does not roll itself (<see cref="FinalFloorReward"/>):
+        /// it carries the weekly guarantee, so the service decides it for a service player and
+        /// records the decision against the run (asking again answers the same box), and a local
+        /// save decides it from the profile. NOT a checkpoint - nothing about the profile is
+        /// written. Null when no answer could be had.
+        /// </summary>
+        Task<FinalFloorReward?> FinalFloorRewardAsync(CharacterProfile profile, string runId);
+
+        /// <summary>
         /// Permanent-unlock checkpoint - the third write point named in the roguelite handoff.
         /// Equipping is permanent, account-level and outside any run, so it is its own
         /// transaction rather than something folded into a run boundary.

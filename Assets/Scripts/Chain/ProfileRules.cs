@@ -25,6 +25,7 @@ namespace Convergence.Chain
             profile.BestFloor = Mathf.Max(profile.BestFloor, summary.Floors);
             profile.Xp += summary.XpEarned;
             profile.Level = 1 + profile.Xp / 100;
+            if (summary.GuaranteeWeek > profile.GuaranteeWeek) profile.GuaranteeWeek = summary.GuaranteeWeek;
             profile.RecentRuns.Add(summary);
             if (profile.RecentRuns.Count > 10) profile.RecentRuns.RemoveAt(0);
         }

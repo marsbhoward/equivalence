@@ -118,6 +118,14 @@ namespace Convergence.Core
         string _runId;
         float _runStartTime;
 
+        /// <summary>Floor 100's box, asked of the store (ClaimFinalFloor) and not yet credited -
+        /// EndRun settles one still outstanding before the run's loot is banked.</summary>
+        System.Threading.Tasks.Task<FinalFloorReward?> _finalAsk;
+
+        /// <summary>The week whose guaranteed floor-100 box this run took, or 0 - rides the run
+        /// summary to the profile (ProfileRules.RunEnd).</summary>
+        int _runGuaranteeWeek;
+
         Transform _arenaRoot, _enemyRoot, _hazardRoot;
         PlayerController _player;
         StuckWatch _stuckWatch;
@@ -2017,6 +2025,8 @@ namespace Convergence.Core
 
             int token = _runToken;
             _runId = Guid.NewGuid().ToString("N")[..8];
+            _finalAsk = null;
+            _runGuaranteeWeek = 0;
             _pendingMastery = 0;
             _runCalx = 0;
             _runCalxTaken = 0;
@@ -3727,7 +3737,9 @@ namespace Convergence.Core
             if (_floor <= 0) return;
             // Only a BOSS floor pays on the clear - a guaranteed box. Every other floor's gear came
             // off its enemies (TryDropGear); see Tuning.GearRoll.EnemyGearDropChance.
-            if (IsBossFloor(_floor))
+            // Floor 100's box is the STORE's decision - it carries the weekly guarantee.
+            if (_floor == Rifts.RunLoot.FinalFloor) ClaimFinalFloor();
+            else if (IsBossFloor(_floor))
             {
                 var tier = _loot.RollBossBox(_floor);
                 Debug.Log($"[Rift] boss floor {_floor} paid a {tier} box " +
@@ -3750,6 +3762,61 @@ namespace Convergence.Core
                 _loot.SecureAllBoxes();
                 _hud?.Flash("floor 100 cleared  -  every box is secured");
             }
+        }
+
+        /// <summary>
+        /// FLOOR 100's BOX, asked of the store - the service decides it for a service player (the
+        /// weekly guarantee: Chain/FinalFloorReward). It arrives after the clear's own flash; a
+        /// failed ask is left for EndRun to ask again (the service answers the decision it
+        /// recorded, never a reroll).
+        /// </summary>
+        async void ClaimFinalFloor()
+        {
+            var ask = _finalAsk = _store.FinalFloorRewardAsync(_profile, _runId);
+            FinalFloorReward? reward = null;
+            try { reward = await ask; }
+            catch (Exception e) { Debug.LogWarning($"[Rift] floor 100's box: {e.Message}"); }
+            if (_finalAsk != ask) return;   // EndRun has settled it already
+            if (reward == null)
+            {
+                _hud?.Flash("floor 100's box is waiting on the service");
+                return;
+            }
+            CreditFinalFloor(reward);
+        }
+
+        /// <summary>EndRun's half: an outstanding or failed ask is awaited, then asked once more,
+        /// and credited before anything banks.</summary>
+        async System.Threading.Tasks.Task SettleFinalFloorAsync()
+        {
+            var ask = _finalAsk;
+            if (ask == null) return;
+            FinalFloorReward? reward = null;
+            try { reward = await ask; } catch { /* asked again below */ }
+            if (_finalAsk != ask) return;   // ClaimFinalFloor credited it meanwhile
+            if (reward == null)
+                try { reward = await _store.FinalFloorRewardAsync(_profile, _runId); }
+                catch (Exception e) { Debug.LogWarning($"[Rift] floor 100's box, asked again: {e.Message}"); }
+            CreditFinalFloor(reward);
+        }
+
+        /// <summary>Floor 100's box into the run's loot, secured like every box floor 100 pays. No
+        /// answer at all pays the least Gold it could have, and leaves the week's guarantee
+        /// unspent - nothing was recorded against it.</summary>
+        void CreditFinalFloor(FinalFloorReward? answered)
+        {
+            _finalAsk = null;
+            var reward = answered ?? FinalFloorReward.Unanswered;
+            _loot.FindTieredBoxes(reward.Tier, reward.Count);
+            _loot.SecureAllBoxes();
+            if (reward.Guaranteed) _runGuaranteeWeek = reward.Week;
+            string boxes = reward.Count > 1 ? $"{reward.Count} {reward.Tier.ToString().ToUpper()} BOXES"
+                                            : $"{reward.Tier.ToString().ToUpper()} BOX";
+            if (reward.Tier == Art.Gear.LootTier.BlackDiamond) boxes = "BLACK DIAMOND BOX";
+            _hud?.Flash(reward.Guaranteed ? $"WEEKLY {boxes}" : boxes);
+            Debug.Log($"[Rift] floor 100 paid {reward.Count} {reward.Tier}" +
+                      (reward.Guaranteed ? $" (the weekly guarantee, week {reward.Week})" : "") +
+                      (answered == null ? " - no answer from the store, the guarantee is still unspent" : ""));
         }
 
         /// <summary>
@@ -4367,6 +4434,10 @@ namespace Convergence.Core
             // XP AND MASTERY ARE UNTOUCHED BY EITHER OUTCOME, deliberately: the run economy's rule
             // is that death costs the tradeable stake and never the progression, so a bad
             // extraction is a bad payday rather than a wasted hour.
+            // Floor 100's box first, so it is secured and banked with everything else.
+            await SettleFinalFloorAsync();
+            summary.GuaranteeWeek = _runGuaranteeWeek;
+
             int lost = _loot.CarriedCount;
             _loot.ForfeitCarried();
             // The reward card's calx rides with the carried loot: home on an extraction, gone on a

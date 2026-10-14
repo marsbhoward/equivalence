@@ -107,6 +107,16 @@ namespace Convergence.Chain
             await Task.Yield();
         }
 
+        public async Task<FinalFloorReward?> FinalFloorRewardAsync(CharacterProfile profile, string runId)
+        {
+            int week = FinalFloorReward.ThisWeek;
+            var reward = FinalFloorReward.Roll(profile.GuaranteeWeek != week, week, new System.Random());
+            Debug.Log($"[ProfileStore] floor 100     run={runId} {reward.Count} {reward.Tier}" +
+                      (reward.Guaranteed ? " (weekly guarantee)" : ""));
+            await Task.Yield();
+            return reward;
+        }
+
         public async Task UnlockAsync(CharacterProfile profile)
         {
 

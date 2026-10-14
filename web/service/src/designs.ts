@@ -40,10 +40,16 @@ export function designs(): Manifest {
   return manifest;
 }
 
-/** DesignDrops.Pool: the tier's designs, optionally narrowed to a slot and (weapons) a class. */
+/**
+ * DesignDrops.Pool: the tier's designs, optionally narrowed to a slot and (weapons) a class.
+ * Never a RING (the user's call, 2026-10-13: at their size in game rings can hardly be made
+ * unique, and they are not to be paid for - every ring is stat-bearing gear that does not trade).
+ * Checked here as well as in the game, so a manifest exported before the rule cannot pay one out.
+ */
 export function pool(tier: string, slot?: string, weaponClass?: string): DesignEntry[] {
   return (designs().tiers[tier] ?? []).filter(
-    (d) => (!slot || d.slot === slot) && (!weaponClass || d.slot !== 'Weapon' || d.class === weaponClass),
+    (d) => d.slot !== 'Ring' &&
+      (!slot || d.slot === slot) && (!weaponClass || d.slot !== 'Weapon' || d.class === weaponClass),
   );
 }
 
