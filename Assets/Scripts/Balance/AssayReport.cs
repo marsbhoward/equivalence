@@ -311,7 +311,9 @@ namespace Convergence.Balance
                 float t = Mathf.InverseLerp(Tuning.Waves.BuiltFromFloor, Tuning.Waves.BuiltByFloor, f);
                 var reference = Run(Reference(), Policy.Random, 200);
                 var built = Run(Real(PowerBuild.BuiltThree), Policy.Greedy, 200);
-                float real = Mathf.Lerp(reference.Dps[f], built.Dps[f], t);
+                // Single target on both sides: PlayerPower prices one body at a time, so the crowd
+                // (in Dps since 2026-10-12) would read as floors running SHORTER than priced.
+                float real = Mathf.Lerp(reference.TargetDps[f], built.TargetDps[f], t);
                 float priced = PlayerPower.ExpectedDps(f);
                 sb.Append($"{f,5} | {priced,12:0.0} | {real,28:0.0} | {priced / real - 1f,10:P0}\n");
             }

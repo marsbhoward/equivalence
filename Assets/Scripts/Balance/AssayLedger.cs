@@ -31,6 +31,9 @@ namespace Convergence.Balance
     public sealed class Curve
     {
         public readonly float[] Dps = new float[Assay.LastFloor + 1];
+        /// <summary>Worth.TargetDps - the body being fought alone, no crowd: what wave pricing
+        /// (single target, PlayerPower) is compared against.</summary>
+        public readonly float[] TargetDps = new float[Assay.LastFloor + 1];
         public readonly float[] ChainDps = new float[Assay.LastFloor + 1];
         public readonly float[] Ehp = new float[Assay.LastFloor + 1];
         public readonly float[] EffectiveHp = new float[Assay.LastFloor + 1];
@@ -101,6 +104,7 @@ namespace Convergence.Balance
                     {
                         var now = Evaluate(b, ledger.Current, ledger.StacksOf, floor);
                         curve.Dps[floor] += now.Dps;
+                        curve.TargetDps[floor] += now.TargetDps;
                         curve.ChainDps[floor] += now.ChainDps;
                         curve.Ehp[floor] += now.Ehp;
                         curve.EffectiveHp[floor] += now.EffectiveHp;
@@ -162,6 +166,7 @@ namespace Convergence.Balance
             for (int f = 1; f <= LastFloor; f++)
             {
                 curve.Dps[f] /= runs;
+                curve.TargetDps[f] /= runs;
                 curve.ChainDps[f] /= runs;
                 curve.Ehp[f] /= runs;
                 curve.EffectiveHp[f] /= runs;
