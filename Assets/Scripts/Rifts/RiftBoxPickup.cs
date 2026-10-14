@@ -50,11 +50,19 @@ namespace Convergence.Rifts
         /// <summary>Where the box's feet sit, so it stands centred on the drop point.</summary>
         const float FeetY = -0.18f;
 
+        /// <summary>Picked up or collapsed - destroyed at the end of the frame.</summary>
+        public bool Taken => _taken;
+
+        /// <summary>Seconds left before it collapses.</summary>
+        public float LifeSeconds => _life;
+
         public bool InReach => _player != null && !_taken
             && Vector2.Distance(_player.position, transform.position) <= Reach;
 
+        /// <param name="life">Seconds before it collapses - a fresh drop's full span unless given
+        /// (a resumed cleared room puts a box back with what it had left).</param>
         public static RiftBoxPickup Drop(Vector2 at, Transform parent, Transform player,
-                                         System.Action onTaken)
+                                         System.Action onTaken, float life = -1f)
         {
             var go = new GameObject("rift-box");
             if (parent != null) go.transform.SetParent(parent, false);
@@ -63,6 +71,7 @@ namespace Convergence.Rifts
             var b = go.AddComponent<RiftBoxPickup>();
             b._player = player;
             b._onTaken = onTaken;
+            if (life > 0f) b._life = Mathf.Min(life, Tuning.Boss.RiftBoxLifeSeconds);
 
             b._glow = Quad(go.transform, "glow", 1.5f, 1.5f, Spr.Glow,
                            new Color(Violet.r, Violet.g, Violet.b, 0.35f), SortingOrders.Fx - 42);

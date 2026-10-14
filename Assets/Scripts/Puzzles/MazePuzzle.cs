@@ -74,6 +74,11 @@ namespace Convergence.Puzzles
 
         public override float Countdown => State == PuzzleState.Active ? Mathf.Max(0f, _left) : -1f;
 
+        public override void SetClock(float secondsLeft)
+        {
+            if (State == PuzzleState.Active) _left = Mathf.Clamp(secondsLeft, 0.1f, Tuning.Puzzle.MazeSeconds);
+        }
+
         public override string Body
         {
             get

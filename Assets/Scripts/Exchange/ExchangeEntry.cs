@@ -238,6 +238,7 @@ namespace Convergence.Exchange
     /// once - a second take would silently do nothing. Counters consumed at build time are simply
     /// what they are.
     /// </summary>
+    [Serializable]
     public class PendingOffer
     {
         public int PairsDelta;

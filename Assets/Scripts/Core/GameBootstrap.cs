@@ -298,10 +298,87 @@ namespace Convergence.Core
         int _runToken;
 
         /// <summary>
-        /// The run's equivalent-exchange ledger. Run-scoped and never persisted: these are what
-        /// you agreed to on the way down, and they die with the run.
+        /// The run's equivalent-exchange ledger. Run-scoped: these are what you agreed to on the way
+        /// down, and they die with the run. Written into the run's snapshot (continuation, below)
+        /// so a run carried on in another session keeps them - never into the character.
         /// </summary>
         public Exchange.RunModifiers Modifiers { get; } = new();
+
+        // ------------------------------------------------------------------ continuation (fields)
+        // A run survives a closed tab and can be left to come back to - see the "continuation"
+        // section further down, and CONTINUATION.md.
+
+        /// <summary>The run in flight's store. Interface-typed, so a lazy property for the reason
+        /// _store is one (a domain reload nulls the field).</summary>
+        IRunStore _runsField;
+        IRunStore _runs => _runsField ??= StoreFactory.Runs();
+
+        /// <summary>Sends the live run's writes in order. Rebuilt after a domain reload.</summary>
+        RunKeeper _keeperField;
+        RunKeeper _keeper => _keeperField ??= NewKeeper();
+
+        /// <summary>The session playing this run - every run write names it (one live session per run).</summary>
+        string _runSession;
+
+        /// <summary>The live run's latest snapshot - what a resume would rebuild. Null outside a run,
+        /// and from the moment a run starts ending.</summary>
+        RunSnapshot _runSave;
+
+        /// <summary>In the hub: the run this character left, waiting to be resumed or ended. Null when
+        /// none waits.</summary>
+        SuspendedRun _waiting;
+
+        /// <summary>The run store could not be asked about this character - not the same as no run.
+        /// A stake is not forfeited on it, and nothing is offered at the gate.</summary>
+        bool _waitingUnknown;
+
+        /// <summary>Bodies spawned from this floor's wave - each one's RollIndex, the stream its drops
+        /// are rolled from (Rifts.RunRolls). A kill outside the numbered ones falls back on
+        /// _floorKills.</summary>
+        int _floorSpawns, _floorKills;
+
+        /// <summary>A Red Rift's guard is numbered from here, clear of the wave - summoned whenever
+        /// the player chooses, it must not shift the wave's numbers.</summary>
+        const int RedGuardRollBase = 10000, LooseRollBase = 20000;
+
+        /// <summary>The boss's health a resume carries into its floor, in eighths down
+        /// (RunSnapshot.BossEighthsDown): read from the waiting run, recorded by the floor-start
+        /// snapshot, then handed to the boss as it spawns (_bossStartDown).</summary>
+        int _resumeBossDown, _bossStartDown;
+
+        /// <summary>The boss's eighths the last heartbeat told the store.</summary>
+        int _beatBossDown;
+
+        /// <summary>A clock left running (the Labyrinth's, a Collapsing Rift's) - seconds spent, a
+        /// Collapsing Rift already run out, the Labyrinth's position: read from the waiting run,
+        /// recorded by the floor-start snapshot, then handed to this floor (_floor*).</summary>
+        float _resumeClockSpent, _floorClockSpent;
+        bool _resumeRiftCollapsed, _floorRiftCollapsed, _resumePlaced, _floorPlaced;
+        Vector2 _resumePos, _floorPos;
+
+        /// <summary>The running clock's full length, and the reorientation seconds a resume granted
+        /// on it - added back when the time spent is reported, so it is granted once, not per quit.</summary>
+        float _clockFull, _clockCredit;
+
+        /// <summary>Curator rerolls spent on the reward now showing.</summary>
+        int _rewardRerolls;
+
+        /// <summary>This floor's puzzle was given up or failed (its adjacent room is the floor now);
+        /// <see cref="_resumeGivenUp"/> is the same answer read from a snapshot, for NextFloor.</summary>
+        bool _puzzleGivenUp, _resumeGivenUp;
+
+        /// <summary>The captured spire's boon riding the ledger (Hazards.SpireBoon as an int), or -1 -
+        /// SetFloorBoon takes a delegate, which a snapshot cannot hold.</summary>
+        int _floorBoon = -1;
+
+        /// <summary>The profile's boxes as the run's banked pools began - what RunLoot.Restore rebases
+        /// a resumed run's pools against.</summary>
+        int _runStartRiftBoxes;
+        LootBoxes _runStartBoxes = new();
+
+        /// <summary>What the last heartbeat (or snapshot) said, and when - a beat goes only when
+        /// these have moved, at most every Tuning.Continuation.BeatSeconds.</summary>
+        float _beatHealth = -1f, _beatWear = -1f, _beatAt;
 
         async void Start()
         {
@@ -438,6 +515,8 @@ namespace Convergence.Core
             if (dropped > 0)
                 Debug.Log($"[ProfileStore] dropped {dropped} loadout entries that no longer match their slot.");
             RegisterMintedGear(_profile);
+            // A run left waiting carries its stake - looked up BEFORE the stake is judged stale.
+            await LookUpWaitingRunAsync();
             await ForfeitStaleStake();
             Mastery = new Progression.BoardState(_profile.Mastery);
 
@@ -461,6 +540,10 @@ namespace Convergence.Core
             if (_account.Room.NormalizeTrophyIds() > 0)
                 await _accounts.SaveAsync(_account);
 
+            // A run that ended while its end was still being written (the tab closed on the run-over)
+            // is settled now, as it ended - never offered again as a resume.
+            await SettleEndedWaitingAsync();
+
             BuildArena();
             ShowHub();
         }
@@ -483,6 +566,14 @@ namespace Convergence.Core
         /// </summary>
         public async void Equip(Art.Gear.GearSlot slot, string itemId)
         {
+            // A run left waiting holds the character as it went in - its weapon class, ability and
+            // stats are the run's. The hub's fixtures that equip refuse first (GuardWaitingRun); this
+            // is the backstop.
+            if (_state == State.Hub && _waiting != null)
+            {
+                Debug.LogWarning($"[Run] {slot} not changed - a run is waiting for this character");
+                return;
+            }
             _profile.Gear.Set(slot, itemId);
 
             // Changing the WEAPON can invalidate the relic beside it and any weapon disguise, both
@@ -584,6 +675,9 @@ namespace Convergence.Core
         /// </summary>
         async System.Threading.Tasks.Task ForfeitStaleStake()
         {
+            // UNLESS THE RUN IS WAITING: a run left to come back to (or one the run store could not
+            // be asked about) still has its stake riding on it - it settles when that run ends.
+            if (_waiting != null || _waitingUnknown) return;
             var (outcome, stake) = GearStake.ForfeitStale(_profile);
             if (stake == null) return;
             Debug.Log($"[Stake] {stake.DisplayName} ({stake.InstanceId}) was staked on a run that never " +
@@ -1305,8 +1399,8 @@ namespace Convergence.Core
             _hub = gameObject.AddComponent<Hub.HubRoom>();
             _hub.Build(transform, _canvas.transform, _cam, _profile, _order, _roster,
                        EnterGate,
-                       () => TransmutationScreen.Open(_canvas.transform, _profile.LastElement),
-                       () => MasteryScreen.Open(_canvas.transform),
+                       () => { if (!GuardWaitingRun()) TransmutationScreen.Open(_canvas.transform, _profile.LastElement); },
+                       () => { if (!GuardWaitingRun()) MasteryScreen.Open(_canvas.transform); },
                        SwitchCharacter,
                        NewCharacter,
                        OpenCollection,
@@ -1330,6 +1424,10 @@ namespace Convergence.Core
                 SaveRoom();
                 return true;
             };
+            // A run left waiting: the gate offers it back (AskWaitingRun).
+            _hub.WaitingRun = () => _waiting?.Snapshot is { } s
+                ? ($"floor {s.Floor}  -  {s.Element.ToString().ToLowerInvariant()}", s.Element)
+                : null;
         }
 
         /// <summary>Opens the Forge. Reachable only through the fixture's own interact key, which
@@ -1457,9 +1555,11 @@ namespace Convergence.Core
                 _profile = next;
                 _profile.Gear.DropStale();
                 RegisterMintedGear(_profile);
+                await LookUpWaitingRunAsync();
                 await ForfeitStaleStake();
                 Mastery = new Progression.BoardState(_profile.Mastery);
                 if (EnsureStarterGear(_profile)) await _store.UnlockAsync(_profile);
+                await SettleEndedWaitingAsync();
 
                 Debug.Log($"[Convergence] now playing {_profile.DisplayName} ({_profile.ProfileId})");
                 return true;
@@ -1569,6 +1669,9 @@ namespace Convergence.Core
             // tick on unscaled time regardless of anything below being ready yet.
             Hitstop.Tick();
             CameraKick.Tick();
+            // A run write that failed is tried again on its own clock - in any state, so the last
+            // snapshot of a run being left still gets through.
+            _keeperField?.Tick(Time.unscaledTime);
 
             // This used to open with `if (kb == null) return;`. On a device with no keyboard -
             // which is every phone - that returned before the floor-clear check, the camera track
@@ -1725,7 +1828,11 @@ namespace Convergence.Core
                 // the CLI without driving a character around.
                 for (int i = 0; i < 4; i++)
                 {
-                    if (Controls.DigitTapped(i)) { StartRun(_order[i]); return; }
+                    if (!Controls.DigitTapped(i)) continue;
+                    // A run waiting is offered back first - the shortcut never starts over it.
+                    if (_waiting != null) AskWaitingRun();
+                    else StartRun(_order[i]);
+                    return;
                 }
             }
             else if (_state == State.Playing)
@@ -1748,6 +1855,7 @@ namespace Convergence.Core
 
                 _alive.RemoveAll(e => e == null);
                 _hud?.SetFloorInfo(_floor, _alive.Count, _player ? _player.Kills : 0, GroundGearCount());
+                TickRunBeat();
 
                 // Practice-dummy mode holds the floor open forever: its target is never in
                 // _alive, so without this the floor would read as cleared on the first frame and
@@ -1969,10 +2077,14 @@ namespace Convergence.Core
         /// The sigil door. Asks the stake question first when there is one to ask - a character
         /// wearing no stakeable piece walks straight through. Backing out of the question stays
         /// in the hub. The number-key shortcut skips this and runs unstaked.
+        ///
+        /// A RUN LEFT WAITING comes first: the gate offers it back (resume, end it, or not now)
+        /// and never starts a new run over it.
         /// </summary>
         void EnterGate(ElementType element)
         {
             if (_state != State.Hub || StakeScreen == null || StakeScreen.IsOpen) return;
+            if (_waiting != null) { AskWaitingRun(); return; }
             var candidates = GearStake.Candidates(_profile);
             if (candidates.Count == 0) { StartRun(element); return; }
             StakeScreen.Open(_canvas.transform, candidates, _profile.RiftBoxes,
@@ -1990,11 +2102,13 @@ namespace Convergence.Core
             catch (Exception e) { Debug.LogError($"[Convergence] StartRun failed: {e}"); }
         }
 
-        async System.Threading.Tasks.Task StartRunAsync(ElementType element, MintedGearRecord stake, bool insured)
+        /// <summary>
+        /// Everything a run (started or resumed) touches before its first await, checked by name -
+        /// Start() is async, so nothing it creates is guaranteed to exist on the first frames, and
+        /// async stack traces report useless line numbers and hide which field was null.
+        /// </summary>
+        bool ReadyForRun(string what)
         {
-            // Start() is async, so nothing it creates is guaranteed to exist on the first frames.
-            // Everything StartRunAsync touches before its await is checked here, by name, because
-            // async stack traces report useless line numbers and hide which field was null.
             string missing =
                 _profile == null          ? "_profile"
               : _canvas == null           ? "_canvas"
@@ -2008,16 +2122,20 @@ namespace Convergence.Core
               : InventoryScreen == null   ? "InventoryScreen"
               : Mastery == null           ? "Mastery"
               : null;
-            if (missing != null)
-            {
-                Debug.LogWarning($"[Convergence] StartRun before init finished ({missing} is null) - ignored.");
-                return;
-            }
+            if (missing == null) return true;
+            Debug.LogWarning($"[Convergence] {what} before init finished ({missing} is null) - ignored.");
+            return false;
+        }
 
-            // The same door beat FloorTransition plays between floors, at the one other threshold
-            // in the game that is actually a door: the hub's own sigil door. Grabbed BEFORE
-            // TeardownRun/HideHub, which destroy the hub avatar this rig belongs to - by the time
-            // the screen is black beneath, that no longer matters.
+        /// <summary>
+        /// Through the hub's door and into the dark: the fade, every hub screen closed, the room
+        /// taken down. The same door beat FloorTransition plays between floors, at the one other
+        /// threshold in the game that is actually a door: the hub's own sigil door.
+        /// </summary>
+        async System.Threading.Tasks.Task LeaveHubAsync()
+        {
+            // Grabbed BEFORE TeardownRun/HideHub, which destroy the hub avatar this rig belongs to -
+            // by the time the screen is black beneath, that no longer matters.
             _hub?.AvatarRig?.SetFacingAway(true);
             await RunAsTask(_fade.FadeOut(DoorFadeSeconds));
 
@@ -2042,6 +2160,12 @@ namespace Convergence.Core
             HideHub();
             if (_arenaRoot) _arenaRoot.gameObject.SetActive(true);
             if (_overScreen) Destroy(_overScreen);   // starting again from the run-over screen
+        }
+
+        async System.Threading.Tasks.Task StartRunAsync(ElementType element, MintedGearRecord stake, bool insured)
+        {
+            if (!ReadyForRun("StartRun")) return;
+            await LeaveHubAsync();
 
             int token = _runToken;
             _runId = Guid.NewGuid().ToString("N")[..8];
@@ -2067,6 +2191,8 @@ namespace Convergence.Core
             _runStartDiamondBoxes = _profile.Boxes.Diamond;
             _runStartBlackDiamondBoxes = _profile.Boxes.BlackDiamond;
             Modifiers.Clear();
+            _floorBoon = -1;
+            _floorBoonFloorsLeft = 0;
 
             // The stake is placed BEFORE the run-start checkpoint so the datum carries it - see
             // CharacterProfile.StakedInstanceId. Placing overwrites; a superseded start's stake
@@ -2087,10 +2213,32 @@ namespace Convergence.Core
                 _profile.StakeInsured = false;
             }
 
-            // CHECKPOINT 1 of 2 - the only writes this prototype makes.
+            // What the banked pools began as - a resume rebases them on the profile it finds.
+            _runStartRiftBoxes = _profile.RiftBoxes;
+            _runStartBoxes = CopyBoxes(_profile.Boxes);
+
+            // A new run in flight: its own session, and nothing of the last one's writes.
+            BeginRunSession();
+            _runSave = null;
+            _resumeGivenUp = false;
+
+            // CHECKPOINT 1 of 2 - the only writes this prototype makes. (The run's own snapshots are
+            // not checkpoints - see the continuation section.)
             await _store.BeginRunAsync(_profile, _runId, element);
             if (token != _runToken) return;   // superseded while the checkpoint was in flight
 
+            BuildRunScene(element);
+            var staked = GearStake.Staked(_profile);
+            if (staked != null)
+                _hud.Flash($"{staked.DisplayName} staked  -  clear floor {_profile.StakeGateFloor}, then extract");
+
+            await RunAsTask(_fade.FadeIn(DoorFadeSeconds));
+            _state = State.Playing;
+        }
+
+        /// <summary>The run's roots, its player and HUD - the same for a run started and one resumed.</summary>
+        void BuildRunScene(ElementType element)
+        {
             _enemyRoot = new GameObject("Enemies").transform;
             _enemyRoot.SetParent(transform, false);
 
@@ -2110,12 +2258,6 @@ namespace Convergence.Core
                 () => _player.IncomingReadout,
                 () => _pendingMastery);
             _hud.Build(_player, _canvas.transform);
-            var staked = GearStake.Staked(_profile);
-            if (staked != null)
-                _hud.Flash($"{staked.DisplayName} staked  -  clear floor {_profile.StakeGateFloor}, then extract");
-
-            await RunAsTask(_fade.FadeIn(DoorFadeSeconds));
-            _state = State.Playing;
         }
 
         /// <summary>
@@ -2686,12 +2828,32 @@ namespace Convergence.Core
             _spawning = true;
             CloseRift();   // a Rift left unanswered closes behind the player
             ClearPuzzle();
+
+            // THE FLOOR-START SNAPSHOT: everything the last floor settled, before this one is so
+            // much as planned - a resume replays the floor from here (continuation section).
+            SaveRun(Chain.RunStage.Entering);
+
             _floor++;
             _rewardTaken = false;
+            _floorKills = 0;
+            _floorSpawns = 0;
+            _rewardRerolls = 0;
+            _puzzleGivenUp = false;
+            // A boss fight left part-way comes back that far down - this floor's boss only.
+            _bossStartDown = IsBossFloor(_floor) ? _resumeBossDown : 0;
+            _resumeBossDown = 0;
+            // ...and a clock left running goes on from where it was (Tuning.Continuation.ReorientSeconds).
+            _floorClockSpent = _resumeClockSpent;
+            _floorRiftCollapsed = _resumeRiftCollapsed;
+            _floorPlaced = _resumePlaced;
+            _floorPos = _resumePos;
+            _resumeClockSpent = 0f;
+            _resumeRiftCollapsed = _resumePlaced = false;
+            _clockFull = _clockCredit = 0f;
             // A spire's boon is the floor's, not the run's: it ends at the door - unless Lodestone
             // carries it a floor further.
             if (_floorBoonFloorsLeft > 0) _floorBoonFloorsLeft--;
-            else Modifiers.SetFloorBoon(null);
+            else { Modifiers.SetFloorBoon(null); _floorBoon = -1; }
             _stuckWatch?.NotifyFloorChanged();
             _fightStart = -1f;
             _plan = _planner != null ? _planner.Plan(_floor)
@@ -2749,8 +2911,21 @@ namespace Convergence.Core
 
             // A PUZZLE FLOOR has no wave and no hazards - pits under the stones would make every
             // step a second question. Its fight, if it comes to one, is built by AdjacentRoom.
+            // Read once and spent, whatever the floor turns out to be - it is this floor's answer.
+            bool givenUp = _resumeGivenUp;
+            _resumeGivenUp = false;
             if (_plan.Category == Rifts.FloorCategory.Puzzle)
             {
+                // A puzzle given up (or failed) before the run was left is not offered again: the
+                // floor is its adjacent room's fight now. The puzzle is still drawn, so the
+                // planner remembers its kind as it did the first time.
+                if (givenUp)
+                {
+                    _planner?.PickPuzzle(_floor);
+                    MarkPuzzleGivenUp();
+                    yield return BuildFight(token);
+                    yield break;
+                }
                 if (_hazardRoot != null)
                     foreach (Transform child in _hazardRoot) Destroy(child.gameObject);
                 Hazards.RoomWalls.Apply(null, _hazardRoot);
@@ -2994,6 +3169,7 @@ namespace Convergence.Core
             var next = _spawnQueue.Dequeue();
             var e = EnemyFactory.Spawn(next.Position(), next.Kind, _floor, _player.transform, _enemyRoot,
                                        elite: next.Elite);
+            e.RollIndex = _floorSpawns++;   // the queue's order - the seed's, not the fight's
             Harden(e);
             HookDeath(e);
             _alive.Add(e);
@@ -3094,6 +3270,19 @@ namespace Convergence.Core
                 _profile.Wear.Repair(_profile.Gear, _player.Stats.Mend / 100f * Modifiers.Current.RepairMul,
                                      _player.Stats.Armor);
 
+            // THE CLEAR'S SNAPSHOT: what the clear itself paid is now the run's, and a resume from
+            // here comes back to this room with the deal and the reward still to come - asked of
+            // the same seeds, so they are the same deal and the same rings.
+            SaveRun(Chain.RunStage.Cleared, pending: 2);
+            OfferDeal();
+        }
+
+        /// <summary>
+        /// The deal after a clear, when the floor has one, then the reward - from OfferFloorReward,
+        /// or from a resume into a cleared room whose deal was still waiting.
+        /// </summary>
+        void OfferDeal()
+        {
             // Scrying Glass. Read HERE, after SettleFloorRift: the floor below's plan depends on
             // whether this floor's Rift was reached, and nothing between now and the door moves it.
             string scry = Modifiers.StacksOf("scrying_glass") > 0 ? ScryNextFloor() : null;
@@ -3119,7 +3308,7 @@ namespace Convergence.Core
             // Transmuter's Eye. The reward is rolled ONCE, here, and the same roll is both
             // previewed and later handed to the reward screen - a preview that re-rolled would
             // be a lie, and is the obvious way to get this wrong.
-            _pendingReward = RollFloorReward();
+            _pendingReward = RollFloorReward(_rewardRerolls);
             string preview = Modifiers.StacksOf("transmuters_eye") > 0
                 ? $"next: {string.Join(" / ", System.Linq.Enumerable.Where(new[] { _pendingReward.Arts[0]?.DisplayName, _pendingReward.Arts[1]?.DisplayName }, n => n != null))}" +
                   $"  or  {RestoreText(_pendingReward.Restore, _pendingReward, 0)}  or  {RestoreText(_pendingReward.Second, _pendingReward, 0)}"
@@ -3148,6 +3337,8 @@ namespace Convergence.Core
                     Debug.Log($"[Exchange] refused ({Modifiers.RefusalsLeft} refusals left)");
                 }
 
+                // The deal is answered: a resume from here shows only the reward.
+                SaveRun(Chain.RunStage.Cleared, pending: 1);
                 OfferFloorRewardCards();
             }, scry, oracle);
         }
@@ -3247,7 +3438,15 @@ namespace Convergence.Core
             * Art.Gear.StatPercents.Apply(1f, _player != null ? _player.Stats.RepairReceived : 0f)
             * Modifiers.Current.RepairMul;   // Corrosion
 
-        RolledReward RollFloorReward()
+        /// <summary>The reward rings, seeded from the run (Rifts.RunRolls) - <paramref name="reroll"/> is
+        /// the Curator reroll it is, so a floor replayed after a resume is offered the same rings.</summary>
+        RolledReward RollFloorReward(int reroll)
+        {
+            using (Rifts.RunRolls.Seeded(_planner?.Seed ?? 0, _floor, Rifts.RunRolls.Kind.Reward, reroll))
+                return RollFloorRewardNow();
+        }
+
+        RolledReward RollFloorRewardNow()
         {
             var arts = _player != null
                 ? Combat.MovesetLibrary.RandomOffers(_player.Slots, _player.SlotLocked, _player.Weapon,
@@ -3379,7 +3578,7 @@ namespace Convergence.Core
 
             // Reuses the roll the exchange row may already have shown. Rolling again here would
             // make Transmuter's Eye show one thing and deliver another.
-            var r = _pendingReward ?? RollFloorReward();
+            var r = _pendingReward ?? RollFloorReward(_rewardRerolls);
             _pendingReward = null;
 
             // Sized HERE, after the taper was counted for this floor, so the card pays at the
@@ -3390,10 +3589,14 @@ namespace Convergence.Core
 
             // Curator: a reroll of all four rings per stack, spent on the screen. The heal amount
             // rides each roll, so the callback reads whichever roll is showing.
+            // A reroll spent is written down at once, so leaving and resuming shows the roll it
+            // ended on - not the first one back, which would make a reroll free to take back.
             var showing = r;
             System.Func<List<UI.FloorRewardScreen.Option>> reroll = () =>
             {
-                showing = RollFloorReward();
+                _rewardRerolls++;
+                showing = RollFloorReward(_rewardRerolls);
+                ResaveRerolls();
                 return RingOptions(showing, xpAmount, mastery, element);
             };
 
@@ -3402,7 +3605,7 @@ namespace Convergence.Core
                 _player != null ? _player.Slots : System.Array.Empty<Combat.Moveset>(),
                 _player != null ? _player.SlotLocked : _ => false,
                 _player != null ? _player.RotationIndex : 0,
-                element, reroll, Modifiers.Current.ExtraRewardOptions,
+                element, reroll, Mathf.Max(0, Modifiers.Current.ExtraRewardOptions - _rewardRerolls),
                 (outcome, slot, art) => ApplyFloorReward(outcome, slot, art, showing.HealAmount, xpAmount));
         }
 
@@ -3455,6 +3658,12 @@ namespace Convergence.Core
             // No OpenFloorDoor() call here any more - it already went up in OfferFloorReward,
             // before the exchange row ever showed, so the door is standing there for the whole
             // deal-and-reward flow rather than popping in only once both screens are done.
+
+            // The floor is fully paid: a resume from here is the cleared room and nothing else. The
+            // taper's count rides the account, written with it - the floor it counted is now one
+            // a resume cannot pay again.
+            SaveRun(Chain.RunStage.Cleared, pending: 0);
+            SaveAccount();
         }
 
         FloorDoor _activeDoor;
@@ -3588,6 +3797,17 @@ namespace Convergence.Core
             _boss = Bosses.Boss.Spawn(kind, Vector2.zero, _player.transform, _enemyRoot, _floor);
             Debug.Log($"[Floor] Boss floor {_floor}: {_boss.DisplayName}");
 
+            // A fight left part-way and resumed: the boss comes back down the eighths it had lost,
+            // rounded in its favour (Tuning.Continuation.BossSteps). Its own logic reads health live
+            // (the enrage, the window cap), so starting lower needs nothing else.
+            if (_bossStartDown > 0 && _boss.Health != null)
+            {
+                int steps = Tuning.Continuation.BossSteps;
+                _boss.Health.Restore(_boss.Health.Max * (steps - _bossStartDown) / steps);
+                Debug.Log($"[Run] {_boss.DisplayName} resumed at {steps - _bossStartDown}/{steps} health");
+            }
+            _beatBossDown = _bossStartDown;
+
             var hp = _boss.Health;
             hp.Died += h =>
             {
@@ -3650,8 +3870,24 @@ namespace Convergence.Core
         /// </summary>
         void OpenCollapsingRift()
         {
+            // Run out before the run was left: it stays run out, and its quiet stretch stands - a
+            // quit must not buy the race again.
+            if (_floorRiftCollapsed)
+            {
+                _planner?.MarkRiftCollapsed(_floor);
+                _hud?.Flash("the Rift had already collapsed");
+                Debug.Log($"[Floor] Collapsing Rift on floor {_floor} had run out before the run was left");
+                return;
+            }
             if (!TearRift()) return;
-            float seconds = _planner.CollapseSeconds(_floor);
+            // A race left part-way goes on from where it was (plus a moment to find one's feet)
+            // rather than starting again - against the replayed floor's fresh wave.
+            float full = _planner.CollapseSeconds(_floor);
+            _clockFull = full;
+            _clockCredit = _floorClockSpent > 0f ? Mathf.Min(Tuning.Continuation.ReorientSeconds, _floorClockSpent) : 0f;
+            float seconds = Mathf.Max(Tuning.Continuation.ReorientSeconds, full - _floorClockSpent + _clockCredit);
+            if (_floorClockSpent > 0f)
+                Debug.Log($"[Run] Collapsing Rift resumed with {seconds:0.0}s of {full:0.0}s ({_floorClockSpent:0.0}s spent)");
             Debug.Log($"[Floor] Collapsing Rift on floor {_floor}: {seconds:0.0}s " +
                       $"(estimate {Rifts.FloorPlanner.EstimateSeconds(_floor):0.0}s, " +
                       $"{_planner.PaceRatios.Count} clears timed)");
@@ -3663,6 +3899,8 @@ namespace Convergence.Core
                 _planner?.MarkRiftCollapsed(_floor);
                 Debug.Log($"[Floor] Collapsing Rift on floor {_floor} ran out - " +
                           $"no Rift for {_planner?.QuietFloors} floor(s)");
+                // Written down at once - a resume must find it run out, not race it again.
+                ResaveEntering(s => s.RiftCollapsed = true);
             });
         }
 
@@ -3717,6 +3955,7 @@ namespace Convergence.Core
                 var pos = Arena.NearestFloor(at + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * 1.6f, 0.8f);
                 var kind = Enemies.WaveComposer.EliteKinds[UnityEngine.Random.Range(0, Enemies.WaveComposer.EliteKinds.Length)];
                 var e = EnemyFactory.Spawn(pos, kind, _floor, _player.transform, _enemyRoot, elite: true);
+                e.RollIndex = RedGuardRollBase + i;
                 Harden(e);
                 HookDeath(e);
                 _redGuard.Add(e.GetComponent<Health>());
@@ -3745,6 +3984,8 @@ namespace Convergence.Core
             _hud?.SetRiftPrompt(true);
             _planner?.MarkRiftReached();
             Debug.Log($"[Floor] Red Rift on floor {_floor} opened - its guard has fallen");
+            // Opened after the clear: a resume stands the cleared room up with the Rift open.
+            ResaveCleared();
         }
 
         /// <summary>
@@ -3758,6 +3999,9 @@ namespace Convergence.Core
             // Only a BOSS floor pays on the clear - a guaranteed box. Every other floor's gear came
             // off its enemies (TryDropGear); see Tuning.GearRoll.EnemyGearDropChance.
             // Floor 100's box is the STORE's decision - it carries the weekly guarantee.
+            // Seeded from the run (Rifts.RunRolls): a boss fought again after a resume pays the
+            // same box, and an avatar the same design-box rolls.
+            using var rolls = Rifts.RunRolls.Seeded(_planner?.Seed ?? 0, _floor, Rifts.RunRolls.Kind.Clear, 0);
             if (_floor == Rifts.RunLoot.FinalFloor) ClaimFinalFloor();
             else if (IsBossFloor(_floor))
             {
@@ -3834,6 +4078,7 @@ namespace Convergence.Core
                                             : $"{reward.Tier.ToString().ToUpper()} BOX";
             if (reward.Tier == Art.Gear.LootTier.BlackDiamond) boxes = "BLACK DIAMOND BOX";
             _hud?.Flash(reward.Guaranteed ? $"WEEKLY {boxes}" : boxes);
+            ResaveCleared();   // the box is the run's now - a resume must not ask for it again
             Debug.Log($"[Rift] floor 100 paid {reward.Count} {reward.Tier}" +
                       (reward.Guaranteed ? $" (the weekly guarantee, week {reward.Week})" : "") +
                       (answered == null ? " - no answer from the store, the guarantee is still unspent" : ""));
@@ -3894,6 +4139,7 @@ namespace Convergence.Core
                     // risk, and the tear stays open - the exit door is how the run goes on, and
                     // until the player takes it they may come back and leave after all.
                     if (_rift != null) _hud?.SetRiftPrompt(true);
+                    ResaveCleared();   // what was secured, kept by a resume
                 });
         }
 
@@ -3969,6 +4215,7 @@ namespace Convergence.Core
                     break;
                 default:
                     Modifiers.SetFloorBoon(Hazards.SpireBoons.Apply(boon));
+                    _floorBoon = (int)boon;   // a delegate can't be snapshotted; the boon can
                     _floorBoonFloorsLeft = Modifiers.Current.SpireExtraFloors;   // Lodestone
                     break;
             }
@@ -3989,6 +4236,25 @@ namespace Convergence.Core
             _puzzle = Puzzles.PuzzleRoom.Build(kind, _enemyRoot, _player.transform, _floor,
                                                _planner.PuzzleSeed(_floor));
             _puzzleSettled = false;
+
+            // A clocked puzzle (the Labyrinth) left part-way is put back as it was: its clock goes on
+            // from the seconds spent, plus a moment to find one's feet, and the player stands where
+            // they stood. It has no other state - the maze is the seed's.
+            _clockFull = _puzzle.Countdown > 0f ? _puzzle.Countdown : 0f;
+            _clockCredit = 0f;
+            if (_clockFull > 0f && _floorClockSpent > 0f)
+            {
+                _clockCredit = Mathf.Min(Tuning.Continuation.ReorientSeconds, _floorClockSpent);
+                _puzzle.SetClock(Mathf.Max(Tuning.Continuation.ReorientSeconds, _clockFull - _floorClockSpent + _clockCredit));
+                Debug.Log($"[Run] {kind} resumed with {_puzzle.Countdown:0.0}s ({_floorClockSpent:0.0}s spent)");
+            }
+            if (_floorPlaced)
+            {
+                _player.transform.position = _floorPos;
+                var rb = _player.GetComponent<Rigidbody2D>();
+                if (rb != null) { rb.position = _floorPos; rb.linearVelocity = Vector2.zero; }
+                Physics2D.SyncTransforms();
+            }
 
             // The exit stands where every floor's exit stands, shut. Its walk-through is the
             // ordinary one - only solving the puzzle can open it.
@@ -4121,6 +4387,7 @@ namespace Convergence.Core
             else
             {
                 _puzzleDoor?.Seal();
+                MarkPuzzleGivenUp();   // a resume must not hand a failed puzzle back for another go
                 SpawnSideDoor();   // already standing unless the puzzle filled the floor
                 _hud?.Flash("the sigil door is sealed  -  take the side door");
                 Debug.Log($"[Floor] puzzle floor {_floor} failed");
@@ -4135,6 +4402,7 @@ namespace Convergence.Core
         /// </summary>
         IEnumerator AdjacentRoom()
         {
+            MarkPuzzleGivenUp();   // the floor is this fight now, on a resume too
             _transitioning = true;
             GamePause.Hold(this);
             try
@@ -4274,8 +4542,12 @@ namespace Convergence.Core
                 }
 
                 _spireKilled += cost;
-                TryDropRiftBox(h.transform.position, worth);
-                TryDropGear(h.transform.position, worth);
+                // Each body rolls its OWN drops (its place in the wave), so a floor replayed after a
+                // resume pays the same drops off the same enemies, whatever order they fall in -
+                // nothing to gain by choosing which to kill first.
+                int roll = enemy.RollIndex >= 0 ? enemy.RollIndex : LooseRollBase + _floorKills++;
+                TryDropRiftBox(h.transform.position, worth, roll);
+                TryDropGear(h.transform.position, worth, roll);
                 _alive.Remove(enemy);
                 Destroy(h.gameObject);
 
@@ -4304,17 +4576,25 @@ namespace Convergence.Core
         /// on the floor with it - a consumable surviving into the next run would be loot the
         /// player never carried.
         /// </summary>
-        void TryDropRiftBox(Vector2 at, float chasers)
+        void TryDropRiftBox(Vector2 at, float chasers, int kill)
         {
             if (_player == null) return;
-            if (UnityEngine.Random.value >= Tuning.Boss.RiftBoxDropChance * chasers) return;
+            using (Rifts.RunRolls.Seeded(_planner?.Seed ?? 0, _floor, Rifts.RunRolls.Kind.KillBox, kill))
+                if (UnityEngine.Random.value >= Tuning.Boss.RiftBoxDropChance * chasers) return;
+            LayRiftBoxAt(at);
+        }
 
+        /// <summary>A Rift Box lying on the floor to be taken - a fresh drop, or one a resumed cleared
+        /// room puts back with the seconds it had left.</summary>
+        void LayRiftBoxAt(Vector2 at, float life = -1f)
+        {
+            if (_player == null) return;
             Rifts.RiftBoxPickup.Drop(at, _enemyRoot, _player.transform, () =>
             {
                 _loot.FindBox();
                 Debug.Log($"[Rift] picked up a RIFT BOX (boxes {_loot.TotalBoxes})");
                 _hud?.Flash("RIFT BOX");
-            });
+            }, life);
         }
 
         /// <summary>
@@ -4322,13 +4602,24 @@ namespace Convergence.Core
         /// was worth - the Rift Box's measure, so the yield grows with depth the same way. Straight
         /// into the carried loot (at risk until secured or extracted), announced where it fell.
         /// </summary>
-        void TryDropGear(Vector2 at, float chasers)
+        void TryDropGear(Vector2 at, float chasers, int kill)
         {
             if (_player == null || _floor <= 0) return;
-            if (UnityEngine.Random.value >= Tuning.GearRoll.EnemyGearDropChance * chasers) return;
-
-            var drop = _loot.RollGear(_floor);
+            MintedGearRecord drop;
+            using (Rifts.RunRolls.Seeded(_planner?.Seed ?? 0, _floor, Rifts.RunRolls.Kind.KillGear, kill))
+            {
+                if (UnityEngine.Random.value >= Tuning.GearRoll.EnemyGearDropChance * chasers) return;
+                drop = _loot.RollGear(_floor);
+            }
             Debug.Log($"[Rift] floor {_floor} enemy dropped {drop.DisplayName} (on the ground)");
+            LayGearAt(at, drop);
+        }
+
+        /// <summary>A piece lying on the floor to be taken - a fresh drop, or one a resumed cleared
+        /// room puts back where it lay.</summary>
+        void LayGearAt(Vector2 at, MintedGearRecord drop)
+        {
+            if (_player == null || drop == null) return;
             _groundGear ??= new List<Rifts.GearPickup>();
             _groundGear.Add(Rifts.GearPickup.Drop(at, drop, _enemyRoot, _player.transform, taken =>
             {
@@ -4412,6 +4703,10 @@ namespace Convergence.Core
             if (_state != State.Playing) return;
             if (_profile == null) return;
             _state = State.RunOver;
+            // Before anything awaits: the run is ending, and a tab closed from here on must find it
+            // ended, not waiting (SettleEndedWaitingAsync). No snapshot is written after this.
+            NoteRunEnding(_profile.ProfileId, _runId, survived);
+            _runSave = null;
             // State is already RunOver, so CharacterScreen's onClosed (OpenPauseMenu) no-ops.
             if (PauseScreen.IsOpen) PauseScreen.Close();
             if (InventoryScreen.IsOpen) InventoryScreen.Close();
@@ -4420,30 +4715,77 @@ namespace Convergence.Core
             if (MasteryScreen.IsOpen) MasteryScreen.Close();
             if (ConfirmDialog.IsOpen) ConfirmDialog.Close();
 
-            int kills = _player ? _player.Kills : 0;
-            var element = _player && _player.Resource ? _player.Resource.Element : ElementType.Fire;
-
-            var summary = new RunSummary
+            var tally = new RunTally
             {
                 RunId = _runId,
-                Element = element,
-                Kills = kills,
-                XpEarned = kills * XpPerKill,
+                Element = _player && _player.Resource ? _player.Resource.Element : ElementType.Fire,
+                Kills = _player ? _player.Kills : 0,
                 Floors = _floor,
-                DurationSeconds = Time.time - _runStartTime,
+                Seconds = Time.time - _runStartTime,
+                PendingMastery = _pendingMastery,
+                RunCalx = _runCalx,
+                StakeGateCleared = _stakeGateCleared,
+                RunStartDiamondBoxes = _runStartDiamondBoxes,
+                RunStartBlackDiamondBoxes = _runStartBlackDiamondBoxes,
+            };
+            _pendingMastery = 0;
+            _runCalx = 0;
+
+            // Floor 100's box first, so it is secured and banked with everything else.
+            await SettleFinalFloorAsync();
+            tally.GuaranteeWeek = _runGuaranteeWeek;
+
+            var summary = await SettleRunAsync(tally, _loot, survived);
+
+            // The run is over on the store's side too - AFTER the run-end checkpoint, so a tab closed
+            // between the two finds a run still waiting, and settles it then (it is noted as ended).
+            _keeper.End(_runId);
+            _waiting = null;
+
+            ShowRunOver(summary);
+        }
+
+        /// <summary>What a run comes to, for <see cref="SettleRunAsync"/> - read off the live run, or
+        /// off a waiting run's snapshot.</summary>
+        struct RunTally
+        {
+            public string RunId;
+            public ElementType Element;
+            public int Kills, Floors, PendingMastery, RunCalx, GuaranteeWeek;
+            public float Seconds;
+            public bool StakeGateCleared;
+            public int RunStartDiamondBoxes, RunStartBlackDiamondBoxes;
+        }
+
+        /// <summary>
+        /// THE RUN'S END, settled into the profile and checkpointed: mastery banked, the loot banked
+        /// or forfeit, the reward cards' calx, the stake, and the run-end write. The live run's end
+        /// (EndRun) and a waiting run's (abandoned from the hub, or one whose end never got written)
+        /// both come through here, so the two can never settle a run differently.
+        /// </summary>
+        async System.Threading.Tasks.Task<RunSummary> SettleRunAsync(RunTally t, Rifts.RunLoot loot, bool survived)
+        {
+            var summary = new RunSummary
+            {
+                RunId = t.RunId,
+                Element = t.Element,
+                Kills = t.Kills,
+                XpEarned = t.Kills * XpPerKill,
+                Floors = t.Floors,
+                DurationSeconds = t.Seconds,
                 Survived = survived,
                 EndedAtUtc = DateTime.UtcNow.ToString("o"),
+                GuaranteeWeek = t.GuaranteeWeek,
             };
 
-            if (_pendingMastery > 0)
+            if (t.PendingMastery > 0)
             {
-                var em = _profile.Mastery.For(element);
-                int levels = em.Grant(_pendingMastery);
+                var em = _profile.Mastery.For(t.Element);
+                int levels = em.Grant(t.PendingMastery);
                 Mastery.Invalidate();
-                Debug.Log($"[Mastery] {element} +{_pendingMastery} xp" +
+                Debug.Log($"[Mastery] {t.Element} +{t.PendingMastery} xp" +
                           (levels > 0 ? $" -> {levels} level(s), now {em.Level}" : "") +
                           $" (total {_profile.Mastery.TotalLevel})");
-                _pendingMastery = 0;
             }
 
             // THE EXTRACTION LOOP'S ONLY WRITE. Whatever was carried and never pushed through a
@@ -4454,38 +4796,33 @@ namespace Convergence.Core
             // XP AND MASTERY ARE UNTOUCHED BY EITHER OUTCOME, deliberately: the run economy's rule
             // is that death costs the tradeable stake and never the progression, so a bad
             // extraction is a bad payday rather than a wasted hour.
-            // Floor 100's box first, so it is secured and banked with everything else.
-            await SettleFinalFloorAsync();
-            summary.GuaranteeWeek = _runGuaranteeWeek;
-
-            int lost = _loot.CarriedCount;
-            _loot.ForfeitCarried();
+            int lost = loot.CarriedCount;
+            loot.ForfeitCarried();
             // The reward card's calx rides with the carried loot: home on an extraction, gone on a
             // death. Added before the checkpoint so both stores serialise the same profile.
-            if (_runCalx > 0)
+            if (t.RunCalx > 0)
             {
                 if (survived)
                 {
-                    int calxBoxes = GearForge.AddCalx(_profile, Tuning.FloorRewards.CalxTier, _runCalx);
-                    Debug.Log($"[Rift] banked {_runCalx} calx" +
+                    int calxBoxes = GearForge.AddCalx(_profile, Tuning.FloorRewards.CalxTier, t.RunCalx);
+                    Debug.Log($"[Rift] banked {t.RunCalx} calx" +
                               (calxBoxes > 0 ? $" -> {calxBoxes} {Tuning.FloorRewards.CalxTier} box(es)" : ""));
                 }
-                else Debug.Log($"[Rift] lost {_runCalx} carried calx");
-                _runCalx = 0;
+                else Debug.Log($"[Rift] lost {t.RunCalx} carried calx");
             }
-            int banked = _loot.Bank(_profile);
+            int banked = loot.Bank(_profile);
             if (banked > 0 || lost > 0)
                 Debug.Log($"[Rift] banked {banked} piece(s), lost {lost} carried");
             // What the server's box ledger is credited from - the gain, not the absolute count.
             // Design boxes are never spent mid-run, so the difference is exactly what was secured.
-            summary.SecuredDiamondBoxes = Mathf.Max(0, _profile.Boxes.Diamond - _runStartDiamondBoxes);
-            summary.SecuredBlackDiamondBoxes = Mathf.Max(0, _profile.Boxes.BlackDiamond - _runStartBlackDiamondBoxes);
+            summary.SecuredDiamondBoxes = Mathf.Max(0, _profile.Boxes.Diamond - t.RunStartDiamondBoxes);
+            summary.SecuredBlackDiamondBoxes = Mathf.Max(0, _profile.Boxes.BlackDiamond - t.RunStartBlackDiamondBoxes);
 
             // THE STAKE SETTLES ON THE SAME CHECKPOINT, keyed on `survived` - which is to say on
             // EXTRACTION: a run only ends survived when the player took it out. Whatever system
             // ends a run extracted has to keep passing that, and the stake follows on its own.
             var (stakeOutcome, stakeItem, payout) =
-                GearStake.Resolve(_profile, extracted: survived, gateCleared: _stakeGateCleared,
+                GearStake.Resolve(_profile, extracted: survived, gateCleared: t.StakeGateCleared,
                                   new System.Random());
             if (payout != null) Art.Gear.GearCatalog.Register(payout.ToGearItem());
             _stakeLine = stakeOutcome switch
@@ -4509,8 +4846,7 @@ namespace Convergence.Core
             // the rest of the day (AccountProfile.LastRunDay).
             if (_account != null) _account.LastRunDay = AccountProfile.UtcDay;
             if (_account != null) await _accounts.SaveAsync(_account);
-
-            ShowRunOver(summary);
+            return summary;
         }
 
         /// <summary>The element to open the loadout sheet against - the run's, or the last played
@@ -4549,7 +4885,7 @@ namespace Convergence.Core
                 onEndRun: () =>
                 {
                     PauseScreen.Close();
-                    AskAbandonRun();
+                    AskLeaveRun();   // suspend for later, or abandon
                 },
                 onSettings: () =>
                 {
@@ -4693,6 +5029,764 @@ namespace Convergence.Core
             if (_hud) DestroyImmediate(_hud);
             _player = null;
             _hud = null;
+        }
+
+        // ------------------------------------------------------------------ continuation
+        //
+        // A RUN SURVIVES A CLOSED TAB, A CRASH OR A LOST CONNECTION, AND A PLAYER CAN LEAVE ONE TO
+        // COME BACK TO (CONTINUATION.md - option 2, the user's lean of 2026-10-13).
+        //
+        //     SNAPSHOTS   the whole run (Chain.RunSnapshot) at every floor's START (NextFloor) and
+        //                 at its CLEAR - then again once the deal is answered and once the reward is
+        //                 taken - to the run store beside the character (Chain.IRunStore)
+        //     HEARTBEATS  health and armour, while they move, every Tuning.Continuation.BeatSeconds
+        //     RESUME      a floor in progress is REPLAYED from its start - the same room, wave and
+        //                 drops (Rifts.RunRolls) - at the LOWER of the snapshot's health and the
+        //                 beat's: leaving buys a replay, never a heal. A cleared floor comes back as
+        //                 its cleared room, the deal and the reward waiting with the same choices.
+        //     LEAVE       the pause menu's bottom ring: SUSPEND (the run waits at the sigil door) or
+        //                 ABANDON (a death, as it always was)
+        //
+        // While a run waits, its character is the run's: no equipping and no mastery board, which
+        // the run read once as it began. A waiting run is never dropped silently - the gate offers
+        // it back, and ending it there settles it as a death. The stake rides in it.
+
+        RunKeeper NewKeeper()
+        {
+            var k = new RunKeeper(() => _runs) { Superseded = OnRunSuperseded };
+            // A domain reload rebuilt the keeper mid-run: it carries on under the run's session.
+            if (_profile != null && !string.IsNullOrEmpty(_runSession)) k.Begin(_profile.ProfileId, _runSession);
+            return k;
+        }
+
+        /// <summary>A run in flight under a session of its own - a new run's, or the one a resume claimed.</summary>
+        void BeginRunSession(string session = null)
+        {
+            _runSession = session ?? Guid.NewGuid().ToString("N");
+            _keeper.Begin(_profile.ProfileId, _runSession);
+            _floorKills = 0;
+            _floorSpawns = 0;
+            _rewardRerolls = 0;
+            _puzzleGivenUp = false;
+            _resumeBossDown = 0;
+            _bossStartDown = 0;
+            _beatBossDown = 0;
+            _resumeClockSpent = _floorClockSpent = 0f;
+            _resumeRiftCollapsed = _floorRiftCollapsed = _resumePlaced = _floorPlaced = false;
+            _clockFull = _clockCredit = 0f;
+            _beatHealth = -1f;
+            _beatWear = -1f;
+            _beatAt = 0f;
+        }
+
+        static LootBoxes CopyBoxes(LootBoxes b) => b == null ? new LootBoxes() : new LootBoxes
+        {
+            Bronze = b.Bronze, Silver = b.Silver, Gold = b.Gold, Diamond = b.Diamond, BlackDiamond = b.BlackDiamond,
+        };
+
+        static List<DurabilityEntry> CopyWear(List<DurabilityEntry> entries)
+        {
+            var list = new List<DurabilityEntry>();
+            if (entries != null)
+                foreach (var e in entries)
+                    if (e != null) list.Add(new DurabilityEntry { ItemId = e.ItemId, Current = e.Current });
+            return list;
+        }
+
+        float WearSum()
+        {
+            float sum = 0f;
+            if (_profile?.Wear?.Entries != null)
+                foreach (var e in _profile.Wear.Entries) if (e != null) sum += e.Current;
+            return sum;
+        }
+
+        /// <summary>The run as it stands, written down. ENTERING is taken before the floor is planned
+        /// (its Floor is the one about to be entered); CLEARED after, with the room's door, Rift and
+        /// ground loot, and the screens still to come.</summary>
+        RunSnapshot CaptureRun(RunStage stage, int pending)
+        {
+            var s = new RunSnapshot
+            {
+                RunId = _runId,
+                ProfileId = _profile.ProfileId,
+                Seq = (_runSave?.Seq ?? 0) + 1,
+                SavedAtUtc = DateTime.UtcNow.ToString("o"),
+                Element = ScreenElement(),
+                Stage = stage,
+                Floor = stage == RunStage.Entering ? _floor + 1 : _floor,
+                PendingScreens = stage == RunStage.Cleared ? pending : 0,
+                RewardRerolls = stage == RunStage.Cleared ? _rewardRerolls : 0,
+                PuzzleGivenUp = stage == RunStage.Entering ? _resumeGivenUp : _puzzleGivenUp,
+                BossEighthsDown = stage == RunStage.Entering ? _resumeBossDown : 0,
+                ClockSpent = stage == RunStage.Entering ? _resumeClockSpent : 0f,
+                RiftCollapsed = stage == RunStage.Entering && _resumeRiftCollapsed,
+                Placed = stage == RunStage.Entering && _resumePlaced,
+                PosX = _resumePos.x,
+                PosY = _resumePos.y,
+                Planner = _planner?.Copy(),
+                RunSeconds = Time.time - _runStartTime,
+                PendingMastery = _pendingMastery,
+                RunCalx = _runCalx,
+                RunCalxTaken = _runCalxTaken,
+                StakeGateCleared = _stakeGateCleared,
+                GuaranteeWeek = _runGuaranteeWeek,
+                RunStartRiftBoxes = _runStartRiftBoxes,
+                RunStartBoxes = CopyBoxes(_runStartBoxes),
+                Loot = _loot.Capture(),
+                Ledger = Modifiers.Capture(),
+                FloorBoon = _floorBoon,
+                FloorBoonFloorsLeft = _floorBoonFloorsLeft,
+                Health = _player.Health.Current,
+                Wear = CopyWear(_profile.Wear.Entries),
+            };
+            if (stage == RunStage.Cleared)
+            {
+                s.PlanCategory = _plan.Category;
+                s.PlanRift = _plan.Rift;
+                s.PlanForced = _plan.Forced;
+                s.Rift = _rift == null ? RiftSave.None
+                       : _rift.Sealed ? RiftSave.Sealed
+                       : _rift.Unstable ? RiftSave.None
+                       : RiftSave.Open;
+                s.RiftSecured = _rift != null ? _rift.Secured : 0;
+                s.FinalFloorUnsettled = _finalAsk != null;
+                if (_groundGear != null)
+                    foreach (var g in _groundGear)
+                        if (g != null && !g.Taken && g.Record != null)
+                            s.Ground.Add(new GroundGear { Record = g.Record, X = g.transform.position.x, Y = g.transform.position.y });
+                // A Rift Box the last kills dropped is still lying there through the deal and the
+                // reward (their pause stops its clock) - it comes back with the room.
+                foreach (var b in FindObjectsByType<Rifts.RiftBoxPickup>(FindObjectsInactive.Exclude))
+                    if (b != null && !b.Taken)
+                        s.GroundBoxes.Add(new GroundBox { X = b.transform.position.x, Y = b.transform.position.y, Life = b.LifeSeconds });
+            }
+            _player.CaptureRun(s);
+            if (_player.Effects != null) _player.Effects.CaptureCounters(s);
+            return s;
+        }
+
+        /// <summary>Snapshot the live run and send it. A no-op outside a run, or once one is ending.</summary>
+        void SaveRun(RunStage stage, int pending = 0)
+        {
+            if (_state != State.Playing || _player == null || _player.Health == null || _profile == null
+                || _planner == null || string.IsNullOrEmpty(_runSession)) return;
+            var s = CaptureRun(stage, pending);
+            _runSave = s;
+            _keeper.Save(s);
+            _beatHealth = s.Health;
+            _beatWear = WearSum();
+            _beatBossDown = BossEighthsDownNow();
+            _beatAt = Time.unscaledTime;
+        }
+
+        /// <summary>
+        /// A cleared room changed (a Rift opened or used, floor 100's box credited): written again -
+        /// but ONLY once its screens are done. While the deal or the reward is still to come, the
+        /// stage's own snapshot is the resume point, taken BEFORE the screen's side effects: after
+        /// them, a resume would build the deal a second time (its clocks ticking twice, the next
+        /// deal's owed changes already spent) or pay the floor's mastery and taper again. What
+        /// changes meanwhile is written by the next stage's snapshot.
+        /// </summary>
+        void ResaveCleared()
+        {
+            if (_runSave != null && _runSave.Stage == RunStage.Cleared && _runSave.PendingScreens == 0)
+                SaveRun(RunStage.Cleared, 0);
+        }
+
+        /// <summary>A Curator reroll spent: the waiting reward's snapshot learns only that - the rest
+        /// of it stays as it was before the reward's own side effects (see ResaveCleared).</summary>
+        void ResaveRerolls()
+        {
+            var at = _runSave;
+            if (at == null || at.Stage != RunStage.Cleared || at.PendingScreens != 1) return;
+            var s = JsonUtility.FromJson<RunSnapshot>(JsonUtility.ToJson(at));
+            s.Seq = at.Seq + 1;
+            s.SavedAtUtc = DateTime.UtcNow.ToString("o");
+            s.RewardRerolls = _rewardRerolls;
+            _runSave = s;
+            _keeper.Save(s);
+        }
+
+        /// <summary>
+        /// This floor's puzzle is behind the player (given up, or failed): the floor-start snapshot is
+        /// told so, and a resume builds the adjacent room's fight rather than the puzzle. The snapshot
+        /// stays the floor's START - its health and armour only come down to what they are now.
+        /// </summary>
+        void MarkPuzzleGivenUp()
+        {
+            _puzzleGivenUp = true;
+            if (_runSave != null && !_runSave.PuzzleGivenUp) ResaveEntering(s => s.PuzzleGivenUp = true);
+        }
+
+        /// <summary>
+        /// Something about THIS floor that a replay must not undo (a puzzle given up, a Collapsing
+        /// Rift run out): the floor-start snapshot copied, changed, and sent again. It stays the
+        /// floor's START - so what the fight has taken since (health, armour, the boss, a clock) is
+        /// folded in as the heartbeat it replaces would have carried it, never given back.
+        /// </summary>
+        void ResaveEntering(Action<RunSnapshot> change)
+        {
+            var at = _runSave;
+            if (at == null || at.Stage != RunStage.Entering || at.Floor != _floor
+                || _player == null || _player.Health == null) return;
+            var now = BeatNow();
+            var w = new SuspendedRun { Snapshot = at, Beat = now };
+            var s = JsonUtility.FromJson<RunSnapshot>(JsonUtility.ToJson(at));
+            s.Seq = at.Seq + 1;
+            s.SavedAtUtc = DateTime.UtcNow.ToString("o");
+            s.Health = w.Health;
+            s.Wear = w.Wear();
+            s.BossEighthsDown = w.BossEighthsDown;
+            s.ClockSpent = w.ClockSpent;
+            s.Placed = w.Placed;
+            s.PosX = w.PosX;
+            s.PosY = w.PosY;
+            change?.Invoke(s);
+            _runSave = s;
+            _keeper.Save(s);
+        }
+
+        /// <summary>Health and armour since the last snapshot, sent while they move - polled from Update.</summary>
+        /// <summary>Also sent AT ONCE when the boss crosses an eighth - a step it can't lose again.</summary>
+        void TickRunBeat()
+        {
+            if (_runSave == null || _player == null || _player.Health == null) return;
+            bool bossStep = BossEighthsDownNow() != _beatBossDown;
+            if (!bossStep)
+            {
+                // A running clock beats every second whatever health does - its seconds ARE the state.
+                if (ClockRunning(out _))
+                {
+                    if (Time.unscaledTime - _beatAt < Tuning.Continuation.ClockBeatSeconds) return;
+                }
+                else
+                {
+                    if (Mathf.Approximately(_player.Health.Current, _beatHealth) && Mathf.Approximately(WearSum(), _beatWear)) return;
+                    if (Time.unscaledTime - _beatAt < Tuning.Continuation.BeatSeconds) return;
+                }
+            }
+            SendBeat();
+        }
+
+        /// <summary>
+        /// Whether a clock is running on this floor (the Labyrinth's, a Collapsing Rift's), and the
+        /// seconds of it truly SPENT - the reorientation a resume granted is added back, so the
+        /// next resume grants it against the real time, never on top of the last one.
+        /// </summary>
+        bool ClockRunning(out float spent)
+        {
+            spent = 0f;
+            float left = _puzzle != null && _puzzle.Countdown >= 0f ? _puzzle.Countdown
+                       : _rift != null && _rift.Unstable ? _rift.Remaining
+                       : -1f;
+            if (left < 0f || _clockFull <= 0f) return false;
+            spent = Mathf.Max(0f, _clockFull - left + _clockCredit);
+            return true;
+        }
+
+        /// <summary>The fight since the last snapshot, as a heartbeat carries it.</summary>
+        RunBeat BeatNow()
+        {
+            ClockRunning(out float spent);
+            bool maze = _puzzle is Puzzles.MazePuzzle && _puzzle.State == Puzzles.PuzzleState.Active;
+            Vector2 at = _player != null ? (Vector2)_player.transform.position : Vector2.zero;
+            return new RunBeat
+            {
+                RunId = _runId,
+                Seq = _runSave != null ? _runSave.Seq : 0,
+                Health = _player != null && _player.Health != null ? _player.Health.Current : 0f,
+                Wear = CopyWear(_profile?.Wear?.Entries),
+                BossEighthsDown = BossEighthsDownNow(),
+                ClockSpent = spent,
+                Placed = maze,
+                PosX = at.x,
+                PosY = at.y,
+            };
+        }
+
+        /// <summary>The live boss's health in whole eighths taken, rounded in its favour - a boss at
+        /// 40% is three down (it would come back at 50%). 0 with no boss.</summary>
+        int BossEighthsDownNow()
+        {
+            if (_boss == null || _boss.Health == null || _boss.Health.Max <= 0f) return 0;
+            int steps = Tuning.Continuation.BossSteps;
+            float left = _boss.Health.Current / _boss.Health.Max;
+            // The epsilon keeps a boss restored to exactly 6/8 at six, not seven, through float error.
+            int up = Mathf.CeilToInt(left * steps - 1e-4f);
+            return Mathf.Clamp(steps - up, 0, steps - 1);
+        }
+
+        void SendBeat()
+        {
+            if (_runSave == null || _player == null || _player.Health == null || _profile == null) return;
+            var beat = BeatNow();
+            // Not taken (a snapshot is ahead of it): left unmarked, so the next tick tries again.
+            if (!_keeper.Beat(beat)) return;
+            _beatHealth = beat.Health;
+            _beatWear = WearSum();
+            _beatBossDown = beat.BossEighthsDown;
+            _beatAt = Time.unscaledTime;
+        }
+
+        /// <summary>The window losing focus may be the tab closing: the run's health goes now.</summary>
+        void OnApplicationFocus(bool focus)
+        {
+            if (!focus && _state == State.Playing) SendBeat();
+        }
+
+        void OnApplicationPause(bool paused)
+        {
+            if (paused && _state == State.Playing) SendBeat();
+        }
+
+        async void SaveAccount()
+        {
+            if (_account == null) return;
+            try { await _accounts.SaveAsync(_account); }
+            catch (Exception e) { Debug.LogWarning($"[Run] account not saved: {e.Message}"); }
+        }
+
+        // ---- a run that ended while its end was still being written
+
+        static string EndedKey(string profileId) => "equivalence.run-ended." + profileId;
+
+        /// <summary>Noted on THIS device the moment a run starts to end, before anything awaits - a tab
+        /// closed while the end is written finds the run ended, never waiting to be resumed.</summary>
+        static void NoteRunEnding(string profileId, string runId, bool survived)
+        {
+            if (string.IsNullOrEmpty(profileId) || string.IsNullOrEmpty(runId)) return;
+            PlayerPrefs.SetString(EndedKey(profileId), runId + (survived ? "|extracted" : "|died"));
+            PlayerPrefs.Save();
+        }
+
+        /// <summary>How this device saw <paramref name="runId"/> end - true extracted, false died -
+        /// or null when it never saw it end.</summary>
+        static bool? EndedAs(string profileId, string runId)
+        {
+            var v = PlayerPrefs.GetString(EndedKey(profileId), "");
+            if (string.IsNullOrEmpty(runId) || !v.StartsWith(runId + "|")) return null;
+            return v.EndsWith("|extracted");
+        }
+
+        // ---- the hub: a run waiting
+
+        /// <summary>Asks the run store what waits for this character. Never throws.</summary>
+        async System.Threading.Tasks.Task LookUpWaitingRunAsync()
+        {
+            _waiting = null;
+            _waitingUnknown = false;
+            if (_profile == null) return;
+            RunLookup look;
+            try { look = await _runs.LoadAsync(_profile.ProfileId); }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[Run] could not ask for a waiting run: {e.Message}");
+                _waitingUnknown = true;
+                return;
+            }
+            if (!look.Read) { _waitingUnknown = true; return; }
+            if (look.Run?.Snapshot == null || string.IsNullOrEmpty(look.Run.Snapshot.RunId)) return;
+            _waiting = look.Run;
+            var s = _waiting.Snapshot;
+            Debug.Log($"[Run] {_profile.ProfileId} has run {s.RunId} waiting: {s.Element}, floor {s.Floor} ({s.Stage}" +
+                      (s.Stage == RunStage.Cleared ? $", {s.PendingScreens} screen(s) to come" : "") + $"), seq {s.Seq}");
+        }
+
+        /// <summary>
+        /// A waiting run that in fact ENDED - its end noted on this device but never all written
+        /// (NoteRunEnding), or already in the character's runs - is settled as it ended and taken
+        /// off the store, never offered as a resume.
+        /// </summary>
+        async System.Threading.Tasks.Task SettleEndedWaitingAsync()
+        {
+            var w = _waiting;
+            if (w?.Snapshot == null || _profile == null) return;
+            bool committed = Committed(w.Snapshot.RunId);
+            bool? ended = EndedAs(_profile.ProfileId, w.Snapshot.RunId);
+            if (!committed && ended == null) return;   // genuinely waiting
+            Debug.Log($"[Run] run {w.Snapshot.RunId} ended before its end was all written - settling it as " +
+                      (committed ? "already committed" : ended == true ? "an extraction" : "a death"));
+            try { await SettleWaitingAsync(w, ended ?? false); }
+            catch (Exception e) { Debug.LogWarning($"[Run] could not settle run {w.Snapshot.RunId}: {e.Message}"); }
+        }
+
+        bool Committed(string runId)
+            => _profile?.RecentRuns != null && _profile.RecentRuns.Exists(r => r != null && r.RunId == runId);
+
+        /// <summary>
+        /// A WAITING run, ended without being played: settled into the profile exactly as the live
+        /// run's end would be (SettleRunAsync) from its snapshot - the armour as the beat left it,
+        /// the loot's banked pools rebased on the profile now - then taken off the store. Claimed
+        /// first, so the end is this session's to write and a device still playing it stops.
+        /// Null when it had already been committed (only its store row went).
+        /// </summary>
+        async System.Threading.Tasks.Task<RunSummary> SettleWaitingAsync(SuspendedRun w, bool survived)
+        {
+            var s = w.Snapshot;
+            string session = Guid.NewGuid().ToString("N");
+            var claimed = await _runs.ClaimAsync(_profile.ProfileId, s.RunId, session);
+            if (claimed?.Snapshot != null) { w = claimed; s = w.Snapshot; }
+
+            RunSummary summary = null;
+            if (!Committed(s.RunId))
+            {
+                _profile.Wear.Entries = w.Wear();
+                var loot = new Rifts.RunLoot();
+                loot.Restore(s.Loot, s.RunStartRiftBoxes, s.RunStartBoxes, _profile);
+                var tally = new RunTally
+                {
+                    RunId = s.RunId,
+                    Element = s.Element,
+                    Kills = s.Kills,
+                    Floors = s.Floor,
+                    Seconds = s.RunSeconds,
+                    PendingMastery = s.PendingMastery,
+                    RunCalx = s.RunCalx,
+                    StakeGateCleared = s.StakeGateCleared,
+                    GuaranteeWeek = s.GuaranteeWeek,
+                    // Rebased pools: the profile's count now is where this run's gain is measured from.
+                    RunStartDiamondBoxes = _profile.Boxes.Diamond,
+                    RunStartBlackDiamondBoxes = _profile.Boxes.BlackDiamond,
+                };
+                // Floor 100's box, asked again - the service answers the decision it recorded.
+                if (s.FinalFloorUnsettled)
+                {
+                    FinalFloorReward? answered = null;
+                    try { answered = await _store.FinalFloorRewardAsync(_profile, s.RunId); }
+                    catch (Exception e) { Debug.LogWarning($"[Rift] floor 100's box, asked at settling: {e.Message}"); }
+                    var reward = answered ?? FinalFloorReward.Unanswered;
+                    loot.FindTieredBoxes(reward.Tier, reward.Count);
+                    loot.SecureAllBoxes();
+                    if (reward.Guaranteed) tally.GuaranteeWeek = reward.Week;
+                }
+                if (survived) loot.SecureAll();
+                summary = await SettleRunAsync(tally, loot, survived);
+            }
+
+            _keeper.Begin(_profile.ProfileId, session);
+            _keeper.End(s.RunId);
+            await _keeper.FlushAsync(Tuning.Continuation.LeaveFlushSeconds);
+            _waiting = null;
+            return summary;
+        }
+
+        /// <summary>A hub fixture that would change the character refuses while a run waits - the run
+        /// read its gear and board once, as it began. True when it refused.</summary>
+        bool GuardWaitingRun()
+        {
+            if (_waiting?.Snapshot == null || ConfirmDialog.IsOpen) return _waiting != null;
+            var s = _waiting.Snapshot;
+            ConfirmDialog.ShowNotice(_canvas.transform, "A RUN IS WAITING",
+                $"Your {s.Element.ToString().ToLowerInvariant()} run on floor {s.Floor} holds this character as it " +
+                "went in - its gear and its mastery board stay as they are until the run ends.\n\n" +
+                "Resume it, or end it, at the sigil door.",
+                "OK");
+            return true;
+        }
+
+        string DescribeWaiting(RunSnapshot s)
+        {
+            string where = s.Stage == RunStage.Cleared
+                ? $"Floor {s.Floor} is cleared" + (s.PendingScreens > 0 ? " - its reward still waits for you." : ".")
+                : $"Floor {s.Floor} begins again from its start.";
+            int carried = s.Loot?.Carried?.Count ?? 0;
+            string loot = carried == 0 ? "" : carried == 1 ? " 1 carried piece rides with it." : $" {carried} carried pieces ride with it.";
+            var staked = GearStake.Staked(_profile);
+            string stake = staked != null ? $" So does your staked {staked.DisplayName}." : "";
+            return $"{s.Element.ToString().ToUpperInvariant()}  -  {s.Kills} kill{(s.Kills == 1 ? "" : "s")}.\n\n{where}{loot}{stake}";
+        }
+
+        /// <summary>The gate, with a run waiting: carry it on, end it, or leave it be.</summary>
+        void AskWaitingRun()
+        {
+            if (_waiting?.Snapshot == null || ConfirmDialog.IsOpen || _state != State.Hub) return;
+            ConfirmDialog.ShowChoice(_canvas.transform, "YOUR RUN WAITS", DescribeWaiting(_waiting.Snapshot),
+                "END IT", "RESUME", "NOT NOW",
+                onConfirm: AskEndWaiting, onAlt: ResumeRun, onCancel: null);
+        }
+
+        void AskEndWaiting()
+        {
+            var s = _waiting?.Snapshot;
+            if (s == null || ConfirmDialog.IsOpen) return;
+            int carried = s.Loot?.Carried?.Count ?? 0;
+            string body = $"It ends as a death on floor {s.Floor}. You keep the {s.Kills} kill{(s.Kills == 1 ? "" : "s")}, " +
+                          "the mastery from floors you cleared, and everything secured at a Rift." +
+                          (carried == 0 ? "" : carried == 1 ? " The 1 carried piece is lost." : $" The {carried} carried pieces are lost.");
+            var staked = GearStake.Staked(_profile);
+            if (staked != null) body += $" Your staked {staked.DisplayName} is destroyed" +
+                                        (_profile.StakeInsured ? " - unless insured, which brings it home." : ".");
+            ConfirmDialog.Show(_canvas.transform, "END THE RUN?", body, "END IT", "KEEP IT",
+                onConfirm: EndWaitingRun, onCancel: AskWaitingRun);
+        }
+
+        async void EndWaitingRun()
+        {
+            var w = _waiting;
+            if (w?.Snapshot == null || _state != State.Hub) return;
+            try
+            {
+                var summary = await SettleWaitingAsync(w, survived: false);
+                await ShowHubAsync();
+                ConfirmDialog.ShowNotice(_canvas.transform, "RUN ENDED",
+                    summary == null ? "The run had already ended." :
+                    $"Floor {summary.Floors}  -  {summary.Kills} kill{(summary.Kills == 1 ? "" : "s")}." +
+                    (_stakeLine != null ? "\n\n" + _stakeLine.Replace("stake        ", "Stake: ") : ""),
+                    "OK");
+            }
+            catch (Exception e) { Debug.LogError($"[Run] ending the waiting run failed: {e}"); }
+        }
+
+        async void ResumeRun()
+        {
+            try { await ResumeRunAsync(); }
+            catch (Exception e) { Debug.LogError($"[Convergence] ResumeRun failed: {e}"); }
+        }
+
+        /// <summary>
+        /// THE RESUME. The run is claimed (from now this session writes it; any other is told to
+        /// stop), the run's systems are put back from its snapshot - planner, ledger, loot rebased
+        /// on the profile now, the wheel, kills and streak, health and armour at the lower of
+        /// snapshot and beat - and the floor is built again under the black: from its start, or as
+        /// its cleared room. No run-start checkpoint: this is the same run.
+        /// </summary>
+        async System.Threading.Tasks.Task ResumeRunAsync()
+        {
+            if (_state != State.Hub || _waiting?.Snapshot == null || !ReadyForRun("ResumeRun")) return;
+
+            string session = Guid.NewGuid().ToString("N");
+            var w = await _runs.ClaimAsync(_profile.ProfileId, _waiting.Snapshot.RunId, session);
+            if (_state != State.Hub) return;
+            if (w?.Snapshot == null)
+            {
+                // Ended elsewhere, or the store could not be reached - ask again what waits.
+                await LookUpWaitingRunAsync();
+                ConfirmDialog.ShowNotice(_canvas.transform, "THE RUN COULD NOT BE RESUMED",
+                    _waiting == null ? "It has already ended - on another device, or in another window."
+                                     : "Its save could not be reached. Try again in a moment.",
+                    "OK");
+                return;
+            }
+            var s = w.Snapshot;
+
+            await LeaveHubAsync();
+
+            _runId = s.RunId;
+            _finalAsk = null;
+            _runGuaranteeWeek = s.GuaranteeWeek;
+            _pendingMastery = s.PendingMastery;
+            _runCalx = s.RunCalx;
+            _runCalxTaken = s.RunCalxTaken;
+            _runStartTime = Time.time - s.RunSeconds;
+            _planner = s.Planner?.Copy() ?? new Rifts.FloorPlanner(Guid.NewGuid().GetHashCode());
+            _alive.Clear();
+            _spawnQueue.Clear();
+
+            // The loot's banked pools, rebased on the profile as it is now - and from here measured
+            // from it, which is what the next snapshot records as the run's start.
+            _loot.Restore(s.Loot, s.RunStartRiftBoxes, s.RunStartBoxes, _profile);
+            _runStartRiftBoxes = _profile.RiftBoxes;
+            _runStartBoxes = CopyBoxes(_profile.Boxes);
+            _runStartDiamondBoxes = _profile.Boxes.Diamond;
+            _runStartBlackDiamondBoxes = _profile.Boxes.BlackDiamond;
+
+            // The ledger (and a spire's boon still riding it) BEFORE the player is built: max health
+            // and the wheel's size are read from it there.
+            Modifiers.Restore(s.Ledger);
+            _floorBoon = s.FloorBoon;
+            _floorBoonFloorsLeft = s.FloorBoonFloorsLeft;
+            if (_floorBoon >= 0) Modifiers.SetFloorBoon(Hazards.SpireBoons.Apply((Hazards.SpireBoon)_floorBoon));
+            _stakeGateCleared = s.StakeGateCleared;
+            _stakeLine = null;
+            _profile.Wear.Entries = w.Wear();
+
+            BeginRunSession(session);
+            _runSave = s;
+            _resumeGivenUp = s.Stage == RunStage.Entering && s.PuzzleGivenUp;
+            _resumeBossDown = s.Stage == RunStage.Entering ? w.BossEighthsDown : 0;
+            if (s.Stage == RunStage.Entering)
+            {
+                _resumeClockSpent = w.ClockSpent;
+                _resumeRiftCollapsed = s.RiftCollapsed;
+                _resumePlaced = w.Placed;
+                _resumePos = new Vector2(w.PosX, w.PosY);
+            }
+            _rewardRerolls = s.Stage == RunStage.Cleared ? s.RewardRerolls : 0;
+
+            BuildRunScene(s.Element);
+            _player.RestoreRun(s);
+            if (_player.Effects != null) _player.Effects.RestoreCounters(s);
+            _player.Health.Restore(w.Health);
+            _hud.Flash(s.Stage == RunStage.Cleared ? $"run resumed  -  floor {s.Floor}, cleared"
+                                                   : $"run resumed  -  floor {s.Floor}, from its start");
+            Debug.Log($"[Run] resumed {s.RunId} at floor {s.Floor} ({s.Stage}), {w.Health:0} hp" +
+                      (w.Beat != null && w.Beat.Seq == s.Seq ? $" (beat {w.Beat.Health:0}, snapshot {s.Health:0})" : ""));
+
+            _waiting = null;
+            _state = State.Playing;
+            if (s.Stage == RunStage.Entering)
+            {
+                _floor = s.Floor - 1;
+                StartCoroutine(BuildUnderBlack(NextFloor()));
+            }
+            else StartCoroutine(BuildUnderBlack(ResumeClearedRoom(s)));
+        }
+
+        /// <summary>A floor built under the black screen, then revealed - FloorTransition without the
+        /// walk to a door (see it for why the pause and the try/finally).</summary>
+        IEnumerator BuildUnderBlack(IEnumerator build)
+        {
+            _transitioning = true;
+            GamePause.Hold(this);
+            try
+            {
+                yield return build;
+                yield return _fade.FadeIn(DoorFadeSeconds);
+            }
+            finally
+            {
+                _transitioning = false;
+                GamePause.Release(this);
+                _fade.Clear();
+            }
+        }
+
+        /// <summary>
+        /// A CLEARED floor, stood up again: its scenery and walls, the open door, the Rift as it was
+        /// (open, or a Red one still sealed - and breakable), and gear still lying where it fell.
+        /// No hazards or enemies - the fight is over. Then whatever screens were still to come.
+        /// </summary>
+        IEnumerator ResumeClearedRoom(RunSnapshot s)
+        {
+            int token = _runToken;
+            _spawning = true;
+            _floor = s.Floor;
+            _plan = new Rifts.FloorPlan(s.Floor, s.PlanCategory, s.PlanRift, s.PlanForced);
+            _rewardTaken = true;
+            _puzzleGivenUp = s.PuzzleGivenUp;
+            _fightStart = -1f;
+            _stuckWatch?.NotifyFloorChanged();
+            DressArena(_floor);
+            if (_hazardRoot != null)
+                foreach (Transform child in _hazardRoot) Destroy(child.gameObject);
+            bool walled = !IsBossFloor(_floor) && (s.PlanCategory != Rifts.FloorCategory.Puzzle || s.PuzzleGivenUp);
+            Hazards.RoomWalls.Apply(walled ? _planner.ShapeFor(_floor) : null, _hazardRoot);
+
+            // Realtime: built under BuildUnderBlack's pause (NextFloor's note on why).
+            yield return new WaitForSecondsRealtime(0.4f);
+            if (token != _runToken || _state != State.Playing || _player == null) { _spawning = false; yield break; }
+
+            OpenFloorDoor();
+            switch (s.Rift)
+            {
+                case RiftSave.Open:
+                    if (TearRift())
+                    {
+                        _rift.Secured = s.RiftSecured;
+                        _hud?.SetRiftPrompt(true);
+                    }
+                    break;
+                case RiftSave.Sealed:
+                    OpenRedRift();
+                    break;
+            }
+            if (s.Ground != null)
+                foreach (var g in s.Ground)
+                    if (g?.Record != null) LayGearAt(new Vector2(g.X, g.Y), g.Record);
+            if (s.GroundBoxes != null)
+                foreach (var b in s.GroundBoxes)
+                    if (b != null) LayRiftBoxAt(new Vector2(b.X, b.Y), b.Life);
+            if (s.FinalFloorUnsettled) ClaimFinalFloor();
+            _spawning = false;
+
+            if (s.PendingScreens >= 2) OfferDeal();
+            else if (s.PendingScreens == 1) OfferFloorRewardCards();
+        }
+
+        // ---- leaving a run
+
+        /// <summary>The pause menu's bottom ring: suspend the run for later, or abandon it.</summary>
+        void AskLeaveRun()
+        {
+            if (ConfirmDialog.IsOpen || _state != State.Playing) return;
+
+            // A run the store never took (its run start never reached the service) cannot wait for
+            // anyone - leaving it is abandoning it.
+            if (_runSave == null || _keeper.Refusing || _keeper.Dead) { AskAbandonRun(); return; }
+
+            string where = _runSave.Stage == RunStage.Cleared
+                ? "it picks up here, in this cleared room"
+                : $"floor {_floor} starts again from its beginning, at the health you have now";
+            ConfirmDialog.ShowChoice(_canvas.transform, "LEAVE THE RUN?",
+                $"SUSPEND keeps it: the run waits for you at the sigil door, and {where}. " +
+                "Until then this character's gear and mastery board stay as they are.\n\n" +
+                "ABANDON ends it here, as a death.",
+                "ABANDON", "SUSPEND", "KEEP PLAYING",
+                onConfirm: AskAbandonRun, onAlt: SuspendRun, onCancel: OpenPauseMenu);
+        }
+
+        /// <summary>
+        /// SUSPEND: the run is written as it stands - a cleared room as a fresh snapshot, a fight as
+        /// a last heartbeat on its floor-start snapshot - and the player goes back to the hub. Nothing
+        /// is settled: the run, its stake with it, waits at the gate.
+        /// </summary>
+        async void SuspendRun()
+        {
+            if (_runSave == null || _state != State.Playing) return;
+            try
+            {
+                // A cleared room with nothing left to show is written as it stands; one with a screen
+                // up already has its resume point (ResaveCleared says why it must not be redone).
+                if (_runSave.Stage == RunStage.Cleared) ResaveCleared();
+                // Nothing more of the run plays from here - no death, no floor logic, no further writes.
+                _state = State.RunOver;
+                GamePause.Hold(this);
+                await RunAsTask(_fade.FadeOut(DoorFadeSeconds));
+
+                // The beat goes once any snapshot ahead of it has landed (a beat waiting behind one
+                // is dropped - it belongs to the snapshot before).
+                bool sent = await _keeper.FlushAsync(Tuning.Continuation.LeaveFlushSeconds);
+                if (_runSave.Stage == RunStage.Entering && _player != null && _player.Health != null)
+                {
+                    _beatAt = 0f;
+                    _keeper.Beat(BeatNow());
+                    sent = await _keeper.FlushAsync(Tuning.Continuation.LeaveFlushSeconds) && sent;
+                }
+                if (!sent) Debug.LogWarning("[Run] left before the last write landed - the run waits as its store last heard it");
+                Debug.Log($"[Run] suspended {_runId} on floor {_floor} ({_runSave.Stage})");
+
+                _runSave = null;
+                TeardownRun();   // releases every pause, this one included
+                await LookUpWaitingRunAsync();
+                await ShowHubAsync();
+                await RunAsTask(_fade.FadeIn(DoorFadeSeconds));
+            }
+            catch (Exception e) { Debug.LogError($"[Run] suspending failed: {e}"); }
+        }
+
+        /// <summary>Another session took this run over (a resume elsewhere): it is left here unsettled -
+        /// it carries on there.</summary>
+        void OnRunSuperseded()
+        {
+            if (_state != State.Playing) return;
+            _state = State.RunOver;
+            _runSave = null;
+            Debug.LogWarning($"[Run] {_runId} was resumed in another session - leaving it here, unsettled");
+            TeardownRun();
+            ShowHub();
+            ConfirmDialog.ShowNotice(_canvas.transform, "RUN CONTINUED ELSEWHERE",
+                "This run was resumed in another window or on another device, and carries on there. " +
+                "Nothing of it was lost - it can be taken back at the sigil door.",
+                "OK");
+            // The gate shows what the store holds - the run, as the other session last wrote it.
+            RefreshWaiting();
+        }
+
+        async void RefreshWaiting()
+        {
+            try { await LookUpWaitingRunAsync(); }
+            catch (Exception e) { Debug.LogWarning($"[Run] could not refresh the waiting run: {e.Message}"); }
         }
 
         void ShowRunOver(RunSummary s)

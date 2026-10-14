@@ -184,6 +184,63 @@ namespace Convergence.Rifts
             if (record != null) _carried.Add(record);
         }
 
+        // ------------------------------------------------------------------ continuation
+
+        static int TierCount => System.Enum.GetValues(typeof(LootTier)).Length;
+
+        /// <summary>Everything the run holds, written down for a snapshot (Chain.RunSnapshot).</summary>
+        public RunLootSave Capture()
+        {
+            var s = new RunLootSave
+            {
+                Carried = new List<MintedGearRecord>(_carried),
+                Secured = new List<MintedGearRecord>(_secured),
+                FoundBoxes = FoundBoxes,
+                BankedBoxes = BankedBoxes,
+                SecuredRiftBoxes = SecuredRiftBoxes,
+                FoundTiered = new int[TierCount],
+                BankedTiered = new int[TierCount],
+                SecuredTiered = new int[TierCount],
+            };
+            for (int t = 0; t < TierCount; t++)
+            {
+                s.FoundTiered[t] = FoundTieredBoxes((LootTier)t);
+                s.BankedTiered[t] = BankedTieredBoxes((LootTier)t);
+                s.SecuredTiered[t] = SecuredTieredBoxes((LootTier)t);
+            }
+            return s;
+        }
+
+        /// <summary>
+        /// A snapshot's loot, back. The BANKED pools are rebased: they began as a copy of the
+        /// profile at run start, so what the run itself did to them (secured into them, spent from
+        /// them) is kept as a difference and laid on the profile as it is NOW. Bank overwrites the
+        /// profile's counts with these at the run's end, so restoring the snapshot's absolute counts
+        /// would hand back anything the profile spent between the sessions.
+        /// </summary>
+        public void Restore(RunLootSave s, int startRiftBoxes, LootBoxes startBoxes, CharacterProfile now)
+        {
+            Clear();
+            if (s == null) return;
+            if (s.Carried != null) foreach (var r in s.Carried) if (r != null) _carried.Add(r);
+            if (s.Secured != null) foreach (var r in s.Secured) if (r != null) _secured.Add(r);
+            FoundBoxes = Mathf.Max(0, s.FoundBoxes);
+            SecuredRiftBoxes = Mathf.Max(0, s.SecuredRiftBoxes);
+            BankedBoxes = Mathf.Max(0, (now?.RiftBoxes ?? 0) + s.BankedBoxes - startRiftBoxes);
+            for (int t = 0; t < TierCount; t++)
+            {
+                var tier = (LootTier)t;
+                int found = At(s.FoundTiered, t), banked = At(s.BankedTiered, t), secured = At(s.SecuredTiered, t);
+                if (found > 0) _foundTieredBoxes[tier] = found;
+                if (secured > 0) _securedTieredBoxes[tier] = secured;
+                int start = startBoxes != null ? startBoxes.Get(tier) : 0;
+                int have = now?.Boxes != null ? now.Boxes.Get(tier) : 0;
+                _bankedTieredBoxes[tier] = Mathf.Max(0, have + banked - start);
+            }
+        }
+
+        static int At(int[] a, int i) => a != null && i < a.Length ? Mathf.Max(0, a[i]) : 0;
+
         /// <summary>Move one carried item behind the line. Ignores anything not actually carried,
         /// so a double-click at the Rift screen cannot secure the same piece twice.</summary>
         public bool Secure(MintedGearRecord record)
@@ -340,7 +397,12 @@ namespace Convergence.Rifts
             // whole content is randomised was the one slot loot never handed you.
             var slot = GearSlots.Selectable[Random.Range(0, GearSlots.Selectable.Length)];
 
-            string instanceId = $"LOOT-{slot}-{System.Guid.NewGuid():N}";
+            // From UnityEngine.Random, not Guid.NewGuid: an enemy's drop is rolled inside a seeded
+            // scope (RunRolls), and a floor replayed after a resume must drop the very same piece -
+            // its id included, or the roller's seed below would differ and so would the stats.
+            var idBytes = new byte[16];
+            for (int i = 0; i < idBytes.Length; i++) idBytes[i] = (byte)Random.Range(0, 256);
+            string instanceId = $"LOOT-{slot}-{new System.Guid(idBytes):N}";
 
             // ANY CLASS, not the one being played (the user's call, 2026-10-09): the floor is open
             // to every build, so a sword run still finds discs, bows, and relics for them. Only
@@ -349,8 +411,10 @@ namespace Convergence.Rifts
                 ? WeaponClasses.RandomAny()
                 : WeaponClass.Greatsword;
 
-            // Tier comes from DEPTH and is handed to the roller, never redrawn by it.
-            int seed = instanceId.GetHashCode();
+            // Tier comes from DEPTH and is handed to the roller, never redrawn by it. The roller's
+            // seed is drawn from the same stream rather than hashed off the id - a string's hash is
+            // not promised to be the same in the next session that replays this floor.
+            int seed = Random.Range(int.MinValue, int.MaxValue);
             var (_, _, primary, subs, ability, finisher) =
                 GearRoller.RollItem(slot, tier, seed, weaponClass);
             int stars = RollDropStars(slot, tier, floor);

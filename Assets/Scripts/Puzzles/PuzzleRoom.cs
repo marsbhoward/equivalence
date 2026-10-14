@@ -49,6 +49,10 @@ namespace Convergence.Puzzles
         /// puzzle with no clock (or one already answered).</summary>
         public virtual float Countdown => -1f;
 
+        /// <summary>A resumed puzzle's clock, put back to <paramref name="secondsLeft"/>. Nothing for a
+        /// puzzle with no clock.</summary>
+        public virtual void SetClock(float secondsLeft) { }
+
         /// <summary>Where the puzzle's middle sits: a little north of the room's centre, between
         /// the player's arrival point and the door line.</summary>
         protected static Vector2 Centre => new(0f, 0.3f);

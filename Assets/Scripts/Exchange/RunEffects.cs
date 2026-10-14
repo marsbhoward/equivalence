@@ -117,6 +117,26 @@ namespace Convergence.Exchange
             Hazards.ProjectionLines.CalmAll();
         }
 
+        // ---------------------------------------------------------------- continuation
+
+        /// <summary>The run-long counters - the every-Nth entries' - for a run snapshot. Everything
+        /// else here is a floor's memory or a short clock, which a resumed floor starts afresh.</summary>
+        public void CaptureCounters(Chain.RunSnapshot s)
+        {
+            s.HitCount = _hitCount;
+            s.Arts = _arts;
+            s.VapourCount = _vapourCount;
+            s.WellspringCount = _wellspringCount;
+        }
+
+        public void RestoreCounters(Chain.RunSnapshot s)
+        {
+            _hitCount = s.HitCount;
+            _arts = s.Arts;
+            _vapourCount = s.VapourCount;
+            _wellspringCount = s.WellspringCount;
+        }
+
         // ---------------------------------------------------------------- shared
 
         /// <summary>A price the run charges in health: straight off, through no mitigation - it is

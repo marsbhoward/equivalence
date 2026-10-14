@@ -344,6 +344,67 @@ namespace Convergence.Exchange
             Recompute();
         }
 
+        // ---------------------------------------------------------------- continuation
+
+        /// <summary>The ledger written down for a run snapshot (Chain.RunSnapshot): entries by id,
+        /// in the order taken, and every clock and counter the deals read.</summary>
+        public Chain.LedgerSave Capture()
+        {
+            var s = new Chain.LedgerSave
+            {
+                Pending = Pending.Copy(),
+                DealIndex = DealIndex,
+                RefusalsUsed = RefusalsUsed,
+                Withered = Withered,
+                Virid = Virid,
+                Senescence = Senescence,
+            };
+            foreach (var e in _order)
+            {
+                s.Order.Add(e.Id);
+                s.Stacks.Add(StacksOf(e.Id));
+            }
+            foreach (var kv in _lastOffered) { s.LastOfferedIds.Add(kv.Key); s.LastOfferedAt.Add(kv.Value); }
+            foreach (var kv in _restUntil) { s.RestIds.Add(kv.Key); s.RestUntil.Add(kv.Value); }
+            foreach (var c in _newCombos) s.NewCombos.Add(c.Id);
+            s.Opened.AddRange(_opened);
+            s.Transmuted.AddRange(_transmuted);
+            return s;
+        }
+
+        /// <summary>
+        /// A snapshot's ledger, back - set directly, never through <see cref="Take"/>, which would
+        /// fire each entry's OnTaken into the deal clocks a second time. An id the catalogue no
+        /// longer has is dropped. The spire's floor boon is not here (the run restores it).
+        /// </summary>
+        public void Restore(Chain.LedgerSave s)
+        {
+            Clear();
+            if (s == null) return;
+            Pending = s.Pending?.Copy() ?? new PendingOffer();
+            DealIndex = s.DealIndex;
+            RefusalsUsed = s.RefusalsUsed;
+            Withered = s.Withered;
+            Virid = s.Virid;
+            Senescence = s.Senescence;
+            for (int i = 0; i < s.Order.Count; i++)
+            {
+                var e = ExchangeCatalog.Get(s.Order[i]);
+                int n = i < s.Stacks.Count ? s.Stacks[i] : 1;
+                if (e == null || n <= 0 || _stacks.ContainsKey(e.Id)) continue;
+                _stacks[e.Id] = n;
+                _order.Add(e);
+            }
+            for (int i = 0; i < s.LastOfferedIds.Count && i < s.LastOfferedAt.Count; i++)
+                _lastOffered[s.LastOfferedIds[i]] = s.LastOfferedAt[i];
+            for (int i = 0; i < s.RestIds.Count && i < s.RestUntil.Count; i++)
+                _restUntil[s.RestIds[i]] = s.RestUntil[i];
+            foreach (var id in s.NewCombos) { var c = ExchangeCatalog.Get(id); if (c != null) _newCombos.Add(c); }
+            foreach (var id in s.Opened) _opened.Add(id);
+            foreach (var id in s.Transmuted) _transmuted.Add(id);
+            Recompute();
+        }
+
         /// <summary>
         /// A full copy, clocks and all - what a deal would look like after a choice, worked out
         /// without touching the run (Oracle's preview of the next deal).

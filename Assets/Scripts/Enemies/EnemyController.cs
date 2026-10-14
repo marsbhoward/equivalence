@@ -37,6 +37,13 @@ namespace Convergence.Enemies
         /// </summary>
         public bool Elite;
 
+        /// <summary>
+        /// Which of its floor's bodies this is - the wave's queue order, set as it spawns. Its drops
+        /// are rolled from it (Rifts.RunRolls), so a floor replayed after a resume pays the same
+        /// drops off the same enemies whatever order they die in. -1 for a body nothing numbered.
+        /// </summary>
+        public int RollIndex = -1;
+
         /// <summary>The tier's extra move for this KIND, set from the type record at spawn - see
         /// EnemyTypes. None on anything that is not elite.</summary>
         public ElitePattern ElitePattern = ElitePattern.None;

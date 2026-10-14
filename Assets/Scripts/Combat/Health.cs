@@ -154,6 +154,17 @@ namespace Convergence.Combat
             Current = Mathf.Clamp(Current, 1f, Max);
         }
 
+        /// <summary>
+        /// Health set outright, with no event - a RESUMED run putting back what the player had
+        /// (Chain.SuspendedRun.Health). Never a heal or a hit: nothing that listens for those should
+        /// hear one. Clamped to 1..Max - a resume never lands a player dead.
+        /// </summary>
+        public void Restore(float current)
+        {
+            if (IsDead) return;
+            Current = Mathf.Clamp(current, 1f, Max);
+        }
+
         void Awake()
         {
             if (Current <= 0f) Current = Max;

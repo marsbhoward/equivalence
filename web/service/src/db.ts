@@ -121,6 +121,28 @@ const MIGRATIONS: string[] = [
   );
   CREATE UNIQUE INDEX final_floor_one_guarantee_a_week ON final_floor (profile_id, week) WHERE guaranteed;
   `,
+
+  // 3 - runs in flight (routes/runs.ts): one row per character, the run it is on. SNAPSHOT is the
+  // game's RunSnapshot JSON at a floor's start or clear; BEAT the health and armour since it,
+  // meaningful only while beat_seq = seq. SESSION is the one device allowed to write it.
+  `
+  CREATE TABLE runs (
+    owner         TEXT NOT NULL,
+    profile_id    TEXT NOT NULL,
+    run_id        TEXT NOT NULL,
+    session       TEXT NOT NULL,
+    seq           INTEGER NOT NULL,
+    floor         INTEGER NOT NULL,
+    stage         TEXT NOT NULL,
+    snapshot      JSONB NOT NULL,
+    beat          JSONB,
+    beat_seq      INTEGER,
+    started_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    saved_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    beat_at       TIMESTAMPTZ,
+    PRIMARY KEY (owner, profile_id)
+  );
+  `,
 ];
 
 /** Applies every migration not yet applied. Called once at start-up. */

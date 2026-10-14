@@ -37,6 +37,9 @@ namespace Convergence.Rifts
 
         public MintedGearRecord Record => _record;
 
+        /// <summary>Picked up - destroyed at the end of the frame, already the player's.</summary>
+        public bool Taken => _taken;
+
         public bool InReach => _player != null && !_taken
             && Vector2.Distance(_player.position, transform.position) <= Reach;
 

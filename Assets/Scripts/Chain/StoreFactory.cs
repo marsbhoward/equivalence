@@ -49,5 +49,9 @@ namespace Convergence.Chain
 
         public static IAccountStore Accounts()
             => UsingService ? new Service.ServiceAccountStore() : (IAccountStore)new LocalJsonAccountStore();
+
+        /// <summary>The run in flight - beside the character, wherever the character is saved.</summary>
+        public static IRunStore Runs()
+            => UsingService ? new Service.ServiceRunStore() : (IRunStore)new LocalJsonRunStore();
     }
 }

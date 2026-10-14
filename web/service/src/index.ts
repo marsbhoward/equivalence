@@ -14,6 +14,7 @@ import { openBoxes, submitOpen } from './routes/openBoxes.js';
 import { graduate, loadAccount, loadCharacter, roster, saveAccount, saveCharacter } from './routes/saves.js';
 import { newGuest, requireIdentity } from './identity.js';
 import { claimFinalFloor, finalFloorStatus } from './routes/finalFloor.js';
+import { beatRun, claimRun, endRun, loadRun, saveRun } from './routes/runs.js';
 import { hasDatabase, migrate } from './db.js';
 import { playRouter } from './play.js';
 import { activatePlay, putPlayFile, rollbackPlay } from './routes/playUpload.js';
@@ -111,6 +112,12 @@ app.post('/saves/graduate', graduate);
 // Floor 100's box - the one drop the service decides (routes/finalFloor.ts).
 app.post('/saves/final-floor', claimFinalFloor);
 app.get('/saves/final-floor/:profileId', finalFloorStatus);
+// A run in flight - snapshots, heartbeats, and one live session per run (routes/runs.ts).
+app.get('/saves/runs/:profileId', loadRun);
+app.put('/saves/runs/:profileId', saveRun);
+app.put('/saves/runs/:profileId/beat', beatRun);
+app.post('/saves/runs/:profileId/claim', claimRun);
+app.post('/saves/runs/:profileId/end', endRun);
 
 app.post('/op/play/:build/activate', activatePlay);
 app.post('/op/play/rollback', rollbackPlay);

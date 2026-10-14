@@ -4655,6 +4655,50 @@ namespace Convergence.Player
             else ComboIndex++;
         }
 
+        // ------------------------------------------------------------------ continuation
+
+        /// <summary>What a run snapshot keeps of the player beyond health: the wheel as earned and
+        /// arranged, where its rotation stands, the kills and the perfect streak.</summary>
+        public void CaptureRun(Chain.RunSnapshot s)
+        {
+            s.Slots.Clear();
+            s.SlotLocked.Clear();
+            for (int i = 0; i < Slots.Count; i++)
+            {
+                s.Slots.Add(Slots[i] != null ? Slots[i].Id : null);
+                s.SlotLocked.Add(SlotLocked(i));
+            }
+            s.ThirdSlotRemoved = _thirdSlotRemoved;
+            s.RotationIndex = RotationIndex;
+            s.Kills = Kills;
+            s.PerfectStreak = _perfectStreak;
+        }
+
+        /// <summary>
+        /// A snapshot's wheel, kills and streak, laid over a freshly built player. Called after the
+        /// signature, the seeded slot and the ledger's slot count are in, so a slot the snapshot
+        /// names that no longer exists falls back to this class's default rather than leaving a gap.
+        /// </summary>
+        public void RestoreRun(Chain.RunSnapshot s)
+        {
+            if (s.Slots != null && s.Slots.Count > 0)
+            {
+                Slots.Clear();
+                _locked.Clear();
+                for (int i = 0; i < s.Slots.Count; i++)
+                {
+                    var m = string.IsNullOrEmpty(s.Slots[i]) ? null : MovesetLibrary.ById(s.Slots[i]);
+                    Slots.Add(m ?? MovesetLibrary.DefaultFor(Weapon));
+                    _locked.Add(s.SlotLocked != null && i < s.SlotLocked.Count && s.SlotLocked[i]);
+                }
+                _thirdSlotRemoved = s.ThirdSlotRemoved;
+            }
+            RotationIndex = Slots.Count > 0 ? Mathf.Clamp(s.RotationIndex, 0, Slots.Count - 1) : 0;
+            ComboIndex = 0;
+            Kills = Mathf.Max(0, s.Kills);
+            _perfectStreak = Mathf.Max(0, s.PerfectStreak);
+        }
+
         /// <summary>Put a moveset into a slot, replacing whatever was there.</summary>
         public bool SetSlot(int index, Moveset moveset)
         {

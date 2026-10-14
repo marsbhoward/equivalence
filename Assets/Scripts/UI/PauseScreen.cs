@@ -8,8 +8,8 @@ namespace Convergence.UI
     /// <summary>
     /// The mid-run pause menu, on the floor reward's interlocking rings (<see cref="SigilRings"/>,
     /// the sigil door selector's layout - the user's calls, 2026-10-12): SETTINGS up, CHARACTER
-    /// left, INVENTORY right, END RUN down in a red ring, and RESUME a small ring on the knot in
-    /// the middle. Resume is lit and focused first, so a pad opens on the safe answer and the
+    /// left, INVENTORY right, LEAVE down in a red ring (suspend the run for later, or abandon it -
+    /// GameBootstrap.AskLeaveRun), and RESUME a small ring on the knot in the middle. Resume is lit and focused first, so a pad opens on the safe answer and the
     /// D-pad reaches each ring by pointing at it; the destructive one sits at the bottom with its
     /// own confirmation behind it.
     ///
@@ -120,7 +120,7 @@ namespace Convergence.UI
 
             _cells.Clear();
             _cells.Add(Cell(rings, Settings, "OPTIONS", "Settings", CogIcon, Silver));
-            _cells.Add(Cell(rings, EndRun, "ABANDON", "End Run", DoorIcon, RedC));
+            _cells.Add(Cell(rings, EndRun, "SUSPEND OR END", "Leave Run", DoorIcon, RedC));
             _cells.Add(Cell(rings, Character, "LOADOUT", "Character", HelmIcon, Silver));
             _cells.Add(Cell(rings, Inventory, "CARRIED LOOT", "Inventory", BagIcon, Silver));
 

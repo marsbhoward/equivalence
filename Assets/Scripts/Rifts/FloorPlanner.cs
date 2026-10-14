@@ -61,6 +61,14 @@ namespace Convergence.Rifts
 
         public FloorPlanner(int seed) { Seed = seed; }
 
+        /// <summary>Everything the planner holds, copied - a run's snapshot keeps the planner as it
+        /// was, while the live one moves on (Chain.RunSnapshot).</summary>
+        public FloorPlanner Copy() => new(Seed)
+        {
+            SinceRift = SinceRift, SincePuzzle = SincePuzzle, QuietFloors = QuietFloors,
+            LastPuzzle = LastPuzzle, PaceRatios = new List<float>(PaceRatios ?? new List<float>()),
+        };
+
         /// <summary>
         /// PLAY-TESTING ONLY. Set either and the NEXT non-boss floor is that, once:
         ///

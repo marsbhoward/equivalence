@@ -1207,6 +1207,51 @@ namespace Convergence.Core
         }
 
         /// <summary>
+        /// A run carried on across sessions - a closed tab, a crash, a lost connection, or a player
+        /// leaving to come back later (CONTINUATION.md; Chain/RunSnapshot, GameBootstrap's
+        /// "continuation" section). The run is SNAPSHOTTED at every floor's start and clear; between
+        /// those a HEARTBEAT carries health and armour, and a resume replays the floor from its
+        /// snapshot at the lower of the two healths.
+        /// </summary>
+        public static class Continuation
+        {
+            /// <summary>
+            /// Seconds between heartbeats while health or armour is changing - none while they hold
+            /// still. Also sent at once when the window loses focus. What a hard close can win is at
+            /// most this long of damage, on a floor it must then fight again from the start. ~200
+            /// bytes a beat: at 1,000 players mid-fight, ~200 small writes a second.
+            /// </summary>
+            public const float BeatSeconds = 5f;
+
+            /// <summary>How long leaving a run (SUSPEND) waits for its last snapshot to reach the store
+            /// before going back to the hub anyway - the run is then as the snapshot before it left.</summary>
+            public const float LeaveFlushSeconds = 6f;
+
+            /// <summary>
+            /// A BOSS FIGHT LEFT PART-WAY is resumed with the boss's health kept in steps of
+            /// 1/BossSteps, ROUNDED UP (the user's call, 2026-10-14): a boss at 40% comes back at
+            /// 50%, one at 75% at 75%. The fight is replayed from its start like any floor, but
+            /// the damage done is not all thrown away - and quitting can never take MORE off a boss
+            /// than fighting did, so it buys nothing. Each step crossed is sent at once, not on the
+            /// heartbeat's clock.
+            /// </summary>
+            public const int BossSteps = 8;
+
+            /// <summary>
+            /// A CLOCK left running - the Labyrinth's, a Collapsing Rift's - is NOT started again on a
+            /// resume (the user's call, 2026-10-14): a fresh clock would sell a second attempt at the
+            /// race for a quit. It goes on from the seconds already spent, plus this much to find
+            /// one's feet. Granted once against the true time spent, so quitting again and again
+            /// never adds up. The Labyrinth is put back exactly as left (where the player stood);
+            /// a Collapsing Rift's fight replays fresh, so its clock runs against a fresh wave.
+            /// </summary>
+            public const float ReorientSeconds = 1f;
+
+            /// <summary>While a clock runs, a heartbeat every this many seconds (whatever health does).</summary>
+            public const float ClockBeatSeconds = 1f;
+        }
+
+        /// <summary>
         /// Bosses.
         ///
         /// THE SHAPE, WHICH EVERY BOSS SHARES: a cadence of abilities the player has to LEARN,

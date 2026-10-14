@@ -13,6 +13,8 @@ import { guestId, guestOwner } from '../identity.js';
  *   PUT  /saves/account                 { datum } -> { hash }
  *   POST /saves/graduate                { guest } under a WALLET session -> { moved }
  *
+ * A run in flight is routes/runs.ts - a separate row per character, written several times a floor.
+ *
  * The owner comes from the identity (identity.ts), never from the body, so nobody writes into a
  * save that is not theirs. Saves are keyed (owner, profileId): two guests may both have a
  * "local-dev-0" without colliding.
@@ -165,6 +167,8 @@ export async function graduate(req: Request, res: Response): Promise<void> {
 
       const moved = await c.query('UPDATE characters SET owner = $1, updated_at = now() WHERE owner = $2', [wallet, from]);
       await c.query('UPDATE character_history SET owner = $1 WHERE owner = $2', [wallet, from]);
+      // A run left waiting goes with its character (routes/runs.ts).
+      await c.query('UPDATE runs SET owner = $1 WHERE owner = $2', [wallet, from]);
       // The room's own record names its owner (AccountProfile.AccountId) - it follows the move.
       await c.query(
         `UPDATE accounts SET owner = $1, save = jsonb_set(save, '{AccountId}', to_jsonb($1::text)), updated_at = now()

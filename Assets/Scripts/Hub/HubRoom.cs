@@ -382,18 +382,34 @@ namespace Convergence.Hub
             if (_door != null) _door.HoldOpen(on, snap);
         }
 
+        /// <summary>
+        /// The run this character left waiting (Chain.RunSnapshot), as the gate offers it: a line
+        /// saying where it stands, and its element - or null when nothing waits. Set by the
+        /// bootstrap, which owns the run store; null after a domain reload just reads as "enter".
+        /// </summary>
+        public System.Func<(string line, ElementType element)?> WaitingRun;
+
         void BuildSigilDoor(ElementType[] order)
         {
             _door = SigilDoor.Build(_root, order, order[0], Tuning.Hub.DoorX, FloorTop);
             var doorPoint = HubInteractable.Attach(_door.gameObject, _door.Anchor, Tuning.Hub.DoorPromptRadius,
-                () => new Prompt
-                {
-                    Title = "Enter the Gate",
-                    Sub = ElementInfo.ResourceName(_door.Element),
-                    Body = ElementInfo.Tagline(_door.Element),
-                    Key = "[ E ]  enter",
-                    Accent = ElementInfo.Tint(_door.Element),
-                },
+                () => WaitingRun?.Invoke() is { } waiting
+                    ? new Prompt
+                    {
+                        Title = "Resume the Run",
+                        Sub = waiting.line,
+                        Body = "The run you left waits beyond the gate - carry it on, or end it here.",
+                        Key = "[ E ]  resume",
+                        Accent = ElementInfo.Tint(waiting.element),
+                    }
+                    : new Prompt
+                    {
+                        Title = "Enter the Gate",
+                        Sub = ElementInfo.ResourceName(_door.Element),
+                        Body = ElementInfo.Tagline(_door.Element),
+                        Key = "[ E ]  enter",
+                        Accent = ElementInfo.Tint(_door.Element),
+                    },
                 () => _onEnter?.Invoke(_door.Element), on => _door.SetFocus(on), priority: 10);
 
             // The prompt radius (1.9) stays generous on purpose - see ClearanceRadius's own note
