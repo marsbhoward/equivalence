@@ -1319,6 +1319,17 @@ namespace Convergence.Core
                        OpenManual,
                        DressArmoury,
                        SaveLook);
+            // Open from the first frame if the player has already run today - no slide on arrival.
+            _hub.HoldDoorOpen(_account != null && _account.RanToday, snap: true);
+            // Stone for a new week until the selector wakes them (AccountProfile.SigilsWokenWeek).
+            _hub.SetSigilsStone(_account != null && _account.SigilsAsleep());
+            _hub.WakeSigils = () =>
+            {
+                if (_account == null || !_account.WakeSigils()) return false;
+                _hub.SetSigilsStone(false);
+                SaveRoom();
+                return true;
+            };
         }
 
         /// <summary>Opens the Forge. Reachable only through the fixture's own interact key, which
@@ -1592,6 +1603,15 @@ namespace Convergence.Core
                       || PauseScreen.IsOpen || SettingsScreen.IsOpen || ControlsScreen.IsOpen
                       || InventoryScreen.IsOpen;
             bool modal = screenOpen || (_hub != null && _hub.Blocking);
+
+            // The sigil door stays open for the day once the player has run, and shuts on its own
+            // at the daily reset (00:00 UTC) - even with the player standing in the room.
+            // Likewise the week: its reset turns the sigils to stone until the selector wakes them.
+            if (_state == State.Hub && _hub != null)
+            {
+                _hub.HoldDoorOpen(_account != null && _account.RanToday);
+                _hub.SetSigilsStone(_account != null && _account.SigilsAsleep());
+            }
 
             // A carry blocks the room like a modal, but it has its OWN button set - checked
             // first, or the Blocking half of `modal` swallowed it and PLACE never showed.
@@ -4485,7 +4505,9 @@ namespace Convergence.Core
             // The taper counter is ACCOUNT state, not character state, so it rides the account
             // write rather than the profile checkpoint. Saved on every run end including a death -
             // a lost run still spent the taper for the floors it cleared, because it also banked
-            // the XP for them.
+            // the XP for them. The day of the run rides it too: the hub's sigil door stays open for
+            // the rest of the day (AccountProfile.LastRunDay).
+            if (_account != null) _account.LastRunDay = AccountProfile.UtcDay;
             if (_account != null) await _accounts.SaveAsync(_account);
 
             ShowRunOver(summary);

@@ -53,6 +53,45 @@ namespace Convergence.Chain
         public string TaperDayUtc = "";
 
         /// <summary>
+        /// The UTC day (<see cref="UtcDay"/>) of the player's last run, or 0 - written at every run
+        /// end, a death included. The hub's sigil door stays OPEN once the player has run today
+        /// and shuts at the daily reset (00:00 UTC, the taper's): an at-a-glance "you have played
+        /// today" (the user's call, 2026-10-14). Account-level, like the taper. Additive: older
+        /// accounts load 0, never.
+        /// </summary>
+        public int LastRunDay;
+
+        /// <summary>Days since 1970-01-01, UTC - turns at 00:00 UTC, with the taper.</summary>
+        public static int UtcDay => (int)(DateTime.UtcNow - DateTime.UnixEpoch).TotalDays;
+
+        public bool RanToday => LastRunDay == UtcDay;
+
+        /// <summary>
+        /// The week (<see cref="FinalFloorReward.WeekOf"/>) the player last WOKE the door's sigils
+        /// at the sigil selector, or 0. After each weekly reset (Sunday 00:00 UTC - floor 100's
+        /// guarantee) the sigils stand as plain STONE until the player uses the selector, which
+        /// brings their colour back (the user's call, 2026-10-14). Additive: older accounts load 0.
+        /// </summary>
+        public int SigilsWokenWeek;
+
+        /// <summary>Whether the sigils are stone this week. A first-ever look counts as awake - a
+        /// new player never meets stone sigils they have no reason for.</summary>
+        public bool SigilsAsleep()
+        {
+            int week = FinalFloorReward.ThisWeek;
+            if (SigilsWokenWeek == 0) SigilsWokenWeek = week;
+            return SigilsWokenWeek != week;
+        }
+
+        /// <summary>Wakes this week's sigils. False when they were awake already.</summary>
+        public bool WakeSigils()
+        {
+            if (!SigilsAsleep()) return false;
+            SigilsWokenWeek = FinalFloorReward.ThisWeek;
+            return true;
+        }
+
+        /// <summary>
         /// Rolls the daily counter over if the UTC day has changed, then returns today's count.
         /// Called before anything reads or writes it, so there is one place the rollover happens.
         /// </summary>

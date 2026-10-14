@@ -20,6 +20,15 @@ namespace Convergence.Hub
     /// marks were technically bisected and still read as whole glyphs with a stripe drawn over
     /// them, because nothing ever moved to show the split was real.
     ///
+    /// HELD OPEN FOR THE DAY once the player has run today (<see cref="HoldOpen"/>, the user's call,
+    /// 2026-10-14): the doors stay parted with the light through them until the daily reset at
+    /// 00:00 UTC shuts them again - the room says "you have played today" without a word. Fully
+    /// parted, not ajar, so the marks still read as torn rather than striped.
+    ///
+    /// STONE FOR THE NEW WEEK (<see cref="SetStone"/>, the user's call, 2026-10-14): after each
+    /// weekly reset no mark is lit - plain carved stone - until the player uses the sigil selector,
+    /// which wakes them.
+    ///
     /// They never open onto anything walkable - the wall behind stays solid and the door is used
     /// from the floor in front of it. Selecting is <see cref="WallButton"/>'s job; this class
     /// only ever draws what it is told.
@@ -45,6 +54,10 @@ namespace Convergence.Hub
         ElementType[] _order;
         Color _tint;
         float _lit, _openT;
+        bool _heldOpen, _stone;
+
+        /// <summary>The sigils stand as plain stone - a new week not yet woken at the selector.</summary>
+        public bool IsStone => _stone;
 
         static readonly Color Stone = new(0.30f, 0.31f, 0.36f);
         static readonly Color StoneDeep = new(0.19f, 0.20f, 0.24f);
@@ -167,6 +180,25 @@ namespace Convergence.Hub
 
         public void SetFocus(bool on) => Focused = on;
 
+        /// <summary>No mark lit - the week's reset, until the selector wakes them.</summary>
+        public void SetStone(bool on)
+        {
+            if (_stone == on) return;
+            _stone = on;
+            Apply(_lit);
+        }
+
+        /// <summary>Holds the doors open whether or not anyone stands at them (the player has run
+        /// today). <paramref name="snap"/> skips the slide - for a room drawn with them already
+        /// open, rather than a reset happening while the player watches.</summary>
+        public void HoldOpen(bool on, bool snap = false)
+        {
+            _heldOpen = on;
+            if (!snap) return;
+            _openT = on ? 1f : 0f;
+            Apply(_lit);
+        }
+
         /// <summary>Called by the WallButton every time the selection cycles.</summary>
         public void SetElement(ElementType e)
         {
@@ -186,8 +218,10 @@ namespace Convergence.Hub
             _lit = Mathf.MoveTowards(_lit, target, Time.unscaledDeltaTime * 5f);
 
             // Slower than the glow, because stone is heavy. Smoothstepped in Apply so the doors
-            // settle into open rather than stopping dead.
-            _openT = Mathf.MoveTowards(_openT, target, Time.unscaledDeltaTime * 3.2f);
+            // settle into open rather than stopping dead. Held open for the day, they stay parted
+            // after the player walks away; the mark's glow still follows the focus alone.
+            float open = Focused || _heldOpen ? 1f : 0f;
+            _openT = Mathf.MoveTowards(_openT, open, Time.unscaledDeltaTime * 3.2f);
 
             float breath = Focused ? 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 3.4f) : 0f;
             Apply(_lit + breath * _lit * 0.35f);
@@ -219,7 +253,7 @@ namespace Convergence.Hub
 
             for (int i = 0; i < _order.Length && i < 4; i++)
             {
-                bool active = _order[i] == Element;
+                bool active = !_stone && _order[i] == Element;
 
                 // Only the selected mark is lit - "light up sigils for each element", one at a
                 // time. It stays lit whether the doors are shut or open: which element is armed

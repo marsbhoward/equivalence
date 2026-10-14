@@ -362,6 +362,26 @@ namespace Convergence.Hub
         /// at. The button additionally outranks nothing it doesn't have to - it is far enough from
         /// any furniture anchor that the two were never going to compete.
         /// </summary>
+        /// <summary>
+        /// Asked on a press of the sigil selector before it cycles: true when the press WOKE the
+        /// week's stone sigils, which spends it - the element stays as it was. Set by the bootstrap,
+        /// which owns the account; null (after a domain reload) just cycles.
+        /// </summary>
+        public System.Func<bool> WakeSigils;
+
+        /// <summary>The door's sigils as plain stone - a new week not yet woken.</summary>
+        public void SetSigilsStone(bool on)
+        {
+            if (_door != null) _door.SetStone(on);
+        }
+
+        /// <summary>The sigil door held open for the day - the player has run today
+        /// (<see cref="SigilDoor.HoldOpen"/>).</summary>
+        public void HoldDoorOpen(bool on, bool snap = false)
+        {
+            if (_door != null) _door.HoldOpen(on, snap);
+        }
+
         void BuildSigilDoor(ElementType[] order)
         {
             _door = SigilDoor.Build(_root, order, order[0], Tuning.Hub.DoorX, FloorTop);
@@ -385,15 +405,25 @@ namespace Convergence.Hub
             _button = WallButton.Build(_root, order, order[0], e => { _door.SetElement(e); Attune(e); },
                                        Tuning.Hub.ButtonX, FloorTop);
             _points.Add(HubInteractable.Attach(_button.gameObject, _button.Anchor, 1.1f,
-                () => new Prompt
-                {
-                    Title = "SIGIL SELECTOR",
-                    Sub = $"currently {_button.Element.ToString().ToLower()}",
-                    Body = "Cycle which element the door opens onto.",
-                    Key = "[ E ]  cycle",
-                    Accent = new Color(0.91f, 0.73f, 0.24f),
-                },
-                () => _button.Cycle(), on => _button.SetFocus(on), priority: 10));
+                () => _door != null && _door.IsStone
+                    ? new Prompt
+                    {
+                        Title = "SIGIL SELECTOR",
+                        Sub = "the sigils have turned to stone",
+                        Body = "A new week has begun - every character's guaranteed Diamond box waits at floor 100 again.",
+                        Key = "[ E ]  wake",
+                        Accent = new Color(0.91f, 0.73f, 0.24f),
+                    }
+                    : new Prompt
+                    {
+                        Title = "SIGIL SELECTOR",
+                        Sub = $"currently {_button.Element.ToString().ToLower()}",
+                        Body = "Cycle which element the door opens onto.",
+                        Key = "[ E ]  cycle",
+                        Accent = new Color(0.91f, 0.73f, 0.24f),
+                    },
+                () => { if (WakeSigils == null || !WakeSigils()) _button.Cycle(); },
+                on => _button.SetFocus(on), priority: 10));
         }
 
         /// <summary>
