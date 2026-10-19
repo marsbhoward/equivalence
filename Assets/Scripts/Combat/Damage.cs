@@ -66,6 +66,13 @@ namespace Convergence.Combat
         public bool SuppressHitstop;
 
         /// <summary>
+        /// A weapon art's hit that must NOT spend a Mark (Health.MarkMultiplier) - the Four Birds'
+        /// spectral arrows, so the Phoenix's own shot is the one that cashes the target's in and the
+        /// marks they leave on the rest wait for the next art.
+        /// </summary>
+        public bool SparesMark;
+
+        /// <summary>
         /// A PRICE the run's ledger charges (Blood Price, Backfire, Toll, a bleed it owes) rather
         /// than a hit: Health takes it straight off - no immunity, no mitigation, no ward or armour,
         /// none of the incoming hooks - and only Second Wind may still catch it. Listeners that
@@ -82,6 +89,7 @@ namespace Convergence.Combat
             Disintegrates = false;
             IsFinisher = false;
             SuppressHitstop = false;
+            SparesMark = false;
             Price = false;
         }
     }

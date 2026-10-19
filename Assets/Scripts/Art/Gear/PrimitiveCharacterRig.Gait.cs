@@ -295,16 +295,18 @@ namespace Convergence.Art.Gear
 
         /// <summary>
         /// Pose both legs for this frame, given where the hips' pivot now sits. Every other leg
-        /// write is gone - the hips moving is what bends the knees.
+        /// write is gone - the hips moving is what bends the knees. The shifts move each foot
+        /// along the facing off where the walk puts it - a swing's split stance (see the Body
+        /// partial); 0 for the walk alone.
         /// </summary>
-        void PoseLegs(float cycle, float hipsY)
+        void PoseLegs(float cycle, float hipsY, float frontShift = 0f, float backShift = 0f)
         {
             EnsureKnees();
-            PoseLeg(_legFront, _kneeFront, cycle, hipsY);
-            PoseLeg(_legBack, _kneeBack, cycle + 0.5f, hipsY);
+            PoseLeg(_legFront, _kneeFront, cycle, hipsY, frontShift);
+            PoseLeg(_legBack, _kneeBack, cycle + 0.5f, hipsY, backShift);
         }
 
-        void PoseLeg(Transform hip, Transform knee, float cycle, float hipsY)
+        void PoseLeg(Transform hip, Transform knee, float cycle, float hipsY, float footShift)
         {
             if (hip == null) return;
             float travel = GaitLegTravel(cycle) * _gaitWeight;
@@ -320,7 +322,7 @@ namespace Convergence.Art.Gear
             // the hips' pivot line, so its height is the hips'.
             float sole = HipsRest.y - LegLength;
             float footY = sole + GaitFootLift(cycle) * _gaitWeight - travel * WalkFootDepth;
-            SolveLeg(travel * WalkStride, footY - hipsY, out float thigh, out float bend);
+            SolveLeg(travel * WalkStride + footShift, footY - hipsY, out float thigh, out float bend);
 
             hip.localRotation = Quaternion.Euler(0f, 0f, thigh);
             knee.localRotation = Quaternion.Euler(0f, 0f, bend);

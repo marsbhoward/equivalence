@@ -98,14 +98,6 @@ namespace Convergence.Combat
         /// <summary>How far out the suspended discs plant themselves.</summary>
         public float DiscSuspendDistance = 2.4f;
 
-        /// <summary>
-        /// Non-zero drives the discs in a ring around the player for this many sweeps instead of
-        /// throwing them outward. Each enemy is struck once per sweep.
-        /// </summary>
-        public int DiscOrbitSweeps;
-
-        public float DiscOrbitRadius = 2.2f;
-
         /// <summary>How far the character hops backward as the move fires. Zero for none.</summary>
         public float RecoilDistance;
 
@@ -197,6 +189,102 @@ namespace Convergence.Combat
         /// field would have made every existing charged move invulnerable.
         /// </summary>
         public float LeapSeconds;
+
+        /// <summary>
+        /// The leap takes off with a full TURN through the views (AttackMotion.StarLeap) and lands
+        /// in the step's Motion, started on the way down so its strike is drawn as the feet touch -
+        /// Falling Star's, landing in Sunder's planted slam. Off, the leap holds the charge's
+        /// raised blade and plays its Motion on landing (Phantom's hop).
+        /// </summary>
+        public bool SpinLeap;
+
+        // ---- a disc BASIC thrown at range (the ranged "dance" pairs, 2026-10-15) ----
+
+        /// <summary>The motion a disc basic plays when it is THROWN (nothing in reach) - Motion
+        /// is the melee one. Released at its strike (PlayerController.ThrowDisc).</summary>
+        public AttackMotion ThrowMotion = AttackMotion.Throw;
+
+        /// <summary>The Tether art (Combat/DiscTether): one disc curves past the target and drags
+        /// it in; an elite flinches instead; enemies the disc passes are tagged.</summary>
+        public bool Tethers;
+
+        /// <summary>Revolve (Combat/DiscOrbit): both discs make one revolution close round the
+        /// body, destroying enemy projectiles that reach them and hitting enemies they run into;
+        /// a basic meanwhile knocks one out as a throw.</summary>
+        public bool Orbits;
+
+        /// <summary>Plow (Combat/DiscPlow): both discs rolled along the ground in two lanes,
+        /// cutting furrows; what they meet is struck and slid out to the side.</summary>
+        public bool Plows;
+
+        /// <summary>Kickback: the fling's discs leave at its drawn strike from both hands, each
+        /// STRAIGHT along its own line of the cone (ThrownDisc.Straight - the first body it meets),
+        /// and the recoil hop goes with them (PlayerController.KickbackStrike).</summary>
+        public bool DiscSpray;
+
+        /// <summary>Carousel: the arms wide and a full turn, free to move; each body in the
+        /// circle struck as a disc sweeps past it (PlayerController.CarouselStrike).</summary>
+        public bool DiscCarousel;
+
+        /// <summary>Heavy Cleaver: one HEAVY disc (Tuning.Cleaver - bigger, slower, its bounces
+        /// carrying less) thrown at the drawn strike of the step's chop (CleaverStrike).</summary>
+        public bool DiscCleaves;
+
+        /// <summary>Carom: the pair is COMBINED over the head and hurled two-handed as one disc
+        /// at the drawn strike, which caroms off enemies, walls and pillars (ThrownDisc.Carom,
+        /// PlayerController.CaromStrike).</summary>
+        public bool DiscCaroms;
+
+        /// <summary>Ripple: the volley leaves at the motion's drawn strike, the discs from BOTH
+        /// hands, fanned over DiscSpreadDegrees, each then HOMING onto its own target - the locked
+        /// one and the nearest others in reach, shared out in order round the fan; one enemy takes
+        /// them all (ThrownDisc.Home, PlayerController.HomingVolley).</summary>
+        public bool DiscHoming;
+
+        /// <summary>Scattershot: a jump, and at its top the discs leave from both hands in an even
+        /// RING, one on the facing, each straight down its own spoke; what a spoke meets is struck
+        /// and the disc bounces to an enemy the volley has not reached, and a disc that meets
+        /// nothing turns back in on the nearest enemy (ThrownDisc.Spoke,
+        /// PlayerController.ScattershotStrike).</summary>
+        public bool DiscScatter;
+
+        /// <summary>Mark: one disc flicked out at the drawn strike at the lock, bouncing far and
+        /// painting each body it strikes (DiscMarkMultiplier) - PlayerController.MarkStrike.</summary>
+        public bool DiscMarks;
+
+        /// <summary>Orrery: the pair flung onto two orbits round the player at the drawn strike
+        /// (Combat.OrbitingDiscs, PlayerController.OrreryStrike); the player moves freely.</summary>
+        public bool DiscOrrery;
+
+        /// <summary>Gyre: the discs spun overhead as a rotor, a cone along the aim drawn in, then a
+        /// melee cut as they come back (PlayerController.GyreStrike).</summary>
+        public bool Gyres;
+
+        /// <summary>The hit lands when the motion DRAWS its strike (ICharacterRig.StrikeDrawnSeconds),
+        /// not on the press - for an art whose cock is long enough that the damage read ahead of
+        /// the blow (Cross Cut). The timing bar counts the wait (StrikeDelay).</summary>
+        public bool StrikesOnDraw;
+
+        /// <summary>The swing hop the throw takes (a crow hop, a leap).</summary>
+        public float ThrowHop;
+
+        /// <summary>The throw leaves the OFF hand (the pair's second throw).</summary>
+        public bool ThrowOffhand;
+
+        /// <summary>World units the throw really carries the player along the facing before the
+        /// release (Charge's run) - a dash, so walls stop it and a chasm at its end takes them.</summary>
+        public float ThrowRun;
+
+        /// <summary>Seconds before the throw's strike the disc leaves (Leap: from the top of the
+        /// jump, not the landing).</summary>
+        public float ThrowReleaseEarly;
+
+        /// <summary>
+        /// A DIRECTED leap: the body is carried this far along the aim over the flight (less, to
+        /// land on a locked target in front), and walking steers on top - the ring on the ground
+        /// marks where it will come down. 0 is a leap straight up (Phantom's hop).
+        /// </summary>
+        public float LeapDistance;
 
         /// <summary>
         /// Damage at the rim of the arc relative to its centre. 1 is flat - what every ordinary
@@ -291,6 +379,81 @@ namespace Convergence.Combat
         public bool Swarm;
 
         /// <summary>
+        /// THE FOUR BIRDS, the Phoenix's weapon art: drawn like a shot while spectral Crow, Swan and
+        /// Peacock bows form up in a V either side, then all four loose -
+        /// <c>PlayerController.FormationStrike</c>, Combat.BowFormation, Tuning.Formation.
+        /// </summary>
+        public bool Formation;
+
+        /// <summary>
+        /// A bow basic that is a MOVE, not a shot (the user's idea, 2026-10-17): the player rolls to
+        /// the KNEEL connector - <c>PlayerController.BowRollStrike</c>, a real dash by the move input
+        /// held as it goes (never the aim), else away from the target. No arrow, no i-frames. Its
+        /// pair's shot carries both basics' damage (<see cref="BasicsWorth"/> 2).
+        /// </summary>
+        public bool KneelRoll;
+
+        /// <summary>A bow basic that is a MOVE: a hop straight back from the target onto the RECOIL
+        /// connector - <c>PlayerController.BowRollStrike</c>, a real dash, always away from the
+        /// target (else back from the facing). No arrow, no i-frames.</summary>
+        public bool RecoilHop;
+
+        /// <summary>A bow shot LOBBED (the High pair's second basic): the arrow's peak over the
+        /// ground, as a share of the distance to its target. 0: a level shot.</summary>
+        public float LobArc;
+
+        /// <summary>A bow shot of TWO arrows (the Twin nock pair's second basic): each carries half
+        /// the step's damage; the second flies at the enemy nearest the target within
+        /// Tuning.Bow.TwinReach of it, else at the target too.</summary>
+        public bool TwinShot;
+
+        /// <summary>HARPOON, the bow's pull: a twin shot whose first arrow trails a LINE - the
+        /// enemy it sticks in and up to two near it are reeled in to a set distance in front of the
+        /// archer (<c>PlayerController.HarpoonStrike</c>, Combat.BowHarpoon, Tuning.Harpoon).</summary>
+        public bool Harpoon;
+
+        /// <summary>CONCUSSION, the bow's PUSH: drawn from the RECOIL, the arrow bursts off the
+        /// string and blows back everything in a cone in front of the archer, slowing the group
+        /// round where it struck (<c>PlayerController.ConcussionStrike</c>, Combat.ConcussionBurst,
+        /// Tuning.Concussion).</summary>
+        public bool Concussion;
+
+        /// <summary>DISENGAGE, the bow's REPOSITION: out of the RECOIL, a backflip away from the
+        /// target and one arrow loosed down at it from the top (<c>PlayerController.DisengageStrike</c>,
+        /// Tuning.Disengage).</summary>
+        public bool Disengage;
+
+        /// <summary>PALISADE, the bow's DEFENSIVE: out of the HIGH, arrows land on enemy shots in
+        /// flight and stick there, the rest stake a line; each stake stops one more shot
+        /// (<c>PlayerController.PalisadeStrike</c>, Combat.BowPalisade, Tuning.Palisade). Spares the
+        /// perfect streak - it may hit nothing by design.</summary>
+        public bool Palisade;
+
+        /// <summary>PIERCING RAIN: out of the HIGH, one arrow loosed straight up comes down as a
+        /// rain on the target's ground over about a second (<c>PlayerController.PiercingRainStrike</c>,
+        /// Combat.ArrowRain, Tuning.PiercingRain).</summary>
+        public bool ArrowRain;
+
+        /// <summary>LONGSHOT: out of the KNEEL, a long held draw, then one arrow straight across the
+        /// room through everything on its line until a wall (<c>PlayerController.LongshotStrike</c>,
+        /// Combat.LongshotStreak, Tuning.Longshot).</summary>
+        public bool Longshot;
+
+        /// <summary>SPLIT: one arrow that breaks into three halfway (<c>PlayerController.SplitStrike</c>).</summary>
+        public bool SplitShot;
+
+        /// <summary>PIN: two arrows that root the target (<c>PlayerController.PinStrike</c>).</summary>
+        public bool Pin;
+
+        /// <summary>TRIPWIRE: two staked arrows and a wire that EXPLODES when first crossed
+        /// (<c>PlayerController.TripwireStrike</c>, Combat.BowTripwire).</summary>
+        public bool Tripwire;
+
+        /// <summary>How many basics this step's hit counts as for the per-basic hooks (the board's
+        /// OnBasicLanded, Sulfur's Season) - 2 on the shot that carries a move-basic's damage.</summary>
+        public int BasicsWorth = 1;
+
+        /// <summary>
         /// KING AND QUEEN, the Aether Dual Discs' weapon art: after the Magnum Opus's gather
         /// (<see cref="ChargeSeconds"/>), both discs thrown in a pincer that meets on the target
         /// (Combat.PincerDisc), caught at the top of a jump as they come round, and hurled down
@@ -315,10 +478,33 @@ namespace Convergence.Combat
         /// <summary>
         /// The player LUNGES with the strike: a dash this far along the facing over
         /// Tuning.Impale.LungeSeconds, and the hit resolves where it ends. Stops short of a locked
-        /// target in front (so it is inside the reach, not run past) and at the floor's edge (a
-        /// lunge never carries the player into a chasm). Zero for everything but Impale.
+        /// target in front (so it is inside the reach, not run past) and at the floor's edge (it
+        /// never carries the player into a chasm) - unless it PiercesPath, which is a plain dash
+        /// that may cross a chasm or end in one. Zero for everything but Impale.
         /// </summary>
         public float LungeDistance;
+
+        /// <summary>
+        /// The lunge goes THROUGH: no stopping short of a locked target or at a chasm's edge (it
+        /// is judged where it ends, as a dash is - it may fall), and the hit lands on
+        /// every body along the path from where the lunge started to the thrust's reach past
+        /// where it ended (nearest first, the blade's falloff). Impale since 2026-10-14.
+        /// </summary>
+        public bool PiercesPath;
+
+        /// <summary>
+        /// The Grappling Hook: a hooked chain thrown along the facing instead of a swing
+        /// (Combat/GrapplingHook, Tuning.Grapple). An ordinary enemy it catches is reeled in;
+        /// an elite, a boss, a wall or a pillar pulls the player there instead.
+        /// </summary>
+        public bool Grapples;
+
+        /// <summary>
+        /// Sunder's push: every body a displacing hit catches SLIDES out past the strike's rim
+        /// (PlayerController.PushOut, Tuning.Sunder) instead of taking the knockback impulse,
+        /// which only moves a body half a unit.
+        /// </summary>
+        public bool PushesOut;
 
         /// <summary>
         /// Flurry: cut down, cut back up, then the hilt turned and the POMMEL driven into the
@@ -532,6 +718,51 @@ namespace Convergence.Combat
             Finisher = DefaultOverhand,
         };
 
+
+        // ---- disc basics: a MELEE pair and a RANGED pair (the user's calls, 2026-10-15) ----
+        //
+        // Every disc moveset swings one melee pair up close and throws one ranged pair at range,
+        // both ending on the CONNECTOR its art starts from: RELEASE (Throw's first frame), ORBIT
+        // (low, arms wide), CROSS (arms crossed), HALO (both raised), COIL (turned away, both
+        // behind the hip). The second hit of each pair is the off hand's. The chain's third basic
+        // (Leaking's extra swing) repeats the first.
+
+        public enum DiscMelee { TwinCut, StepTurn, Scissor, PunchDraw, ChopWind }
+        public enum DiscRanged { Pirouette, CrowHop, Charge, Leap, Windmill }
+
+        static AttackStep[] DiscBasics(AttackStep[] basics, DiscMelee melee, DiscRanged ranged)
+        {
+            (AttackMotion m, float hop)[] mm = melee switch
+            {
+                DiscMelee.TwinCut   => new[] { (AttackMotion.DiscTwinCut, 0f), (AttackMotion.DiscTwinCross, 0f) },
+                DiscMelee.StepTurn  => new[] { (AttackMotion.DiscStepCut, 0.10f), (AttackMotion.DiscFlingTurn, 0f) },
+                DiscMelee.Scissor   => new[] { (AttackMotion.DiscUppercut, 0.18f), (AttackMotion.DiscScissor, 0f) },
+                DiscMelee.PunchDraw => new[] { (AttackMotion.DiscPunch, 0f), (AttackMotion.DiscBackhandCoil, 0f) },
+                _                   => new[] { (AttackMotion.DiscChop, 0.12f), (AttackMotion.DiscWindUp, 0f) },
+            };
+            (AttackMotion m, float hop, float run, float early)[] rr = ranged switch
+            {
+                DiscRanged.Pirouette => new[] { (AttackMotion.DiscPirouette, 0f, 0f, 0f), (AttackMotion.DiscCounterTurn, 0f, 0f, 0f) },
+                DiscRanged.CrowHop   => new[] { (AttackMotion.DiscCrowHop, 0.14f, 0f, 0f), (AttackMotion.DiscCrowSide, 0.08f, 0f, 0f) },
+                DiscRanged.Charge    => new[] { (AttackMotion.DiscCharge, 0f, 1.0f, 0f), (AttackMotion.DiscBrake, 0f, 0f, 0f) },
+                DiscRanged.Leap      => new[] { (AttackMotion.DiscLeap, 0.45f, 0f, 0.08f), (AttackMotion.DiscSkip, 0f, 0f, 0f) },
+                _                    => new[] { (AttackMotion.DiscWindmill, 0f, 0f, 0f), (AttackMotion.DiscCounterWheel, 0f, 0f, 0f) },
+            };
+            for (int i = 0; i < basics.Length; i++)
+            {
+                int h = i % 2;
+                var b = basics[i];
+                b.Motion = mm[h].m;
+                b.HopHeight = mm[h].hop;
+                b.ThrowMotion = rr[h].m;
+                b.ThrowHop = rr[h].hop;
+                b.ThrowRun = rr[h].run;
+                b.ThrowReleaseEarly = rr[h].early;
+                b.ThrowOffhand = h == 1;
+            }
+            return basics;
+        }
+
         /// <summary>
         /// The disc class's standing finisher. Every disc slot falls back to this the way every
         /// greatsword slot falls back to Overhand.
@@ -544,17 +775,21 @@ namespace Convergence.Combat
             IsDefault = true,
             Class = Art.Gear.WeaponClass.Disc,
             FinisherGlyph = Glyph.Cross,
-            FinisherDescription = "Brings both discs across the enemy in front of you at once.",
-            Basics = new[]
+            FinisherDescription = "Swings both discs out from crossed arms in an X across the enemy in front of you. " +
+                                  "The full blow lands on that enemy; anything beside it takes little.",
+            Basics = DiscBasics(new[]
             {
                 new AttackStep { Name = "Cut", DamageMultiplier = 1f, IntervalMultiplier = 1f },
                 new AttackStep { Name = "Cut", DamageMultiplier = 1f, IntervalMultiplier = 1f },
                 new AttackStep { Name = "Cut", DamageMultiplier = 1f, IntervalMultiplier = 1f },
-            },
+            }, DiscMelee.TwinCut, DiscRanged.Charge),
             Finisher = new AttackStep
             {
+                // A MELEE art (the disc guideline, 2026-10-15): the whole Medium on the one enemy in
+                // front - narrow, and steep falloff past it. Nothing in reach: it cuts the air.
                 Name = "Cross Cut", DamageMultiplier = 5f, IntervalMultiplier = 1.5f,
-                Motion = AttackMotion.Sweep, StrikeWidth = 1.1f,
+                Motion = AttackMotion.DiscCrossCut, StrikeWidth = 0.8f, ChainFalloff = 0.35f,
+                StrikesOnDraw = true,
             },
         };
 
@@ -679,7 +914,10 @@ namespace Convergence.Combat
         /// </summary>
         static void CheckGripHandoffs(Moveset m)
         {
-            if (m.Class == Art.Gear.WeaponClass.Bow || m.Basics.Length == 0) return;
+            // Nor a disc: the warning is a BLADE sliding along itself through the hand, and a round
+            // disc has no length to slide - its pairs move the fist freely (2026-10-15).
+            if (m.Class == Art.Gear.WeaponClass.Bow || m.Class == Art.Gear.WeaponClass.Disc
+                || m.Basics.Length == 0) return;
             var judged = new HashSet<string>();
 
             // Mirrors PlayerController.NextStep and DoAttack's alt staging.
@@ -860,18 +1098,19 @@ namespace Convergence.Combat
                 Id = "disc_ripple", DisplayName = "Ripple", Class = Art.Gear.WeaponClass.Disc,
                 FinisherGlyph = Glyph.Volley,
                 Flavor = "Discs skipped low and flat.",
-                FinisherDescription = "Throws three discs at once, each flying at its own target.",
-                Basics = new[]
+                FinisherDescription = "Throws four discs, two from each hand. They fan out, then curve onto the nearest enemies, each disc to its own while there are enough of them.",
+                Basics = DiscBasics(new[]
                 {
                     Basic("Cut",  0.95f, 1f, 0.10f, 0f, AttackMotion.Sweep),
                     Basic("Cut",  0.95f, 1f, 0.10f, 0f, AttackMotion.Sweep),
                     Basic("Cut",  1.00f, 1f, 0.10f, 0f, AttackMotion.Sweep),
-                },
+                }, DiscMelee.ChopWind, DiscRanged.Pirouette),
                 Finisher = new AttackStep
                 {
-                    Name = "Ripple", DamageMultiplier = 1.1f, IntervalMultiplier = 1f,
+                    Name = "Ripple", DamageMultiplier = 0.825f, IntervalMultiplier = 1f,
                     Weight = FinisherWeight.Light,
-                    Motion = AttackMotion.Throw, DiscThrows = 3, DiscRicochetBonus = 0,
+                    Motion = AttackMotion.DiscFanThrow, DiscThrows = 4, DiscRicochetBonus = 0,
+                    DiscSpreadDegrees = Core.Tuning.Ripple.SpreadDegrees, DiscHoming = true,
                 },
             },
             new Moveset
@@ -879,18 +1118,19 @@ namespace Convergence.Combat
                 Id = "disc_carom", DisplayName = "Carom", Class = Art.Gear.WeaponClass.Disc,
                 FinisherGlyph = Glyph.Thrown,
                 Flavor = "One disc, thrown to keep going.",
-                FinisherDescription = "Throws one disc that ricochets four extra times before it comes home.",
-                Basics = new[]
+                FinisherDescription = "Brings both discs together over the head and hurls them as one. It rebounds off enemies, walls and pillars five times before it comes home.",
+                Basics = DiscBasics(new[]
                 {
                     Basic("Cut",  0.95f, 1f, 0.10f, 0f, AttackMotion.Sweep),
                     Basic("Cut",  0.95f, 1f, 0.10f, 0f, AttackMotion.Sweep),
                     Basic("Cut",  1.00f, 1f, 0.10f, 0f, AttackMotion.Sweep),
-                },
+                }, DiscMelee.ChopWind, DiscRanged.Pirouette),
                 Finisher = new AttackStep
                 {
                     Name = "Carom", DamageMultiplier = 1.9f, IntervalMultiplier = 1f,
                     Weight = FinisherWeight.Light,
-                    Motion = AttackMotion.Throw, DiscThrows = 1, DiscRicochetBonus = 4,
+                    Motion = AttackMotion.DiscCaromHurl, DiscThrows = 1, DiscRicochetBonus = 4,
+                    DiscCaroms = true,
                 },
             },
             new Moveset
@@ -898,18 +1138,19 @@ namespace Convergence.Combat
                 Id = "disc_cleaver", DisplayName = "Heavy Cleaver", Class = Art.Gear.WeaponClass.Disc,
                 FinisherGlyph = Glyph.Spike,
                 Flavor = "A slower, heavier disc.",
-                FinisherDescription = "Throws one heavy disc that bounces once before it comes home.",
-                Basics = new[]
+                FinisherDescription = "Brings one disc down over the head like a cleaver and throws it. The big, slow disc knocks back what it hits and bounces twice before it comes home.",
+                Basics = DiscBasics(new[]
                 {
                     Basic("Cut",  1.00f, 1.05f, 0.10f, 0f, AttackMotion.Sweep),
                     Basic("Cut",  1.00f, 1.05f, 0.10f, 0f, AttackMotion.Sweep),
                     Basic("Cut",  1.10f, 1.05f, 0.10f, 0f, AttackMotion.Sweep),
-                },
+                }, DiscMelee.Scissor, DiscRanged.Leap),
                 Finisher = new AttackStep
                 {
-                    Name = "Cleaver", DamageMultiplier = 3.4f, IntervalMultiplier = 2.5f,
-                    Weight = FinisherWeight.Heavy,
-                    Motion = AttackMotion.Throw, DiscThrows = 1, DiscRicochetBonus = 1,
+                    Name = "Cleaver", DamageMultiplier = 5.0f, IntervalMultiplier = 2.5f,
+                    Weight = FinisherWeight.Heavy, Knockback = 9f,
+                    Motion = AttackMotion.DiscCleaverChop, DiscThrows = 1, DiscRicochetBonus = 1,
+                    DiscCleaves = true,
                 },
             },
             new Moveset
@@ -917,18 +1158,20 @@ namespace Convergence.Combat
                 Id = "disc_carousel", DisplayName = "Carousel", Class = Art.Gear.WeaponClass.Disc,
                 FinisherGlyph = Glyph.Whirl,
                 Flavor = "Discs held out at arm's length, and a turn.",
-                FinisherDescription = "Holds both discs out to your sides and spins, cutting everything within reach.",
-                Basics = new[]
+                FinisherDescription = "Holds both discs out wide and turns two full circles, cutting each enemy within reach every time a disc sweeps past it. You can keep moving through the turns.",
+                Basics = DiscBasics(new[]
                 {
                     Basic("Cut",  1.00f, 1f, 0.10f, 0f, AttackMotion.Sweep),
                     Basic("Cut",  1.00f, 1f, 0.10f, 0f, AttackMotion.Sweep),
                     Basic("Cut",  1.05f, 1f, 0.10f, 0f, AttackMotion.Sweep),
-                },
+                }, DiscMelee.StepTurn, DiscRanged.CrowHop),
                 Finisher = new AttackStep
                 {
-                    Name = "Carousel", DamageMultiplier = 5f, IntervalMultiplier = 1.5f,
+                    // Two turns take a Heavy's length (2.5); 7 basics keeps a Medium's damage a
+                    // second over the longer chain - 3.5 a body each turn. Free to move throughout.
+                    Name = "Carousel", DamageMultiplier = 7f, IntervalMultiplier = 2.5f,
                     Weight = FinisherWeight.Medium,
-                    Motion = AttackMotion.Spin,
+                    Motion = AttackMotion.DiscCarousel, DiscCarousel = true,
 
                     // Arms out, so it genuinely reaches further than a normal cut - and the whole
                     // circle, because the body turns all the way round. AreaOfEffect makes the
@@ -945,18 +1188,18 @@ namespace Convergence.Combat
                 Id = "disc_kickback", DisplayName = "Kickback", Class = Art.Gear.WeaponClass.Disc,
                 FinisherGlyph = Glyph.Fan,
                 Flavor = "Everything at once, and a step back out of it.",
-                FinisherDescription = "Sprays four discs in a cone in front of you and hops you backward. The discs hit hardest right in front of you.",
-                Basics = new[]
+                FinisherDescription = "Unwinds and flings four discs from both hands in a fan in front of you, hopping you backward. Each disc flies straight and hits the first enemy in its path, hardest right in front of you.",
+                Basics = DiscBasics(new[]
                 {
                     Basic("Cut",  0.95f, 1f, 0.10f, 0f, AttackMotion.Sweep),
                     Basic("Cut",  0.95f, 1f, 0.10f, 0f, AttackMotion.Sweep),
                     Basic("Cut",  1.00f, 1f, 0.10f, 0f, AttackMotion.Sweep),
-                },
+                }, DiscMelee.PunchDraw, DiscRanged.Windmill),
                 Finisher = new AttackStep
                 {
                     Name = "Kickback", DamageMultiplier = 1.35f, IntervalMultiplier = 1.5f,
                     Weight = FinisherWeight.Medium,
-                    Motion = AttackMotion.Throw,
+                    Motion = AttackMotion.DiscKickFling, DiscSpray = true,
                     DiscThrows = 4, DiscSpreadDegrees = 70f, DiscRicochetBonus = 0,
 
                     // Point blank is where this pays. At 0.35 a body in your face takes nearly
@@ -975,19 +1218,20 @@ namespace Convergence.Combat
                 Id = "disc_scatter", DisplayName = "Scattershot", Class = Art.Gear.WeaponClass.Disc,
                 FinisherGlyph = Glyph.Burst,
                 Flavor = "Discs loosed in every direction.",
-                FinisherDescription = "Throws five discs outward in every direction at once, each bouncing once.",
-                Basics = new[]
+                FinisherDescription = "Jumps and, at the top, flings six discs out in a ring from both hands. Each flies straight out and strikes the first enemy in its path, then bounces to one the others missed. A disc that meets nothing turns back in onto the nearest enemy.",
+                Basics = DiscBasics(new[]
                 {
                     Basic("Cut",  0.90f, 0.95f, 0.10f, 0f, AttackMotion.Sweep),
                     Basic("Cut",  0.90f, 0.95f, 0.10f, 0f, AttackMotion.Sweep),
                     Basic("Cut",  1.00f, 0.95f, 0.10f, 0f, AttackMotion.Sweep),
-                },
+                }, DiscMelee.Scissor, DiscRanged.Leap),
                 Finisher = new AttackStep
                 {
-                    Name = "Scattershot", DamageMultiplier = 0.85f, IntervalMultiplier = 1f,
+                    // RANGED (the disc guideline): six spokes over a crowd; a lone enemy takes all
+                    // six as the empty spokes turn in on it - 3.3 basics, a Light at a good press.
+                    Name = "Scattershot", DamageMultiplier = 0.55f, IntervalMultiplier = 1f,
                     Weight = FinisherWeight.Light,
-                    Motion = AttackMotion.Throw, DiscThrows = 5, DiscRicochetBonus = 1,
-                    DiscSpreadDegrees = 360f,
+                    Motion = AttackMotion.DiscScatterBurst, DiscThrows = 6, DiscScatter = true,
                 },
             },
 
@@ -996,16 +1240,16 @@ namespace Convergence.Combat
                 Id = "disc_mark", DisplayName = "Mark", Class = Art.Gear.WeaponClass.Disc,
                 FinisherGlyph = Glyph.Vortex,
                 Flavor = "One disc, and a long chain of them left painted.",
-                FinisherDescription = "Throws a single disc that bounces far through the crowd, marking everything it touches. A marked enemy takes double from the next hit that lands on it.",
-                Basics = new[]
+                FinisherDescription = "Points at the target and flicks one disc out sidearm. It bounces far through the crowd and paints a sigil over every enemy it strikes. The next weapon art to hit a painted enemy breaks the sigil and deals half again.",
+                Basics = DiscBasics(new[]
                 {
                     Basic("Cut",  0.95f, 1f, 0.10f, 0f, AttackMotion.Sweep),
                     Basic("Cut",  0.95f, 1f, 0.10f, 0f, AttackMotion.Sweep),
                     Basic("Cut",  1.00f, 1f, 0.10f, 0f, AttackMotion.Sweep),
-                },
+                }, DiscMelee.ChopWind, DiscRanged.Pirouette),
                 Finisher = new AttackStep
                 {
-                    Name = "Mark", IntervalMultiplier = 1f, Motion = AttackMotion.Throw,
+                    Name = "Mark", IntervalMultiplier = 1f, Motion = AttackMotion.DiscMarkFlick, DiscMarks = true,
                     Weight = FinisherWeight.Light,
 
                     // Deliberately the weakest finisher the class has. Its damage is not its
@@ -1017,7 +1261,106 @@ namespace Convergence.Combat
                     // off one throw, which is what makes the follow-up worth aiming.
                     DiscThrows = 1, DiscRicochetBonus = 4,
 
-                    DiscMarkMultiplier = 2f, DiscMarkSeconds = 6f,
+                    // Spent only by the NEXT WEAPON ART's hit (Health.Take), so it waits through
+                    // the chain's basics: 0.55 + half the next art on one enemy - about a Light
+                    // before a Medium - and half again on every painted body an area art reaches.
+                    DiscMarkMultiplier = Core.Tuning.Mark.Multiplier, DiscMarkSeconds = Core.Tuning.Mark.Seconds,
+                },
+            },
+            new Moveset
+            {
+                Id = "disc_tether", DisplayName = "Tether", Class = Art.Gear.WeaponClass.Disc,
+                FinisherGlyph = Glyph.Thrown,
+                Flavor = "Two discs crossed, and one sent round behind.",
+                FinisherDescription = "Throws one disc round past the enemy, hooks it from behind and drags it in to you. " +
+                                      "Anything too heavy to move flinches instead. Every other enemy the disc passes is struck as it goes.",
+                // The disc class's PULL (the user's calls, 2026-10-15). LIGHT: the pull is the
+                // move. The Cross pair hands into the cast (arms crossed at the chest, snapping
+                // open). Grappling Hook's reel; an Anchored elite is FLINCHED, armour or not.
+                Basics = DiscBasics(new[]
+                {
+                    Basic("Cut",  0.95f, 1f, 0.10f, 0f, AttackMotion.Sweep),
+                    Basic("Cut",  0.95f, 1f, 0.10f, 0f, AttackMotion.Sweep),
+                    Basic("Cut",  1.00f, 1f, 0.10f, 0f, AttackMotion.Sweep),
+                }, DiscMelee.TwinCut, DiscRanged.Charge),
+                Finisher = new AttackStep
+                {
+                    Name = "Tether", DamageMultiplier = 3f, IntervalMultiplier = 1f,
+                    Weight = FinisherWeight.Light, Motion = AttackMotion.DiscTetherCast,
+                    Tethers = true,
+                },
+            },
+            new Moveset
+            {
+                Id = "disc_gyre", DisplayName = "Gyre", Class = Art.Gear.WeaponClass.Disc,
+                FinisherGlyph = Glyph.Vortex,
+                Flavor = "Both discs spun out in front, and the air pulled in through them.",
+                FinisherDescription = "Reaches out and spins both discs in front of you like rotor blades. Everything in a cone in front is drawn in toward you, " +
+                                      "cutting whatever comes close, then the discs come back to your hands in a cut across what is in front. Anything too heavy to move flinches instead.",
+                // The discs' MELEE pull (the user's call, 2026-10-16: helicopter style, aimed as a
+                // cone; Tether is the ranged one). LIGHT: the pull is the move, and the cut is a
+                // melee hit - the whole Light on the first body, steep falloff after; nothing in
+                // front, it cuts the air. Out of HALO (the Scissor and Leap pairs end both raised).
+                Basics = DiscBasics(new[]
+                {
+                    Basic("Cut",  0.95f, 1f, 0.10f, 0f, AttackMotion.Sweep),
+                    Basic("Cut",  0.95f, 1f, 0.10f, 0f, AttackMotion.Sweep),
+                    Basic("Cut",  1.00f, 1f, 0.10f, 0f, AttackMotion.Sweep),
+                }, DiscMelee.Scissor, DiscRanged.Leap),
+                Finisher = new AttackStep
+                {
+                    Name = "Gyre", DamageMultiplier = 3f, IntervalMultiplier = 1f,
+                    Weight = FinisherWeight.Light, Motion = AttackMotion.DiscGyreLift,
+                    Gyres = true, StrikeWidth = 1.4f, ChainFalloff = 0.5f, CleavesAll = true,
+                    RangeBonus = 0.4f,   // reaches the pile the pull leaves
+                },
+            },
+            new Moveset
+            {
+                Id = "disc_revolve", DisplayName = "Revolve", Class = Art.Gear.WeaponClass.Disc,
+                FinisherGlyph = Glyph.Whirl,
+                Flavor = "Both discs sent round you, and you keep fighting.",
+                FinisherDescription = "Sets four discs turning in a close circle round you. Shots that reach the circle burst into smoke; " +
+                                      "an enemy a disc runs into is struck. Each attack knocks one disc out of the circle at your target, and the next weapon art takes the last two.",
+                // The disc class's DEFENSIVE art (the user's calls, 2026-10-15; the name is mine).
+                // MEDIUM, as Riposte is the swords'. One revolution, 1.5 s, straight through;
+                // projectiles destroyed; the hands are empty but the basics go on unarmed, each
+                // knocking a disc out of the ring. The Orbit pair hands into the cast.
+                Basics = DiscBasics(new[]
+                {
+                    Basic("Cut",  0.95f, 1f, 0.10f, 0f, AttackMotion.Sweep),
+                    Basic("Cut",  0.95f, 1f, 0.10f, 0f, AttackMotion.Sweep),
+                    Basic("Cut",  1.00f, 1f, 0.10f, 0f, AttackMotion.Sweep),
+                }, DiscMelee.StepTurn, DiscRanged.CrowHop),
+                Finisher = new AttackStep
+                {
+                    Name = "Revolve", DamageMultiplier = 5f, IntervalMultiplier = 1.5f,
+                    Weight = FinisherWeight.Medium, Motion = AttackMotion.DiscOrbitCast,
+                    Orbits = true,
+                },
+            },
+            new Moveset
+            {
+                Id = "disc_plow", DisplayName = "Plow", Class = Art.Gear.WeaponClass.Disc,
+                FinisherGlyph = Glyph.Fan,
+                Flavor = "Both discs bowled low, and the crowd parted.",
+                FinisherDescription = "Bowls both discs along the ground side by side, cutting two furrows as they roll. " +
+                                      "Everything they meet is struck and shoved aside, out of their path.",
+                // The disc class's PUSH (the user's calls, 2026-10-15). HEAVY, as Sunder is the
+                // swords': everything struck flinches, armour or not, and is slid out to the side
+                // (the slide is the push - a knockback alone moves a body ~0.6). The Cross pair
+                // hands into the cast.
+                Basics = DiscBasics(new[]
+                {
+                    Basic("Cut",  0.95f, 1f, 0.10f, 0f, AttackMotion.Sweep),
+                    Basic("Cut",  0.95f, 1f, 0.10f, 0f, AttackMotion.Sweep),
+                    Basic("Cut",  1.00f, 1f, 0.10f, 0f, AttackMotion.Sweep),
+                }, DiscMelee.TwinCut, DiscRanged.Charge),
+                Finisher = new AttackStep
+                {
+                    Name = "Plow", DamageMultiplier = 6.5f, IntervalMultiplier = 2.5f,
+                    Weight = FinisherWeight.Heavy, Motion = AttackMotion.DiscPlowCast,
+                    Knockback = 6f, Plows = true,
                 },
             },
             new Moveset
@@ -1025,24 +1368,22 @@ namespace Convergence.Combat
                 Id = "disc_sublimate", DisplayName = "Sublimate", Class = Art.Gear.WeaponClass.Disc,
                 FinisherGlyph = Glyph.Fan,
                 Flavor = "Discs that go out and simply stop.",
-                FinisherDescription = "Hangs three discs in the air. They stay there until your next weapon art fires, then all three go off at once.",
-                Basics = new[]
+                FinisherDescription = "Snaps the arms open and flings three discs out. Each slows to a stop over an enemy and follows it, trailing vapour. When your next weapon art fires, all three go off.",
+                Basics = DiscBasics(new[]
                 {
                     Basic("Cut",  0.95f, 1f, 0.10f, 0f, AttackMotion.Sweep),
                     Basic("Cut",  0.95f, 1f, 0.10f, 0f, AttackMotion.Sweep),
                     Basic("Cut",  1.00f, 1f, 0.10f, 0f, AttackMotion.Sweep),
-                },
+                }, DiscMelee.TwinCut, DiscRanged.Charge),
                 Finisher = new AttackStep
                 {
-                    Name = "Sublimate", IntervalMultiplier = 1f, Motion = AttackMotion.Throw,
+                    Name = "Sublimate", IntervalMultiplier = 1f, Motion = AttackMotion.DiscSublimateOpen,
                     Weight = FinisherWeight.Light,
 
-                    // Paid out on detonation, so the number looks large for a finisher that
-                    // appears to do nothing when pressed. It is deliberately worth less than a
-                    // straight volley of the same size: the tempo cost of spending a finisher to
-                    // arm another one has to buy something, but not enough to make the ordering
-                    // automatic.
-                    DamageMultiplier = 1.5f,
+                    // Paid out on detonation. Each disc hangs over its OWN enemy and follows it
+                    // (2026-10-16), so the blasts land: a lone enemy under all three takes 3, a
+                    // Light - the price is the wait for the next art, not a miss.
+                    DamageMultiplier = 1.0f,
 
                     DiscThrows = 3, DiscSpreadDegrees = 80f,
                     DiscSuspends = true, DiscSuspendDistance = 2.2f,
@@ -1053,24 +1394,26 @@ namespace Convergence.Combat
                 Id = "disc_orrery", DisplayName = "Orrery", Class = Art.Gear.WeaponClass.Disc,
                 FinisherGlyph = Glyph.Whirl,
                 Flavor = "Both discs, out on a long circle.",
-                FinisherDescription = "Sends both discs into a wide orbit around you for five sweeps, cutting anything they pass through. The ring follows you as you walk, with a gap in the middle right around you.",
-                Basics = new[]
+                FinisherDescription = "Sweeps both arms up and sends the discs onto two orbits around you, drawn faintly on the ground: one close, one wide and slower. Each cuts what it passes. They follow you as you move, then spiral back to your hands.",
+                Basics = DiscBasics(new[]
                 {
                     Basic("Cut",  0.90f, 0.95f, 0.10f, 0f, AttackMotion.Sweep),
                     Basic("Cut",  0.90f, 0.95f, 0.10f, 0f, AttackMotion.Sweep),
                     Basic("Cut",  1.00f, 0.95f, 0.10f, 0f, AttackMotion.Sweep),
-                },
+                }, DiscMelee.StepTurn, DiscRanged.CrowHop),
                 Finisher = new AttackStep
                 {
-                    Name = "Orrery", IntervalMultiplier = 1.5f, Motion = AttackMotion.Throw,
-                    Weight = FinisherWeight.Medium,
+                    Name = "Orrery", IntervalMultiplier = 3.5f, Motion = AttackMotion.DiscOrreryCast,
+                    Weight = FinisherWeight.Medium, DiscOrrery = true,
 
-                    // Per SWEEP, and there are five of them against one target that stays in the
-                    // band. Low enough that the full five is comparable to Carousel rather than
-                    // strictly better, since Orrery also covers far more ground.
-                    DamageMultiplier = 0.5f,
+                    // What a body under either path for the whole art takes (Tuning.Orrery's
+                    // shares). The discs orbit for the rest of the swing after the cast, so the
+                    // interval is long enough for about a second of orbit (at a Heavy's 2.5 it was
+                    // 0.35 s - a blur); 9 keeps a Medium's damage a second over the longer chain:
+                    // (2 + 9) / (2 + 3.5) = 2.0, Carousel's sums.
+                    DamageMultiplier = 9f,
 
-                    DiscThrows = 2, DiscOrbitSweeps = 5, DiscOrbitRadius = 2.2f,
+                    DiscThrows = 2,
                 },
             },
             new Moveset
@@ -1350,12 +1693,12 @@ namespace Convergence.Combat
                 SignatureOnly = true,
                 Flavor = "Four elements in two hands, and a chain that calls three of them.",
 
-                Basics = new[]
+                Basics = DiscBasics(new[]
                 {
                     Basic("Kindle", 1.0f, 0.95f, 0.15f, 0f, AttackMotion.Sweep),
                     Basic("Surge",  1.0f, 0.95f, 0.15f, 0f, AttackMotion.Sweep),
                     Basic("Gust",   1.0f, 0.90f, 0.15f, 0f, AttackMotion.Sweep),
-                },
+                }, DiscMelee.Scissor, DiscRanged.Leap),
                 Finisher = new AttackStep
                 {
                     // MEDIUM, and the damage is the TOTAL: four cones at a quarter each is one
@@ -1364,6 +1707,206 @@ namespace Convergence.Combat
                     Weight = FinisherWeight.Medium, Motion = AttackMotion.Chop,
                     ArcDot = -1f, Knockback = 3f, RangeBonus = 0.5f, CleavesAll = true,
                     ReverseCones = true,
+                },
+            },
+            new Moveset
+            {
+                Id = "bow_harpoon", DisplayName = "Harpoon", Class = Art.Gear.WeaponClass.Bow,
+                FinisherGlyph = Glyph.Thrown,
+                Flavor = "Two arrows on the string, and one of them on a line.",
+                FinisherDescription = "Looses two arrows at once, one trailing a line from the bow. Where the line sticks, " +
+                                      "that enemy and the two nearest beside it are reeled in together and stop a short way in front of you. " +
+                                      "Anything too heavy to move stays where it is.",
+                // The bow's PULL (the user's calls, 2026-10-17): LIGHT, from the TWIN NOCK connector -
+                // a shot, then two arrows at once, and the art's second arrow carries the line.
+                Basics = new[]
+                {
+                    new AttackStep { Name = "Shot", DamageMultiplier = 1f, IntervalMultiplier = 1f, Motion = AttackMotion.Draw },
+                    new AttackStep { Name = "Twin", DamageMultiplier = 1f, IntervalMultiplier = 1f, Motion = AttackMotion.TwinDraw, TwinShot = true },
+                    new AttackStep { Name = "Shot", DamageMultiplier = 1f, IntervalMultiplier = 1f, Motion = AttackMotion.Draw },
+                },
+                Finisher = new AttackStep
+                {
+                    Name = "Harpoon", DamageMultiplier = 3f, IntervalMultiplier = 1f,
+                    Weight = FinisherWeight.Light, Motion = AttackMotion.TwinDraw,
+                    Harpoon = true,
+                },
+            },
+            new Moveset
+            {
+                Id = "bow_split", DisplayName = "Split", Class = Art.Gear.WeaponClass.Bow,
+                FinisherGlyph = Glyph.Fan,
+                Flavor = "One becomes three.",
+                FinisherDescription = "Looses a single arrow flat from the hip. Halfway to the target it breaks into three, " +
+                                      "one for the target and one each for the two enemies nearest it.",
+                // LIGHT, from the CANTED - a snap shot, then the flat sidearm shot.
+                Basics = new[]
+                {
+                    new AttackStep { Name = "Snap", DamageMultiplier = 1f, IntervalMultiplier = 1f, Motion = AttackMotion.SnapDraw },
+                    new AttackStep { Name = "Canted", DamageMultiplier = 1f, IntervalMultiplier = 1f, Motion = AttackMotion.CantedDraw },
+                    new AttackStep { Name = "Snap", DamageMultiplier = 1f, IntervalMultiplier = 1f, Motion = AttackMotion.SnapDraw },
+                },
+                Finisher = new AttackStep
+                {
+                    Name = "Split", DamageMultiplier = 3f, IntervalMultiplier = 1f,
+                    Weight = FinisherWeight.Light, Motion = AttackMotion.CantedDraw,
+                    SplitShot = true,
+                },
+            },
+            new Moveset
+            {
+                Id = "bow_pin", DisplayName = "Pin", Class = Art.Gear.WeaponClass.Bow,
+                FinisherGlyph = Glyph.Spike,
+                Flavor = "Stay.",
+                FinisherDescription = "From one knee, looses two arrows in quick succession that nail the target's feet to the ground. " +
+                                      "It cannot walk for a few seconds, though it can still strike at whatever is close.",
+                // LIGHT, from the KNEEL - a shot worth both basics, then the roll onto the knee.
+                Basics = new[]
+                {
+                    new AttackStep { Name = "Shot", DamageMultiplier = 2f, IntervalMultiplier = 1f, Motion = AttackMotion.Draw, BasicsWorth = 2 },
+                    new AttackStep { Name = "Roll", DamageMultiplier = 0f, IntervalMultiplier = 1f, Motion = AttackMotion.BowKneelRoll, KneelRoll = true },
+                    new AttackStep { Name = "Shot", DamageMultiplier = 2f, IntervalMultiplier = 1f, Motion = AttackMotion.Draw, BasicsWorth = 2 },
+                },
+                Finisher = new AttackStep
+                {
+                    Name = "Pin", DamageMultiplier = 3f, IntervalMultiplier = 1f,
+                    Weight = FinisherWeight.Light, Motion = AttackMotion.KneelDraw,
+                    Pin = true,
+                },
+            },
+            new Moveset
+            {
+                Id = "bow_tripwire", DisplayName = "Tripwire", Class = Art.Gear.WeaponClass.Bow,
+                FinisherGlyph = Glyph.Cross,
+                Flavor = "Mind your step.",
+                FinisherDescription = "Looses two arrows together that stake into the ground on either side of your aim, " +
+                                      "a wire strung tight between them. The first enemy to run into the wire sets it off: " +
+                                      "it explodes, throwing back everything near and leaving them moving at half speed for a few seconds.",
+                // HEAVY (the user's call, 2026-10-18 - it was Medium, cutting each crosser), from the
+                // TWIN NOCK - a shot, then two arrows at once.
+                Basics = new[]
+                {
+                    new AttackStep { Name = "Shot", DamageMultiplier = 1f, IntervalMultiplier = 1f, Motion = AttackMotion.Draw },
+                    new AttackStep { Name = "Twin", DamageMultiplier = 1f, IntervalMultiplier = 1f, Motion = AttackMotion.TwinDraw, TwinShot = true },
+                    new AttackStep { Name = "Shot", DamageMultiplier = 1f, IntervalMultiplier = 1f, Motion = AttackMotion.Draw },
+                },
+                Finisher = new AttackStep
+                {
+                    Name = "Tripwire", DamageMultiplier = 6.5f, IntervalMultiplier = 2.5f,
+                    Weight = FinisherWeight.Heavy, Motion = AttackMotion.TwinDraw, Knockback = 7f,
+                    Tripwire = true,
+                },
+            },
+            new Moveset
+            {
+                Id = "bow_longshot", DisplayName = "Longshot", Class = Art.Gear.WeaponClass.Bow,
+                FinisherGlyph = Glyph.Spike,
+                Flavor = "Down on one knee, and wait for it.",
+                FinisherDescription = "From one knee, draws and holds the string back for a long moment, then looses an arrow " +
+                                      "that flies straight across the room, through every enemy in its path, until it buries itself in a wall.",
+                // HEAVY (the user's calls, 2026-10-18), from the KNEEL - a shot worth both basics,
+                // then the roll down onto the knee.
+                Basics = new[]
+                {
+                    new AttackStep { Name = "Shot", DamageMultiplier = 2f, IntervalMultiplier = 1f, Motion = AttackMotion.Draw, BasicsWorth = 2 },
+                    new AttackStep { Name = "Roll", DamageMultiplier = 0f, IntervalMultiplier = 1f, Motion = AttackMotion.BowKneelRoll, KneelRoll = true },
+                    new AttackStep { Name = "Shot", DamageMultiplier = 2f, IntervalMultiplier = 1f, Motion = AttackMotion.Draw, BasicsWorth = 2 },
+                },
+                Finisher = new AttackStep
+                {
+                    Name = "Longshot", DamageMultiplier = 6.5f, IntervalMultiplier = 2.5f,
+                    Weight = FinisherWeight.Heavy, Motion = AttackMotion.KneelDraw, Knockback = 7f,
+                    Longshot = true,
+                },
+            },
+            new Moveset
+            {
+                Id = "bow_piercing_rain", DisplayName = "Piercing Rain", Class = Art.Gear.WeaponClass.Bow,
+                FinisherGlyph = Glyph.Volley,
+                Flavor = "What goes up.",
+                FinisherDescription = "Looses one arrow straight up out of sight. A moment later a rain of arrows falls on the ground " +
+                                      "where your target stood, striking everything inside it again and again for about a second, " +
+                                      "and the last of it throws them out of the circle.",
+                // HEAVY (the user's calls, 2026-10-18), from the HIGH - a level shot, then the lob.
+                Basics = new[]
+                {
+                    new AttackStep { Name = "Shot", DamageMultiplier = 1f, IntervalMultiplier = 1f, Motion = AttackMotion.Draw },
+                    new AttackStep { Name = "Lob", DamageMultiplier = 1f, IntervalMultiplier = 1f, Motion = AttackMotion.LobDraw, LobArc = Core.Tuning.Bow.LobArc },
+                    new AttackStep { Name = "Shot", DamageMultiplier = 1f, IntervalMultiplier = 1f, Motion = AttackMotion.Draw },
+                },
+                Finisher = new AttackStep
+                {
+                    Name = "Piercing Rain", DamageMultiplier = 6.5f, IntervalMultiplier = 2.5f,
+                    Weight = FinisherWeight.Heavy, Motion = AttackMotion.HighDraw, Knockback = 7f,
+                    ArrowRain = true,
+                },
+            },
+            new Moveset
+            {
+                Id = "bow_palisade", DisplayName = "Palisade", Class = Art.Gear.WeaponClass.Bow,
+                FinisherGlyph = Glyph.Volley,
+                Flavor = "Every shot answered.",
+                FinisherDescription = "Looses five arrows high into the air. Each one comes down on an enemy shot still in flight, " +
+                                      "breaks it, and sticks in the ground where they met; any left over land in a line in front of you. " +
+                                      "Each standing arrow stops the next shot that reaches it and breaks, and one an enemy walks over breaks and cuts it.",
+                // The bow's DEFENSIVE (the user's calls, 2026-10-18): MEDIUM, from the HIGH - a level
+                // shot, then the lob with the bow raised.
+                Basics = new[]
+                {
+                    new AttackStep { Name = "Shot", DamageMultiplier = 1f, IntervalMultiplier = 1f, Motion = AttackMotion.Draw },
+                    new AttackStep { Name = "Lob", DamageMultiplier = 1f, IntervalMultiplier = 1f, Motion = AttackMotion.LobDraw, LobArc = Core.Tuning.Bow.LobArc },
+                    new AttackStep { Name = "Shot", DamageMultiplier = 1f, IntervalMultiplier = 1f, Motion = AttackMotion.Draw },
+                },
+                Finisher = new AttackStep
+                {
+                    Name = "Palisade", DamageMultiplier = 5f, IntervalMultiplier = 1.5f,
+                    Weight = FinisherWeight.Medium, Motion = AttackMotion.HighDraw,
+                    Palisade = true,
+                },
+            },
+            new Moveset
+            {
+                Id = "bow_disengage", DisplayName = "Disengage", Class = Art.Gear.WeaponClass.Bow,
+                FinisherGlyph = Glyph.Comet,
+                Flavor = "Never where they reach.",
+                FinisherDescription = "Springs into a backflip away from the target, drawing as you turn. " +
+                                      "At the top of the flip you loose one arrow down at it, then land a good distance back.",
+                // The bow's REPOSITION (the user's calls, 2026-10-18): MEDIUM, from the RECOIL - a
+                // shot worth both basics, the hop back, then the flip further back still.
+                Basics = new[]
+                {
+                    new AttackStep { Name = "Shot", DamageMultiplier = 2f, IntervalMultiplier = 1f, Motion = AttackMotion.Draw, BasicsWorth = 2 },
+                    new AttackStep { Name = "Recoil", DamageMultiplier = 0f, IntervalMultiplier = 1f, Motion = AttackMotion.BowRecoilHop, RecoilHop = true },
+                    new AttackStep { Name = "Shot", DamageMultiplier = 2f, IntervalMultiplier = 1f, Motion = AttackMotion.Draw, BasicsWorth = 2 },
+                },
+                Finisher = new AttackStep
+                {
+                    Name = "Disengage", DamageMultiplier = 5f, IntervalMultiplier = 1.5f,
+                    Weight = FinisherWeight.Medium, Motion = AttackMotion.FlipDraw,
+                    Disengage = true,
+                },
+            },
+            new Moveset
+            {
+                Id = "bow_concussion", DisplayName = "Concussion", Class = Art.Gear.WeaponClass.Bow,
+                FinisherGlyph = Glyph.Fan,
+                Flavor = "Step back, then make the room.",
+                FinisherDescription = "Draws from the back foot and looses an arrow that bursts just off the string. " +
+                                      "The blast throws everything in front of you back out of reach, and the ones nearest where it struck " +
+                                      "move at half speed for a few seconds. Anything too heavy to move stays where it is.",
+                // The bow's PUSH (the user's calls, 2026-10-18): MEDIUM, from the RECOIL connector -
+                // a shot worth both basics, then the hop back with the bow pulled in.
+                Basics = new[]
+                {
+                    new AttackStep { Name = "Shot", DamageMultiplier = 2f, IntervalMultiplier = 1f, Motion = AttackMotion.Draw, BasicsWorth = 2 },
+                    new AttackStep { Name = "Recoil", DamageMultiplier = 0f, IntervalMultiplier = 1f, Motion = AttackMotion.BowRecoilHop, RecoilHop = true },
+                    new AttackStep { Name = "Shot", DamageMultiplier = 2f, IntervalMultiplier = 1f, Motion = AttackMotion.Draw, BasicsWorth = 2 },
+                },
+                Finisher = new AttackStep
+                {
+                    Name = "Concussion", DamageMultiplier = 5f, IntervalMultiplier = 1.5f,
+                    Weight = FinisherWeight.Medium, Motion = AttackMotion.RecoilDraw,
+                    Concussion = true,
                 },
             },
             new Moveset
@@ -1455,7 +1998,31 @@ namespace Convergence.Combat
             },
             new Moveset
             {
-                FinisherDescription = "Throws both halves at once in a pincer that closes on your target, then leaps to catch them as they come round and hurls them down onto it - a blast that throws back everything around it.",
+                FinisherDescription = "Draws the bow while the Crow, the Swan and the Peacock appear as bows of light in a V either side of you, drawing with you. All four loose together: the crow's arrow flies straight through everything in its line, the swan's splits on your target into arrows at the enemies nearest it, the peacock's bursts into eyes that mark your target and those around it, and the Phoenix's arrow lands last.",
+                Id = Art.Gear.DemoGear.PhoenixArtId, FinisherGlyph = Glyph.Formation,
+                DisplayName = "The Four Birds", Class = Art.Gear.WeaponClass.Bow,
+
+                // The Phoenix's, through the Golden Cage - a Black Diamond ceiling privilege.
+                SignatureOnly = true,
+                Flavor = "The Work complete, the birds fly as one.",
+                Basics = new[]
+                {
+                    new AttackStep { Name = "Shot", DamageMultiplier = 1f, IntervalMultiplier = 1f, Motion = AttackMotion.Draw },
+                    new AttackStep { Name = "Shot", DamageMultiplier = 1f, IntervalMultiplier = 1f, Motion = AttackMotion.Draw },
+                },
+                Finisher = new AttackStep
+                {
+                    // HEAVY (the user's call, 2026-10-17): the target takes exactly one (Tuning.Formation's
+                    // shares); the Phoenix's arrow displaces and flinches through armour.
+                    Name = "The Four Birds", DamageMultiplier = 6.5f, IntervalMultiplier = 2.5f,
+                    Weight = FinisherWeight.Heavy, Motion = AttackMotion.Draw,
+                    Knockback = 6f, ChainFalloff = 0.85f,
+                    Formation = true,
+                },
+            },
+            new Moveset
+            {
+                FinisherDescription = "Sweeps both arms apart, throwing the halves in a pincer that closes on your target. Leaps to catch them overhead as they come round, where the king and the queen join into one disc, and hurls it down onto the target in a blast that throws back everything around it.",
                 Id = Art.Gear.DemoGear.KingAndQueenArtId, FinisherGlyph = Glyph.KingAndQueen,
                 DisplayName = "King and Queen", Class = Art.Gear.WeaponClass.Disc,
 
@@ -1464,17 +2031,17 @@ namespace Convergence.Combat
                 SignatureOnly = true,
                 Flavor = "The king and the queen part, meet on the enemy, and come down as one.",
                 // Two basics, as every chain has: the red king, the white queen - then the two as one.
-                Basics = new[]
+                Basics = DiscBasics(new[]
                 {
                     Basic("Rubeus", 1.0f, 0.95f, 0.15f, 0f, AttackMotion.Sweep),
                     Basic("Albus",  1.0f, 0.95f, 0.15f, 0f, AttackMotion.Sweep),
-                },
+                }, DiscMelee.ChopWind, DiscRanged.Pirouette),
                 Finisher = new AttackStep
                 {
                     // HEAVY: the target takes exactly one (Tuning.KingAndQueen's shares); the blast
                     // is what displaces.
                     Name = "King and Queen", DamageMultiplier = 6.5f, IntervalMultiplier = 2.5f,
-                    Weight = FinisherWeight.Heavy, Motion = AttackMotion.Throw,
+                    Weight = FinisherWeight.Heavy, Motion = AttackMotion.DiscPincerThrow,
                     Knockback = 8f, ChainFalloff = 0.85f,
                     ChargeSeconds = Core.Tuning.MagnumOpus.GatherSeconds,
                     Pincer = true,
@@ -1549,28 +2116,34 @@ namespace Convergence.Combat
             },
             new Moveset
             {
-                FinisherDescription = "Brings the blade down into the ground; the impact throws back everything close by.",
+                FinisherDescription = "Brings the blade down into the ground; the impact throws everything close by out past its edge.",
                 Id = "hammer", FinisherGlyph = Glyph.Burst, DisplayName = "Sunder",
-                Flavor = "Slow and heavy. Every hit shoves.",
+                Flavor = "Slow and heavy.",
+                // The Ascent pair (the dimensional basics): an underhand rising cut, then a pivot
+                // that ends with the blade raised OVERHEAD - where the Sunder Slam starts.
                 Basics = new[]
                 {
-                    Basic("Smash",  1.5f, 1.3f, 0.2f, 5f, AttackMotion.Chop),
-                    Basic("Heave",  1.5f, 1.3f, 0.2f, 5f, AttackMotion.Rise),
-                    Basic("Crush",  1.8f, 1.4f, 0.2f, 6f, AttackMotion.Chop),
+                    Basic("Smash",  1.5f, 1.3f, 0.2f, 5f, AttackMotion.AscentRise),
+                    Basic("Heave",  1.5f, 1.3f, 0.2f, 5f, AttackMotion.AscentPivot),
+                    Basic("Crush",  1.8f, 1.4f, 0.2f, 6f, AttackMotion.AscentRise),
                 },
                 Finisher = new AttackStep
                 {
-                    Name = "Shatter", DamageMultiplier = 6.5f, IntervalMultiplier = 2.5f, Motion = AttackMotion.Chop,
+                    Name = "Shatter", DamageMultiplier = 6.5f, IntervalMultiplier = 2.5f, Motion = AttackMotion.SunderSlam,
                     Weight = FinisherWeight.Heavy,
                     ArcDot = -0.5f, Knockback = 12f, RangeBonus = 0.8f, CleavesAll = true,
                     // The ground carries this one, not the blade.
                     AreaOfEffect = true,
+                    // The knockback above only decides a throw into a chasm; the push is a slide.
+                    PushesOut = true,
                 },
             },
             new Moveset
             {
-                FinisherDescription = "Spins and drags every enemy on screen in toward you, dropping them at arm's reach - hard from up close, gentler from range. It deals little damage.",
-                Id = "undertow", FinisherGlyph = Glyph.Vortex, DisplayName = "Undertow",
+                FinisherDescription = "Spins as lines of wind spiral in around you, and every enemy on screen is dragged in toward you - hard from up close, gentler from range. It deals little damage.",
+                // Shown as Vortex since 2026-10-14 (the user's call); the id stays "undertow" so a
+                // relic that rolled it keeps the art.
+                Id = "undertow", FinisherGlyph = Glyph.Vortex, DisplayName = "Vortex",
                 Flavor = "Builds speed as the chain goes on, then drags the fight inward.",
                 Basics = new[]
                 {
@@ -1643,22 +2216,25 @@ namespace Convergence.Combat
                 {
                     Name = "Cast", DamageMultiplier = 1.6f, IntervalMultiplier = 1.5f,
                     Weight = FinisherWeight.Medium,
-                    Knockback = 2.5f, Motion = AttackMotion.Throw,
+                    // Cast: the throw out of the Wind lead-in's swung-back end (AttackMotion.Cast).
+                    Knockback = 2.5f, Motion = AttackMotion.Cast,
                     ThrowsWeapon = true, ThrowDistance = 7.5f,
                 },
             },
             new Moveset
             {
-                FinisherDescription = "Leaps clean off the screen for a second - untouchable, and still free to run. " +
-                                      "Then drops onto the marked circle: the full blow lands directly beneath you, less of it toward the rim. " +
+                FinisherDescription = "Spins up off the ground and leaps off the screen for a second toward the aim, up to five units - untouchable, and still steered by moving. " +
+                                      "Then drops onto the marked circle and drives the blade into the floor: the full blow lands directly beneath you, less of it toward the rim. " +
                                       "You land winded, taking half again as much damage for two seconds.",
                 Id = "meteor", FinisherGlyph = Glyph.Comet, DisplayName = "Falling Star",
-                Flavor = "Rising swings that end with the ground itself.",
+                Flavor = "Turning swings that end with the ground itself.",
+                // The Cyclone pair (the dimensional basics): a flat cut from behind the hip, then a
+                // full turn that ends crouched LOW-FORWARD - where the takeoff (StarLeap) starts.
                 Basics = new[]
                 {
-                    Basic("Slash",  1.0f, 0.95f, 0.25f, 3.5f, AttackMotion.Chop),
-                    Basic("Ascend", 1.0f, 0.95f, 0.25f, 3.5f, AttackMotion.Rise),
-                    Basic("Vault",  1.3f, 1.05f, 0.20f, 4.5f, AttackMotion.Chop),
+                    Basic("Slash",  1.0f, 0.95f, 0.25f, 3.5f, AttackMotion.CycloneCut),
+                    Basic("Whirl",  1.0f, 0.95f, 0.25f, 3.5f, AttackMotion.CycloneSpin),
+                    Basic("Vault",  1.3f, 1.05f, 0.20f, 4.5f, AttackMotion.CycloneCut),
                 },
                 // The only finisher that trades safety in BOTH directions. A second of total
                 // immunity is the strongest defensive window in the game, so it is paid for twice:
@@ -1678,57 +2254,87 @@ namespace Convergence.Combat
                     Name = "Meteor", DamageMultiplier = 6.5f, IntervalMultiplier = 2.5f,
                     Weight = FinisherWeight.Heavy,
                     ArcDot = -1f, Knockback = 11f, RangeBonus = 1.6f, CleavesAll = true,
-                    Motion = AttackMotion.Slam,
+                    Motion = AttackMotion.SunderSlam, SpinLeap = true, LeapDistance = Core.Tuning.FallingStar.LeapDistance,
                     AreaOfEffect = true, LeapSeconds = 1f, EdgeDamageFraction = 0.3f,
                     ExposedSeconds = 2f, ExposedMultiplier = 1.5f,
                 },
             },
             new Moveset
             {
-                FinisherDescription = "Pulls the blade back to the hip, then lunges forward with it - body and blade together - and runs the enemy in front of you through.",
+                FinisherDescription = "Pulls the blade back to the hip, then lunges with it - body and blade together - straight through every enemy in the way, running each one through.",
                 Id = "impale", FinisherGlyph = Glyph.Impale, DisplayName = "Impale",
-                Flavor = "Cut, thrust, then the whole body behind the point.",
+                Flavor = "A cut and a backhand, then the whole body behind the point.",
+                // The Return pair (the dimensional basics): a chop out of a turned-away wind-up,
+                // then a backhand that brings the blade down level into the GUARD - the grip
+                // Impale's draw starts from.
                 Basics = new[]
                 {
-                    Basic("Cut",    1.0f, 0.9f, 0.30f, 3.0f, AttackMotion.Chop),
-                    // The lead-in: a Thrust ends in the guard the Impale's draw starts from.
-                    Basic("Thrust", 1.0f, 0.9f, 0.60f, 2.0f, AttackMotion.Thrust),
-                    Basic("Skewer", 1.2f, 1.0f, 0.65f, 2.5f, AttackMotion.Thrust),
+                    Basic("Cut",      1.0f, 0.9f, 0.30f, 3.0f, AttackMotion.ReturnChop),
+                    Basic("Backhand", 1.0f, 0.9f, 0.30f, 3.0f, AttackMotion.ReturnSweep),
+                    Basic("Cleave",   1.2f, 1.0f, 0.30f, 3.0f, AttackMotion.ReturnChop),
                 },
                 // LIGHT: the wind-up is the draw (AttackMotion.Lunge animates it over the timing
-                // bar), then the player dashes LungeDistance with the thrust and the hit lands
-                // where the lunge ends - closing the gap is what the art does.
+                // bar), then the player dashes LungeDistance along the aim - THROUGH the crowd
+                // (the user's call, 2026-10-14: 4 units, any direction) - and every body on the
+                // path is run through as the lunge ends.
                 Finisher = new AttackStep
                 {
                     Name = "Impale", DamageMultiplier = 3f, IntervalMultiplier = 1f, Motion = AttackMotion.Lunge,
                     Weight = FinisherWeight.Light,
-                    ArcDot = 0.8f, Knockback = 3f, RangeBonus = 0.3f,
+                    ArcDot = 0.8f, Knockback = 3f, RangeBonus = 0.3f, CleavesAll = true,
                     StrikeWidth = 0.7f,   // a thrust is a point, not a sweep
-                    LungeDistance = 1.4f,
+                    LungeDistance = 4f, PiercesPath = true,
                 },
             },
             new Moveset
             {
-                FinisherDescription = "Holds the blade in guard, turning aside every attack that reaches you while it is raised, then answers with a straight thrust.",
+                FinisherDescription = "Points the blade and throws a hooked chain ahead. The first enemy it catches is dragged back to you. If it catches an elite, a boss, a wall or a pillar, you are pulled there instead.",
+                Id = "grappling_hook", FinisherGlyph = Glyph.Thrown, DisplayName = "Grappling Hook",
+                Flavor = "A cut, a thrust, and a chain on the end of it.",
+                Basics = new[]
+                {
+                    Basic("Cut",    1.0f, 0.9f, 0.30f, 3.0f, AttackMotion.Chop),
+                    // The lead-in: a Thrust ends in the guard the hook's thrust starts from.
+                    Basic("Thrust", 1.0f, 0.9f, 0.60f, 2.0f, AttackMotion.Thrust),
+                    Basic("Skewer", 1.2f, 1.0f, 0.65f, 2.5f, AttackMotion.Thrust),
+                },
+                // LIGHT (the user's call, 2026-10-14): a pull and a reposition in one art, so it
+                // pays a Light's damage, rolled once and dealt to whatever body the hook catches.
+                // It moves bodies itself (the reel), not through DamageInfo.Displaces, so it needs
+                // no exception to the weight table. A miss is spent.
+                Finisher = new AttackStep
+                {
+                    Name = "Grappling Hook", DamageMultiplier = 3f, IntervalMultiplier = 1f,
+                    Motion = AttackMotion.Thrust, Weight = FinisherWeight.Light,
+                    ArcDot = 0.8f, StrikeWidth = 0.4f,
+                    Grapples = true,
+                },
+            },
+            new Moveset
+            {
+                FinisherDescription = "Holds the blade high behind the shoulder, back half-turned, turning aside every attack that reaches you while it is raised. " +
+                                      "If anything was turned aside, steps in along the aim, turning a full circle, and cuts across in front. If nothing was, turns back without a swing.",
                 // The id was the old Impale's (a Heavy thrust with no guard); a relic that rolled
                 // it now carries Riposte, the move its id and basics always named.
                 Id = "riposte", FinisherGlyph = Glyph.Cross, DisplayName = "Riposte",
                 Flavor = "Measured openers, then a guard that answers.",
+                // The Crescent pair (the dimensional basics): its backhand ends HIGH-BACK, turned
+                // away - the hanging guard Riposte holds.
                 Basics = new[]
                 {
-                    Basic("Parry",  0.6f, 0.75f, 0.5f, 1.2f, AttackMotion.Thrust),
-                    Basic("Feint",  0.8f, 0.75f, 0.5f, 1.2f, AttackMotion.Thrust),
-                    Basic("Counter",1.2f, 0.9f, 0.45f, 3.5f, AttackMotion.Thrust),
+                    Basic("Parry",  0.6f, 0.75f, 0.5f, 1.2f, AttackMotion.CrescentCut),
+                    Basic("Feint",  0.8f, 0.75f, 0.5f, 1.2f, AttackMotion.CrescentRise),
+                    Basic("Counter",1.2f, 0.9f, 0.45f, 3.5f, AttackMotion.CrescentCut),
                 },
                 // MEDIUM, and the swords' only defensive art. The guard IS the timing bar's
-                // wind-up (Guards): the Thrust's first frame is the guard pose, held for the
+                // wind-up (Guards): the counter's first frame is the hanging guard, held for the
                 // Medium bar (0.5s), and everything that asks TryParry in that time is parried.
-                // It fits the rotation because it costs no time a Medium art wasn't already
-                // spending. The price is the strike: a narrow single-target thrust where the
-                // other Medium hits a whole circle.
+                // The answer is earned (the user's calls, 2026-10-14): a parry and the player
+                // steps in along the aim turning a full circle and cuts (RiposteCounter); none,
+                // and they turn back without a swing - the art deals nothing.
                 Finisher = new AttackStep
                 {
-                    Name = "Riposte", DamageMultiplier = 5f, IntervalMultiplier = 1.5f, Motion = AttackMotion.Thrust,
+                    Name = "Riposte", DamageMultiplier = 5f, IntervalMultiplier = 1.5f, Motion = AttackMotion.RiposteTurnabout,
                     Weight = FinisherWeight.Medium,
                     ArcDot = 0.8f, Knockback = 3.5f, RangeBonus = 0.3f,
                     StrikeWidth = 0.7f,

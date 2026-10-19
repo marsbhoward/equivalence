@@ -99,7 +99,21 @@ namespace Convergence.UI
             /// element has built, needs to disappear entirely rather than sit permanently dim.</summary>
             public System.Func<bool> Visible;
             public int Finger = -1;
+
+            /// <summary>
+            /// Whether dragging this button AIMS a weapon art (ATTACK only - the user's call,
+            /// 2026-10-14). Held, it is the hold to aim; the finger's travel from where it landed
+            /// is the aim (Controls.VirtualAim) once it passes AimDragFraction while an aimable art
+            /// is pending; lifting fires. A tap that never drags auto-targets as ever.
+            /// </summary>
+            public bool DragAims;
+            public Vector2 DownAt, At;
+            public bool Aiming;
         }
+
+        /// <summary>How far, in screen pixels as a fraction of the screen's height, a finger on a
+        /// drag-aiming button must travel before it aims - a tap's own wobble stays a tap.</summary>
+        const float AimDragFraction = 0.05f;
 
         // ---------------------------------------------------------------- build
 
@@ -143,7 +157,8 @@ namespace Convergence.UI
             Button("ATTACK", ActionR, BottomRight, new Vector2(-250f, 250f), Controls.Context.Arena,
                    v => Controls.VirtualAttack = v, null,
                    progress: () => Controls.AttackProgress01?.Invoke() ?? 1f,
-                   key: "LMB", pad: () => GamepadGlyphs.Attack, held: () => Controls.AttackHeld);
+                   key: "LMB", pad: () => GamepadGlyphs.Attack, held: () => Controls.AttackHeld,
+                   dragAims: true);
             Button("ABILITY", AbilityR, BottomRight, new Vector2(-490f, 420f), Controls.Context.Arena,
                    v => Controls.VirtualRelease = v, () => Controls.ReleaseReady != null && Controls.ReleaseReady(),
                    progress: () => Controls.ReleaseProgress01?.Invoke() ?? 0f,
@@ -226,7 +241,7 @@ namespace Convergence.UI
                     System.Func<bool> visible = null,
                     System.Func<float> progress = null,
                     string key = null, System.Func<string> pad = null,
-                    System.Func<bool> held = null)
+                    System.Func<bool> held = null, bool dragAims = false)
         {
             var go = new GameObject("btn." + label.ToLower(), typeof(Image));
             go.transform.SetParent(_root, false);
@@ -284,6 +299,7 @@ namespace Convergence.UI
                 Rect = rt, Ring = ringRt.GetComponent<Image>(), Arc = arc, Fill = fill, Label = text,
                 Key = keyText, Keyboard = key, Pad = pad, Held = held,
                 Show = show, Set = set, Enabled = enabled, Visible = visible, Progress = progress,
+                DragAims = dragAims,
             });
         }
 
@@ -398,6 +414,7 @@ namespace Convergence.UI
                 var held = _buttons.Find(b => b.Finger == id);
                 if (held != null)
                 {
+                    held.At = pos;   // a drag-aiming button follows its finger
                     if (t == screen.primaryTouch) Controls.ClaimedPrimary = true;
                     continue;   // a button holds until the finger lifts, even if it slides off
                 }
@@ -415,6 +432,8 @@ namespace Convergence.UI
                 if (pressed != null)
                 {
                     pressed.Finger = id;
+                    pressed.DownAt = pressed.At = pos;
+                    pressed.Aiming = false;
                     if (t == screen.primaryTouch) Controls.ClaimedPrimary = true;
                     continue;
                 }
@@ -441,9 +460,36 @@ namespace Convergence.UI
             {
                 bool down = b.Finger >= 0 && StillDown(touches, b.Finger);
                 if (!down) b.Finger = -1;
-                b.Set(down);
+                bool pressedNow = down;
+                if (b.DragAims) pressedNow = DragAim(b, down);
+                b.Set(pressedNow);
                 Paint(b, down);
             }
+        }
+
+        /// <summary>
+        /// A drag-aiming button's frame (see Btn.DragAims): it reports pressed exactly while the
+        /// finger is down - holding is the hold to aim, lifting is the release that fires
+        /// (PlayerController) - and past AimDragFraction, while an aimable art is pending, the drag
+        /// is written as the aim.
+        /// </summary>
+        bool DragAim(Btn b, bool down)
+        {
+            if (down)
+            {
+                Vector2 drag = b.At - b.DownAt;
+                float need = AimDragFraction * Screen.height;
+                if (!b.Aiming && drag.sqrMagnitude > need * need && (Controls.ArtAimable?.Invoke() ?? false))
+                    b.Aiming = true;
+                if (b.Aiming && drag.sqrMagnitude > 1f) Controls.VirtualAim = drag.normalized;
+                return true;
+            }
+            if (b.Aiming)
+            {
+                b.Aiming = false;
+                Controls.VirtualAim = Vector2.zero;
+            }
+            return false;
         }
 
         /// <summary>

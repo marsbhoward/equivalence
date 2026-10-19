@@ -38,6 +38,9 @@ namespace Convergence.Core
         // not at all depending on which Update happened to run first.
 
         public static Vector2 VirtualMove;
+        /// <summary>A virtual aim - written by TouchControls while the ATTACK button is dragged
+        /// to aim a weapon art (see <see cref="Aim"/>).</summary>
+        public static Vector2 VirtualAim;
         public static bool VirtualAttack;
         public static bool VirtualRelease;
         public static bool VirtualSecondAbility;
@@ -68,6 +71,39 @@ namespace Convergence.Core
         /// <summary>Same as <see cref="ReleaseReady"/>, for the chest's defensive ability (GUARD)
         /// - dim exactly while it's on cooldown, which a touch player has no other way to see.</summary>
         public static System.Func<bool> GuardReady;
+
+        /// <summary>Whether a weapon art the hand can aim is pending - a drag on the touch ATTACK
+        /// button aims only then (PlayerController.ArtAimPossible). Wired by GameBootstrap like
+        /// the Ready flags above.</summary>
+        public static System.Func<bool> ArtAimable;
+
+        /// <summary>The character's position on screen, in pixels - written by the player each
+        /// frame so the MOUSE can aim from it (<see cref="Aim"/>). Null with no player.</summary>
+        public static Vector2? AimOriginScreen;
+
+        /// <summary>
+        /// Called by the player every frame a weapon art is HELD TO AIM (PlayerController's
+        /// _artHolding); <paramref name="aimShown"/> once past the threshold. Stamped by frame, so
+        /// a player destroyed mid-hold leaves nothing switched on. While it holds:
+        /// - a fresh press on any OTHER action cancels the hold (<see cref="ArtHoldCancelled"/>)
+        ///   and is SWALLOWED - the user's call: it must not also fire an ability or attack the
+        ///   player did not mean. A press that opens a screen (pause, loadout, loot) cancels too,
+        ///   but still opens it.
+        /// - aimed, with the LEFT MOUSE BUTTON the one held, the mouse aims wherever the pointer
+        ///   rests, not only within MouseAimIdleSeconds of moving it. Held on Space, a resting
+        ///   cursor still means nothing.
+        /// </summary>
+        public static void HoldingArt(bool aimShown)
+        {
+            _artHeldFrame = Time.frameCount;
+            if (aimShown) _artAimShownFrame = Time.frameCount;
+        }
+
+        /// <summary>This frame, a press cancelled a weapon art held to aim - see HoldingArt.</summary>
+        public static bool ArtHoldCancelled { get { Sync(); return _artHoldCancelled; } }
+
+        static int _artHeldFrame = -10, _artAimShownFrame = -10;
+        static bool _artHoldCancelled;
 
         // ------------------------------------------------------------ the button rings
         //
@@ -170,6 +206,7 @@ namespace Convergence.Core
         static bool _inventory, _inventoryPrev;
         static bool _settingsMenu, _settingsMenuPrev;
         static Vector2 _move;
+        static Vector2? _aim;
 
         static bool _pointerDown, _pointerHeld, _pointerUp;
         static Vector2 _pointer, _pointerPrevPos, _pointerDelta;
@@ -179,6 +216,22 @@ namespace Convergence.Core
         /// "a thumb resting on the glass must not read as input" reasoning the touch stick's own
         /// DeadZone exists for, just for an analog stick instead of a screen zone.</summary>
         const float StickDeadzone = 0.2f;
+
+        /// <summary>How far the AIM stick must be pushed before it aims - wider than the move
+        /// stick's: an aim is a direction, and a thumb drifting back to centre must not swing it
+        /// round on the way.</summary>
+        const float AimDeadzone = 0.4f;
+
+        /// <summary>How long after the mouse last moved its direction from the character still
+        /// aims (the user's call, 2026-10-14: the mouse aims "while the pointer has moved
+        /// recently"); a keyboard player who never touches it keeps the auto-target.</summary>
+        const float MouseAimIdleSeconds = 1f;
+
+        /// <summary>How far from the character the pointer must be, in pixels, for its direction
+        /// to mean anything.</summary>
+        const float MouseAimMinPixels = 24f;
+
+        static float _mouseMovedAt = -999f;
 
         /// <summary>Radial deadzone remap: below it, nothing; above it, rescaled so the stick still
         /// reaches full magnitude at full deflection instead of topping out early.</summary>
@@ -375,6 +428,7 @@ namespace Convergence.Core
         static bool IsPadActive(Gamepad pad)
         {
             return pad.leftStick.ReadValue().sqrMagnitude > 0.04f
+                || pad.rightStick.ReadValue().sqrMagnitude > 0.04f
                 || pad.buttonSouth.isPressed || pad.buttonNorth.isPressed
                 || pad.buttonEast.isPressed || pad.buttonWest.isPressed
                 || pad.leftShoulder.isPressed || pad.rightShoulder.isPressed
@@ -410,6 +464,18 @@ namespace Convergence.Core
             }
             if (pad != null) keys += ApplyDeadzone(pad.leftStick.ReadValue(), StickDeadzone);
             _move = Vector2.ClampMagnitude(keys + VirtualMove, 1f);
+
+            // ---- aim: a DIRECTION or nothing - the right stick, a touch drag, then the mouse ----
+            Vector2 aim = VirtualAim;
+            if (pad != null) aim += pad.rightStick.ReadValue();
+            _aim = aim.sqrMagnitude > AimDeadzone * AimDeadzone ? aim.normalized : (Vector2?)null;
+            if (mouse != null && mouse.delta.ReadValue().sqrMagnitude > 1f) _mouseMovedAt = Time.unscaledTime;
+            if (_aim == null && !_touchMode && !_gamepadMode && mouse != null && AimOriginScreen.HasValue
+                && ((Time.frameCount - _artAimShownFrame <= 1 && mouse.leftButton.isPressed) || Time.unscaledTime - _mouseMovedAt < MouseAimIdleSeconds))
+            {
+                Vector2 fromBody = mouse.position.ReadValue() - AimOriginScreen.Value;
+                if (fromBody.sqrMagnitude > MouseAimMinPixels * MouseAimMinPixels) _aim = fromBody.normalized;
+            }
 
             // ---- actions ----
             // Every one of these reads its gamepad button through GamepadBindings rather than
@@ -518,6 +584,24 @@ namespace Convergence.Core
             // settings: the two never meet, since settings is hub-only and loot is run-only.
             Edge(ref _inventory, ref _inventoryPrev,
                  (kb != null && kb.iKey.isPressed) || (pad != null && pad.selectButton.isPressed));
+
+            // ---- a weapon art held to aim: another press cancels it, and is swallowed ----
+            _artHoldCancelled = false;
+            if (Time.frameCount - _artHeldFrame <= 1)
+            {
+                bool fight = (_release && !_releasePrev) || (_secondAbility && !_secondAbilityPrev)
+                          || (_interact && !_interactPrev) || (_guard && !_guardPrev)
+                          || (_alt && !_altPrev) || (_cancel && !_cancelPrev);
+                bool screen = (_menu && !_menuPrev) || (_loadout && !_loadoutPrev)
+                           || (_inventory && !_inventoryPrev);
+                _artHoldCancelled = fight || screen;
+                if (fight)
+                {
+                    _releasePrev = _release; _secondAbilityPrev = _secondAbility;
+                    _interactPrev = _interact; _guardPrev = _guard;
+                    _altPrev = _alt; _cancelPrev = _cancel;
+                }
+            }
 
             // Focus is resolved BEFORE the pointer, so the press of A on the frame a D-pad press
             // lands clicks the rect it landed on. While something is focused the pad's pointer
@@ -696,6 +780,16 @@ namespace Convergence.Core
         // ---------------------------------------------------------------- the public verbs
 
         public static Vector2 Move { get { Sync(); return _move; } }
+
+        /// <summary>
+        /// Where the player is AIMING by hand, normalised, or null (the user's calls, 2026-10-14):
+        /// the gamepad's RIGHT STICK past AimDeadzone; else a DRAG on the touch ATTACK button
+        /// (<see cref="VirtualAim"/>, TouchControls); else, on keyboard and mouse, the direction
+        /// from the character to the POINTER while it has moved in the last MouseAimIdleSeconds.
+        /// Aims a weapon art HELD to aim (PlayerController's _artHolding), the Dash and the
+        /// Barrier; everything else keeps the auto-target.
+        /// </summary>
+        public static Vector2? Aim { get { Sync(); return _aim; } }
 
         public static bool AttackHeld { get { Sync(); return _attack; } }
         public static bool AttackTapped { get { Sync(); return _attack && !_attackPrev; } }

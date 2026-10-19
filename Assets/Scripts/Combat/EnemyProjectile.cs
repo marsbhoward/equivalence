@@ -20,7 +20,13 @@ namespace Convergence.Combat
     /// </summary>
     public class EnemyProjectile : MonoBehaviour
     {
-        const float HitRadius = 0.28f;
+        const float BoltHitRadius = 0.28f;
+
+        /// <summary>How close to the target's centre counts as a hit - the bolt's by default.</summary>
+        float HitRadius = BoltHitRadius;
+        ElementType _element = ElementType.Earth;
+        Sprite[] _frames;
+        SpriteRenderer _sr;
 
         GameObject _owner;
         GameObject _playerGo;
@@ -33,6 +39,10 @@ namespace Convergence.Combat
         float _speed;
         float _life;
         bool _reflected;
+
+        /// <summary>Still flying at the player (not turned back by a parry) - what the orbiting
+        /// discs stop (DiscOrbit).</summary>
+        public bool Hostile => !_reflected;
 
         /// <summary>Set once and kept for the rest of the flight - a Red force field crossed
         /// either leg doubles whatever this bolt eventually lands for.</summary>
@@ -61,13 +71,36 @@ namespace Convergence.Combat
             sr.color = new Color(1f, 0.55f, 0.15f);
             sr.sortingOrder = SortingOrders.Fx - 1;
             go.transform.localScale = Vector3.one * 0.24f;
+            p._sr = sr;
 
             return p;
+        }
+
+        /// <summary>
+        /// Dresses a launched shot as something other than the bolt: baked pixel frames (drawn at
+        /// scale 1, cycled), its own hit radius and element. The Bomb's fireballs - see
+        /// Enemies.BombArt.Fireball. The flight, walls, force fields, parry and reflection are the
+        /// bolt's, unchanged.
+        /// </summary>
+        public EnemyProjectile Dress(Sprite[] frames, float hitRadius, ElementType element)
+        {
+            _frames = frames;
+            HitRadius = hitRadius;
+            _element = element;
+            if (_sr != null && frames != null && frames.Length > 0)
+            {
+                _sr.sprite = frames[0];
+                _sr.color = Color.white;
+                transform.localScale = Vector3.one;
+            }
+            return this;
         }
 
         void Update()
         {
             if (!_reflected && _owner == null) { Destroy(gameObject); return; }
+            if (_frames != null && _frames.Length > 0 && _sr != null)
+                _sr.sprite = _frames[Mathf.FloorToInt(Time.time * 18f) % _frames.Length];
 
             float dt = Time.deltaTime;
             _life -= dt;
@@ -107,7 +140,7 @@ namespace Convergence.Combat
                 return;
             }
 
-            _targetHealth.Take(new DamageInfo(_damage * _damageMul, ElementType.Earth, _owner)
+            _targetHealth.Take(new DamageInfo(_damage * _damageMul, _element, _owner)
             {
                 Knockback = _dir * _knockback,
             });
@@ -123,7 +156,7 @@ namespace Convergence.Combat
                 var hp = col.GetComponent<Health>();
                 if (hp == null || hp.IsDead) continue;
 
-                hp.Take(new DamageInfo(_damage * _damageMul, ElementType.Earth, _playerGo)
+                hp.Take(new DamageInfo(_damage * _damageMul, _element, _playerGo)
                 {
                     Knockback = _dir * _knockback,
                     Displaces = true,

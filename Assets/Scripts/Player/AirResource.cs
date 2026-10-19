@@ -178,8 +178,8 @@ namespace Convergence.Player
             {
                 Momentum = Mathf.Clamp01(Momentum + MomentumPerCrit * Gain);
                 Spr.Flash(target.transform.position, 0.9f, Color.white, 0.18f, false);
-                Spr.Pulse(transform, 0.5f + Momentum * 0.6f,
-                          new Color(0.7f, 0.9f, 1f, 0.7f), 0.2f, true, 1.2f);
+                // No ring round the body on the crit (the user's call, 2026-10-15 - no ring on a
+                // landed hit); the seal's Gale shows the momentum.
             }
         }
 

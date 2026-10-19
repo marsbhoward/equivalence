@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using Convergence.Core;
+using Convergence.Hazards;
 using UnityEngine;
 using T = Convergence.Core.Tuning.KingAndQueen;
 
@@ -37,6 +38,9 @@ namespace Convergence.Combat
         Art.Gear.KindledMarks _marks;
         Transform _picture;
         Sprite _cracked;
+        bool _blocked;
+        Vector2 _blockedAt;
+        float _blockT;
 
         /// <summary>How high the picture is drawn above the ground point - the jump's height, as the
         /// wielder's is, so the catch happens in the hands.</summary>
@@ -44,6 +48,19 @@ namespace Convergence.Combat
 
         /// <summary>True once the loop has brought it home to the hands.</summary>
         public bool Caught => _phase == Phase.Held;
+
+        /// <summary>Joined into ONE disc at the catch (the union - Art.Gear.KingQueenUnion): this
+        /// half draws <paramref name="union"/>, its partner is hidden; both come back at the impact.</summary>
+        public void Unite(Sprite union)
+        {
+            if (union != null) _sr.sprite = union;
+        }
+
+        /// <summary>Hidden while its partner draws the union.</summary>
+        public bool Hidden
+        {
+            set { _sr.enabled = !value; if (_marks != null) _marks.enabled = !value; }
+        }
 
         /// <summary>True once a hurl has struck the ground.</summary>
         public bool Landed => _phase == Phase.Down || _phase == Phase.Recall;
@@ -133,6 +150,23 @@ namespace Convergence.Combat
                         : Mathf.Lerp(_phaseSeconds, 1f, Mathf.Clamp01((_t - outS) / backS));
                     float a = _from + _sweep * turn * Mathf.PI * 2f;
                     var at = _centre + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * _radius;
+                    // A wall or pillar on the way OUT stops it (walls stop shots): it strikes
+                    // nothing more and comes straight home from there, rising to the catch.
+                    if (!_blocked && _t <= outS
+                        && HazardQuery.CheckCrossing(transform.position, at) == SightResult.Blocked)
+                    {
+                        _blocked = true;
+                        _blockedAt = transform.position;
+                        _blockT = 0f;
+                    }
+                    if (_blocked)
+                    {
+                        _blockT += dt;
+                        float bk = Mathf.Clamp01(_blockT / backS);
+                        transform.position = Vector2.Lerp(_blockedAt, hand, 1f - (1f - bk) * (1f - bk));
+                        if (bk >= 1f || _t >= outS + backS) { _phase = Phase.Held; transform.position = hand; }
+                        break;
+                    }
                     // The circle's end is where the wielder STOOD; ease the last of it onto where
                     // they are now, so a step mid-throw still ends in the hands.
                     float home = Mathf.Clamp01((_t - outS) / backS);
@@ -153,6 +187,8 @@ namespace Convergence.Combat
                     if (k >= 1f)
                     {
                         _phase = Phase.Down;
+                        _sr.enabled = true;   // the union parts: each half its own again
+                        if (_marks != null) _marks.enabled = true;
                         // The light goes OUT on the impact: the stone comes back, the cracks show again.
                         if (_cracked != null) _sr.sprite = _cracked;
                         _marks.ForceAlpha = 0f;

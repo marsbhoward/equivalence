@@ -223,7 +223,45 @@ namespace Convergence.Combat
 
                 var sr = Renderer;
                 if (sr) sr.color = Color.Lerp(_base, Color.white, t);
+
+                // Baked pixel art cannot be tinted white - its body sprites get a white
+                // silhouette over them instead (see HitFlash). Not once dead: a killing blow
+                // hands the body to its death effect (a fall, a disintegration), and those draw
+                // their own pictures.
+                foreach (var f in Flashes)
+                    if (f != null) f.Amount = IsDead ? 0f : t;
             }
+        }
+
+        HitFlash[] _flashes;
+
+        /// <summary>
+        /// One <see cref="HitFlash"/> per BODY sprite - those under an actor's "visual" child (and
+        /// a turret's head), the same test ChasmFall uses - never a readout (rings, telegraphs,
+        /// shadows), which must not flash. Resolved on the first hit, when the visual exists.
+        /// Re-resolved if a reload or a destroyed child left a hole.
+        /// </summary>
+        HitFlash[] Flashes
+        {
+            get
+            {
+                bool stale = _flashes == null;
+                if (!stale) foreach (var f in _flashes) if (f == null) { stale = true; break; }
+                if (!stale) return _flashes;
+
+                var list = new System.Collections.Generic.List<HitFlash>();
+                foreach (var r in GetComponentsInChildren<SpriteRenderer>(true))
+                    if (r.name != HitFlash.ChildName && IsBodySprite(r.transform))
+                        list.Add(HitFlash.For(r));
+                return _flashes = list.ToArray();
+            }
+        }
+
+        bool IsBodySprite(Transform t)
+        {
+            for (; t != null && t != transform; t = t.parent)
+                if (t.name == "visual" || t.name == "turret.head") return true;
+            return false;
         }
 
         public void Heal(float amount)
@@ -263,7 +301,10 @@ namespace Convergence.Combat
             // lives on Health rather than being looked up through StatusEffects because every
             // damage path in the game funnels through here, and a GetComponent per hit to read
             // one float is a cost paid on every swing to serve one finisher.
-            if (MarkMultiplier > 1f)
+            // Spent only by a WEAPON ART's hit (the user's call, 2026-10-16): a basic, a burn tick
+            // or a crowd spill would cash it in for almost nothing, and the art it sets up is the
+            // point of throwing it.
+            if (MarkMultiplier > 1f && info.IsFinisher && !info.SparesMark)
             {
                 amount *= MarkMultiplier;
                 MarkMultiplier = 1f;

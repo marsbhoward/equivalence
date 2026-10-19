@@ -291,6 +291,16 @@ namespace Convergence.UI
         /// back by being veiled rather than faded: a faded card is see-through, and the room
         /// behind the screen showed through it.
         /// </summary>
+        const float UnfocusedVeil = 0.35f;
+
+        static void StepBack(Image veil, bool back)
+        {
+            if (!veil) return;
+            var c = veil.color;
+            c.a = Mathf.MoveTowards(c.a, back ? UnfocusedVeil : 0f, Time.unscaledDeltaTime * 4f);
+            veil.color = c;
+        }
+
         static Image Veil(RectTransform card, Color color)
         {
             var veil = UiKit.Panel(card, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero,
@@ -479,9 +489,23 @@ namespace Convergence.UI
             var focused = Controls.Focused;
             var pointer = Controls.PointerPosition;
             bool canHover = !Controls.TouchMode && !Controls.GamepadMode;
+            RectTransform lit = null;
             foreach (var s in _slates)
-                if (s.Scale) s.Scale.Focused = focused == s.Rect
+            {
+                bool on = focused == s.Rect
                     || canHover && RectTransformUtility.RectangleContainsScreenPoint(s.Rect, pointer, null);
+                if (s.Scale) s.Scale.Focused = on;
+                if (on) lit = s.Rect;
+            }
+            if (lit == null && _refuseRect != null && (focused == _refuseRect
+                || canHover && RectTransformUtility.RectangleContainsScreenPoint(_refuseRect, pointer, null)))
+                lit = _refuseRect;
+
+            // The focused card stands out by the others stepping back (veiled in their own colour,
+            // as when a slate is taken) - the card itself keeps its colours; the pad's outline
+            // (GamepadCursor) marks it.
+            foreach (var s in _slates) StepBack(s.Veil, lit != null && lit != s.Rect);
+            StepBack(_refuseVeil, lit != null && lit != _refuseRect);
 
             if (_offer.CanRefuse && Controls.CancelTapped) { Choose(null); return; }
             for (int i = 0; i < _slates.Count && i < 3; i++)
@@ -557,8 +581,8 @@ namespace Convergence.UI
             // The rest of the row steps back while the taken slate plays out.
             float veil = 0.75f * Ease(tp / 0.3f);
             foreach (var s in _slates)
-                if (s != _taking && s.Veil) s.Veil.color = new Color(s.Veil.color.r, s.Veil.color.g, s.Veil.color.b, veil);
-            if (_refuseVeil) _refuseVeil.color = new Color(_refuseVeil.color.r, _refuseVeil.color.g, _refuseVeil.color.b, veil);
+                if (s != _taking && s.Veil) s.Veil.color = new Color(s.Veil.color.r, s.Veil.color.g, s.Veil.color.b, Mathf.Max(veil, s.Veil.color.a));
+            if (_refuseVeil) _refuseVeil.color = new Color(_refuseVeil.color.r, _refuseVeil.color.g, _refuseVeil.color.b, Mathf.Max(veil, _refuseVeil.color.a));
 
             float lift = T.TakeLiftSeconds, fly = T.TakeFlySeconds;
             float liftUnits = 24f * _root.transform.lossyScale.y;

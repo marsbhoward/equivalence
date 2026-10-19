@@ -63,6 +63,16 @@ namespace Convergence.Combat
         /// <summary>A held weapon is a few dozen pixels; in flight it has to read across the arena.</summary>
         const float FlightScale = 1.8f;
 
+        /// <summary>
+        /// The blade's falloff through a crowd: the multiplier for the Nth body (0 = the first) a
+        /// LEG strikes - the swing's own rule (ChainFalloff with Cleave, floored), set by the
+        /// thrower. Each leg starts again at the first body. Null = no falloff.
+        /// </summary>
+        public System.Func<int, float> Falloff;
+
+        /// <summary>Bodies struck so far on this leg - see Falloff. A plain int (reload-safe).</summary>
+        int _bodiesThisLeg;
+
         /// <summary>Cleared between legs so the blade can hit the same body coming back.</summary>
         readonly HashSet<Health> _hitThisLeg = new();
 
@@ -216,6 +226,8 @@ namespace Convergence.Combat
                 // Displaces, because the throw is a FINISHER's damage arriving somewhere else -
                 // it follows the same rule as the swing it was spent on, not the basics.
                 float dmg = _damage * _damageMul;
+                if (Falloff != null) dmg *= Falloff(_bodiesThisLeg);
+                _bodiesThisLeg++;
                 if (_scaleHit != null) dmg = _scaleHit(hp, dmg);
                 var info = new DamageInfo(dmg, _element, _ownerGo)
                 {
@@ -236,6 +248,7 @@ namespace Convergence.Combat
         {
             _returning = true;
             _hitThisLeg.Clear();   // it gets to bite again on the way home
+            _bodiesThisLeg = 0;    // and the falloff starts again from the first body
             Spr.Flash(transform.position, 0.7f, ElementInfo.Tint(_element), 0.22f);
         }
 
@@ -264,9 +277,13 @@ namespace Convergence.Combat
             if (!Airborne || _ownerGo == null || _owner == null) return;
 
             var from = _owner.position;
-            // Off any interior wall the blade came to rest against - a blink into one strands
-            // the player inside its collider.
-            var to = Arena.NearestFloor(transform.position, 0.45f);
+            // Over a chasm, the player goes exactly there: the next physics step judges it as any
+            // landing over the void (PlayerController.TrackSafeGround) - set down at the lip
+            // inside the forgiveness, a FALL past it (the user's call, 2026-10-14: a player learns
+            // their moveset's drawbacks). Anywhere else, off any interior wall the blade came to
+            // rest against - a blink into one strands the player inside its collider.
+            Vector2 at = transform.position;
+            var to = Arena.DeepInChasm(at) ? at : Arena.NearestFloor(at, 0.45f);
 
             _owner.position = to;
             if (_ownerBody != null) _ownerBody.linearVelocity = Vector2.zero;

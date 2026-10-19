@@ -50,7 +50,18 @@ namespace Convergence.Hazards
         [SerializeField] float _age;
         [SerializeField] SpriteRenderer _fill, _edge;
 
-        public static MireField Spawn(Vector2 at, Transform parent, bool turned)
+        // The Tempest Eye's charged ground (the user's call, 2026-10-18): the same slow, drawn as
+        // a dark field with sparks flickering across it, short arcs jumping between them and a
+        // broken rim turning round it, in the look's accent ramp. Repainted a few times a second
+        // onto one texel-grid texture. Null for the yellow mire.
+        [SerializeField] Color[] _static;
+        [SerializeField] SpriteRenderer _sparks;
+        Texture2D _sparkTex;
+        Color[] _sparkPx;
+        float _nextSpark;
+        static readonly Color StaticFill = new(0.08f, 0.09f, 0.13f);
+
+        public static MireField Spawn(Vector2 at, Transform parent, bool turned, Color[] staticRamp = null)
         {
             var go = new GameObject(turned ? "mire.turned" : "mire");
             if (parent != null) go.transform.SetParent(parent, false);
@@ -78,7 +89,17 @@ namespace Convergence.Hazards
             f._edge.color = Color.clear;
             f._edge.sortingOrder = SortingOrders.Enemy - 1;
 
-            Spr.Flash(at, f._radius, turned ? TurnedRim : Yellow, 0.25f);
+            // Turned by a parry it is the player's blue whatever threw it.
+            if (!turned && staticRamp != null && staticRamp.Length >= 4)
+            {
+                f._static = staticRamp;
+                var sp = new GameObject("sparks");
+                sp.transform.SetParent(go.transform, false);
+                f._sparks = sp.AddComponent<SpriteRenderer>();
+                f._sparks.sortingOrder = SortingOrders.Enemy - 1;
+            }
+
+            Spr.Flash(at, f._radius, turned ? TurnedRim : f._static != null ? f._static[2] : Yellow, 0.25f);
             return f;
         }
 
@@ -94,12 +115,79 @@ namespace Convergence.Hazards
             // In fast, out over the last stretch - the edge going soft is the warning that the
             // ground is about to be free again.
             float a = Mathf.Min(Mathf.Clamp01(_age / 0.15f), Mathf.Clamp01((life - _age) / 0.8f));
-            var fill = _turned ? TurnedFill : MireFill;
-            var rim = _turned ? TurnedRim : Yellow;
+            bool charged = _static != null && !_turned;
+            var fill = _turned ? TurnedFill : charged ? StaticFill : MireFill;
+            var rim = _turned ? TurnedRim : charged ? _static[2] : Yellow;
             float ripple = 0.5f + 0.5f * Mathf.Sin(_age * 3.2f);
-            float body = _turned ? 0.48f : 0.30f;
+            float body = _turned ? 0.48f : charged ? 0.38f : 0.30f;
             if (_fill != null) _fill.color = new Color(fill.r, fill.g, fill.b, a * (body + 0.06f * ripple));
-            if (_edge != null) _edge.color = new Color(rim.r, rim.g, rim.b, a * 0.9f);
+            // the charged ground's rim is the broken one its sparks draw; the solid ring stays faint
+            if (_edge != null) _edge.color = new Color(rim.r, rim.g, rim.b, a * (charged ? 0.25f : 0.9f));
+            if (charged) PaintSparks(a);
+        }
+
+        void PaintSparks(float alpha)
+        {
+            if (_sparks == null) return;
+            if (_sparks.sprite != null) _sparks.color = new Color(1f, 1f, 1f, alpha);
+            if (Time.time < _nextSpark && _sparkTex != null) return;
+            _nextSpark = Time.time + 1f / 14f;
+
+            float tpu = Enemies.TexelRig.TexelsPerUnit;
+            int rT = Mathf.CeilToInt(_radius * tpu), n = rT * 2 + 2;
+            if (_sparkTex == null || _sparkTex.width != n)
+            {
+                _sparkTex = new Texture2D(n, n, TextureFormat.RGBA32, false)
+                {
+                    filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp, hideFlags = HideFlags.HideAndDontSave,
+                };
+                _sparkPx = new Color[n * n];
+                _sparks.sprite = Sprite.Create(_sparkTex, new Rect(0, 0, n, n), new Vector2(0.5f, 0.5f), tpu, 0, SpriteMeshType.FullRect);
+            }
+            System.Array.Clear(_sparkPx, 0, _sparkPx.Length);
+            int tick = Mathf.FloorToInt(Time.time * 14f);
+            float c = n / 2f, r2 = rT * rT;
+
+            // sparks flickering on and off across the ground
+            for (int y = 0; y < n; y++)
+            for (int x = 0; x < n; x++)
+            {
+                float dx = x + 0.5f - c, dy = y + 0.5f - c;
+                if (dx * dx + dy * dy > r2) continue;
+                float h = Enemies.TexelRig.Hash(x * 7 + tick, y * 13);
+                if (h > 0.975f) _sparkPx[y * n + x] = _static[h > 0.99f ? 3 : 2];
+            }
+            // short arcs jumping between them
+            for (int i = 0; i < 4; i++)
+            {
+                float ax = c + (Enemies.TexelRig.Hash(i, tick) - 0.5f) * rT * 1.4f;
+                float ay = c + (Enemies.TexelRig.Hash(tick, i) - 0.5f) * rT * 1.4f;
+                for (int j = 0; j < 7; j++)
+                {
+                    int px = Mathf.FloorToInt(ax), py = Mathf.FloorToInt(ay);
+                    if (px >= 0 && py >= 0 && px < n && py < n && (px + 0.5f - c) * (px + 0.5f - c) + (py + 0.5f - c) * (py + 0.5f - c) <= r2)
+                        _sparkPx[py * n + px] = _static[3];
+                    ax += 1.5f;
+                    ay += (Enemies.TexelRig.Hash(i * 9 + j, tick) - 0.5f) * 3f;
+                }
+            }
+            // the broken rim, turning
+            float turn = Time.time * 60f;
+            for (float deg = 0f; deg < 360f; deg += 1f)
+            {
+                if (Mathf.FloorToInt((deg + turn) / 12f) % 2 == 1) continue;
+                int px = Mathf.FloorToInt(c + Mathf.Cos(deg * Mathf.Deg2Rad) * (rT - 0.5f));
+                int py = Mathf.FloorToInt(c + Mathf.Sin(deg * Mathf.Deg2Rad) * (rT - 0.5f));
+                if (px >= 0 && py >= 0 && px < n && py < n) _sparkPx[py * n + px] = _static[2];
+            }
+            _sparkTex.SetPixels(_sparkPx);
+            _sparkTex.Apply();
+        }
+
+        void OnDestroy()
+        {
+            if (_sparks != null && _sparks.sprite != null) Destroy(_sparks.sprite);
+            if (_sparkTex != null) Destroy(_sparkTex);
         }
 
         bool Contains(Vector2 p) => ((Vector2)transform.position - p).sqrMagnitude <= _radius * _radius;

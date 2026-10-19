@@ -76,7 +76,11 @@ namespace Convergence.Player
             if (want == _drawnAsStatue) return;
             _drawnAsStatue = want;
             Rig?.SetStone(want);
-            if (want) _tapBuffer = 0f;   // a press made as flesh must not come out of the stone
+            if (want)
+            {
+                _tapBuffer = 0f;   // a press made as flesh must not come out of the stone
+                CancelArtHold();   // nor an aim held as one
+            }
         }
 
         /// <summary>
@@ -363,6 +367,10 @@ namespace Convergence.Player
         /// </summary>
         bool RiposteGuardUp => _barLive && _barGuards && !Statue;
 
+        /// <summary>Whether this guard has turned anything aside - decides the answer at the
+        /// strike (RiposteCounter). Reset as the guard goes up.</summary>
+        bool _guardParried;
+
         /// <summary>
         /// Seconds left on the shared window. Exposed so <see cref="GuardRing"/> can DRAW this
         /// number rather than run a copy of the clock beside it - one owner, the same rule
@@ -424,8 +432,9 @@ namespace Convergence.Player
                     _defenseCooldown = Tuning.Defense.DashCooldown * cdMul;
                     if (Health != null) Health.Immune = true;
 
+                    // Where the right stick aims, else where the player is moving, else the facing.
                     var input = Core.Controls.Move;
-                    var dashDir = input.sqrMagnitude > 0.01f ? input.normalized : Facing;
+                    var dashDir = AimedOr(input.sqrMagnitude > 0.01f ? input.normalized : Facing);
                     Dash(dashDir, Tuning.Defense.DashSpeed, Tuning.Defense.DashSeconds);
                     // Figures dropped along the ground actually covered, for exactly as long as
                     // the i-frames last - see DashTrail. Null on any build whose chest grants
@@ -436,7 +445,7 @@ namespace Convergence.Player
                 case Art.Gear.DefensiveAbility.Barrier:
                     _defenseActiveTimer = Tuning.Defense.BarrierSeconds * window;
                     _defenseCooldown = Tuning.Defense.BarrierCooldown * cdMul;
-                    _barrierFacing = Facing;
+                    _barrierFacing = AimedOr(Facing);   // the right stick points the dome
                     BarrierDome.Raise(transform, _barrierFacing, Tuning.Defense.BarrierSeconds * window);
                     if (Health != null)
                     {
@@ -485,6 +494,7 @@ namespace Convergence.Player
             // the answer, so no counter here.
             if (RiposteGuardUp)
             {
+                _guardParried = true;   // the art answers with the counter (RiposteCounter)
                 ParryTell(attackerPosition);
                 Ward.Flash();
                 return true;
@@ -667,6 +677,15 @@ namespace Convergence.Player
         /// Quintessence - the DRAWN weapon's (GearItem.CombinedFrames), so the picture follows the
         /// picture; null draws the main hand's half there instead.</summary>
         public Sprite[] CombinedFrames;
+
+        /// <summary>The drawn weapon's own relic is socketed, so a both-discs attack draws its discs
+        /// in flight as <see cref="CombinedFrames"/> (Combat.DiscPictures) - GameBootstrap sets it
+        /// with CombinedFrames.</summary>
+        public bool CombinedInFlight;
+
+        /// <summary>The drawn bow's arrow (DemoGear.BowKit) - what Combat.ThrownArrow flies; null
+        /// flies the plain element capsule (the Hive redraws its own).</summary>
+        public Sprite ArrowSprite;
         public float CombinedFrameSeconds = 0.1f;
 
         /// <summary>The real window until the next swing for a step - what the rig animates over.</summary>
@@ -800,6 +819,18 @@ namespace Convergence.Player
         /// </summary>
         public float ImpactRadius { get; private set; }
 
+        /// <summary>Where a leap will come down, world - the player's own position for a leap
+        /// straight up, ahead along the carry for a directed one (LandingZone draws it there).</summary>
+        public Vector2 ImpactCentre { get; private set; }
+
+        /// <summary>A directed leap's carry, world units a second, added to the walk while
+        /// airborne - see AttackStep.LeapDistance.</summary>
+        Vector2 _leapCarry;
+
+        /// <summary>The carry as last written into the body's velocity (before damping) - taken
+        /// off again before the walk's blend, see FixedUpdate.</summary>
+        Vector2 _leapCarryPut;
+
         /// <summary>Seconds left of the double-damage window a leap leaves behind; 0 when clear.</summary>
         public float ExposedSeconds { get; private set; }
 
@@ -813,8 +844,17 @@ namespace Convergence.Player
         float _soakCue;
 
         /// <summary>Reach of the swing that will fire next - what TargetHighlight measures a
-        /// sword's target against.</summary>
-        public float PendingRange => CurrentRange;
+        /// sword's target against. A Grappling Hook next reaches as far as the chain flies; Impale
+        /// as far as the lunge carries the thrust.</summary>
+        public float PendingRange =>
+            !FinisherNext || ActiveMoveset?.Finisher == null ? CurrentRange
+            : ActiveMoveset.Finisher.Grapples ? Tuning.Grapple.Reach
+            : ActiveMoveset.Finisher.Tethers ? Tuning.Tether.Reach
+            : ActiveMoveset.Finisher.Gyres ? Tuning.Gyre.Reach
+            : ActiveMoveset.Finisher.Plows ? Tuning.Plow.Reach
+            : ActiveMoveset.Finisher.PiercesPath ? CurrentRange + ActiveMoveset.Finisher.LungeDistance
+            : ActiveMoveset.Finisher.Guards ? CurrentRange + Tuning.Riposte.CounterStep
+            : CurrentRange;
 
         /// <summary>
         /// How far the auto-targeter may lock on, which is NOT the same as reach.
@@ -853,15 +893,115 @@ namespace Convergence.Player
             get
             {
                 var ms = ActiveMoveset;
-                if (FinisherNext) return ms.Finisher;
+                if (FinisherNext)
+                    return DevBowPair > 0 && Weapon == Art.Gear.WeaponClass.Bow ? DevBowArt(ms.Finisher) : ms.Finisher;
 
                 // The LEAD-IN (Basics[1]) is always the swing right before the finisher, however
                 // long the ledger makes the chain: it is authored to end where its finisher
                 // starts, so Anvil's one-swing chain is just the lead-in, and Leaking's extra
                 // swings go BETWEEN the opener and it (Basics[2]) rather than after it.
                 int i = LeadInNext ? 1 : ComboIndex == 0 ? 0 : 2;
+                if (DevBasicsRendition > 0 && Weapon == Art.Gear.WeaponClass.Greatsword)
+                    return DevBasic(DevBasicsRendition, i == 1 ? 1 : 0);
+                if (DevBowPair > 0 && Weapon == Art.Gear.WeaponClass.Bow)
+                    return DevBowBasic(i == 1 ? 1 : 0);
                 return ms.Basics[Mathf.Min(i, ms.Basics.Length - 1)];
             }
+        }
+
+        /// <summary>
+        /// Testing: swing one of the five DIMENSIONAL basic combos (AttackMotion's CrescentCut and
+        /// on, PrimitiveCharacterRig's Combos partial) in place of the moveset's own basics, on a
+        /// greatsword - 1 Crescent, 2 Cyclone, 3 Undertow, 4 Ascent, 5 Return; 0 the moveset's.
+        /// The finisher is still the moveset's (the arts are connected to them next). From eval:
+        /// <c>Convergence.Player.PlayerController.DevBasicsRendition = 2;</c>
+        /// </summary>
+        public static int DevBasicsRendition;
+
+        // Built lazily; non-readonly and rebuilt if a reload empties it.
+        static AttackStep[] _devBasics;
+
+        static AttackStep DevBasic(int rendition, int hit)
+        {
+            if (_devBasics == null || _devBasics.Length == 0)
+            {
+                _devBasics = new AttackStep[10];
+                for (int r = 0; r < 5; r++)
+                    for (int h = 0; h < 2; h++)
+                        _devBasics[r * 2 + h] = new AttackStep
+                        {
+                            Name = h == 0 ? "Cut" : "Lead",
+                            DamageMultiplier = 1f, IntervalMultiplier = 1f,
+                            Motion = (AttackMotion)((int)AttackMotion.CrescentCut + r * 2 + h),
+                        };
+            }
+            int index = Mathf.Clamp(rendition - 1, 0, 4) * 2 + hit;
+            return _devBasics[index];
+        }
+
+        /// <summary>
+        /// Testing: the bow's connector pairs (WEAPON-ARTS.md) in place of the moveset's basics -
+        /// 1 KNEEL: a shot for two basics' damage, then the roll down onto one knee, and a plain-Draw
+        /// art drawn from the kneel (KneelDraw). 2 RECOIL: the same shot, then a hop straight back,
+        /// and the art drawn from the recoil (RecoilDraw). 3 HIGH: a level shot, then a LOB (LobDraw,
+        /// ThrownArrow.Lob), and the art drawn down from the raised bow (HighDraw). 4 CANTED: a SNAP
+        /// shot (SnapDraw), then one drawn with the bow turned flat (CantedDraw), and the art drawn
+        /// canted. 5 TWIN NOCK: a shot, then two arrows at once (TwinDraw), and the art drawn from the
+        /// bow held ready. 0 the moveset's
+        /// own. From eval:
+        /// <c>Convergence.Player.PlayerController.DevBowPair = 1;</c>
+        /// </summary>
+        public static int DevBowPair;
+
+        static AttackStep[] _devBow;
+
+        static AttackStep DevBowBasic(int hit)
+        {
+            if (_devBow == null || _devBow.Length == 0)
+                _devBow = new[]
+                {
+                    new AttackStep { Name = "Shot", DamageMultiplier = 2f, IntervalMultiplier = 1f,
+                                     Motion = AttackMotion.Draw, BasicsWorth = 2 },
+                    new AttackStep { Name = "Roll", DamageMultiplier = 0f, IntervalMultiplier = 1f,
+                                     Motion = AttackMotion.BowKneelRoll, KneelRoll = true },
+                    new AttackStep { Name = "Recoil", DamageMultiplier = 0f, IntervalMultiplier = 1f,
+                                     Motion = AttackMotion.BowRecoilHop, RecoilHop = true },
+                    new AttackStep { Name = "Shot", DamageMultiplier = 1f, IntervalMultiplier = 1f,
+                                     Motion = AttackMotion.Draw },
+                    new AttackStep { Name = "Lob", DamageMultiplier = 1f, IntervalMultiplier = 1f,
+                                     Motion = AttackMotion.LobDraw, LobArc = Tuning.Bow.LobArc },
+                    new AttackStep { Name = "Snap", DamageMultiplier = 1f, IntervalMultiplier = 1f,
+                                     Motion = AttackMotion.SnapDraw },
+                    new AttackStep { Name = "Canted", DamageMultiplier = 1f, IntervalMultiplier = 1f,
+                                     Motion = AttackMotion.CantedDraw },
+                    new AttackStep { Name = "Twin", DamageMultiplier = 1f, IntervalMultiplier = 1f,
+                                     Motion = AttackMotion.TwinDraw, TwinShot = true },
+                };
+            if (DevBowPair == 3) return hit == 0 ? _devBow[3] : _devBow[4];
+            if (DevBowPair == 4) return hit == 0 ? _devBow[5] : _devBow[6];
+            if (DevBowPair == 5) return hit == 0 ? _devBow[3] : _devBow[7];
+            if (hit == 0) return _devBow[0];
+            return DevBowPair == 2 ? _devBow[2] : _devBow[1];
+        }
+
+        static AttackStep _devBowArt, _devBowArtFrom;
+
+        /// <summary>The moveset's art, drawn from the kneel - only an ordinary drawn shot.</summary>
+        static AttackStep DevBowArt(AttackStep art)
+        {
+            if (DevBowPair == 5) return art;   // TWIN NOCK: the plain draw, from the bow held ready
+            if (art == null || art.Motion != AttackMotion.Draw || art.Swarm || art.Formation || art.Boomerang)
+                return art;
+            var motion = DevBowPair == 4 ? AttackMotion.CantedDraw
+                       : DevBowPair == 3 ? AttackMotion.HighDraw
+                       : DevBowPair == 2 ? AttackMotion.RecoilDraw : AttackMotion.KneelDraw;
+            if (_devBowArtFrom != art || _devBowArt == null || _devBowArt.Motion != motion)
+            {
+                _devBowArtFrom = art;
+                _devBowArt = art.Clone();
+                _devBowArt.Motion = motion;
+            }
+            return _devBowArt;
         }
 
         /// <summary>True when the next swing is the chain's last basic - its finisher's lead-in.</summary>
@@ -936,39 +1076,136 @@ namespace Convergence.Player
         public PlayerTargeting Targeting { get; private set; }
 
         /// <summary>
-        /// Mirrors whatever <see cref="ICharacterRig.SetFacingAway"/> was last told, so
-        /// <see cref="UpdateTravelFacingAway"/> and <see cref="ForceFacingForward"/> can skip the
-        /// call when nothing has actually changed - it rebuilds every layer's sorting order, and
-        /// this runs every frame.
+        /// Set when the finisher now locking the player is an ordinary swing - one whose hit
+        /// landed on the press (Dispatch). Its facing is held only until the rig has DRAWN the
+        /// strike (ICharacterRig.PastStrike), then follows the target again while the movement
+        /// lock runs on; every other lock (charges, leaps, lunges, thrown blades, a stun) holds
+        /// the facing for its whole length, because its hit resolves later along it. The user's
+        /// call (2026-10-14): facing is free until the strike.
         /// </summary>
-        bool _travelFacingAway;
+        bool _lockFreesAfterStrike;
 
         /// <summary>
-        /// Turn the rig around for ordinary, untargeted movement - the same back-view
-        /// <see cref="ICharacterRig.SetFacingAway"/> already gives the scripted door beat, now
-        /// driven by where the player is actually walking rather than a cutscene's own clock.
-        ///
-        /// Deliberately does NOT run while a target is being tracked or a finisher is locked -
-        /// see the two <see cref="ForceFacingForward"/> calls in <see cref="Update"/> - because
-        /// showing a player's back mid-fight is exactly the combat-legibility problem
-        /// <see cref="ICharacterRig.SetFacingAway"/>'s own doc warns never to wire this to.
+        /// HOLD TO AIM, RELEASE TO FIRE (the user's calls, 2026-10-14). A fresh press on a banked
+        /// art the hand can aim (AimsArt) does not fire on the press: released inside
+        /// Tuning.Combo.ArtAimHoldSeconds it was a tap and the art goes at the auto-target;
+        /// held past it the aim arrow appears and the stick, mouse or touch drag (Controls.Aim)
+        /// points the art until the button is let go, which fires it - then the timing bar runs
+        /// as ever, the direction already fixed. Any OTHER button pressed while holding cancels:
+        /// the art stays banked, nothing spent, and that press does nothing else
+        /// (Controls.HoldingArt). A button held since
+        /// before the art banked (hold-to-attack) fires it on the hold path, unaimed.
         /// </summary>
-        void UpdateTravelFacingAway(Vector2 travel)
+        bool _artHolding;
+
+        /// <summary>Seconds the current aim hold has lasted.</summary>
+        float _artHeldFor;
+
+        /// <summary>The hand's aim for the art, set while held past the threshold and kept
+        /// through its wind-up to the strike - see UpdateArtAim.</summary>
+        Vector2? _artAim;
+
+        /// <summary>Held past the threshold: the arrow is up (AimIndicator).</summary>
+        public bool ArtAimShown => _artHolding && _artHeldFor >= Tuning.Combo.ArtAimHoldSeconds;
+
+        /// <summary>Whether the hand has aimed the art - held now, or fired and still winding up.
+        /// The facing follows the aim; TargetHighlight judges along it.</summary>
+        public bool AimingArt => _artAim.HasValue && (_artHolding || _barLive);
+
+        /// <summary>Whether an art the hand can aim is pending - a touch drag aims only then.</summary>
+        public bool ArtAimPossible => FinisherNext && AimsArt(ActiveMoveset?.Finisher);
+
+        void UpdateArtAim()
         {
-            bool away = travel.y > Tuning.Player.FacingAwayDot ? true
-                      : travel.y < -Tuning.Player.FacingAwayDot ? false
-                      : _travelFacingAway;   // ambiguous heading: hold whatever it already was
-            if (away == _travelFacingAway) return;
-            _travelFacingAway = away;
-            Rig?.SetFacingAway(away);
+            if (ArtAimShown)
+            {
+                var aim = Core.Controls.Aim;
+                if (aim.HasValue) _artAim = aim.Value;   // latched: letting the stick go keeps it
+            }
+            else if (!_artHolding && !_barLive) _artAim = null;
         }
-        /// <summary>Combat always shows the 3/4 view - see <see cref="UpdateTravelFacingAway"/>.</summary>
-        void ForceFacingForward()
+
+        /// <summary>Drop a hold without firing - the art stays banked.</summary>
+        void CancelArtHold()
         {
-            if (!_travelFacingAway) return;
-            _travelFacingAway = false;
-            Rig?.SetFacingAway(false);
+            _artHolding = false;
+            _artAim = null;
         }
+
+        /// <summary>
+        /// The ground the aimed art will strike, along the facing - what AimIndicator draws. Read
+        /// off the same rules that resolve each hit (change one, change this with it): the swing's
+        /// capsule, the thrown blade's strip, the Magnum Opus crescent growing as it flies,
+        /// Quintessence's cone narrowing to its point, a disc's throw. False for an art that hits
+        /// all round (nothing to aim but the body) or when no art is banked.
+        /// </summary>
+        public bool TryArtFootprint(out ArtFootprint fp)
+        {
+            fp = default;
+            var art = ActiveMoveset?.Finisher;
+            if (art == null || !FinisherNext) return false;
+            if (art.ThrowsWeapon)
+                fp = new ArtFootprint(art.ThrowDistance, ThrownBladeWidth, ThrownBladeWidth, true);
+            else if (art.MagnumOpus)
+                fp = new ArtFootprint(Tuning.MagnumOpus.BeamRange,
+                    Tuning.MagnumOpus.BeamSpan * Tuning.MagnumOpus.BeamGrowFrom,
+                    Tuning.MagnumOpus.BeamSpan * Tuning.MagnumOpus.BeamGrowTo, false);
+            else if (art.Plows)
+                fp = new ArtFootprint(Tuning.Plow.Reach, (Tuning.Plow.LaneHalf + Tuning.Plow.LaneRadius) * 2f,
+                                      (Tuning.Plow.LaneHalf + Tuning.Plow.LaneRadius) * 2f, false);
+            else if (art.Gyres)
+                fp = new ArtFootprint(Tuning.Gyre.Reach, 0.4f,
+                                      2f * Tuning.Gyre.Reach * Mathf.Tan(Tuning.Gyre.HalfAngle * Mathf.Deg2Rad), false);
+            else if (art.Tethers)
+                fp = new ArtFootprint(Tuning.Tether.Reach, Tuning.Tether.TagRadius * 2f,
+                                      Tuning.Tether.TagRadius * 2f, true);
+            else if (art.Grapples)
+                fp = new ArtFootprint(Tuning.Grapple.Reach, Tuning.Grapple.HookRadius * 2f,
+                                      Tuning.Grapple.HookRadius * 2f, true);
+            else if (art.Guards)
+            {
+                float w = Mathf.Max(0.1f, art.StrikeWidth * Mods.StrikeWidthMul);
+                fp = new ArtFootprint(CurrentRange + Tuning.Riposte.CounterStep, w, w, true);
+            }
+            else if (art.LeapDistance > 0f)
+                fp = new ArtFootprint(art.LeapDistance, 0.5f, 0.5f, true);
+            else if (art.PiercesPath)
+            {
+                float w = Mathf.Max(0.1f, art.StrikeWidth * Mods.StrikeWidthMul);
+                fp = new ArtFootprint(CurrentRange + art.LungeDistance, w, w, true);
+            }
+            else if (art.AreaOfEffect) return false;
+            else if (art.DiscThrows > 0 || ThrowsInsteadOfSwinging)
+                fp = new ArtFootprint(ThrowReach, DiscThrowWidth, DiscThrowWidth, true);
+            else if (art.ReverseCones)
+                fp = new ArtFootprint(CurrentRange, CurrentRange * Tuning.Quintessence.ConeBaseWidthFraction, 0f, false);
+            else
+            {
+                float w = Mathf.Max(0.1f, art.StrikeWidth * Mods.StrikeWidthMul);
+                fp = new ArtFootprint(CurrentRange, w, w, true);
+            }
+            return fp.Reach > 0f;
+        }
+
+        // Twice ThrownBlade.HitRadius (an instance default, 0.55) and ThrownDisc's 0.28 catch.
+        const float ThrownBladeWidth = 1.1f, DiscThrowWidth = 0.56f;
+
+        /// <summary>The aim indicator - attached on first use, a plain reference (survives a reload).</summary>
+        [SerializeField] AimIndicator _aimIndicator;
+
+        /// <summary>
+        /// Arts the stick can aim: every one whose cut, thrust, cone, beam or throw goes along the
+        /// facing - and the ones that hit all round, where it only turns the body. Not the arts that
+        /// SEEK the locked target (Prima Materia's throw, Swarm, King and Queen's pincer) nor a
+        /// bow's shot, which flies at the target whatever the facing says.
+        /// </summary>
+        bool AimsArt(AttackStep art) =>
+            art != null && Weapon != Art.Gear.WeaponClass.Bow
+            && !art.Boomerang && !art.Swarm && !art.Pincer && !art.Formation;
+
+        /// <summary>The right stick's direction when it is aiming, else <paramref name="fallback"/>
+        /// - the Dash and the Barrier take it (the user's call, 2026-10-14).</summary>
+        Vector2 AimedOr(Vector2 fallback) => Core.Controls.Aim ?? fallback;
 
         /// <summary>The enemy currently locked on, if any.</summary>
         public Combat.Health Target => Targeting != null ? Targeting.Target : null;
@@ -1407,7 +1644,7 @@ namespace Convergence.Player
         /// anything. <paramref name="first"/> is the projectile's first body; <paramref name="reach01"/>
         /// how far out it landed as a share of the throw's range.
         /// </summary>
-        public void NotifyThrownHit(Health target, DamageInfo info, float reach01, bool first)
+        public void NotifyThrownHit(Health target, DamageInfo info, float reach01, bool first, int basicsWorth = 1)
         {
             if (target == null) return;
             Effects?.OnHitLanded(target, info, new Exchange.HitContext
@@ -1416,8 +1653,12 @@ namespace Convergence.Player
             });
             Board?.OnHitLanded(target, info, info.IsFinisher, reach01, first);
             if (info.IsFinisher) return;
-            if (first) Board?.OnBasicLanded();
-            if (!target.IsDead) Principles?.OnBasicLanded(target);
+            for (int i = 0; i < basicsWorth; i++)
+            {
+                if (first) Board?.OnBasicLanded();
+                if (!target.IsDead) Principles?.OnBasicLanded(target);
+            }
+            // (A twin shot's second arrow is worth 0 basics - the pair's one basic is the first's.)
         }
 
         // ---- statuses the player applies, through the board when there is one ----
@@ -1509,6 +1750,7 @@ namespace Convergence.Player
         /// <summary>Held where you stand: no moving, no turning, no attacking (Recoil, Lapsus).</summary>
         public void Stun(float seconds)
         {
+            _lockFreesAfterStrike = false;   // held is held: no turning either
             _lockTimer = Mathf.Max(_lockTimer, seconds);
             _cooldown = Mathf.Max(_cooldown, seconds);
         }
@@ -1532,36 +1774,50 @@ namespace Convergence.Player
             SyncStatue();
             if (Statue) return;
 
-            // Facing is frozen for the whole finisher. Without this the auto-targeter keeps
+            // Facing is frozen while a finisher commits. Without this the auto-targeter keeps
             // steering the character mid-swing, so a 360 spin or a committed thrust would quietly
             // re-aim itself onto whatever wandered closest - which is exactly the decision the
-            // lock exists to make the player own.
+            // lock exists to make the player own. An ordinary swing's hit is already resolved by
+            // the time its strike is drawn, so its facing frees there (_lockFreesAfterStrike).
+            //
+            // The rig turns toward the facing and chooses its own view from it - the back when
+            // aiming up - in combat and out (SetAimViews; the user's call, 2026-10-14). It used to
+            // show the back only for untargeted travel, and force the front in a fight.
+            Rig?.SetAimViews(true);
+            // The mouse aims from where the character stands on screen (Controls.Aim).
+            var cam = Camera.main;
+            Core.Controls.AimOriginScreen = cam != null ? (Vector2?)(Vector2)cam.WorldToScreenPoint(transform.position) : null;
+            UpdateArtAim();
+            if (_aimIndicator == null) _aimIndicator = AimIndicator.Attach(this);
             var target = Targeting != null ? Targeting.Target : null;
-            if (AttackLocked)
+            bool facingHeld = AttackLocked && !(_lockFreesAfterStrike && Rig != null && Rig.PastStrike);
+            if (facingHeld)
             {
                 // hold the facing the finisher started on
-                ForceFacingForward();
+            }
+            else if (AimingArt)
+            {
+                // Aimed by hand: the hand points a banked or winding-up art (AimsArt, UpdateArtAim).
+                Facing = _artAim.Value;
             }
             else if (target != null && !target.IsDead)
             {
                 var d = (Vector2)target.transform.position - (Vector2)transform.position;
                 if (d.sqrMagnitude > 0.0001f) Facing = d.normalized;
-                ForceFacingForward();
             }
             else if (_rb.linearVelocity.sqrMagnitude > 0.35f)
             {
                 Facing = _rb.linearVelocity.normalized;   // nothing to fight: face travel
-                UpdateTravelFacingAway(Facing);
             }
             // A chakram in one hand is just a chakram. The pair only splits apart when the
             // player is at throwing distance - so the silhouette itself tells you which half of
             // the hybrid you are currently in, without reading the range rings.
-            Rig?.SetWeaponSplit(Weapon == Art.Gear.WeaponClass.Disc && ThrowsInsteadOfSwinging);
+            // Split always now (the user's call, 2026-10-15): the melee pairs strike with both
+            // hands too. Which half of the hybrid you are in is the target rim's to say.
+            // ...except while Carom holds the pair JOINED (combined over the head, hurled as one,
+            // until it is home).
+            Rig?.SetWeaponSplit(Weapon == Art.Gear.WeaponClass.Disc && !_discJoined);
 
-            // The bow's own hip decoration: 2 base vials, +1 for Extra Sigil's single stack - see
-            // Mods.ExtraFinisherSlots' own note on why that field is capped at one. Zero on every
-            // other class, which hides the rack entirely.
-            Rig?.SetVialCount(Weapon == Art.Gear.WeaponClass.Bow ? 2 + Mods.ExtraFinisherSlots : 0);
 
             // Shoulder the weapon whenever the chain is cold. Asked off the COMBO rather than the
             // swing on purpose - see ICharacterRig.SetGripShouldered - so the grip closes once at
@@ -1657,29 +1913,31 @@ namespace Convergence.Player
                 // spent on something else entirely.
                 _tapBuffer = 0f;
             }
-            else if (_cooldown <= 0f && (tapPending || (attackHeld && _holdDelay <= 0f)))
+            else if (_artHolding)
             {
-                // A tap that lands the instant the previous swing concludes fires immediately -
-                // that is the reward for timing it. Continuing to hold through that same moment
-                // waits out HoldExtraDelay first, so idly holding the button down settles into a
-                // visibly slower cadence than a player pressing on the beat.
-                // The board's Realgar quickens the basics right after a weapon art lands - this
-                // swing's gate AND its animation (DoAttack reads _quickSwing), so the animation is
-                // never longer than the gate holding the next swing.
-                _quickSwing = !FinisherNext && Board != null && Board.ConsumeQuickBasic()
-                    ? Tuning.Board.RealgarSpeedMul : 1f;
-                _cooldown = AttackMotions.CooldownFor(CurrentInterval / _quickSwing);
-                _holdDelay = HoldExtraDelay;
-                _tapBuffer = 0f;      // spent, whichever of the two gates it opened
-
-                // A fumbled swing still costs the swing - the animation plays, the chain advances
-                // and the cooldown runs. It simply connects with nothing, which is what makes it
-                // a cost rather than a pause.
-                _swingWhiffed = Effects != null && !Effects.OnSwing(FinisherNext);
-                DoAttack();
-                // Lapsus: a swing that passed through leaves you stumbling.
-                if (_swingWhiffed && Effects.StumblesOnWhiff) Stun(Tuning.Exchange.LapsusStumble);
+                // Holding to aim a weapon art (see _artHolding): nothing fires until the button is
+                // let go; another button cancels; the art going away (a swap) drops the hold.
+                _artHeldFor += Time.deltaTime;
+                _tapBuffer = 0f;
+                if (Core.Controls.ArtHoldCancelled || !ArtAimPossible) CancelArtHold();
+                else if (!attackHeld)
+                {
+                    _artHolding = false;
+                    if (_artAim.HasValue) Facing = _artAim.Value;   // a tap leaves the auto-target's
+                    FireSwing();
+                }
             }
+            else if (_cooldown <= 0f && tapPending && attackHeld && ArtAimPossible)
+            {
+                // A fresh press on an aimable art: wait for the release (or the hold) - above.
+                _artHolding = true;
+                _artHeldFor = 0f;
+                _artAim = null;
+                _tapBuffer = 0f;
+            }
+            else if (_cooldown <= 0f && (tapPending || (attackHeld && _holdDelay <= 0f)))
+                FireSwing();
+            if (_artHolding) Core.Controls.HoldingArt(ArtAimShown);
 
             // ---- element ability / blade blink ----
             //
@@ -1695,6 +1953,32 @@ namespace Convergence.Player
             }
             else if (releasePressed && Resource != null && Resource.CanRelease)
                 DoRelease();
+        }
+
+        /// <summary>Start the next swing - basic or weapon art - through the attack gate: the
+        /// cooldown, the hold delay, the ledger's whiff and the swing itself.</summary>
+        void FireSwing()
+        {
+            // A tap that lands the instant the previous swing concludes fires immediately -
+            // that is the reward for timing it. Continuing to hold through that same moment
+            // waits out HoldExtraDelay first, so idly holding the button down settles into a
+            // visibly slower cadence than a player pressing on the beat.
+            // The board's Realgar quickens the basics right after a weapon art lands - this
+            // swing's gate AND its animation (DoAttack reads _quickSwing), so the animation is
+            // never longer than the gate holding the next swing.
+            _quickSwing = !FinisherNext && Board != null && Board.ConsumeQuickBasic()
+                ? Tuning.Board.RealgarSpeedMul : 1f;
+            _cooldown = AttackMotions.CooldownFor(CurrentInterval / _quickSwing);
+            _holdDelay = HoldExtraDelay;
+            _tapBuffer = 0f;      // spent, whichever of the two gates it opened
+
+            // A fumbled swing still costs the swing - the animation plays, the chain advances
+            // and the cooldown runs. It simply connects with nothing, which is what makes it
+            // a cost rather than a pause.
+            _swingWhiffed = Effects != null && !Effects.OnSwing(FinisherNext);
+            DoAttack();
+            // Lapsus: a swing that passed through leaves you stumbling.
+            if (_swingWhiffed && Effects.StumblesOnWhiff) Stun(Tuning.Exchange.LapsusStumble);
         }
 
         /// <summary>
@@ -1816,8 +2100,15 @@ namespace Convergence.Player
             const float WalkBlend = 0.55f;
             float grip = Hazards.FloorPits.PlayerGripAt(_rb.position);
             _rb.linearDamping = Hazards.FloorPits.DampingFor(grip, WalkBlend, Tuning.Player.BodyDamping);
-            _rb.linearVelocity = Vector2.Lerp(_rb.linearVelocity, target,
-                                              Mathf.Min(IsMoving ? WalkBlend : stopBlend, grip));
+            // A directed leap's CARRY rides on top of the walk, kept out of its blend and paid
+            // back for the body's damping (Box2D: v / (1 + h x damping) each step), so the body
+            // is carried exactly the leap's distance and the stick steers as it always does. Last
+            // step's carry is taken off first; on the landing step it simply is not put back.
+            float damp = 1f + Time.fixedDeltaTime * _rb.linearDamping;
+            var walked = _rb.linearVelocity - _leapCarryPut / damp;
+            walked = Vector2.Lerp(walked, target, Mathf.Min(IsMoving ? WalkBlend : stopBlend, grip));
+            _leapCarryPut = Airborne ? _leapCarry * damp : Vector2.zero;
+            _rb.linearVelocity = walked + _leapCarryPut;
             HoldChasmEdge();
 
             Effects?.Tick(Time.fixedDeltaTime, IsMoving, Resource?.Fill01 ?? 0f);
@@ -1883,6 +2174,11 @@ namespace Convergence.Player
                     Resource?.OnHitLanded(Health, new DamageInfo(dmg, element, gameObject));
                     NotifyThrownHit(hp, info, 0f, firstBody);
                     firstBody = false;
+                    // FLINCH, by the art's weight as a swing's hit does (ResolveArc) - the thrown
+                    // path never flinched, so a Medium Wanderblade interrupted nothing.
+                    if (!hp.IsDead && step.Weight != FinisherWeight.Light)
+                        hp.GetComponent<Enemies.EnemyController>()?.Flinch(
+                            Core.Tuning.Finisher.FlinchSeconds, step.Weight == FinisherWeight.Heavy);
                 },
                 onFinished: () =>
                 {
@@ -1895,6 +2191,10 @@ namespace Convergence.Player
                 crit: bladeCrit,
                 scaleHit: (hp, d) => ScaleThrownHit(hp, d, true, bladeCrit));
             Blade.MaxDistance = step.ThrowDistance;
+            // Through a crowd the blade loses damage body by body, as a swing does - each leg
+            // from its first body (it used to hit every body in full, both ways).
+            float keep = CleaveFalloff(step.ChainFalloff);
+            Blade.Falloff = n => Mathf.Max(MinChainFraction, Mathf.Pow(keep, n));
             _throwTapGuard = Tuning.StrikeTiming.LingerSeconds;   // the bar is still on screen
         }
 
@@ -1971,6 +2271,7 @@ namespace Convergence.Player
         float BeginStrike(AttackStep step, float swingWindow)
         {
             _barGuards = step.Guards;
+            _guardParried = false;
             if (step.NeverLocks)
             {
                 _barLive = false;
@@ -1997,7 +2298,7 @@ namespace Convergence.Player
             // must not be credited to it.
             if (_streakAwaiting) ResolveStreak(false);
             _finisherConnected = false;
-            _streakExempt = step.DiscSuspends;
+            _streakExempt = step.DiscSuspends || step.Palisade || step.Tripwire;   // traps: may hit nothing by design
             return pad;
         }
 
@@ -2009,7 +2310,31 @@ namespace Convergence.Player
         {
             if (step.Boomerang || step.Pincer) return step.ChargeSeconds;   // the gather, then the throw   // the Prima Materia art: the gather, then the throw
             if (step.Swarm) return AttackMotions.SwingSeconds(swingWindow);   // the Swarm art: the draw, then the hive
+            if (step.Formation) return AttackMotions.SwingSeconds(swingWindow);   // the Four Birds: the draw, then the volley
+            if (step.Longshot) return Tuning.Longshot.DrawSeconds;                 // the long draw's loose
+            if (step.Disengage) return AttackMotions.SwingSeconds(swingWindow) * Tuning.Disengage.LooseAt;   // the top of the flip
             if (Weapon == Art.Gear.WeaponClass.Bow) return AttackMotions.SwingSeconds(swingWindow);  // ReleaseArrow's draw
+            if (step.DiscSpray && Rig != null)                                     // Kickback's fling
+                return Rig.StrikeDrawnSeconds(step.Motion, swingWindow);
+            if (step.Gyres && Rig != null)                                         // Gyre: lift, pull, cut
+                return Rig.StrikeDrawnSeconds(step.Motion, swingWindow) + Tuning.Gyre.PullSeconds
+                       + Rig.StrikeDrawnSeconds(AttackMotion.DiscGyreCut, swingWindow);
+            if (step.DiscOrrery && Rig != null)                                    // Orrery's cast
+                return Rig.StrikeDrawnSeconds(step.Motion, swingWindow);
+            if (step.DiscSuspends && Rig != null)                                  // Sublimate's opening
+                return Rig.StrikeDrawnSeconds(step.Motion, swingWindow);
+            if (step.DiscMarks && Rig != null)                                     // Mark's flick
+                return Rig.StrikeDrawnSeconds(step.Motion, swingWindow);
+            if (step.DiscScatter && Rig != null)                                   // Scattershot's burst
+                return ScatterReleaseSeconds(step, swingWindow);
+            if (step.DiscCarousel && Rig != null)                                  // the turn begins
+                return Rig.StrikeStartSeconds(step.Motion, swingWindow);
+            if (step.DiscCleaves && Rig != null)                                   // the Cleaver's chop
+                return Rig.StrikeDrawnSeconds(step.Motion, swingWindow);
+            if (step.DiscCaroms && Rig != null)                                    // Carom's hurl
+                return Rig.StrikeDrawnSeconds(step.Motion, swingWindow);
+            if (step.DiscHoming && Rig != null)                                    // Ripple's release
+                return Rig.StrikeDrawnSeconds(step.Motion, swingWindow);
             if (step.DiscThrows > 0) return 0f;
             if (step.LeapSeconds > 0f) return step.LeapSeconds;                    // the landing
             if (step.ReverseCones) return Core.Tuning.Quintessence.MergeSeconds;   // the first cone
@@ -2022,6 +2347,8 @@ namespace Convergence.Player
                      + Core.Tuning.SolveCoagula.SheatheSeconds;   // held sheathed, Crosscut's rule
             if (step.LungeDistance > 0f) return Core.Tuning.Impale.LungeSeconds;   // the end of the lunge
             if (step.PommelFlurry) return Core.Tuning.Flurry.PommelAt;             // the pommel
+            if (step.StrikesOnDraw && Rig != null)                                  // the drawn strike
+                return Rig.StrikeDrawnSeconds(step.Motion, swingWindow);
             return 0f;   // an ordinary swing or a thrown blade strikes on dispatch
         }
 
@@ -2031,7 +2358,8 @@ namespace Convergence.Player
         /// the chain's time, so parity counts it; it is not a gained wind-up.
         /// </summary>
         float StrikeTail(AttackStep step)
-            => step.SheathDraw && SheatheDrawn
+            => step.Guards ? CounterSeconds(step, IntervalFor(step))
+             : step.SheathDraw && SheatheDrawn
                 ? Core.Tuning.Katana.CutSeconds * 2f + Core.Tuning.Katana.DrawSeconds
                 : step.SplitDraw && GeminiDrawn
                     ? Core.Tuning.SolveCoagula.DrawSeconds + Core.Tuning.SolveCoagula.RejoinSeconds
@@ -2287,8 +2615,21 @@ namespace Convergence.Player
         /// Everything an attack does once it actually goes - which, for a finisher that gained a
         /// wind-up, is when that wind-up ends rather than on the press.
         /// </summary>
+        /// <summary>The weight of the weapon art last dispatched - a Heavy breaks an elite Drowned
+        /// Bell's whole bubble at once (EnemyController.OnBubbleDamaged). Set after anything
+        /// Sublimate left in the air goes off, so those blasts count as their own art's.</summary>
+        public FinisherWeight LastArtWeight { get; private set; } = FinisherWeight.Light;
+
         void Dispatch(AttackStep step, bool isFinisher, float swingWindow, bool alt)
         {
+            // A weapon art fired while Revolve's ring turns takes the discs left in it - they go
+            // to the hands for the art (both discs, as every art throws).
+            if (isFinisher && Combat.DiscOrbit.Current != null) Combat.DiscOrbit.Current.EndNow();
+
+            // Only the ordinary swing below frees its facing at the drawn strike; every other
+            // path resolves later and holds it for its whole lock.
+            _lockFreesAfterStrike = false;
+
             // A finisher sets off anything Sublimate left in the air - but not the Sublimate that
             // planted it. Checked BEFORE the move resolves, so the detonation lands first and its
             // marks or its stagger are already on the bodies the new finisher is about to hit.
@@ -2300,6 +2641,7 @@ namespace Convergence.Player
                 Suspended = null;
                 armed.Detonate();
             }
+            if (isFinisher) LastArtWeight = step.Weight;
 
             // The King and Queen art: both discs in a pincer - ahead of the disc paths below.
             if (step.Pincer)
@@ -2320,6 +2662,80 @@ namespace Convergence.Player
                 return;
             }
 
+            // The Four Birds: drawn like a shot with the formation round it - ahead of the arrow path.
+            // Harpoon: the bow's pull - a twin shot whose first arrow trails the line.
+            if (step.Harpoon)
+            {
+                _cooldown = 60f;
+                StartCoroutine(HarpoonStrike(step, swingWindow));
+                AdvanceCombo(isFinisher);
+                return;
+            }
+
+            // Split, Pin, Tripwire: the bow's other three.
+            if (step.SplitShot || step.Pin || step.Tripwire)
+            {
+                _cooldown = 60f;
+                StartCoroutine(step.SplitShot ? SplitStrike(step, swingWindow)
+                             : step.Pin ? PinStrike(step, swingWindow)
+                             : TripwireStrike(step, swingWindow));
+                AdvanceCombo(isFinisher);
+                return;
+            }
+
+            // Longshot: the long kneeling draw, then the line across the room.
+            if (step.Longshot)
+            {
+                _cooldown = 60f;
+                StartCoroutine(LongshotStrike(step, swingWindow));
+                AdvanceCombo(isFinisher);
+                return;
+            }
+
+            // Piercing Rain: one arrow up, a rain down on the target's ground.
+            if (step.ArrowRain)
+            {
+                _cooldown = 60f;
+                StartCoroutine(PiercingRainStrike(step, swingWindow));
+                AdvanceCombo(isFinisher);
+                return;
+            }
+
+            // Palisade: the bow's defence - arrows onto shots in flight, the rest a line.
+            if (step.Palisade)
+            {
+                _cooldown = 60f;
+                StartCoroutine(PalisadeStrike(step, swingWindow));
+                AdvanceCombo(isFinisher);
+                return;
+            }
+
+            // Disengage: the bow's reposition - a backflip away, one shot from the top.
+            if (step.Disengage)
+            {
+                _cooldown = 60f;
+                StartCoroutine(DisengageStrike(step, swingWindow));
+                AdvanceCombo(isFinisher);
+                return;
+            }
+
+            // Concussion: the bow's push - the arrow bursts off the string.
+            if (step.Concussion)
+            {
+                _cooldown = 60f;
+                StartCoroutine(ConcussionStrike(step, swingWindow));
+                AdvanceCombo(isFinisher);
+                return;
+            }
+
+            if (step.Formation)
+            {
+                _cooldown = 60f;
+                StartCoroutine(FormationStrike(step, swingWindow));
+                AdvanceCombo(isFinisher);
+                return;
+            }
+
             // the Prima Materia art: the bow is THROWN, not drawn - ahead of the arrow path below.
             if (step.Boomerang)
             {
@@ -2336,12 +2752,67 @@ namespace Convergence.Player
             // or an arc at all, so none of the machinery below applies.
             if (Weapon == Art.Gear.WeaponClass.Bow)
             {
-                FireArrow(step, isFinisher, swingWindow);
+                if (step.KneelRoll || step.RecoilHop) BowRollStrike(step, swingWindow);   // a move, not a shot
+                else FireArrow(step, isFinisher, swingWindow);
                 AdvanceCombo(isFinisher);
                 return;
             }
 
             // A disc FINISHER that declares throws resolves as a volley, not an arc.
+            if (step.DiscOrrery)
+            {
+                StartCoroutine(OrreryStrike(step, swingWindow));   // settled at the cast
+                AdvanceCombo(isFinisher);
+                return;
+            }
+            if (step.DiscSuspends)
+            {
+                StartCoroutine(SublimateStrike(step, swingWindow));   // settled at the opening
+                AdvanceCombo(isFinisher);
+                return;
+            }
+            if (step.DiscMarks)
+            {
+                StartCoroutine(MarkStrike(step, swingWindow));   // settled at the flick
+                AdvanceCombo(isFinisher);
+                return;
+            }
+            if (step.DiscScatter)
+            {
+                StartCoroutine(ScattershotStrike(step, swingWindow));   // settled at the burst
+                AdvanceCombo(isFinisher);
+                return;
+            }
+            if (step.DiscSpray)
+            {
+                StartCoroutine(KickbackStrike(step, swingWindow));   // settled at the fling
+                AdvanceCombo(isFinisher);
+                return;
+            }
+            if (step.DiscCarousel)
+            {
+                StartCoroutine(CarouselStrike(step, swingWindow));   // settled as the turn begins
+                AdvanceCombo(isFinisher);
+                return;
+            }
+            if (step.DiscCleaves)
+            {
+                StartCoroutine(CleaverStrike(step, swingWindow));   // settled at the chop
+                AdvanceCombo(isFinisher);
+                return;
+            }
+            if (step.DiscCaroms)
+            {
+                StartCoroutine(CaromStrike(step, swingWindow));   // settled at the hurl
+                AdvanceCombo(isFinisher);
+                return;
+            }
+            if (step.DiscHoming && step.DiscThrows > 0)
+            {
+                StartCoroutine(HomingVolley(step, swingWindow));   // settled at the release
+                AdvanceCombo(isFinisher);
+                return;
+            }
             if (step.DiscThrows > 0)
             {
                 SettleStrike();   // the discs carry the timing result from the moment they leave
@@ -2353,9 +2824,19 @@ namespace Convergence.Player
             // A disc BASIC with nothing in reach is thrown instead of swung. Checked before every
             // other branch because a throw is not a swing with a different sprite - it resolves
             // its damage over seconds, out there, and none of the arc machinery below applies.
+            // Revolve's ring is turning: the basic goes on unarmed and knocks ONE disc out of it,
+            // and the chain goes on as ever - the weapon art after two basics takes the last TWO
+            // (the user's call: a disc for a basic, both for an art; four discs, one chain).
+            if (!isFinisher && Combat.DiscOrbit.Live)
+            {
+                KnockFromRing(step, swingWindow);
+                AdvanceCombo(false);
+                return;
+            }
+
             if (!isFinisher && ThrowsInsteadOfSwinging)
             {
-                ThrowDisc(swingWindow);
+                ThrowDisc(step, swingWindow);
                 AdvanceCombo(false);
                 return;
             }
@@ -2447,6 +2928,73 @@ namespace Convergence.Player
                 return;
             }
 
+            // A strike that lands as the motion DRAWS it, not on the press.
+            if (step.StrikesOnDraw)
+            {
+                _cooldown = AttackMotions.CooldownFor(swingWindow);
+                StartCoroutine(DrawnStrike(step, isFinisher, swingWindow, alt));
+                AdvanceCombo(isFinisher);
+                return;
+            }
+
+            // Plow: both discs bowled along the ground; the gate is held until they are home.
+            if (step.Plows)
+            {
+                _cooldown = 60f;
+                StartCoroutine(PlowStrike(step, isFinisher, swingWindow, alt));
+                AdvanceCombo(isFinisher);
+                return;
+            }
+
+            // Revolve: both discs into a ring round the body for one turn.
+            if (step.Orbits)
+            {
+                _cooldown = AttackMotions.CooldownFor(swingWindow);
+                StartCoroutine(RevolveStrike(step, isFinisher, swingWindow, alt));
+                AdvanceCombo(isFinisher);
+                return;
+            }
+
+            // Gyre: the rotor overhead, the cone drawn in, then the cut. The gate is held until
+            // the discs are back in the hands.
+            if (step.Gyres)
+            {
+                _cooldown = 60f;
+                StartCoroutine(GyreStrike(step, isFinisher, swingWindow));
+                AdvanceCombo(isFinisher);
+                return;
+            }
+
+            // Tether: one disc round past the target and back, dragging it in. The gate is held
+            // until the disc is home.
+            if (step.Tethers)
+            {
+                _cooldown = 60f;
+                StartCoroutine(TetherStrike(step, isFinisher, swingWindow, alt));
+                AdvanceCombo(isFinisher);
+                return;
+            }
+
+            // The Grappling Hook: a chain instead of a swing - it reels a body in, or hauls the
+            // player to an elite, a boss or a wall. The gate is held until the chain is home.
+            if (step.Grapples)
+            {
+                _cooldown = 60f;
+                StartCoroutine(GrappleStrike(step, isFinisher, swingWindow, alt));
+                AdvanceCombo(isFinisher);
+                return;
+            }
+
+            // Riposte: the guard was the bar; the answer comes after the verdict - the counter if
+            // the guard turned anything aside, else a turn back with no swing.
+            if (step.Guards)
+            {
+                _cooldown = CounterSeconds(step, swingWindow) + AttackMotions.CooldownFor(swingWindow);
+                StartCoroutine(RiposteCounter(step, isFinisher, swingWindow));
+                AdvanceCombo(isFinisher);
+                return;
+            }
+
             // Flurry: two cuts and the pommel, on the sequence's own clock.
             if (step.PommelFlurry)
             {
@@ -2487,6 +3035,13 @@ namespace Convergence.Player
                 WhirlingBlade.Launch(gameObject, Rig, Facing, CurrentRange,
                                      AttackMotions.SwingSeconds(swingWindow));
 
+            // Vortex's wind spiralling in - a picture only, the pull is ResolveArc's. It turns the
+            // way the body spins (the Spin goes round through the front, from the facing).
+            if (step.PullsIn)
+                Combat.VortexWind.Play(transform.position,
+                                       Mathf.Min(ScreenReach(), Tuning.Undertow.WindRadius),
+                                       Tuning.Undertow.WindSeconds, Facing.x >= 0f ? -1f : 1f);
+
             // Lock only the finisher, and only for as long as it is actually ANIMATING - not the
             // whole interval. The difference is the recovery window, and on the heavy movesets it
             // is a fifth of a second of standing frozen after the swing has visibly ended.
@@ -2500,6 +3055,10 @@ namespace Convergence.Player
             _lockTimer = (isFinisher && !step.NeverLocks) || Mods.RootedWhileSwinging
                 ? AttackMotions.SwingSeconds(swingWindow) * (isFinisher ? Mods.LockMul : 1f)
                 : 0f;
+            // The hit resolves on this frame (ResolveArc below), so the facing may follow the
+            // target again once the rig has drawn the strike. Not for a thrown blade: it flies
+            // along the facing and is recalled along it.
+            _lockFreesAfterStrike = !step.ThrowsWeapon && !Mods.RootedWhileSwinging;
 
             // The strike lands here, so the timing bar closes here - before the damage is rolled.
             // A no-op for a basic and for a finisher that runs no bar (Shadow's Echo).
@@ -2537,13 +3096,415 @@ namespace Convergence.Player
                 : 0f;
 
             var dir = Facing.sqrMagnitude > 0.0001f ? Facing.normalized : Vector2.right;
-            float distance = LungeReach(dir, step.LungeDistance);
+            Vector2 start = transform.position;
+            // Impale's lunge (PiercesPath) is a DASH: the full distance, walls alone stopping it,
+            // so it crosses a narrow chasm - and one that ends over the void FALLS, judged where it
+            // ends like the dash ability and the leap (the user's call, 2026-10-14: a player
+            // learns their moveset's drawbacks). Any other lunge keeps to the floor.
+            float distance = step.PiercesPath ? step.LungeDistance : LungeReach(dir, step.LungeDistance);
             if (distance > 0.05f) Dash(dir, distance / seconds, seconds);
 
             yield return new WaitForSeconds(seconds);
 
             SettleStrike();   // the lunge's end is the strike
-            ResolveArc(step, isFinisher, advanceCombo: false);
+            if (!step.PiercesPath)
+            {
+                ResolveArc(step, isFinisher, advanceCombo: false);
+                yield break;
+            }
+
+            // Through the crowd: one strike laid along the whole path - from where the lunge
+            // started to the thrust's reach past where the body is now (a wall may have cut the
+            // dash short, so the distance is measured, not assumed).
+            float travelled = Vector2.Distance(start, transform.position);
+            var path = step.Clone();
+            path.RangeBonus += travelled / Mathf.Max(0.01f, Mods.RangeMul);
+            _arcOrigin = start;
+            _arcFacing = dir;
+            try { ResolveArc(path, isFinisher, advanceCombo: false); }
+            finally { _arcOrigin = null; _arcFacing = null; }
+        }
+
+        /// <summary>
+        /// Slide <paramref name="hp"/> out from <paramref name="origin"/> to past the rim of a
+        /// <paramref name="radius"/> circle (Tuning.Sunder): a near body travels further, every
+        /// body at least PushMin. Finisher Knockback lengthens it. Bosses (kinematic), anchored
+        /// elites and a body already falling are left where they are.
+        /// </summary>
+        void PushOut(Health hp, Vector2 origin, float dist, float radius)
+        {
+            if (hp.Anchored) return;
+            var rb = hp.GetComponent<Rigidbody2D>();
+            if (rb == null || rb.bodyType != RigidbodyType2D.Dynamic) return;
+            var enemy = hp.GetComponent<Enemies.EnemyController>();
+            if (enemy != null && enemy.FellIn) return;
+
+            float travel = Mathf.Max(Core.Tuning.Sunder.PushMin, radius + Core.Tuning.Sunder.PushPast - dist);
+            travel *= Art.Gear.StatPercents.Apply(1f, Stats.FinisherKnockback);
+            rb.linearVelocity = Vector2.zero;   // the impulse is replaced, not added to
+            Combat.DragToward.Push(hp, origin, travel);
+        }
+
+        /// <summary>
+        /// The Grappling Hook (Combat/GrapplingHook, Tuning.Grapple): the blade points along the
+        /// aim and the chain leaves the sword hand. The throw is the strike - the bar closes as it
+        /// leaves, as a thrown blade's does - and the damage is rolled once, here. The player is
+        /// held (no walking, the facing kept) until the chain is home; a haul is the player's own
+        /// dash. A miss is spent: the chain comes home empty and the rotation moves on.
+        /// </summary>
+        /// <summary>
+        /// An ordinary swing whose hit waits for the drawn strike (AttackStep.StrikesOnDraw): the
+        /// motion, its trail and lock from the press, the bar settled and the arc resolved when the
+        /// rig draws the strike.
+        /// </summary>
+        IEnumerator DrawnStrike(AttackStep step, bool isFinisher, float swingWindow, bool alt)
+        {
+            _visual?.PlayAttack(step.Motion, swingWindow);
+            Rig?.SetSwingHop(step.HopHeight);
+            Rig?.PlayAttack(step.Motion, swingWindow, alt);
+            if (isFinisher) Combat.WeaponTrail.Play(Rig, AttackMotions.SwingSeconds(swingWindow));
+            SmearSwing(swingWindow, isFinisher);
+            Echoes?.Trail(step.Motion, swingWindow, alt);
+            _lockTimer = (isFinisher && !step.NeverLocks) || Mods.RootedWhileSwinging
+                ? AttackMotions.SwingSeconds(swingWindow) * (isFinisher ? Mods.LockMul : 1f)
+                : 0f;
+            var facing = Facing;
+            float wait = Rig != null ? Rig.StrikeDrawnSeconds(step.Motion, swingWindow) : 0f;
+            if (wait > 0f) yield return new WaitForSeconds(wait);
+            SettleStrike();   // the drawn strike is the judged one
+            _arcFacing = facing;
+            try { ResolveArc(step, isFinisher, advanceCombo: false); }
+            finally { _arcFacing = null; }
+        }
+
+        /// <summary>
+        /// Plow (Combat/DiscPlow): the cast, then both discs bowled along the ground in two lanes
+        /// either side of the aim. HEAVY: the damage rolled once at the release, the first body a
+        /// full hit and each after it less (the swing's falloff); every body struck FLINCHES through
+        /// armour and is slid out to its side of the path (an Anchored elite and a boss stay). Held
+        /// until the discs are home.
+        /// </summary>
+        IEnumerator PlowStrike(AttackStep step, bool isFinisher, float swingWindow, bool alt)
+        {
+            _visual?.PlayAttack(step.Motion, swingWindow);
+            Rig?.SetSwingHop(0f);
+            Rig?.PlayAttack(step.Motion, swingWindow, alt);
+            float release = Rig != null ? Rig.StrikeDrawnSeconds(step.Motion, swingWindow) : 0f;
+            _lockTimer = AttackMotions.SwingSeconds(swingWindow) * Mods.LockMul;
+            SettleStrike();   // the release is the strike
+
+            float dmg = (BaseDamage + Mods.BonusDamage) * step.DamageMultiplier;
+            dmg *= DamageRoll();
+            dmg *= RollCritFor(true, out bool crit);
+            dmg *= Mods.FinisherDamageMul * FinisherPowerMul * _strikeMul;
+            if (DamageDealtMultiplier != null) dmg *= DamageDealtMultiplier();
+            var element = Resource?.Element ?? ElementType.Fire;
+            float falloff = CleaveFalloff(step.ChainFalloff);
+
+            if (release > 0f) yield return new WaitForSeconds(release);
+
+            var dir = Facing.sqrMagnitude > 0.0001f ? Facing.normalized : Vector2.right;
+            var perp = new Vector2(-dir.y, dir.x);
+            Vector2 from = transform.position;
+            int bodies = 0;
+            bool struck = false, home = false;
+            Combat.DiscPlow.Bowl(this, dir, (hp, side) =>
+            {
+                float share = Mathf.Max(MinChainFraction, Mathf.Pow(falloff, bodies));
+                float d = ScaleThrownHit(hp, dmg * share, true, crit);
+                var info = new DamageInfo(d, element, gameObject) { Thrown = true, IsFinisher = true, Crit = crit };
+                hp.Take(info);
+                OnWeaponUsed?.Invoke();
+                Resource?.OnHitLanded(hp, info);
+                NotifyThrownHit(hp, info, 0f, bodies == 0);
+                bodies++;
+                struck = true;
+                if (hp.IsDead) return;
+                hp.GetComponent<Enemies.EnemyController>()?.Flinch(Core.Tuning.Finisher.FlinchSeconds, true);
+
+                // Slid OUT to its side of the path - until it stands PushPast beyond the outside
+                // of the lane, at least PushMin - the crowd parted.
+                if (hp.Anchored || hp.GetComponent<Bosses.Boss>() != null) return;
+                var rb = hp.GetComponent<Rigidbody2D>();
+                if (rb == null || rb.bodyType != RigidbodyType2D.Dynamic) return;
+                float offset = Vector2.Dot(rb.position - from, perp) * side;   // how far out already
+                float want = Tuning.Plow.LaneHalf + Tuning.Plow.LaneRadius + Tuning.Plow.PushPast;
+                float travel = Mathf.Max(Tuning.Plow.PushMin, want - offset)
+                               * Art.Gear.StatPercents.Apply(1f, Stats.FinisherKnockback);
+                rb.linearVelocity = Vector2.zero;
+                // Pushed from a point straight across the path from it, so it goes square out.
+                Combat.DragToward.Push(hp, rb.position - perp * side, travel);
+            }, () => home = true);
+
+            float swing = AttackMotions.SwingSeconds(swingWindow) * Mods.LockMul;
+            float t = 0f;
+            while (!home)
+            {
+                _lockTimer = Mathf.Max(_lockTimer, Mathf.Max(swing - t, 0.05f));
+                t += Time.deltaTime;
+                yield return null;
+            }
+            _cooldown = AttackMotions.CooldownFor(swingWindow) * 0.5f;
+            if (!struck && _streakAwaiting) ResolveStreak(false);
+        }
+
+        /// <summary>
+        /// Tether (Combat/DiscTether): the cast, then one disc round past the locked target (or
+        /// along the facing) and back, taking the Light's damage rolled once at the throw, the
+        /// thrown blade's rules; enemies it passes take TagShare each, falling off in order; an
+        /// Anchored elite is FLINCHED through its armour instead of dragged. Held until home.
+        /// </summary>
+        /// <summary>
+        /// Gyre (AttackStep.Gyres; the user's call, 2026-10-16 - a helicopter-style melee pull,
+        /// aimed as a cone): the lift plays and as the arms reach out both discs leave the hands to
+        /// spin IN FRONT as a rotor (Combat.DiscRotor); for Tuning.Gyre.PullSeconds every enemy in the
+        /// cone along the aim is DRAWN in to DragStopAt in front (Tether's drag: MovePosition each
+        /// physics step, marked shoved, a wall between snags it; an Anchored elite in the cone is
+        /// FLINCHED instead, a boss untouched) while the rig holds the cut's first frame, and the
+        /// rotor GRINDS whatever comes near it (Tuning.Gyre.Grind*); then the cut - the arms slash
+        /// down, the discs back in the hands - is the judged strike, an ordinary melee hit
+        /// (ResolveArc) along the aim. Rooted throughout; the gate held to the end.
+        /// </summary>
+        IEnumerator GyreStrike(AttackStep step, bool isFinisher, float swingWindow)
+        {
+            bool whiffed = _swingWhiffed;
+            var aim = Facing;
+            _visual?.PlayAttack(step.Motion, swingWindow);
+            Rig?.SetSwingHop(0f);
+            Rig?.PlayAttack(step.Motion, swingWindow, false);
+            float lift = Rig != null ? Rig.StrikeDrawnSeconds(step.Motion, swingWindow) : 0f;
+            float cut = Rig != null ? Rig.StrikeDrawnSeconds(AttackMotion.DiscGyreCut, swingWindow) : 0f;
+            float swing = AttackMotions.SwingSeconds(swingWindow);
+            float total = lift + Tuning.Gyre.PullSeconds + swing;
+            _lockTimer = total * Mods.LockMul;
+            if (lift > 0f) yield return new WaitForSeconds(lift);
+
+            // The discs leave the raised hands: the rotor.
+            Vector2 main = transform.position, off = transform.position;
+            if (Rig != null && Rig.Transform != null && Rig.TryGetSwordHand(out var local))
+                main = off = Rig.Transform.TransformPoint(local);
+            var offR = Rig?.OffhandRenderer;
+            if (offR != null && offR.enabled) off = offR.transform.position;
+            var rotor = Combat.DiscRotor.Spin(this, aim, main, off);
+            rotor.Drafting = true;
+            Rig?.HoldSwingStart(AttackMotion.DiscGyreCut, false, Tuning.Gyre.PullSeconds);
+
+            // What is in the cone along the aim, and not behind a wall.
+            bool InCone(Health hp, out Vector2 to)
+            {
+                to = (Vector2)hp.transform.position - (Vector2)transform.position;
+                float d = to.magnitude;
+                if (d > Tuning.Gyre.Reach || d < 0.01f) return false;
+                if (Vector2.Angle(aim, to) > Tuning.Gyre.HalfAngle) return false;
+                return !Arena.WallBetween(transform.position, hp.transform.position);
+            }
+
+            // Too heavy to move: flinched as the draft takes hold (Tether's rule).
+            if (!whiffed)
+            {
+                Enemies.EnemyRegistry.Prune();
+                foreach (var e in Enemies.EnemyRegistry.All)
+                {
+                    var hp = e != null ? e.GetComponent<Health>() : null;
+                    if (hp == null || hp.IsDead || !hp.Anchored || !InCone(hp, out _)) continue;
+                    if (hp.GetComponentInParent<Bosses.Boss>() == null)
+                        e.Flinch(Core.Tuning.Finisher.FlinchSeconds, punchesThroughArmour: true);
+                }
+            }
+
+            // The grind (the user's call): what comes close to the turning rotor is cut as it
+            // arrives - a melee hit through ResolveArc, filtered to those bodies, no hit-stop.
+            // Gathered all round (filtered to the bodies near the rotor below), not along the cut's
+            // strip: one jostled beside the player by the pile is still at the blades.
+            var grind = step.Clone();
+            grind.SuppressHitstop = true;
+            grind.AreaOfEffect = true;
+            grind.RangeBonus += Tuning.Gyre.RotorAhead;
+            bool grindFirst = true;
+            float grindClock = 0f;
+            void Grind()
+            {
+                Vector2 hub = (Vector2)transform.position + aim * Tuning.Gyre.RotorAhead;
+                var near = new HashSet<Health>();
+                Enemies.EnemyRegistry.Prune();
+                foreach (var e in Enemies.EnemyRegistry.All)
+                {
+                    var hp = e != null ? e.GetComponent<Health>() : null;
+                    if (hp == null || hp.IsDead) continue;
+                    if (Vector2.Distance(hub, hp.transform.position) <= Tuning.Gyre.GrindRadius) near.Add(hp);
+                }
+                if (near.Count == 0) return;
+                Facing = aim;
+                _arcOnly = near;
+                _arcRepeat = !grindFirst;
+                try { ResolveArc(grind, isFinisher, advanceCombo: false, damageScale: Tuning.Gyre.GrindShare); }
+                finally { _arcOnly = null; _arcRepeat = false; }
+                grindFirst = false;
+            }
+
+            // The pull: every physics step, the cone is drawn in. A body once CAUGHT stays caught
+            // to the end - the pile jostles, and one shoved a little out of the cone used to be
+            // let go short of everything.
+            var caught = new HashSet<Health>();
+            float pulled = 0f;
+            var fixedWait = new WaitForFixedUpdate();
+            while (pulled < Tuning.Gyre.PullSeconds)
+            {
+                yield return fixedWait;
+                pulled += Time.fixedDeltaTime;
+                if (whiffed) continue;
+                grindClock += Time.fixedDeltaTime;
+                if (grindClock >= Tuning.Gyre.GrindEvery) { grindClock -= Tuning.Gyre.GrindEvery; Grind(); }
+                Enemies.EnemyRegistry.Prune();
+                foreach (var e in Enemies.EnemyRegistry.All)
+                {
+                    if (e == null || e.FellIn) continue;
+                    var hp = e.GetComponent<Health>();
+                    if (hp == null || hp.IsDead || hp.Anchored) continue;
+                    if (hp.GetComponentInParent<Bosses.Boss>() != null) continue;
+                    var rb = e.GetComponent<Rigidbody2D>();
+                    if (rb == null || rb.bodyType != RigidbodyType2D.Dynamic) continue;
+                    var to = (Vector2)hp.transform.position - (Vector2)transform.position;
+                    if (!caught.Contains(hp))
+                    {
+                        if (!InCone(hp, out to)) continue;
+                        caught.Add(hp);
+                    }
+                    else if (Arena.WallBetween(transform.position, hp.transform.position)) continue;
+                    float left = to.magnitude - Tuning.Gyre.DragStopAt;
+                    if (left <= 0.02f) continue;
+                    float move = Mathf.Min(left, Tuning.Gyre.DragSpeed * Time.fixedDeltaTime);
+                    rb.linearVelocity = Vector2.zero;
+                    rb.MovePosition(rb.position - to.normalized * move);
+                    hp.MarkShoved();   // a chasm on the way takes it, as a throw does
+                }
+            }
+
+            // The cut: the arms chop down and the discs come back into the hands.
+            rotor.Drafting = false;
+            Rig?.PlayAttack(AttackMotion.DiscGyreCut, swingWindow, false);
+            rotor.Land(cut);
+            if (cut > 0f) yield return new WaitForSeconds(cut);
+            Facing = aim;
+            SettleStrike();   // the cut is the strike
+            if (!whiffed)
+            {
+                // The grind already spent the swing's once-only effects if it struck anything.
+                _arcRepeat = !grindFirst;
+                try { ResolveArc(step, isFinisher, advanceCombo: false, damageScale: Tuning.Gyre.CutShare); }
+                finally { _arcRepeat = false; }
+            }
+
+            float rest = swing - cut;
+            if (rest > 0f) yield return new WaitForSeconds(rest * 0.5f);
+            _cooldown = AttackMotions.CooldownFor(swingWindow) * 0.5f;
+        }
+
+        IEnumerator TetherStrike(AttackStep step, bool isFinisher, float swingWindow, bool alt)
+        {
+            _visual?.PlayAttack(step.Motion, swingWindow);
+            Rig?.SetSwingHop(0f);
+            Rig?.PlayAttack(step.Motion, swingWindow, alt);
+            float release = Rig != null ? Rig.StrikeDrawnSeconds(step.Motion, swingWindow) : 0f;
+            _lockTimer = AttackMotions.SwingSeconds(swingWindow) * Mods.LockMul;
+            SettleStrike();   // the cast is the strike
+
+            float dmg = (BaseDamage + Mods.BonusDamage) * step.DamageMultiplier;
+            dmg *= DamageRoll();
+            dmg *= RollCritFor(true, out bool crit);
+            dmg *= Mods.FinisherDamageMul * FinisherPowerMul * _strikeMul;
+            if (DamageDealtMultiplier != null) dmg *= DamageDealtMultiplier();
+            var element = Resource?.Element ?? ElementType.Fire;
+
+            if (release > 0f) yield return new WaitForSeconds(release);
+
+            var target = Target;
+            if (target != null && Vector2.Distance(transform.position, target.transform.position) > Tuning.Tether.Reach)
+                target = null;
+
+            void Strike(Health hp, float amount, bool first)
+            {
+                float d = ScaleThrownHit(hp, amount, true, crit);
+                var info = new DamageInfo(d, element, gameObject) { Thrown = true, IsFinisher = true, Crit = crit };
+                hp.Take(info);
+                OnWeaponUsed?.Invoke();
+                Resource?.OnHitLanded(hp, info);
+                NotifyThrownHit(hp, info, 0f, first);
+            }
+
+            bool struck = false, home = false;
+            Combat.DiscTether.Throw(this, target, Facing, ElementInfo.Tint(element),
+                onHit: hp => { Strike(hp, dmg, true); struck = true; },
+                onTag: (hp, n) =>
+                {
+                    float falloff = CleaveFalloff(step.ChainFalloff);
+                    Strike(hp, dmg * Tuning.Tether.TagShare * Mathf.Pow(falloff, n), false);
+                    struck = true;
+                },
+                onAnchored: hp => hp.GetComponent<Enemies.EnemyController>()?.Flinch(
+                    Core.Tuning.Finisher.FlinchSeconds, punchesThroughArmour: true),
+                onFinished: () => home = true);
+
+            float swing = AttackMotions.SwingSeconds(swingWindow) * Mods.LockMul;
+            float t = 0f;
+            while (!home)
+            {
+                _lockTimer = Mathf.Max(_lockTimer, Mathf.Max(swing - t, 0.05f));
+                t += Time.deltaTime;
+                yield return null;
+            }
+
+            _cooldown = AttackMotions.CooldownFor(swingWindow) * 0.5f;
+            if (!struck && _streakAwaiting) ResolveStreak(false);
+        }
+
+        IEnumerator GrappleStrike(AttackStep step, bool isFinisher, float swingWindow, bool alt)
+        {
+            _visual?.PlayAttack(step.Motion, swingWindow);
+            Rig?.SetSwingHop(0f);
+            Rig?.PlayAttack(step.Motion, swingWindow, alt);
+            SmearSwing(swingWindow, isFinisher);
+            Echoes?.Trail(step.Motion, swingWindow, alt);
+
+            SettleStrike();   // the throw is the strike
+
+            float dmg = (BaseDamage + Mods.BonusDamage) * step.DamageMultiplier;
+            dmg *= DamageRoll();
+            dmg *= RollCritFor(true, out bool crit);
+            dmg *= Mods.FinisherDamageMul * FinisherPowerMul * _strikeMul;
+            if (DamageDealtMultiplier != null) dmg *= DamageDealtMultiplier();
+            var element = Resource?.Element ?? ElementType.Fire;
+
+            bool struck = false, home = false;
+            Combat.GrapplingHook.Throw(this, Facing,
+                onHit: hp =>
+                {
+                    float d = ScaleThrownHit(hp, dmg, true, crit);
+                    // Light: no flinch, and it moves nothing itself - the reel does.
+                    var info = new DamageInfo(d, element, gameObject)
+                    {
+                        Thrown = true, IsFinisher = true, Crit = crit,
+                    };
+                    hp.Take(info);
+                    OnWeaponUsed?.Invoke();
+                    Resource?.OnHitLanded(hp, info);
+                    NotifyThrownHit(hp, info, 0f, true);
+                    struck = true;
+                },
+                onFinished: () => home = true);
+
+            float swing = AttackMotions.SwingSeconds(swingWindow) * Mods.LockMul;
+            float t = 0f;
+            while (!home)
+            {
+                _lockTimer = Mathf.Max(_lockTimer, Mathf.Max(swing - t, 0.05f));
+                t += Time.deltaTime;
+                yield return null;
+            }
+
+            _cooldown = AttackMotions.CooldownFor(swingWindow) * 0.5f;
+            // Home without catching a body: a perfect throw that caught nothing was air.
+            if (!struck && _streakAwaiting) ResolveStreak(false);
         }
 
         /// <summary>
@@ -2689,7 +3650,10 @@ namespace Convergence.Player
             Rig?.SetSwingHop(0f);
             Rig?.PlayAttack(step.Motion, swingWindow, alt: false);
             SettleStrike();   // the throw is the strike
-            glow?.Fire();     // the light leaves with the bow - it flies fully lit
+            glow?.Fire();
+            // The pair leaves as the arms sweep apart (the pincer throw's drawn strike).
+            float sling = Rig != null ? Rig.StrikeDrawnSeconds(step.Motion, swingWindow) : 0f;
+            if (sling > 0f) yield return new WaitForSeconds(sling);     // the light leaves with the bow - it flies fully lit
 
             float dmg = (BaseDamage + Mods.BonusDamage) * step.DamageMultiplier;
             dmg *= DamageRoll();
@@ -2784,6 +3748,7 @@ namespace Convergence.Player
                                                  dmg * Core.Tuning.PrimaMateria.ShotShare * c, element,
                                                  CurrentRange * 2f, 1f, isFinisher: true, crit: crit);
                     arrow.Disintegrates = true;
+                    arrow.Knockback = HeavyKnockback(step, true);
                     arrow.SuppressHitstop = true;   // one freeze for the art - the boomerang's
                     arrow.Tint = shot;
                     lastFired = arrow;
@@ -2904,6 +3869,158 @@ namespace Convergence.Player
             _cooldown = AttackMotions.CooldownFor(swingWindow) * 0.5f;
             // A swarm that struck nothing never connected: a perfect on it was loosed at air.
             if (!struck && _streakAwaiting) ResolveStreak(false);
+        }
+
+        /// <summary>
+        /// THE FOUR BIRDS (AttackStep.Formation), the Phoenix's weapon art (the user's calls,
+        /// 2026-10-17: a formation of all the bows, a flanking volley, Heavy; how each bird's arrow
+        /// flies is mine).
+        ///
+        ///   draw      the bow is drawn exactly as for a shot, and the Crow, the Swan and the Peacock
+        ///             form up round it as bows of light (Combat.BowFormation), drawing with it. The
+        ///             release is the judged strike.
+        ///   volley    the three loose at once: the CROW's arrow flies straight through its line,
+        ///             piercing every body (a swing's falloff); the SWAN's strikes the target and
+        ///             SPLITS into arrows at the nearest others; the PEACOCK's strikes it and bursts
+        ///             into eyes that MARK it and every enemy near it (Tuning.Mark).
+        ///   phoenix   a beat later the player's own arrow - the Heavy's flinch and knockback - lands
+        ///             on the target, spending the peacock's mark. The birds' arrows spare marks
+        ///             (DamageInfo.SparesMark), so those left on the rest wait for the next art.
+        ///
+        /// Damage is rolled ONCE at the release (the thrown blade's rule); the target takes exactly
+        /// one Heavy when everything lands (Tuning.Formation's shares). Nothing locked: the crow's
+        /// arrow still flies down the facing, the rest are spent.
+        /// </summary>
+        IEnumerator FormationStrike(AttackStep step, float swingWindow)
+        {
+            float draw = AttackMotions.SwingSeconds(swingWindow);
+            Rig?.PlayAttack(step.Motion, draw, false);
+            var formation = Combat.BowFormation.Gather(this, draw);
+            var watch = new DrawWatch();
+            yield return WatchDraw(watch, draw);
+            SettleStrike();   // the release is the strike
+
+            float dmg = (BaseDamage + Mods.BonusDamage) * step.DamageMultiplier;
+            dmg *= DamageRoll();
+            dmg *= RollCritFor(true, out bool crit);
+            dmg *= Mods.FinisherDamageMul * FinisherPowerMul * _strikeMul;
+            dmg *= watch.DamageMul;   // plant to fire
+            if (DamageDealtMultiplier != null) dmg *= DamageDealtMultiplier();
+            var element = Resource?.Element ?? ElementType.Fire;
+            OnWeaponUsed?.Invoke();   // one release's wear
+
+            var target = Targeting != null ? Targeting.Target : null;
+            if (target != null && (target.IsDead
+                || Vector2.Distance(transform.position, target.transform.position) > CurrentRange)) target = null;
+            Vector2 aim = target != null
+                ? ((Vector2)target.transform.position - (Vector2)transform.position).normalized : Facing;
+            float range = CurrentRange;
+            bool connected = false;
+
+            var shots = formation != null ? formation.Release() : new Combat.BowFormation.Shot[0];
+            foreach (var shot in shots)
+            {
+                switch (shot.Bird)
+                {
+                    case Combat.BowFormation.Bird.Crow:
+                    {
+                        // Straight down its line - through the target and on past it.
+                        Vector2 at = target != null ? (Vector2)target.transform.position : shot.From + aim * range;
+                        var dir = (at - shot.From).sqrMagnitude > 1e-4f ? (at - shot.From).normalized : aim;
+                        var a = ThrownArrow.Fire(gameObject, null, dir, dmg * Tuning.Formation.CrowShare, element,
+                            Vector2.Distance(shot.From, at) + Tuning.Formation.CrowOvershoot, 1f, true, crit,
+                            shot.From, shot.Arrow);
+                        a.Pierce(dir, CleaveFalloff(step.ChainFalloff), MinChainFraction);
+                        a.SuppressHitstop = a.SparesMark = true;
+                        a.OnHit = (hp, info) => connected = true;
+                        break;
+                    }
+                    case Combat.BowFormation.Bird.Swan:
+                    {
+                        if (target == null) break;
+                        var a = ThrownArrow.Fire(gameObject, target, aim, dmg * Tuning.Formation.SwanShare, element,
+                            range, 1f, true, crit, shot.From, shot.Arrow);
+                        a.SuppressHitstop = a.SparesMark = true;
+                        var sprite = shot.Arrow;
+                        a.OnHit = (hp, info) =>
+                        {
+                            connected = true;
+                            // It SPLITS: arrows from the struck body to the nearest others.
+                            foreach (var other in FormationNearest(hp, Tuning.Formation.SplitRadius, Tuning.Formation.SplitCount))
+                            {
+                                var from = (Vector2)hp.transform.position;
+                                var d = ((Vector2)other.transform.position - from).normalized;
+                                var split = ThrownArrow.Fire(gameObject, other, d, dmg * Tuning.Formation.SplitShare,
+                                    element, Tuning.Formation.SplitRadius + 1f, 1f, true, crit, from, sprite);
+                                split.SuppressHitstop = split.SparesMark = true;
+                            }
+                        };
+                        break;
+                    }
+                    case Combat.BowFormation.Bird.Peacock:
+                    {
+                        if (target == null) break;
+                        var a = ThrownArrow.Fire(gameObject, target, aim, dmg * Tuning.Formation.PeacockShare, element,
+                            range, 1f, true, crit, shot.From, shot.Arrow);
+                        a.SuppressHitstop = a.SparesMark = true;
+                        a.OnHit = (hp, info) =>
+                        {
+                            connected = true;
+                            // It bursts into EYES: the target and every enemy near it is marked.
+                            var at = (Vector2)hp.transform.position;
+                            if (!hp.IsDead) hp.GetComponent<StatusEffects>()?.ApplyMark(Tuning.Mark.Seconds, Tuning.Mark.Multiplier, element);
+                            foreach (var other in FormationNearest(hp, Tuning.Formation.MarkRadius, 99))
+                                other.GetComponent<StatusEffects>()?.ApplyMark(Tuning.Mark.Seconds, Tuning.Mark.Multiplier, element);
+                            Spr.Flash(at, Tuning.Formation.MarkRadius, new Color(0.27f, 0.67f, 0.86f, 0.6f), 0.2f, true);
+                        };
+                        break;
+                    }
+                }
+            }
+
+            // The Phoenix's own arrow, a beat behind so it lands last - onto the mark.
+            yield return new WaitForSeconds(Tuning.Formation.PhoenixDelay);
+            Rig?.LooseArrow();
+            if (target != null && !target.IsDead)
+            {
+                aim = ((Vector2)target.transform.position - (Vector2)transform.position).normalized;
+                var a = ThrownArrow.Fire(gameObject, target, aim, dmg * Tuning.Formation.PhoenixShare, element,
+                                         range, 1f, true, crit);
+                a.SplashFraction = SplashFraction;
+                a.PierceFraction = PierceFraction;
+                a.Knockback = HeavyKnockback(step, true);
+                a.OnHit = (hp, info) =>
+                {
+                    connected = true;
+                    // The Heavy's flinch, through armour, as a swing's (ResolveArc).
+                    if (!hp.IsDead) hp.GetComponent<Enemies.EnemyController>()?.Flinch(Tuning.Finisher.FlinchSeconds, true);
+                };
+            }
+
+            _cooldown = AttackMotions.CooldownFor(swingWindow) * 0.5f;
+            // A volley that struck nothing never connected: a perfect on it was loosed at air.
+            yield return new WaitForSeconds(1f);
+            if (!connected && _streakAwaiting) ResolveStreak(false);
+        }
+
+        /// <summary>Living enemies within <paramref name="radius"/> of <paramref name="from"/>, not
+        /// it, nearest first, at most <paramref name="count"/>.</summary>
+        List<Health> FormationNearest(Health from, float radius, int count)
+        {
+            var list = new List<(Health hp, float d)>();
+            Vector2 at = from.transform.position;
+            foreach (var col in Physics2D.OverlapCircleAll(at, radius))
+            {
+                var hp = col != null ? col.GetComponentInParent<Health>() : null;
+                if (hp == null || hp == from || hp.IsDead) continue;
+                if (col.GetComponentInParent<Enemies.EnemyController>() == null && col.GetComponentInParent<Bosses.Boss>() == null) continue;
+                if (list.Exists(e => e.hp == hp)) continue;
+                list.Add((hp, Vector2.Distance(at, hp.transform.position)));
+            }
+            list.Sort((p, q) => p.d.CompareTo(q.d));
+            var result = new List<Health>();
+            for (int i = 0; i < list.Count && i < count; i++) result.Add(list[i].hp);
+            return result;
         }
 
         void OnDisable() => GamePause.Unslow(this);
@@ -3047,6 +4164,9 @@ namespace Convergence.Player
             // where the wielder was, and the wielder already at the top, waiting for the pair.
             DropAfterImage(Core.Tuning.KingAndQueen.ShadowColor, Core.Tuning.KingAndQueen.ShadowSeconds);
             Rig?.SetAirborne(Core.Tuning.KingAndQueen.JumpHeight);
+            // Both arms raised to receive the pair (the hurl's first frame), held through the catch.
+            Rig?.HoldSwingStart(AttackMotion.DiscPincerHurl, false,
+                                Core.Tuning.KingAndQueen.ReturnSeconds + Core.Tuning.KingAndQueen.HangSeconds + 1f);
             // Untouchable in the air, as a leap is (the user's call) - from the step to the landing.
             Airborne = true;
             if (Health) Health.Immune = true;
@@ -3057,18 +4177,35 @@ namespace Convergence.Player
             {
                 up += Time.deltaTime;
                 float k = Mathf.Clamp01(up / rise);
-                if (a != null) a.Lift = Core.Tuning.KingAndQueen.JumpHeight * k;
-                if (b != null) b.Lift = Core.Tuning.KingAndQueen.JumpHeight * k;
+                float overheadLift = Core.Tuning.KingAndQueen.JumpHeight + Core.Tuning.KingAndQueen.CatchAbove;
+                if (a != null) a.Lift = overheadLift * k;
+                if (b != null) b.Lift = overheadLift * k;
                 if (up > rise + 1f) break;
                 yield return null;
             }
-            if (a != null) a.Lift = Core.Tuning.KingAndQueen.JumpHeight;
-            if (b != null) b.Lift = Core.Tuning.KingAndQueen.JumpHeight;
+            float held = Core.Tuning.KingAndQueen.JumpHeight + Core.Tuning.KingAndQueen.CatchAbove;
+            if (a != null) a.Lift = held;
+            if (b != null) b.Lift = held;
+            // THE UNION (the user's call, 2026-10-16): caught together at the top, the king and the
+            // queen become ONE disc - her head on his ring, facing him (Art.Gear.KingQueenUnion) -
+            // and come down as one. Only with the Aether Dual Discs AND the Geode Stone socketed
+            // (CombinedInFlight, the Black Diamond rule); they part again on the impact.
+            if (CombinedInFlight && a != null && b != null && a.Caught && b.Caught)
+            {
+                a.Unite(Art.Gear.KingQueenUnion.Of(s0, s1));
+                b.Hidden = true;
+                Spr.Flash(a.transform.position + Vector3.up * held, 0.6f,
+                          Art.Gear.SecretFire.Tone(Art.Gear.SecretFire.Shown, 0), 0.18f);
+            }
             yield return new WaitForSeconds(Core.Tuning.KingAndQueen.HangSeconds);
 
             // Hurled down onto the target, wherever it is now - the wielder comes down with them.
             if (target != null && !target.IsDead) at = target.transform.position;
-            Rig?.PlayAttack(AttackMotion.Slam, Core.Tuning.KingAndQueen.HurlSeconds * 2f, false);
+            // Both arms drive down: the pair leaves as they come over (the hurl's cock end).
+            Rig?.PlayAttack(AttackMotion.DiscPincerHurl, Core.Tuning.KingAndQueen.HurlSwingSeconds, false);
+            float overhead = Rig != null
+                ? Rig.StrikeStartSeconds(AttackMotion.DiscPincerHurl, Core.Tuning.KingAndQueen.HurlSwingSeconds) : 0f;
+            if (overhead > 0f) yield return new WaitForSeconds(overhead);
             a?.Hurl(at);
             b?.Hurl(at);
             float fall = 0f;
@@ -3078,8 +4215,8 @@ namespace Convergence.Player
                 float k = Mathf.Clamp01(fall / Core.Tuning.KingAndQueen.HurlSeconds);
                 float h = Core.Tuning.KingAndQueen.JumpHeight * (1f - k * k);
                 Rig?.SetAirborne(h);
-                if (a != null) a.Lift = Core.Tuning.KingAndQueen.JumpHeight * (1f - k);
-                if (b != null) b.Lift = Core.Tuning.KingAndQueen.JumpHeight * (1f - k);
+                if (a != null) a.Lift = held * (1f - k);
+                if (b != null) b.Lift = held * (1f - k);
                 yield return null;
             }
             Rig?.SetAirborne(0f);
@@ -3100,32 +4237,53 @@ namespace Convergence.Player
             }
             float radius = Core.Tuning.KingAndQueen.BlastRadius * AoeScale;
             var tone = Art.Gear.SecretFire.Tone(Art.Gear.SecretFire.Shown, 0);
-            Spr.Flash(at, radius, tone, 0.3f);
-            Spr.GroundBurn(at, radius, Art.Gear.SecretFire.Tone(Art.Gear.SecretFire.Shown, 1), 0.45f);
+            Spr.Flash(at, radius * 0.45f, tone, 0.2f);
+            // The scorch only at the middle - the wave carries the blast outward (a burn the whole
+            // radius drowned it).
+            Spr.GroundBurn(at, radius * 0.45f, Art.Gear.SecretFire.Tone(Art.Gear.SecretFire.Shown, 1), 0.45f);
             Combat.CameraKick.Kick(Vector2.down, 0.18f);   // the discs come DOWN
-            foreach (var col in Physics2D.OverlapCircleAll(at, radius))
+
+            // A WAVE OF ENERGY runs out across the ground from the impact (the user's call,
+            // 2026-10-16), and the blast lands on each body as its front reaches it.
+            var wave = Combat.EnergyWave.Run(at, radius,
+                Art.Gear.SecretFire.Tone(Art.Gear.SecretFire.Shown, 0),
+                Art.Gear.SecretFire.Tone(Art.Gear.SecretFire.Shown, 1),
+                Art.Gear.SecretFire.Tone(Art.Gear.SecretFire.Shown, 2));
+            bool blastStopped = false;   // one hit-stop for the blast, not one a body
+            var blasted = new HashSet<Health>();
+            float waveT = 0f;
+            while (true)
             {
-                var hp = col != null ? col.GetComponent<Health>() : null;
-                if (hp == null || hp.IsDead || hp.gameObject == gameObject) continue;
-                if (hp.GetComponent<Enemies.EnemyController>() == null && hp.GetComponent<Bosses.Boss>() == null) continue;
-                var off = (Vector2)hp.transform.position - at;
-                float d01 = Mathf.Clamp01(off.magnitude / Mathf.Max(0.01f, radius));
-                float hit = dmg * Core.Tuning.KingAndQueen.BlastShare
-                            * Mathf.Lerp(1f, Core.Tuning.KingAndQueen.BlastEdge, d01);
-                hit = ScaleThrownHit(hp, hit, true, crit, d01);
-                var away = off.sqrMagnitude > 0.0001f ? off.normalized : Facing;
-                var info = new DamageInfo(hit, element, gameObject)
+                float front = wave != null ? wave.Front : radius;
+                foreach (var col in Physics2D.OverlapCircleAll(at, Mathf.Max(0.05f, front)))
                 {
-                    Knockback = away * step.Knockback * Art.Gear.StatPercents.Apply(1f, Stats.FinisherKnockback),
-                    Displaces = true, Thrown = true, IsFinisher = true, Crit = crit, Disintegrates = true,
-                };
-                hp.Take(info);
-                Resource?.OnHitLanded(hp, info);
-                NotifyThrownHit(hp, info, d01, false);
+                    var hp = col != null ? col.GetComponent<Health>() : null;
+                    if (hp == null || hp.IsDead || hp.gameObject == gameObject || blasted.Contains(hp)) continue;
+                    if (hp.GetComponent<Enemies.EnemyController>() == null && hp.GetComponent<Bosses.Boss>() == null) continue;
+                    blasted.Add(hp);
+                    var off = (Vector2)hp.transform.position - at;
+                    float d01 = Mathf.Clamp01(off.magnitude / Mathf.Max(0.01f, radius));
+                    float hit = dmg * Core.Tuning.KingAndQueen.BlastShare
+                                * Mathf.Lerp(1f, Core.Tuning.KingAndQueen.BlastEdge, d01);
+                    hit = ScaleThrownHit(hp, hit, true, crit, d01);
+                    var away = off.sqrMagnitude > 0.0001f ? off.normalized : Facing;
+                    var info = new DamageInfo(hit, element, gameObject)
+                    {
+                        Knockback = away * step.Knockback * Art.Gear.StatPercents.Apply(1f, Stats.FinisherKnockback),
+                        Displaces = true, Thrown = true, IsFinisher = true, Crit = crit, Disintegrates = true,
+                        SuppressHitstop = blastStopped,
+                    };
+                    hp.Take(info);
+                    blastStopped = true;
+                    Resource?.OnHitLanded(hp, info);
+                    NotifyThrownHit(hp, info, d01, false);
+                }
+                if (front >= radius - 0.001f || waveT > Core.Tuning.KingAndQueen.WaveSeconds + 0.2f) break;
+                yield return null;
+                waveT += Time.deltaTime;
             }
 
             // Their light out, their cracks showing again, they spring back to the hands.
-            yield return new WaitForSeconds(0.08f);
             a?.Recall();
             b?.Recall();
             yield return new WaitForSeconds(Core.Tuning.KingAndQueen.RecallSeconds);
@@ -3472,20 +4630,62 @@ namespace Convergence.Player
 
             Airborne = true;
             ImpactRadius = radius;
+            ImpactCentre = transform.position;
             if (Health) Health.Immune = true;
+
+            // A DIRECTED leap: carried along the aim (the facing, which the art's aim and the
+            // auto-target both set), landing ON a locked target in front when it is within reach.
+            _leapCarry = Vector2.zero;
+            Transform mark = null;
+            if (step.LeapDistance > 0f)
+            {
+                var dir = Facing.sqrMagnitude > 0.0001f ? Facing.normalized : Vector2.right;
+                float distance = step.LeapDistance;
+                var target = Target;
+                if (target != null && !target.IsDead)
+                {
+                    Vector2 to = (Vector2)target.transform.position - (Vector2)transform.position;
+                    if (to.sqrMagnitude > 0.0001f && to.magnitude <= distance && Vector2.Dot(to.normalized, dir) > 0.5f)
+                    {
+                        dir = to.normalized;
+                        distance = Mathf.Min(distance, to.magnitude);
+                    }
+                }
+                _leapCarry = dir * (distance / step.LeapSeconds);
+                mark = new GameObject("leap.mark").transform;
+                mark.position = LeapStop(transform.position, dir * distance);
+                ImpactCentre = mark.position;
+            }
 
             // Springing off the ground: a burst under the feet, so the launch has a moment of
             // contact rather than the character simply vanishing upward.
             Spr.Flash(transform.position, radius * 0.4f, Color.white, 0.22f);
 
-            // The blade goes overhead and stays there for the whole flight - the same held pose
-            // the charged slam uses, which is exactly what a body falling sword-first looks like.
-            Rig?.PlayCharge(step.LeapSeconds);
-            _visual?.PlayCharge(step.LeapSeconds);
-
             const float RiseSeconds = 0.28f;
-            const float FallSeconds = 0.14f;
-            const float PeakHeight = 9f;      // clears the top of the camera at any sane zoom
+            float FallSeconds = 0.14f;
+            float PeakHeight = 9f;      // clears the top of the camera at any sane zoom
+
+            // A SPINNING leap (Falling Star): takes off with a full turn close to the ground, then
+            // launches; the landing's swing starts on the way down, the fall as long as it takes
+            // to draw its strike, so the blade plants as the feet touch. Otherwise the blade goes
+            // overhead and stays there for the whole flight - the charged slam's held pose.
+            bool spin = step.SpinLeap && Rig != null;
+            float spinEnd = 0f;
+            bool landingSwung = false;
+            if (spin)
+            {
+                FallSeconds = Mathf.Clamp(Rig.StrikeDrawnSeconds(step.Motion, swingWindow), 0.12f, step.LeapSeconds * 0.4f);
+                PeakHeight = Core.Tuning.FallingStar.PeakHeight;
+                float takeoff = step.LeapSeconds - FallSeconds;
+                Rig.SetSwingHop(0f);
+                Rig.PlayAttack(AttackMotion.StarLeap, takeoff, alt: false);
+                spinEnd = Mathf.Min(Rig.StrikeDrawnSeconds(AttackMotion.StarLeap, takeoff), takeoff * 0.6f);
+            }
+            else
+            {
+                Rig?.PlayCharge(step.LeapSeconds);
+                _visual?.PlayCharge(step.LeapSeconds);
+            }
 
             float elapsed = 0f;
             float cue = 0f;
@@ -3494,15 +4694,53 @@ namespace Convergence.Player
                 elapsed += Time.deltaTime;
                 float remaining = step.LeapSeconds - elapsed;
 
-                // Fast up, hang, faster down. The fall is deliberately shorter than the rise:
-                // coming back at the same speed you left reads as a lift, not as a drop.
-                float height =
-                    elapsed < RiseSeconds
-                        ? Mathf.Sin(Mathf.Clamp01(elapsed / RiseSeconds) * Mathf.PI * 0.5f) * PeakHeight
-                    : remaining < FallSeconds
-                        ? Mathf.Clamp01(remaining / FallSeconds) * PeakHeight
-                        : PeakHeight;
+                float height;
+                if (spin)
+                {
+                    // Turning up off the ground, then up and away, hang, and an accelerating drop.
+                    float launch = Core.Tuning.FallingStar.LaunchSeconds, low = Core.Tuning.FallingStar.SpinHeight;
+                    if (remaining < FallSeconds)
+                    {
+                        float u = 1f - Mathf.Clamp01(remaining / FallSeconds);
+                        height = PeakHeight * (1f - u * u);
+                    }
+                    else if (elapsed < spinEnd)
+                        height = low * Mathf.SmoothStep(0f, 1f, elapsed / Mathf.Max(0.01f, spinEnd));
+                    else if (elapsed < spinEnd + launch)
+                        height = Mathf.Lerp(low, PeakHeight, Mathf.Sin((elapsed - spinEnd) / launch * Mathf.PI * 0.5f));
+                    else
+                        height = PeakHeight;
+
+                    if (!landingSwung && remaining <= FallSeconds)
+                    {
+                        landingSwung = true;
+                        _visual?.PlayAttack(step.Motion, swingWindow);
+                        Rig.SetSwingHop(0f);
+                        Rig.PlayAttack(step.Motion, swingWindow, alt: false);
+                        Combat.WeaponTrail.Play(Rig, AttackMotions.SwingSeconds(swingWindow));
+                        SmearSwing(swingWindow, isFinisher: true);
+                    }
+                }
+                else
+                {
+                    // Fast up, hang, faster down. The fall is deliberately shorter than the rise:
+                    // coming back at the same speed you left reads as a lift, not as a drop.
+                    height =
+                        elapsed < RiseSeconds
+                            ? Mathf.Sin(Mathf.Clamp01(elapsed / RiseSeconds) * Mathf.PI * 0.5f) * PeakHeight
+                        : remaining < FallSeconds
+                            ? Mathf.Clamp01(remaining / FallSeconds) * PeakHeight
+                            : PeakHeight;
+                }
                 Rig?.SetAirborne(height);
+
+                // The landing moves with the body - wherever the carry has yet to take it.
+                if (mark != null)
+                {
+                    ImpactCentre = LeapStop(transform.position, _leapCarry * Mathf.Max(0f, remaining));
+                    mark.position = ImpactCentre;
+                }
+                else ImpactCentre = transform.position;
 
                 // A ring closing in on the landing zone, quickening as the drop nears. Enemies
                 // cannot read a character that is off the screen, so the ground has to say it.
@@ -3513,7 +4751,7 @@ namespace Convergence.Player
                     cue = Mathf.Lerp(0.26f, 0.07f, t);
                     var c = Color.Lerp(tint, Color.white, t * 0.6f);
                     c.a = 0.30f + t * 0.45f;
-                    Spr.Pulse(transform, radius * Mathf.Lerp(1.15f, 0.5f, t), c, 0.28f, true, -0.5f);
+                    Spr.Pulse(mark != null ? mark : transform, radius * Mathf.Lerp(1.15f, 0.5f, t), c, 0.28f, true, -0.5f);
                 }
                 yield return null;
             }
@@ -3521,6 +4759,8 @@ namespace Convergence.Player
             Rig?.SetAirborne(0f);
             Airborne = false;
             ImpactRadius = 0f;
+            _leapCarry = Vector2.zero;
+            if (mark != null) Destroy(mark.gameObject, 0.4f);   // its last pulses fade out on it
             if (Health) Health.Immune = false;
             SettleOverChasm();
 
@@ -3531,19 +4771,91 @@ namespace Convergence.Player
             _exposedMultiplier = Mathf.Max(1f, step.ExposedMultiplier);
 
             // No hop: the figure has just come down out of a real leap, and lifting it again on
-            // the landing frame would fight the impact the whole move is built around.
-            _visual?.PlayAttack(step.Motion, swingWindow);
-            Rig?.SetSwingHop(0f);
-            Rig?.PlayAttack(step.Motion, swingWindow, alt: false);
+            // the landing frame would fight the impact the whole move is built around. A spinning
+            // leap's landing swing is already under way (started on the way down).
+            if (!landingSwung)
+            {
+                _visual?.PlayAttack(step.Motion, swingWindow);
+                Rig?.SetSwingHop(0f);
+                Rig?.PlayAttack(step.Motion, swingWindow, alt: false);
 
-            // Always a finisher on this path - charge, leap and draw-cut are nothing else.
-            Combat.WeaponTrail.Play(Rig, AttackMotions.SwingSeconds(swingWindow));
-            SmearSwing(swingWindow, isFinisher: true);
+                // Always a finisher on this path - charge, leap and draw-cut are nothing else.
+                Combat.WeaponTrail.Play(Rig, AttackMotions.SwingSeconds(swingWindow));
+                SmearSwing(swingWindow, isFinisher: true);
+            }
 
             Spr.Flash(transform.position, radius * 1.1f, Color.white, 0.28f);
             Spr.Flash(transform.position, radius * 0.55f, tint, 0.34f);
             SettleStrike();   // the landing is the strike
             ResolveArc(step, isFinisher, advanceCombo: false);
+        }
+
+        static readonly RaycastHit2D[] _leapHits = new RaycastHit2D[8];
+
+        /// <summary>
+        /// Where the body would stop travelling <paramref name="by"/> from <paramref name="from"/>:
+        /// the player's own collider swept along it against what it collides with (walls, columns),
+        /// enemies left out (they never block the player). So the landing ring never promises a
+        /// spot past a wall - the carry itself is stopped there by physics.
+        /// </summary>
+        Vector2 LeapStop(Vector2 from, Vector2 by)
+        {
+            float dist = by.magnitude;
+            if (dist < 0.001f || _rb == null) return from + by;
+            var filter = new ContactFilter2D { useTriggers = false };
+            filter.SetLayerMask(Physics2D.GetLayerCollisionMask(gameObject.layer));
+            int n = _rb.Cast(by / dist, filter, _leapHits, dist);
+            float stop = dist;
+            for (int i = 0; i < n; i++)
+            {
+                var c = _leapHits[i].collider;
+                if (c == null || c.GetComponentInParent<Enemies.EnemyController>() != null) continue;
+                stop = Mathf.Min(stop, _leapHits[i].distance);
+            }
+            return from + by / dist * stop;
+        }
+
+        /// <summary>Seconds from Riposte's answer starting to its strike: the counter's blade
+        /// coming level (its swing's strike phase).</summary>
+        float CounterSeconds(AttackStep step, float swingWindow)
+        {
+            float s = Rig != null ? Rig.StrikeDrawnSeconds(step.Motion, swingWindow) : 0f;
+            return s > 0.05f ? s : Core.Tuning.Riposte.CounterSecondsFallback;
+        }
+
+        /// <summary>
+        /// Riposte's answer, after the guard (the timing bar) is judged. If the guard turned
+        /// anything aside: the COUNTER (AttackMotion.RiposteTurnabout) - the body turns a full
+        /// circle and steps in along the aim (a dash, so a chasm at its end takes the player), and
+        /// as the blade comes level the step's strike lands from where the body arrived. If not:
+        /// the figure turns back (RiposteReturn) and nothing is hit - the art was the guard.
+        /// </summary>
+        IEnumerator RiposteCounter(AttackStep step, bool isFinisher, float swingWindow)
+        {
+            bool answer = _guardParried;
+            _guardParried = false;
+            SettleStrike();   // the guard's end is the judged moment
+
+            var motion = answer ? step.Motion : AttackMotion.RiposteReturn;
+            _visual?.PlayAttack(motion, swingWindow);
+            Rig?.SetSwingHop(0f);
+            Rig?.PlayAttack(motion, swingWindow, alt: false);
+            _lockTimer = AttackMotions.SwingSeconds(swingWindow) * Mods.LockMul;
+            _lockFreesAfterStrike = !Mods.RootedWhileSwinging;
+            if (!answer) yield break;
+
+            if (isFinisher) Combat.WeaponTrail.Play(Rig, AttackMotions.SwingSeconds(swingWindow));
+            SmearSwing(swingWindow, isFinisher);
+            Echoes?.Trail(motion, swingWindow, false);
+
+            float seconds = CounterSeconds(step, swingWindow);
+            var dir = Facing.sqrMagnitude > 0.0001f ? Facing.normalized : Vector2.right;
+            Dash(dir, Core.Tuning.Riposte.CounterStep / seconds, seconds);
+            yield return new WaitForSeconds(seconds);
+
+            _arcFacing = dir;
+            try { ResolveArc(step, isFinisher, advanceCombo: false); }
+            finally { _arcFacing = null; }
         }
 
         /// <summary>
@@ -4042,6 +5354,7 @@ namespace Convergence.Player
                 if (col == null || col.gameObject == gameObject) continue;
                 var hp = col.GetComponent<Health>();
                 if (hp == null || hp.IsDead) continue;
+                if (_arcOnly != null && !_arcOnly.Contains(hp)) continue;   // Carousel's swept bodies
                 var sight = HazardQuery.Query(origin, col.transform.position, gameObject, col.gameObject);
                 if (sight == SightResult.Blocked) continue;
                 _ordered.Add((hp, Vector2.Distance(col.transform.position, origin), HazardDamageMul(sight)));
@@ -4049,6 +5362,12 @@ namespace Convergence.Player
 
             _ordered.Sort((a, b) => a.dist.CompareTo(b.dist));
         }
+
+        /// <summary>Carousel's turn resolves its circle in parts, a body as a disc reaches it: the
+        /// bodies this part may strike (null - any), and whether a part has already resolved (the
+        /// swing's once-only effects - wear, the board's area tick, splash - have fired).</summary>
+        HashSet<Health> _arcOnly;
+        bool _arcRepeat;
 
         /// <summary>Nulled -> 0, Amplified -> double, Clear -> unchanged. Blocked never reaches
         /// this - a column excludes the candidate before HazardDamageMul is ever asked.</summary>
@@ -4063,18 +5382,100 @@ namespace Convergence.Player
         /// <summary>
         /// Send a disc out. Damage is settled by the projectile as it travels, not here.
         /// </summary>
-        void ThrowDisc(float swingWindow)
+        void ThrowDisc(AttackStep step, float swingWindow)
         {
             // Fumbler still applies: the throw happens, it just finds nothing. Asked once, as the
             // attack was committed (Update), so a throw never pays Blood Price twice.
             bool whiffed = _swingWhiffed;
 
-            Rig?.PlayAttack(AttackMotion.Throw, AttackMotions.SwingSeconds(swingWindow), false);
-
+            // The dance (the ranged pairs): the throw's own motion and hop, and the disc leaves
+            // at its strike - the hand it was drawn in, the main hand's first, the off hand's
+            // second. Charge's run really carries the player first (a dash).
+            var motion = step.ThrowMotion;
+            Rig?.SetSwingHop(step.ThrowHop);
+            Rig?.PlayAttack(motion, swingWindow, false);
+            float release = Rig != null
+                ? Mathf.Max(0f, Rig.StrikeDrawnSeconds(motion, swingWindow) - step.ThrowReleaseEarly)
+                : 0f;
+            if (step.ThrowRun > 0f && release > 0.05f)
+            {
+                var dir = Facing.sqrMagnitude > 0.0001f ? Facing.normalized : Vector2.right;
+                Dash(dir, step.ThrowRun / release, release);
+            }
             if (whiffed) return;
+            StartCoroutine(ReleaseDisc(step.ThrowOffhand, release));
+        }
 
+        IEnumerator ReleaseDisc(bool offhand, float after)
+        {
+            if (after > 0f) yield return new WaitForSeconds(after);
+            if (offhand) Rig?.ThrowFromOffhandNext();
+            BasicDiscThrow();
+        }
+
+        /// <summary>
+        /// A basic while Revolve's ring turns: the swing plays unarmed - the melee one in reach,
+        /// the throw out of it - and at its strike the disc in the ring nearest the facing is
+        /// knocked out as an ordinary basic throw.
+        /// </summary>
+        void KnockFromRing(AttackStep step, float swingWindow)
+        {
+            bool whiffed = _swingWhiffed;
+            bool reach = !ThrowsInsteadOfSwinging;
+            var motion = reach ? step.Motion : step.ThrowMotion;
+            Rig?.SetSwingHop(reach ? step.HopHeight : step.ThrowHop);
+            Rig?.PlayAttack(motion, swingWindow, false);
+            float at = Rig != null ? Rig.StrikeDrawnSeconds(motion, swingWindow) : 0f;
+            if (!whiffed) StartCoroutine(KnockAt(at));
+        }
+
+        IEnumerator KnockAt(float after)
+        {
+            if (after > 0f) yield return new WaitForSeconds(after);
+            var ring = Combat.DiscOrbit.Current;
+            if (ring == null) yield break;
+            ring.Knock(Facing, BasicDiscThrow);
+        }
+
+        /// <summary>
+        /// Revolve: the cast, then both discs into the ring at its strike. Medium; the ring's
+        /// hits are its damage - each enemy a disc runs into takes TouchBasics of a basic.
+        /// </summary>
+        IEnumerator RevolveStrike(AttackStep step, bool isFinisher, float swingWindow, bool alt)
+        {
+            _visual?.PlayAttack(step.Motion, swingWindow);
+            Rig?.SetSwingHop(0f);
+            Rig?.PlayAttack(step.Motion, swingWindow, alt);
+            _lockTimer = AttackMotions.SwingSeconds(swingWindow) * Mods.LockMul;
+            SettleStrike();   // the cast is the strike
+            float release = Rig != null ? Rig.StrikeDrawnSeconds(step.Motion, swingWindow) : 0f;
+
+            float dmg = (BaseDamage + Mods.BonusDamage) * Tuning.Revolve.TouchBasics;
+            dmg *= DamageRoll();
+            dmg *= RollCritFor(true, out bool crit);
+            dmg *= Mods.FinisherDamageMul * FinisherPowerMul * _strikeMul;
+            if (DamageDealtMultiplier != null) dmg *= DamageDealtMultiplier();
+            var element = Resource?.Element ?? ElementType.Fire;
+
+            if (release > 0f) yield return new WaitForSeconds(release);
+            bool first = true;
+            Combat.DiscOrbit.Begin(this, Facing, hp =>
+            {
+                float d = ScaleThrownHit(hp, dmg, true, crit);
+                var info = new DamageInfo(d, element, gameObject) { Thrown = true, IsFinisher = true, Crit = crit };
+                hp.Take(info);
+                OnWeaponUsed?.Invoke();
+                Resource?.OnHitLanded(hp, info);
+                NotifyThrownHit(hp, info, 0f, first);
+                first = false;
+            });
+        }
+
+        /// <summary>One ordinary basic disc throw along the facing (the hand is the rig's next).</summary>
+        ThrownDisc BasicDiscThrow()
+        {
             float dmg = (BaseDamage + Mods.BonusDamage)
-                       
+                        * Tuning.Disc.ThrowDamagePerThrow
                         * (DamageDealtMultiplier?.Invoke() ?? 1f);
 
             // Rolled once per throw, like ThrowWeapon: every body the disc passes through takes
@@ -4096,6 +5497,7 @@ namespace Convergence.Player
                 disc.Falloff = CleaveFalloff(disc.Falloff);   // Boomerang adds run Cleave
                 disc.SplashFraction = SplashFraction;
             }
+            return disc;
         }
 
         /// <summary>
@@ -4130,31 +5532,6 @@ namespace Convergence.Player
                 Dash(-Facing, step.RecoilDistance / RecoilSeconds, RecoilSeconds);
             }
 
-            // ---- ORRERY: driven in a ring around the player instead of thrown outward ----
-            if (step.DiscOrbitSweeps > 0)
-            {
-                OrbitingDiscs.Launch(gameObject, this, Rig, Mathf.Max(1, step.DiscThrows), dmg,
-                                     Resource?.Element ?? ElementType.Fire,
-                                     step.DiscOrbitRadius, step.DiscOrbitSweeps);
-                return;
-            }
-
-            // ---- SUBLIMATE: planted in the air, waiting for the NEXT finisher ----
-            if (step.DiscSuspends)
-            {
-                // Replaces any set still hanging rather than stacking. Two live sets would make
-                // the ordering unreadable - you could no longer tell which finisher was arming
-                // which detonation, which is the entire point of the move.
-                if (Suspended != null) Destroy(Suspended.gameObject);
-
-                Suspended = SuspendedDiscs.Place(gameObject, this, Rig, Facing,
-                                                 Mathf.Max(1, step.DiscThrows),
-                                                 step.DiscSpreadDegrees,
-                                                 step.DiscSuspendDistance, dmg,
-                                                 Resource?.Element ?? ElementType.Fire);
-                return;
-            }
-
             float baseAngle = Mathf.Atan2(Facing.y, Facing.x) * Mathf.Rad2Deg;
 
             for (int i = 0; i < step.DiscThrows; i++)
@@ -4177,18 +5554,570 @@ namespace Convergence.Player
                                  ricochets, ThrowReach,
                                  CurrentRange * Tuning.Disc.BounceRangeMul,
                                  step.DiscFarFraction, isFinisher: true);   // ThrowVolley is finisher-only
+                if (disc != null && step.DiscThrows > 1) disc.ShowCombined();   // a volley: both out at once
                 if (disc != null)
                 {
                     disc.Crit = crit;
                     disc.Falloff = CleaveFalloff(disc.Falloff);   // Boomerang adds run Cleave
                     disc.SplashFraction = SplashFraction;
                 }
+                if (disc != null) disc.Knockback = HeavyKnockback(step, true);
                 if (disc != null && step.DiscMarkMultiplier > 1f)
                 {
                     disc.MarkMultiplier = step.DiscMarkMultiplier;
                     disc.MarkSeconds = step.DiscMarkSeconds;
                 }
             }
+        }
+
+        /// <summary>
+        /// Ripple (AttackStep.DiscHoming; the user's calls, 2026-10-15): the two-handed throw plays
+        /// and at its drawn strike the discs leave - alternately from the main and the off hand,
+        /// each hand's own picture - fanned over DiscSpreadDegrees round the facing, then each
+        /// HOMES (ThrownDisc.Home) onto its own target: the locked enemy and the nearest others in
+        /// reach, ordered round the fan so the discs do not cross, shared out in turn. With one
+        /// enemy every disc curves onto it; with none they fly straight out and home. Damage rolled
+        /// once at the release, as every volley.
+        /// </summary>
+        IEnumerator HomingVolley(AttackStep step, float swingWindow)
+        {
+            bool whiffed = _swingWhiffed;
+            _visual?.PlayAttack(step.Motion, swingWindow);
+            Rig?.SetSwingHop(0f);
+            Rig?.PlayAttack(step.Motion, swingWindow, false);
+            Combat.WeaponTrail.Play(Rig, AttackMotions.SwingSeconds(swingWindow));
+            _lockTimer = AttackMotions.SwingSeconds(swingWindow) * Mods.LockMul;
+            var facing = Facing;
+            float wait = Rig != null ? Rig.StrikeDrawnSeconds(step.Motion, swingWindow) : 0f;
+            if (wait > 0f) yield return new WaitForSeconds(wait);
+            SettleStrike();   // the release is the strike
+            if (whiffed) yield break;
+
+            float dmg = (BaseDamage + Mods.BonusDamage) * step.DamageMultiplier
+                        * Mods.FinisherDamageMul * FinisherPowerMul * _strikeMul
+                        * (DamageDealtMultiplier?.Invoke() ?? 1f);
+            dmg *= DamageRoll();
+            dmg *= RollCritFor(true, out bool crit);
+            int ricochets = Tuning.Disc.BaseRicochets + step.DiscRicochetBonus
+                            + (BonusRicochets?.Invoke() ?? 0) + Mods.ExtraRicochets;
+
+            int n = Mathf.Max(1, step.DiscThrows);
+            var targets = HomingTargets(facing, ThrowReach, n);
+            float baseAngle = Mathf.Atan2(facing.y, facing.x) * Mathf.Rad2Deg;
+            float spread = n > 1 ? step.DiscSpreadDegrees : 0f;
+
+            // Where each hand is now - the discs leave from them.
+            Vector2 main = transform.position, off = transform.position;
+            if (Rig != null && Rig.Transform != null && Rig.TryGetSwordHand(out var local))
+                main = off = Rig.Transform.TransformPoint(local);
+            var offR = Rig?.OffhandRenderer;
+            if (offR != null && offR.enabled) off = offR.transform.position;
+
+            for (int i = 0; i < n; i++)
+            {
+                // Clockwise to anticlockwise round the fan; the targets are ordered the same way.
+                float a = (baseAngle - spread * 0.5f + (n > 1 ? spread * i / (n - 1) : 0f)) * Mathf.Deg2Rad;
+                var heading = new Vector2(Mathf.Cos(a), Mathf.Sin(a));
+                bool fromOff = i % 2 == 1;
+                var disc = ThrownDisc.Throw(gameObject, Rig, heading, dmg,
+                                            Resource?.Element ?? ElementType.Fire,
+                                            ricochets, ThrowReach,
+                                            CurrentRange * Tuning.Disc.BounceRangeMul,
+                                            step.DiscFarFraction, isFinisher: true,
+                                            discIndex: i);
+                if (disc == null) continue;
+                disc.ShowCombined();   // both discs out at once: the combined picture
+                disc.transform.position = fromOff ? off : main;
+                disc.Home(targets.Count > 0 ? targets[i * targets.Count / n] : null, heading);
+                disc.Crit = crit;
+                disc.Falloff = CleaveFalloff(disc.Falloff);
+                disc.SplashFraction = SplashFraction;
+                disc.Knockback = HeavyKnockback(step, true);
+            }
+        }
+
+        /// <summary>
+        /// Carom (AttackStep.DiscCaroms; the user's calls, 2026-10-15): the hurl plays; as the
+        /// hands meet over the head the pair becomes ONE disc (the split joined), and at the drawn
+        /// strike it is hurled two-handed - one disc - at the locked enemy in
+        /// reach (else the nearest in front), then caroms (ThrownDisc.Carom). Rolled once at the
+        /// hurl. The pair splits again when it is home.
+        /// </summary>
+        /// <summary>
+        /// Kickback (AttackStep.DiscSpray; the user's calls, 2026-10-15): the fling plays, and at
+        /// its drawn strike the discs leave both hands - alternately - each STRAIGHT along its own
+        /// line of the cone (the first body it meets takes it; point blank hits hardest -
+        /// DiscFarFraction), and the recoil hop goes in the same instant, so the shove and the
+        /// throw read as one. The hop is a dash (a chasm at its end takes the player).
+        /// </summary>
+        IEnumerator KickbackStrike(AttackStep step, float swingWindow)
+        {
+            bool whiffed = _swingWhiffed;
+            _visual?.PlayAttack(step.Motion, swingWindow);
+            Rig?.SetSwingHop(0f);
+            Rig?.PlayAttack(step.Motion, swingWindow, false);
+            Combat.WeaponTrail.Play(Rig, AttackMotions.SwingSeconds(swingWindow));
+            _lockTimer = AttackMotions.SwingSeconds(swingWindow) * Mods.LockMul;
+            var facing = Facing;
+            float drawn = Rig != null ? Rig.StrikeDrawnSeconds(step.Motion, swingWindow) : 0f;
+            if (drawn > 0f) yield return new WaitForSeconds(drawn);
+            SettleStrike();   // the fling is the strike
+            if (whiffed) yield break;
+
+            float dmg = (BaseDamage + Mods.BonusDamage) * step.DamageMultiplier
+                        * Mods.FinisherDamageMul * FinisherPowerMul * _strikeMul
+                        * (DamageDealtMultiplier?.Invoke() ?? 1f);
+            dmg *= DamageRoll();
+            dmg *= RollCritFor(true, out bool crit);
+
+            // Where each hand is now - the discs leave from them.
+            Vector2 main = transform.position, off = transform.position;
+            if (Rig != null && Rig.Transform != null && Rig.TryGetSwordHand(out var local))
+                main = off = Rig.Transform.TransformPoint(local);
+            var offR = Rig?.OffhandRenderer;
+            if (offR != null && offR.enabled) off = offR.transform.position;
+
+            int n = Mathf.Max(1, step.DiscThrows);
+            float baseAngle = Mathf.Atan2(facing.y, facing.x) * Mathf.Rad2Deg;
+            float spread = n > 1 ? step.DiscSpreadDegrees : 0f;
+            for (int i = 0; i < n; i++)
+            {
+                float a = (baseAngle - spread * 0.5f + (n > 1 ? spread * i / (n - 1) : 0f)) * Mathf.Deg2Rad;
+                var heading = new Vector2(Mathf.Cos(a), Mathf.Sin(a));
+                bool fromOff = i % 2 == 1;
+                var disc = ThrownDisc.Throw(gameObject, Rig, heading, dmg,
+                                            Resource?.Element ?? ElementType.Fire,
+                                            0, ThrowReach, CurrentRange * Tuning.Disc.BounceRangeMul,
+                                            step.DiscFarFraction, isFinisher: true,
+                                            discIndex: i);
+                if (disc == null) continue;
+                disc.ShowCombined();   // both discs out at once: the combined picture
+                // The fan is laid out on the ground from the player; each disc leaves its hand
+                // aimed at where its line ends, or the hand's height shifts the whole fan up.
+                var from = fromOff ? off : main;
+                disc.transform.position = from;
+                disc.Straight((Vector2)transform.position + heading * ThrowReach - from);
+                disc.Crit = crit;
+                disc.SplashFraction = SplashFraction;
+                disc.Knockback = HeavyKnockback(step, true);
+            }
+
+            // The recoil, in the same instant as the discs.
+            if (step.RecoilDistance > 0f)
+            {
+                const float RecoilSeconds = 0.18f;
+                Dash(-facing, step.RecoilDistance / RecoilSeconds, RecoilSeconds);
+            }
+        }
+
+        /// <summary>Scattershot's release: <see cref="Core.Tuning.Scattershot.ReleaseAt"/> of the
+        /// way through the burst's strike - the arms open, the body near the top of the jump.</summary>
+        float ScatterReleaseSeconds(AttackStep step, float swingWindow)
+        {
+            if (Rig == null) return 0f;
+            float start = Rig.StrikeStartSeconds(step.Motion, swingWindow);
+            float drawn = Rig.StrikeDrawnSeconds(step.Motion, swingWindow);
+            return Mathf.Lerp(start, drawn, Core.Tuning.Scattershot.ReleaseAt);
+        }
+
+        /// <summary>
+        /// Scattershot (AttackStep.DiscScatter; the user's calls, 2026-10-16): out of HALO a jump
+        /// (the swing hop, drawing only), and at its top both arms fling the discs out in an even
+        /// RING, alternately from each hand, one spoke on the facing (the lock). Each flies
+        /// straight down its spoke (ThrownDisc.Spoke) - laid out on the ground from the player,
+        /// aimed from its hand at the spoke's end, Kickback's rule - strikes the first body it
+        /// meets and bounces once to the enemy the volley has reached least; one that meets
+        /// nothing turns back in on the enemy nearest the player. Damage rolled once at the release.
+        /// </summary>
+        IEnumerator ScattershotStrike(AttackStep step, float swingWindow)
+        {
+            bool whiffed = _swingWhiffed;
+            _visual?.PlayAttack(step.Motion, swingWindow);
+            Rig?.SetSwingHop(Core.Tuning.Scattershot.HopHeight);
+            Rig?.PlayAttack(step.Motion, swingWindow, false);
+            Combat.WeaponTrail.Play(Rig, AttackMotions.SwingSeconds(swingWindow));
+            _lockTimer = AttackMotions.SwingSeconds(swingWindow) * Mods.LockMul;
+            var facing = Facing;
+            float release = ScatterReleaseSeconds(step, swingWindow);
+            if (release > 0f) yield return new WaitForSeconds(release);
+            SettleStrike();   // the burst is the strike
+            if (whiffed) yield break;
+
+            float dmg = (BaseDamage + Mods.BonusDamage) * step.DamageMultiplier
+                        * Mods.FinisherDamageMul * FinisherPowerMul * _strikeMul
+                        * (DamageDealtMultiplier?.Invoke() ?? 1f);
+            dmg *= DamageRoll();
+            dmg *= RollCritFor(true, out bool crit);
+
+            Vector2 main = transform.position, off = transform.position;
+            if (Rig != null && Rig.Transform != null && Rig.TryGetSwordHand(out var local))
+                main = off = Rig.Transform.TransformPoint(local);
+            var offR = Rig?.OffhandRenderer;
+            if (offR != null && offR.enabled) off = offR.transform.position;
+
+            int n = Mathf.Max(1, step.DiscThrows);
+            float baseAngle = Mathf.Atan2(facing.y, facing.x) * Mathf.Rad2Deg;
+            var volley = new Dictionary<Health, int>();
+            for (int i = 0; i < n; i++)
+            {
+                float a = (baseAngle + 360f * i / n) * Mathf.Deg2Rad;
+                var heading = new Vector2(Mathf.Cos(a), Mathf.Sin(a));
+                bool fromOff = i % 2 == 1;
+                var disc = ThrownDisc.Throw(gameObject, Rig, heading, dmg,
+                                            Resource?.Element ?? ElementType.Fire,
+                                            0, ThrowReach, CurrentRange * Tuning.Disc.BounceRangeMul,
+                                            step.DiscFarFraction, isFinisher: true,
+                                            discIndex: i);
+                if (disc == null) continue;
+                disc.ShowCombined();   // both discs out at once: the combined picture
+                var from = fromOff ? off : main;
+                disc.transform.position = from;
+                disc.Spoke((Vector2)transform.position + heading * ThrowReach - from, volley);
+                disc.Crit = crit;
+                disc.Falloff = CleaveFalloff(disc.Falloff);
+                disc.SplashFraction = SplashFraction;
+                disc.Knockback = HeavyKnockback(step, true);
+            }
+        }
+
+        /// <summary>
+        /// Carousel (AttackStep.DiscCarousel; the user's calls, 2026-10-15): the arms held wide and
+        /// two full turns (Tuning.Carousel.Revolutions), the player free to move throughout - each
+        /// body struck once a turn for the turn's share of the step. The timing bar judges the moment the
+        /// turn begins; from then each body in the circle is struck when one of the two discs -
+        /// half a turn apart, the off disc leading along the facing - sweeps past it, through
+        /// ResolveArc (filtered to the bodies just reached), so every rule a swing has applies and
+        /// the swing's once-only effects fire on its first part alone.
+        /// </summary>
+        IEnumerator CarouselStrike(AttackStep step, float swingWindow)
+        {
+            bool whiffed = _swingWhiffed;
+            _visual?.PlayAttack(step.Motion, swingWindow);
+            Rig?.SetSwingHop(0f);
+            Rig?.PlayAttack(step.Motion, swingWindow, false);
+            Combat.WeaponTrail.Play(Rig, AttackMotions.SwingSeconds(swingWindow));
+            _lockTimer = Mods.RootedWhileSwinging ? AttackMotions.SwingSeconds(swingWindow) : 0f;   // free to move
+
+            float start = Rig != null ? Rig.StrikeStartSeconds(step.Motion, swingWindow) : 0f;
+            float end = Rig != null ? Rig.StrikeDrawnSeconds(step.Motion, swingWindow) : 0f;
+            if (start > 0f) yield return new WaitForSeconds(start);
+            SettleStrike();   // the turn begins: the judged moment
+            if (whiffed) yield break;
+
+            // Toward the camera first (the rig's turn): clockwise facing right, anticlockwise left.
+            var facing0 = Facing;
+            float sign = facing0.x >= 0f ? -1f : 1f;
+            // The circle's radius, as ResolveArc measures it - a body outside it is not swept, so
+            // one walking in later in the turn can still be caught.
+            float reach = (Art.Gear.StatPercents.Apply(BaseRange, Stats.Range) + step.RangeBonus
+                           + (Resource?.AttackRangeBonus ?? 0f)) * Mods.RangeMul * Tuning.Disc.RangeMul * AoeScale;
+            float dur = Mathf.Max(0.05f, end - start);
+            // Each body is struck once a turn: its n-th hit is due when the sweep passes its
+            // angle plus n-1 whole turns. Each hit is the turn's share of the step.
+            int turns = Tuning.Carousel.Revolutions;
+            float share = 1f / turns;
+            var hits = new Dictionary<Health, int>();
+            bool resolved = false;
+            float t = 0f;
+            while (true)
+            {
+                float u = Mathf.Clamp01(t / dur);
+                float swept = 360f * turns * Mathf.SmoothStep(0f, 1f, u);
+                var part = new HashSet<Health>();
+                Enemies.EnemyRegistry.Prune();
+                foreach (var e in Enemies.EnemyRegistry.All)
+                {
+                    if (e == null) continue;
+                    var hp = e.GetComponent<Health>();
+                    if (hp == null || hp.IsDead) continue;
+                    hits.TryGetValue(hp, out int had);
+                    if (had >= turns) continue;
+                    var to = (Vector2)hp.transform.position - (Vector2)transform.position;
+                    if (to.magnitude > reach + 0.35f) continue;
+                    float a = Mathf.Repeat(Vector2.SignedAngle(facing0, to) * sign, 360f);
+                    // Two discs half a turn apart: whichever reaches the body first.
+                    float first = Mathf.Min(a, Mathf.Repeat(a + 180f, 360f));
+                    if (first + 360f * had <= swept) part.Add(hp);
+                }
+                if (part.Count > 0)
+                {
+                    _arcOnly = part;
+                    _arcRepeat = resolved;
+                    try { ResolveArc(step, true, advanceCombo: false, damageScale: share); }
+                    finally { _arcOnly = null; _arcRepeat = false; }
+                    resolved = true;
+                    foreach (var hp in part) { hits.TryGetValue(hp, out int had); hits[hp] = had + 1; }
+                }
+                if (u >= 1f) break;
+                yield return null;
+                t += Time.deltaTime;
+            }
+            // Nothing in reach all the way round: the swing still counts (a miss).
+            if (!resolved)
+            {
+                _arcOnly = new HashSet<Health>();
+                try { ResolveArc(step, true, advanceCombo: false); }
+                finally { _arcOnly = null; }
+            }
+        }
+
+        /// <summary>
+        /// Heavy Cleaver (AttackStep.DiscCleaves; the user's calls, 2026-10-15): the chop plays and
+        /// at its drawn strike one HEAVY disc leaves the main hand (Tuning.Cleaver: bigger, slower,
+        /// a slower spin) at what is in front, knocking back each body it hits (the Heavy's
+        /// displacement) and bouncing, each bounce carrying half the hit before it. Rolled once.
+        /// </summary>
+        IEnumerator CleaverStrike(AttackStep step, float swingWindow)
+        {
+            bool whiffed = _swingWhiffed;
+            _visual?.PlayAttack(step.Motion, swingWindow);
+            Rig?.SetSwingHop(0f);
+            Rig?.PlayAttack(step.Motion, swingWindow, false);
+            Combat.WeaponTrail.Play(Rig, AttackMotions.SwingSeconds(swingWindow));
+            _lockTimer = AttackMotions.SwingSeconds(swingWindow) * Mods.LockMul;
+            float drawn = Rig != null ? Rig.StrikeDrawnSeconds(step.Motion, swingWindow) : 0f;
+            if (drawn > 0f) yield return new WaitForSeconds(drawn);
+            SettleStrike();   // the chop is the strike
+            if (whiffed) yield break;
+
+            float dmg = (BaseDamage + Mods.BonusDamage) * step.DamageMultiplier
+                        * Mods.FinisherDamageMul * FinisherPowerMul * _strikeMul
+                        * (DamageDealtMultiplier?.Invoke() ?? 1f);
+            dmg *= DamageRoll();
+            dmg *= RollCritFor(true, out bool crit);
+            int ricochets = Tuning.Disc.BaseRicochets + step.DiscRicochetBonus
+                            + (BonusRicochets?.Invoke() ?? 0) + Mods.ExtraRicochets;
+
+            var disc = ThrownDisc.Throw(gameObject, Rig, Facing, dmg,
+                                        Resource?.Element ?? ElementType.Fire,
+                                        ricochets, ThrowReach, CurrentRange * Tuning.Disc.BounceRangeMul,
+                                        step.DiscFarFraction, isFinisher: true, discIndex: 0);
+            if (disc == null) yield break;
+            if (Rig != null && Rig.Transform != null && Rig.TryGetSwordHand(out var local))
+                disc.transform.position = Rig.Transform.TransformPoint(local);
+            var locked = Targeting != null ? Targeting.Target : null;
+            if (locked != null && !locked.IsDead
+                && ((Vector2)locked.transform.position - (Vector2)transform.position).magnitude <= ThrowReach)
+                disc.Aim(locked);
+            disc.transform.localScale *= Tuning.Cleaver.FlightScale;
+            disc.Speed = Tuning.Cleaver.Speed;
+            disc.SpinMul = Tuning.Cleaver.SpinMul;
+            disc.Crit = crit;
+            disc.Falloff = CleaveFalloff(Tuning.Cleaver.BounceFalloff);
+            disc.SplashFraction = SplashFraction;
+            disc.Knockback = HeavyKnockback(step, true);
+        }
+
+        /// <summary>
+        /// Orrery (AttackStep.DiscOrrery; the user's calls, 2026-10-16): the cast plays - out of
+        /// ORBIT both arms sweep up and out - the player free to move (Carousel's rule), and at its
+        /// drawn strike the pair spirals out of the hands onto two orbits (Combat.OrbitingDiscs),
+        /// for what is left of the swing, then back in. Damage and crit rolled here, once.
+        /// </summary>
+        IEnumerator OrreryStrike(AttackStep step, float swingWindow)
+        {
+            bool whiffed = _swingWhiffed;
+            _visual?.PlayAttack(step.Motion, swingWindow);
+            Rig?.SetSwingHop(0f);
+            Rig?.PlayAttack(step.Motion, swingWindow, false);
+            Combat.WeaponTrail.Play(Rig, AttackMotions.SwingSeconds(swingWindow));
+            _lockTimer = Mods.RootedWhileSwinging ? AttackMotions.SwingSeconds(swingWindow) : 0f;   // free to move
+            var facing = Facing;
+            float drawn = Rig != null ? Rig.StrikeDrawnSeconds(step.Motion, swingWindow) : 0f;
+            if (drawn > 0f) yield return new WaitForSeconds(drawn);
+            SettleStrike();   // the cast is the strike
+            if (whiffed) yield break;
+
+            float dmg = (BaseDamage + Mods.BonusDamage) * step.DamageMultiplier
+                        * Mods.FinisherDamageMul * FinisherPowerMul * _strikeMul
+                        * (DamageDealtMultiplier?.Invoke() ?? 1f);
+            dmg *= DamageRoll();
+            dmg *= RollCritFor(true, out bool crit);
+
+            Vector2 main = transform.position, off = transform.position;
+            if (Rig != null && Rig.Transform != null && Rig.TryGetSwordHand(out var local))
+                main = off = Rig.Transform.TransformPoint(local);
+            var offR = Rig?.OffhandRenderer;
+            if (offR != null && offR.enabled) off = offR.transform.position;
+
+            // The rest of the art's INTERVAL (the swing animation is capped well short of it),
+            // so the discs are home as the next chain can start.
+            float seconds = swingWindow * AttackMotions.FillFraction - drawn;
+            OrbitingDiscs.Launch(gameObject, this, Rig, dmg, crit,
+                                 Resource?.Element ?? ElementType.Fire, facing, seconds, main, off);
+        }
+
+        /// <summary>
+        /// Sublimate (AttackStep.DiscSuspends; the user's calls, 2026-10-16): the opening plays -
+        /// the crossed arms snap open - and at its drawn strike the discs fly from both hands
+        /// (copies: the pair stays in hand) to hang over their enemies (HomingTargets, shared out
+        /// in turn) and follow them, until the next weapon art sets them off (Dispatch, before
+        /// the new art resolves). Damage and crit rolled here, once.
+        /// </summary>
+        IEnumerator SublimateStrike(AttackStep step, float swingWindow)
+        {
+            bool whiffed = _swingWhiffed;
+            _visual?.PlayAttack(step.Motion, swingWindow);
+            Rig?.SetSwingHop(0f);
+            Rig?.PlayAttack(step.Motion, swingWindow, false);
+            Combat.WeaponTrail.Play(Rig, AttackMotions.SwingSeconds(swingWindow));
+            _lockTimer = AttackMotions.SwingSeconds(swingWindow) * Mods.LockMul;
+            var facing = Facing;
+            float drawn = Rig != null ? Rig.StrikeDrawnSeconds(step.Motion, swingWindow) : 0f;
+            if (drawn > 0f) yield return new WaitForSeconds(drawn);
+            SettleStrike();   // the opening is the strike
+            if (whiffed) yield break;
+
+            float dmg = (BaseDamage + Mods.BonusDamage) * step.DamageMultiplier
+                        * Mods.FinisherDamageMul * FinisherPowerMul * _strikeMul
+                        * (DamageDealtMultiplier?.Invoke() ?? 1f);
+            dmg *= DamageRoll();
+            dmg *= RollCritFor(true, out bool crit);
+
+            Vector2 main = transform.position, off = transform.position;
+            if (Rig != null && Rig.Transform != null && Rig.TryGetSwordHand(out var local))
+                main = off = Rig.Transform.TransformPoint(local);
+            var offR = Rig?.OffhandRenderer;
+            if (offR != null && offR.enabled) off = offR.transform.position;
+
+            // Replaces any set still hanging rather than stacking. Two live sets would make the
+            // ordering unreadable - you could no longer tell which art was arming which
+            // detonation, which is the entire point of the move.
+            if (Suspended != null) Destroy(Suspended.gameObject);
+            int n = Mathf.Max(1, step.DiscThrows);
+            Suspended = SuspendedDiscs.Place(gameObject, this, Rig, facing,
+                                             HomingTargets(facing, ThrowReach, n), n,
+                                             step.DiscSpreadDegrees, step.DiscSuspendDistance, dmg, crit,
+                                             Resource?.Element ?? ElementType.Fire, main, off);
+        }
+
+        /// <summary>
+        /// Mark (AttackStep.DiscMarks; the user's calls, 2026-10-16): the flick plays - the off arm
+        /// pointing at the target - and at its drawn strike ONE disc leaves the main hand at the
+        /// lock in reach, bouncing Tuning.Mark.BounceRangeMul x melee reach to the nearest body
+        /// not yet painted, painting each it strikes (Combat.MarkSigil). The mark waits for the
+        /// next weapon art's hit (Health.Take).
+        /// </summary>
+        IEnumerator MarkStrike(AttackStep step, float swingWindow)
+        {
+            bool whiffed = _swingWhiffed;
+            _visual?.PlayAttack(step.Motion, swingWindow);
+            Rig?.SetSwingHop(0f);
+            Rig?.PlayAttack(step.Motion, swingWindow, false);
+            Combat.WeaponTrail.Play(Rig, AttackMotions.SwingSeconds(swingWindow));
+            _lockTimer = AttackMotions.SwingSeconds(swingWindow) * Mods.LockMul;
+            float drawn = Rig != null ? Rig.StrikeDrawnSeconds(step.Motion, swingWindow) : 0f;
+            if (drawn > 0f) yield return new WaitForSeconds(drawn);
+            SettleStrike();   // the flick is the strike
+            if (whiffed) yield break;
+
+            float dmg = (BaseDamage + Mods.BonusDamage) * step.DamageMultiplier
+                        * Mods.FinisherDamageMul * FinisherPowerMul * _strikeMul
+                        * (DamageDealtMultiplier?.Invoke() ?? 1f);
+            dmg *= DamageRoll();
+            dmg *= RollCritFor(true, out bool crit);
+            int ricochets = Tuning.Disc.BaseRicochets + step.DiscRicochetBonus
+                            + (BonusRicochets?.Invoke() ?? 0) + Mods.ExtraRicochets;
+
+            var disc = ThrownDisc.Throw(gameObject, Rig, Facing, dmg,
+                                        Resource?.Element ?? ElementType.Fire,
+                                        ricochets, ThrowReach, CurrentRange * Tuning.Mark.BounceRangeMul,
+                                        step.DiscFarFraction, isFinisher: true, discIndex: 0);
+            if (disc == null) yield break;
+            if (Rig != null && Rig.Transform != null && Rig.TryGetSwordHand(out var local))
+                disc.transform.position = Rig.Transform.TransformPoint(local);
+            var locked = Targeting != null ? Targeting.Target : null;
+            if (locked != null && !locked.IsDead
+                && ((Vector2)locked.transform.position - (Vector2)transform.position).magnitude <= ThrowReach)
+                disc.Aim(locked);
+            disc.Crit = crit;
+            disc.Falloff = CleaveFalloff(disc.Falloff);
+            disc.SplashFraction = SplashFraction;
+            disc.Knockback = HeavyKnockback(step, true);
+            disc.MarkMultiplier = step.DiscMarkMultiplier;
+            disc.MarkSeconds = step.DiscMarkSeconds;
+        }
+
+        /// <summary>Carom's pair held JOINED - from the hands meeting until the disc is home.</summary>
+        bool _discJoined;
+
+        IEnumerator CaromStrike(AttackStep step, float swingWindow)
+        {
+            bool whiffed = _swingWhiffed;
+            _visual?.PlayAttack(step.Motion, swingWindow);
+            Rig?.SetSwingHop(0f);
+            Rig?.PlayAttack(step.Motion, swingWindow, false);
+            Combat.WeaponTrail.Play(Rig, AttackMotions.SwingSeconds(swingWindow));
+            _lockTimer = AttackMotions.SwingSeconds(swingWindow) * Mods.LockMul;
+            float drawn = Rig != null ? Rig.StrikeDrawnSeconds(step.Motion, swingWindow) : 0f;
+            float combine = drawn * Tuning.Carom.CombineAt;
+            if (combine > 0f) yield return new WaitForSeconds(combine);
+            _discJoined = true;   // the hands meet: one disc
+            Rig?.SetWeaponSplit(false);
+            if (drawn - combine > 0f) yield return new WaitForSeconds(drawn - combine);
+            SettleStrike();   // the hurl is the strike
+            if (whiffed) { _discJoined = false; yield break; }
+
+            float dmg = (BaseDamage + Mods.BonusDamage) * step.DamageMultiplier
+                        * Mods.FinisherDamageMul * FinisherPowerMul * _strikeMul
+                        * (DamageDealtMultiplier?.Invoke() ?? 1f);
+            dmg *= DamageRoll();
+            dmg *= RollCritFor(true, out bool crit);
+            int bounces = Tuning.Disc.BaseRicochets + step.DiscRicochetBonus
+                          + (BonusRicochets?.Invoke() ?? 0) + Mods.ExtraRicochets;
+
+            Health first = null;
+            var locked = Targeting != null ? Targeting.Target : null;
+            if (locked != null && !locked.IsDead
+                && ((Vector2)locked.transform.position - (Vector2)transform.position).magnitude <= ThrowReach)
+                first = locked;
+
+            var disc = ThrownDisc.Throw(gameObject, Rig, Facing, dmg,
+                                        Resource?.Element ?? ElementType.Fire,
+                                        0, ThrowReach, CurrentRange * Tuning.Disc.BounceRangeMul,
+                                        step.DiscFarFraction, isFinisher: true, discIndex: 0);
+            if (disc == null) { _discJoined = false; yield break; }
+            disc.ShowCombined();   // the pair joined: the weapon's combined picture
+            if (Rig != null && Rig.Transform != null && Rig.TryGetSwordHand(out var local))
+                disc.transform.position = Rig.Transform.TransformPoint(local);
+            disc.Carom(first, Facing, bounces);
+            disc.Crit = crit;
+            disc.Falloff = CleaveFalloff(disc.Falloff);
+            disc.SplashFraction = SplashFraction;
+            disc.Knockback = HeavyKnockback(step, true);
+            disc.Landed = () => _discJoined = false;
+        }
+
+        /// <summary>Ripple's targets: the locked enemy first, then the nearest others in reach (not
+        /// behind a wall), up to <paramref name="max"/> - then ordered by angle round the facing,
+        /// clockwise first, so the fan's discs each take the one on their own side.</summary>
+        List<Health> HomingTargets(Vector2 facing, float reach, int max)
+        {
+            Vector2 at = transform.position;
+            var all = new List<Health>();
+            Enemies.EnemyRegistry.Prune();
+            foreach (var e in Enemies.EnemyRegistry.All)
+            {
+                if (e == null) continue;
+                var hp = e.GetComponent<Health>();
+                if (hp == null || hp.IsDead) continue;
+                Vector2 p = hp.transform.position;
+                if ((p - at).sqrMagnitude > reach * reach || Arena.WallBetween(at, p)) continue;
+                all.Add(hp);
+            }
+            var locked = Targeting != null ? Targeting.Target : null;
+            all.Sort((x, y) =>
+            {
+                if (x == y) return 0;
+                if (x == locked) return -1;
+                if (y == locked) return 1;
+                return ((Vector2)x.transform.position - at).sqrMagnitude
+                       .CompareTo(((Vector2)y.transform.position - at).sqrMagnitude);
+            });
+            if (all.Count > max) all.RemoveRange(max, all.Count - max);
+            all.Sort((x, y) => Vector2.SignedAngle(facing, (Vector2)x.transform.position - at)
+                               .CompareTo(Vector2.SignedAngle(facing, (Vector2)y.transform.position - at)));
+            return all;
         }
 
         /// <summary>
@@ -4201,6 +6130,7 @@ namespace Convergence.Player
             bool whiffed = _swingWhiffed;
             float animSeconds = AttackMotions.SwingSeconds(swingWindow);
 
+            Rig?.SetSwingHop(0f);
             Rig?.PlayAttack(step.Motion, animSeconds, false);
 
             if (whiffed)
@@ -4211,7 +6141,9 @@ namespace Convergence.Player
 
             // The Hive: the shot is one of the bow's own arrows, peeled off a limb (HiveLoose).
             Combat.HiveLoose.For(this).Draw(animSeconds);
-            StartCoroutine(ReleaseArrow(step, isFinisher, animSeconds));
+            // A SNAP shot leaves early; the rest of the swing is follow-through.
+            float release = step.Motion == AttackMotion.SnapDraw ? animSeconds * Tuning.Bow.SnapRelease : animSeconds;
+            StartCoroutine(ReleaseArrow(step, isFinisher, release));
         }
 
         /// <summary>
@@ -4253,6 +6185,7 @@ namespace Convergence.Player
         {
             var watch = new DrawWatch();
             yield return WatchDraw(watch, delaySeconds);
+            var nockedAt = Rig?.LooseArrow();   // the rig held full draw until now
 
             // The release is the finisher's strike, whether or not anything is left to shoot.
             if (isFinisher) SettleStrike();
@@ -4276,10 +6209,675 @@ namespace Convergence.Player
 
             var arrow = ThrownArrow.Fire(gameObject, target, Facing, dmg,
                              Resource?.Element ?? ElementType.Fire,
-                             CurrentRange, Tuning.Bow.NearFraction, isFinisher, crit);
+                             CurrentRange, Tuning.Bow.NearFraction, isFinisher, crit,
+                             from: nockedAt);   // off the string, where the drawn arrow lay
             arrow.SplashFraction = SplashFraction;
             arrow.PierceFraction = PierceFraction;   // Fletching and Broadhead add run Pierce
+            arrow.Knockback = HeavyKnockback(step, isFinisher);
+            arrow.BasicsWorth = step.BasicsWorth;
+            if (step.LobArc > 0f)
+                arrow.Lob(step.LobArc * Vector2.Distance(transform.position, target.transform.position));
+            if (step.TwinShot)
+            {
+                // TWIN NOCK: two arrows, half the step each - the second at the target's nearest
+                // neighbour within reach of it, else at the target as well; off the string a hair
+                // apart, so the pair reads as two.
+                arrow.Damage = dmg * 0.5f;
+                var near = FormationNearest(target, Tuning.Bow.TwinReach, 1);
+                var second = near.Count > 0 ? near[0] : target;
+                Vector2 from2 = (nockedAt ?? (Vector2)transform.position) + Vector2.down * Tuning.Bow.TwinSpread;
+                var twin = ThrownArrow.Fire(gameObject, second, Facing, dmg * 0.5f,
+                               Resource?.Element ?? ElementType.Fire,
+                               CurrentRange, Tuning.Bow.NearFraction, isFinisher, crit, from: from2);
+                twin.SplashFraction = SplashFraction;
+                twin.PierceFraction = PierceFraction;
+                twin.BasicsWorth = 0;
+            }
             loose?.Release(arrow);
+        }
+
+        /// <summary>
+        /// HARPOON (AttackStep.Harpoon, the user's calls 2026-10-17): drawn from the TWIN NOCK like
+        /// its pair's twin shot, both arrows loosed at the target together - the first trails the
+        /// line (Combat.BowHarpoon), the second strikes beside it. Where the line sticks, the struck
+        /// enemy and up to Tuning.Harpoon.Extra others near it are reeled in to StopAt in front of
+        /// the archer, who is held until the line lets go. Damage rolled once at the loose, the
+        /// thrown rules; no flinch (Light). Nothing in range: the art is spent.
+        /// </summary>
+        IEnumerator HarpoonStrike(AttackStep step, float swingWindow)
+        {
+            float anim = AttackMotions.SwingSeconds(swingWindow);
+            Rig?.SetSwingHop(0f);
+            Rig?.PlayAttack(step.Motion, anim, false);
+            var watch = new DrawWatch();
+            yield return WatchDraw(watch, anim);
+            var nockedAt = Rig?.LooseArrow();
+            SettleStrike();   // the loose is the strike
+
+            var target = Targeting != null ? Targeting.Target : null;
+            if (target == null || target.IsDead
+                || Vector2.Distance(transform.position, target.transform.position) > CurrentRange)
+            {
+                _cooldown = AttackMotions.CooldownFor(swingWindow) * 0.5f;
+                if (_streakAwaiting) ResolveStreak(false);
+                yield break;
+            }
+
+            float dmg = (BaseDamage + Mods.BonusDamage) * step.DamageMultiplier
+                        * (DamageDealtMultiplier?.Invoke() ?? 1f);
+            dmg *= DamageRoll();
+            dmg *= RollCritFor(true, out bool crit);
+            dmg *= Mods.FinisherDamageMul * FinisherPowerMul * _strikeMul;
+            dmg *= watch.DamageMul;   // plant to fire
+            var element = Resource?.Element ?? ElementType.Fire;
+            Vector2 from = nockedAt ?? (Vector2)transform.position;
+
+            var line = ThrownArrow.Fire(gameObject, target, Facing, dmg * Tuning.Harpoon.LineShare, element,
+                                        CurrentRange, Tuning.Bow.NearFraction, true, crit, from: from);
+            line.SplashFraction = SplashFraction;
+            line.PierceFraction = PierceFraction;
+            var other = ThrownArrow.Fire(gameObject, target, Facing, dmg * (1f - Tuning.Harpoon.LineShare), element,
+                                         CurrentRange, Tuning.Bow.NearFraction, true, crit,
+                                         from: from + Vector2.down * Tuning.Bow.TwinSpread);
+            other.SplashFraction = SplashFraction;
+
+            bool home = false, caught = false;
+            Combat.BowHarpoon.Follow(this, line,
+                hp => { caught = true; return FormationNearest(hp, Tuning.Harpoon.GrabRadius, Tuning.Harpoon.Extra); },
+                () => home = true);
+
+            while (!home)
+            {
+                _lockTimer = Mathf.Max(_lockTimer, 0.05f);   // held while the line is out
+                yield return null;
+            }
+            _cooldown = AttackMotions.CooldownFor(swingWindow) * 0.5f;
+            if (!caught && _streakAwaiting) ResolveStreak(false);
+        }
+
+        /// <summary>The bow art's draw to the loose (the drawn arrow's place, the bar settled) and
+        /// the damage rolled there - thrown rules, once, plant-to-fire. Shared by Split, Pin and
+        /// Tripwire.</summary>
+        IEnumerator BowArtDraw(AttackStep step, float swingWindow, System.Action<Vector2?, float, bool> loosed)
+        {
+            float anim = AttackMotions.SwingSeconds(swingWindow);
+            Rig?.SetSwingHop(0f);
+            Rig?.PlayAttack(step.Motion, anim, false);
+            var watch = new DrawWatch();
+            yield return WatchDraw(watch, anim);
+            var nockedAt = Rig?.LooseArrow();
+            SettleStrike();   // the loose is the strike
+            float dmg = (BaseDamage + Mods.BonusDamage) * step.DamageMultiplier
+                        * (DamageDealtMultiplier?.Invoke() ?? 1f);
+            dmg *= DamageRoll();
+            dmg *= RollCritFor(true, out bool crit);
+            dmg *= Mods.FinisherDamageMul * FinisherPowerMul * _strikeMul;
+            dmg *= watch.DamageMul;
+            loosed(nockedAt, dmg, crit);
+        }
+
+        Vector2 ArtAim(Health target) => target != null && !target.IsDead
+            ? ((Vector2)target.transform.position - (Vector2)transform.position).normalized
+            : (Facing.sqrMagnitude > 1e-6f ? Facing.normalized : Vector2.right);
+
+        Health LockedInRange()
+        {
+            var t = Targeting != null ? Targeting.Target : null;
+            return t != null && !t.IsDead && Vector2.Distance(transform.position, t.transform.position) <= CurrentRange ? t : null;
+        }
+
+        /// <summary>
+        /// SPLIT (AttackStep.SplitShot): out of the CANTED, one arrow flat at the target; at
+        /// Tuning.Split.SplitAt of the way it breaks into three ThrownArrows - the target and its
+        /// nearest within Reach (the target again for any missing), a third of the step each.
+        /// Nothing locked in range: the art is spent.
+        /// </summary>
+        IEnumerator SplitStrike(AttackStep step, float swingWindow)
+        {
+            Vector2? nock = null; float dmg = 0f; bool crit = false;
+            yield return BowArtDraw(step, swingWindow, (n, d, c) => { nock = n; dmg = d; crit = c; });
+            _cooldown = AttackMotions.CooldownFor(swingWindow) * 0.5f;
+            var target = LockedInRange();
+            if (target == null) { if (_streakAwaiting) ResolveStreak(false); yield break; }
+
+            Vector2 from = nock ?? (Vector2)transform.position;
+            Vector2 at = Vector2.Lerp(from, target.transform.position, Tuning.Split.SplitAt);
+            var element = Resource?.Element ?? ElementType.Fire;
+            Combat.BowFlight.Fly(from, at, Tuning.Split.Speed, ArrowSprite, p =>
+            {
+                if (this == null) return;
+                var aims = new List<Health> { target };
+                if (target != null && !target.IsDead)
+                    aims.AddRange(FormationNearest(target, Tuning.Split.Reach, 2));
+                while (aims.Count < 3) aims.Add(target);
+                var line = ((Vector2)target.transform.position - p).normalized;
+                var across = new Vector2(-line.y, line.x);
+                for (int i = 0; i < 3; i++)
+                {
+                    if (aims[i] == null || aims[i].IsDead) continue;
+                    var a = ThrownArrow.Fire(gameObject, aims[i], line, dmg / 3f, element, CurrentRange,
+                                             Tuning.Bow.NearFraction, true, crit,
+                                             from: p + across * (Tuning.Split.Fan * (i - 1)));
+                    a.SplashFraction = SplashFraction;
+                    a.PierceFraction = PierceFraction;
+                    a.SuppressHitstop = i > 0;
+                }
+            });
+        }
+
+        /// <summary>
+        /// PIN (AttackStep.Pin): out of the KNEEL, two arrows at the target a beat apart, half the
+        /// step each. The first to strike ROOTS it for Tuning.Pin.RootSeconds (petrify - it cannot
+        /// walk but still attacks; never a boss) and nails two arrows at its feet (Combat.PinStakes).
+        /// </summary>
+        IEnumerator PinStrike(AttackStep step, float swingWindow)
+        {
+            Vector2? nock = null; float dmg = 0f; bool crit = false;
+            yield return BowArtDraw(step, swingWindow, (n, d, c) => { nock = n; dmg = d; crit = c; });
+            _cooldown = AttackMotions.CooldownFor(swingWindow) * 0.5f;
+            var target = LockedInRange();
+            if (target == null) { if (_streakAwaiting) ResolveStreak(false); yield break; }
+
+            var element = Resource?.Element ?? ElementType.Fire;
+            bool pinned = false;
+            for (int i = 0; i < 2; i++)
+            {
+                if (i == 1) yield return new WaitForSeconds(0.08f);
+                if (target == null || target.IsDead) yield break;
+                Vector2 from = (nock ?? (Vector2)transform.position) + Vector2.down * (Tuning.Bow.TwinSpread * i);
+                var a = ThrownArrow.Fire(gameObject, target, ArtAim(target), dmg * 0.5f, element, CurrentRange,
+                                         Tuning.Bow.NearFraction, true, crit, from: from);
+                a.SplashFraction = SplashFraction;
+                a.PierceFraction = PierceFraction;
+                a.SuppressHitstop = i > 0;
+                a.OnHit += (hp, info) =>
+                {
+                    if (pinned || hp != target || hp.IsDead) return;
+                    pinned = true;
+                    if (hp.GetComponentInParent<Bosses.Boss>() != null) return;
+                    StatusEffects.Get(hp.gameObject).ApplyPetrify(Tuning.Pin.RootSeconds);
+                    Combat.PinStakes.Nail(hp, ArrowSprite, Tuning.Pin.RootSeconds);
+                };
+            }
+        }
+
+        /// <summary>
+        /// TRIPWIRE (AttackStep.Tripwire; reworked by the user's calls 2026-10-18 - HEAVY, it
+        /// explodes): out of the TWIN NOCK, two arrows staked either side of the aim, always
+        /// Tuning.Tripwire.Length apart, a wire between (Combat.BowTripwire): Ahead out along the aim,
+        /// or two thirds of the way to a nearer locked target. The first enemy to reach the wire sets
+        /// it off: a blast where it was crossed, BlastRadius x Area - the step at the centre down to
+        /// EdgeShare at the rim (rolled at the loose, thrown rules, one hit-stop), every body flinched
+        /// through armour and thrown OUT from the blast (Heavy), and everything within SlowRadius
+        /// slowed. Judged on timing alone (_streakExempt) - a trap may catch nothing.
+        /// </summary>
+        IEnumerator TripwireStrike(AttackStep step, float swingWindow)
+        {
+            Vector2? nock = null; float dmg = 0f; bool crit = false;
+            yield return BowArtDraw(step, swingWindow, (n, d, c) => { nock = n; dmg = d; crit = c; });
+            _cooldown = AttackMotions.CooldownFor(swingWindow) * 0.5f;
+
+            var target = LockedInRange();
+            Vector2 at = transform.position;
+            var aim = ArtAim(target);
+            float ahead = Tuning.Tripwire.Ahead;
+            if (target != null) ahead = Mathf.Min(ahead, Vector2.Distance(at, target.transform.position) * 0.67f);
+            var across = new Vector2(-aim.y, aim.x) * (Tuning.Tripwire.Length * 0.5f);
+            var mid = at + aim * ahead;
+            var element = Resource?.Element ?? ElementType.Fire;
+            float knock = HeavyKnockback(step, true);
+            Combat.BowTripwire.Lay(nock ?? at, mid - across, mid + across, ArrowSprite, blast =>
+            {
+                if (this == null) return;
+                float radius = Tuning.Tripwire.BlastRadius * AoeScale;
+                Combat.EnergyWave.Run(blast, radius, Tuning.Tripwire.BlastCore, Tuning.Tripwire.BlastVein, Tuning.Tripwire.BlastEmber);
+                Spr.Flash(blast, radius * 0.6f, Tuning.Tripwire.BlastCore, 0.2f, false);
+                var bodies = new List<(Health hp, float d)>();
+                Enemies.EnemyRegistry.Prune();
+                foreach (var e in Enemies.EnemyRegistry.All)
+                {
+                    if (e == null || e.FellIn) continue;
+                    var hp = e.GetComponent<Health>();
+                    if (hp == null || hp.IsDead) continue;
+                    float d = Vector2.Distance(blast, hp.transform.position);
+                    if (Arena.WallBetween(blast, hp.transform.position)) continue;
+                    if (d <= Tuning.Tripwire.SlowRadius * AoeScale)
+                        StatusEffects.Get(hp.gameObject).ApplySlow(Tuning.Tripwire.SlowSeconds, Tuning.Tripwire.SlowMultiplier);
+                    if (d <= radius) bodies.Add((hp, d));
+                }
+                bodies.Sort((p, q) => p.d.CompareTo(q.d));
+                for (int i = 0; i < bodies.Count; i++)
+                {
+                    var (hp, d) = bodies[i];
+                    float share = Mathf.Lerp(1f, Tuning.Tripwire.EdgeShare, d / Mathf.Max(0.01f, radius));
+                    float amount = ScaleThrownHit(hp, dmg * share, true, crit, 0.5f, i == 0);
+                    var away = (Vector2)hp.transform.position - blast;
+                    away = away.sqrMagnitude > 1e-4f ? away.normalized : aim;
+                    var info = new DamageInfo(amount, element, gameObject)
+                    {
+                        Thrown = true, IsFinisher = true, Crit = crit, SuppressHitstop = i > 0,
+                        Knockback = away * knock, Displaces = knock > 0f,
+                    };
+                    hp.Take(info);
+                    OnWeaponUsed?.Invoke();
+                    Resource?.OnHitLanded(hp, info);
+                    NotifyThrownHit(hp, info, 0.5f, i == 0);
+                    if (!hp.IsDead)
+                        hp.GetComponent<Enemies.EnemyController>()?.Flinch(Core.Tuning.Finisher.FlinchSeconds, true);
+                }
+            });
+        }
+
+        /// <summary>
+        /// LONGSHOT (AttackStep.Longshot, the user's calls 2026-10-18): out of the KNEEL, drawn and
+        /// HELD for Tuning.Longshot.DrawSeconds - rooted, the timing bar over the whole draw - then
+        /// one arrow straight down the aim (the locked target, else the facing) across the room
+        /// until a wall or the room's edge (Combat.LongshotStreak). Every body within HalfWidth of
+        /// the line is struck as the arrow passes it, nearest first, each after the first keeping
+        /// Falloff of the one before - thrown rules, rolled once, no distance curve. HEAVY: flinched
+        /// through armour and knocked on along the line; one hit-stop, on the first body.
+        /// </summary>
+        IEnumerator LongshotStrike(AttackStep step, float swingWindow)
+        {
+            float draw = Tuning.Longshot.DrawSeconds;
+            Rig?.SetSwingHop(0f);
+            Rig?.PlayAttack(step.Motion, swingWindow, false);
+            Rig?.HoldDrawn(draw + 0.1f);
+            _lockTimer = draw * Mods.LockMul;   // rooted on the knee through the draw
+            yield return new WaitForSeconds(draw);
+            var nockedAt = Rig?.LooseArrow();
+            SettleStrike();   // the loose is the strike
+
+            var target = Targeting != null ? Targeting.Target : null;
+            Vector2 at = transform.position;
+            Vector2 aim = target != null && !target.IsDead
+                ? ((Vector2)target.transform.position - at).normalized
+                : (Facing.sqrMagnitude > 1e-6f ? Facing.normalized : Vector2.right);
+
+            // How far the line runs: the first wall, or the room's edge.
+            float reach = 0f;
+            const float Step = 0.2f;
+            for (float d = Step; d <= Tuning.Longshot.MaxReach; d += Step)
+            {
+                var p = at + aim * d;
+                if ((Arena.Clamp(p, 0f) - p).sqrMagnitude > 1e-6f || Arena.WallBetween(at + aim * (d - Step), p)) break;
+                reach = d;
+            }
+            Combat.LongshotStreak.Fly(nockedAt ?? at, at + aim * reach, ArrowSprite);
+
+            float dmg = (BaseDamage + Mods.BonusDamage) * step.DamageMultiplier
+                        * (DamageDealtMultiplier?.Invoke() ?? 1f);
+            dmg *= DamageRoll();
+            dmg *= RollCritFor(true, out bool crit);
+            dmg *= Mods.FinisherDamageMul * FinisherPowerMul * _strikeMul;
+            var element = Resource?.Element ?? ElementType.Fire;
+            float knock = HeavyKnockback(step, true);
+
+            // On the line, nearest first.
+            var line = new List<(Health hp, float along)>();
+            Enemies.EnemyRegistry.Prune();
+            foreach (var e in Enemies.EnemyRegistry.All)
+            {
+                if (e == null || e.FellIn) continue;
+                var hp = e.GetComponent<Health>();
+                if (hp == null || hp.IsDead) continue;
+                var to = (Vector2)hp.transform.position - at;
+                float along = Vector2.Dot(to, aim);
+                if (along < 0f || along > reach + Tuning.Longshot.HalfWidth) continue;
+                if (Mathf.Abs(to.x * aim.y - to.y * aim.x) > Tuning.Longshot.HalfWidth) continue;
+                line.Add((hp, along));
+            }
+            line.Sort((p, q) => p.along.CompareTo(q.along));
+
+            float clock = 0f;
+            for (int i = 0; i < line.Count; i++)
+            {
+                var (hp, along) = line[i];
+                // Struck as the arrow passes it.
+                float due = along / Tuning.Longshot.Speed;
+                while (clock < due) { yield return null; clock += Time.deltaTime; }
+                if (hp == null || hp.IsDead) continue;
+                float share = Mathf.Max(MinChainFraction, Mathf.Pow(Tuning.Longshot.Falloff, i));
+                float amount = ScaleThrownHit(hp, dmg * share, true, crit, along / Mathf.Max(1f, reach), i == 0);
+                var info = new DamageInfo(amount, element, gameObject)
+                {
+                    Thrown = true, IsFinisher = true, Crit = crit, SuppressHitstop = i > 0,
+                    Knockback = aim * knock, Displaces = knock > 0f,
+                };
+                hp.Take(info);
+                OnWeaponUsed?.Invoke();
+                Resource?.OnHitLanded(hp, info);
+                NotifyThrownHit(hp, info, along / Mathf.Max(1f, reach), i == 0);
+                if (!hp.IsDead)
+                    hp.GetComponent<Enemies.EnemyController>()?.Flinch(Core.Tuning.Finisher.FlinchSeconds, true);
+            }
+            _cooldown = AttackMotions.CooldownFor(swingWindow) * 0.5f;
+            if (line.Count == 0 && _streakAwaiting) ResolveStreak(false);
+        }
+
+        /// <summary>
+        /// PIERCING RAIN (AttackStep.ArrowRain, the user's calls 2026-10-18): drawn from the HIGH,
+        /// one arrow loosed straight up (Combat.ArrowRain draws the rest). The circle is fixed where
+        /// the locked target stood at the loose (else out along the aim), Tuning.PiercingRain.Radius
+        /// x Area. After RiseSeconds it rains for RainSeconds: Ticks times, evenly, every body inside
+        /// takes 1/Ticks of the step (RimShare of that at the rim) - thrown rules, rolled once at the
+        /// loose, no hit-stop until the last. HEAVY: each body is flinched through its armour the
+        /// first time it is struck, and the LAST tick throws everything inside OUT from the centre
+        /// (the step's knockback x Finisher Knockback; Anchored elites and bosses stay). A wall
+        /// between the centre and a body shelters it.
+        /// </summary>
+        IEnumerator PiercingRainStrike(AttackStep step, float swingWindow)
+        {
+            float anim = AttackMotions.SwingSeconds(swingWindow);
+            Rig?.SetSwingHop(0f);
+            Rig?.PlayAttack(step.Motion, anim, false);
+            var watch = new DrawWatch();
+            yield return WatchDraw(watch, anim);
+            var nockedAt = Rig?.LooseArrow();
+            SettleStrike();   // the loose is the strike
+
+            var target = Targeting != null ? Targeting.Target : null;
+            Vector2 at = transform.position;
+            Vector2 centre = target != null && !target.IsDead
+                             && Vector2.Distance(at, target.transform.position) <= CurrentRange
+                ? (Vector2)target.transform.position
+                : at + (Facing.sqrMagnitude > 1e-6f ? Facing.normalized : Vector2.right) * Tuning.PiercingRain.NoTargetAhead;
+            float radius = Tuning.PiercingRain.Radius * AoeScale;
+            Combat.ArrowRain.Play(nockedAt ?? at, centre, radius, ArrowSprite);
+
+            float dmg = (BaseDamage + Mods.BonusDamage) * step.DamageMultiplier
+                        * (DamageDealtMultiplier?.Invoke() ?? 1f);
+            dmg *= DamageRoll();
+            dmg *= RollCritFor(true, out bool crit);
+            dmg *= Mods.FinisherDamageMul * FinisherPowerMul * _strikeMul;
+            dmg *= watch.DamageMul;   // plant to fire
+            var element = Resource?.Element ?? ElementType.Fire;
+            float knock = HeavyKnockback(step, true);
+
+            var flinched = new HashSet<Health>();
+            bool first = true, struck = false;
+            int ticks = Mathf.Max(1, Tuning.PiercingRain.Ticks);
+            float gap = Tuning.PiercingRain.RainSeconds / ticks;
+            yield return new WaitForSeconds(Tuning.PiercingRain.RiseSeconds + gap * 0.5f);
+            for (int t = 0; t < ticks; t++)
+            {
+                if (t > 0) yield return new WaitForSeconds(gap);
+                bool last = t == ticks - 1;
+                Enemies.EnemyRegistry.Prune();
+                var inside = new List<(Health hp, float d)>();
+                foreach (var e in Enemies.EnemyRegistry.All)
+                {
+                    if (e == null || e.FellIn) continue;
+                    var hp = e.GetComponent<Health>();
+                    if (hp == null || hp.IsDead) continue;
+                    float d = Vector2.Distance(centre, hp.transform.position);
+                    if (d > radius || Arena.WallBetween(centre, hp.transform.position)) continue;
+                    inside.Add((hp, d));
+                }
+                foreach (var (hp, d) in inside)
+                {
+                    float share = Mathf.Lerp(1f, Tuning.PiercingRain.RimShare, d / Mathf.Max(0.01f, radius)) / ticks;
+                    float amount = ScaleThrownHit(hp, dmg * share, true, crit, 0.5f, first);
+                    var info = new DamageInfo(amount, element, gameObject)
+                        { Thrown = true, IsFinisher = true, Crit = crit, SuppressHitstop = !last };
+                    hp.Take(info);
+                    OnWeaponUsed?.Invoke();
+                    Resource?.OnHitLanded(hp, info);
+                    NotifyThrownHit(hp, info, 0.5f, first);
+                    first = false;
+                    struck = true;
+                    if (hp.IsDead) continue;
+                    if (flinched.Add(hp))
+                        hp.GetComponent<Enemies.EnemyController>()?.Flinch(Core.Tuning.Finisher.FlinchSeconds, true);
+                    if (last && knock > 0f && !hp.Anchored && hp.GetComponentInParent<Bosses.Boss>() == null)
+                    {
+                        var rb = hp.GetComponent<Rigidbody2D>();
+                        if (rb == null || rb.bodyType != RigidbodyType2D.Dynamic) continue;
+                        // Out of the circle: to RimShare past its rim, at least a body's width.
+                        float travel = Mathf.Max(0.6f, radius + 0.5f - d) * Art.Gear.StatPercents.Apply(1f, Stats.FinisherKnockback);
+                        rb.linearVelocity = Vector2.zero;
+                        Combat.DragToward.Push(hp, d > 0.05f ? centre : centre - (centre - at).normalized, travel);
+                    }
+                }
+            }
+            _cooldown = AttackMotions.CooldownFor(swingWindow) * 0.5f;
+            if (!struck && _streakAwaiting) ResolveStreak(false);
+        }
+
+        /// <summary>
+        /// PALISADE (AttackStep.Palisade, the user's calls 2026-10-18): drawn from the HIGH, and on
+        /// the loose Tuning.Palisade.Arrows go up and come down (Combat.BowPalisade) - onto enemy
+        /// shots in flight first, the rest in a line across the aim - and stick as stakes that each
+        /// stop one more shot. An enemy walking over a stake breaks it and takes StakeShare of the
+        /// step (rolled here, thrown rules, flinched if unarmoured - Medium). Judged on timing
+        /// alone (_streakExempt): a perfect press keeps the streak whether or not anything is cut.
+        /// </summary>
+        IEnumerator PalisadeStrike(AttackStep step, float swingWindow)
+        {
+            float anim = AttackMotions.SwingSeconds(swingWindow);
+            Rig?.SetSwingHop(0f);
+            Rig?.PlayAttack(step.Motion, anim, false);
+            var watch = new DrawWatch();
+            yield return WatchDraw(watch, anim);
+            var nockedAt = Rig?.LooseArrow();
+            SettleStrike();   // the loose is the strike
+
+            float dmg = (BaseDamage + Mods.BonusDamage) * step.DamageMultiplier
+                        * (DamageDealtMultiplier?.Invoke() ?? 1f);
+            dmg *= DamageRoll();
+            dmg *= RollCritFor(true, out bool crit);
+            dmg *= Mods.FinisherDamageMul * FinisherPowerMul * _strikeMul;
+            dmg *= watch.DamageMul;   // plant to fire
+            float stake = dmg * Tuning.Palisade.StakeShare;
+            var element = Resource?.Element ?? ElementType.Fire;
+
+            var target = Targeting != null ? Targeting.Target : null;
+            Vector2 at = transform.position;
+            Vector2 aim = target != null && !target.IsDead
+                ? ((Vector2)target.transform.position - at).normalized
+                : (Facing.sqrMagnitude > 1e-6f ? Facing.normalized : Vector2.right);
+            bool first = true;
+            Combat.BowPalisade.Loose(at, nockedAt ?? at, aim, ArrowSprite, hp =>
+            {
+                if (this == null || hp == null || hp.IsDead) return;
+                float d = ScaleThrownHit(hp, stake, true, crit, 0f, first);
+                var info = new DamageInfo(d, element, gameObject)
+                    { Thrown = true, IsFinisher = true, Crit = crit, SuppressHitstop = true };
+                hp.Take(info);
+                OnWeaponUsed?.Invoke();
+                Resource?.OnHitLanded(hp, info);
+                NotifyThrownHit(hp, info, 0f, first);
+                first = false;
+                if (!hp.IsDead)
+                    hp.GetComponent<Enemies.EnemyController>()?.Flinch(Core.Tuning.Finisher.FlinchSeconds, false);
+            });
+            _cooldown = AttackMotions.CooldownFor(swingWindow) * 0.5f;
+        }
+
+        /// <summary>
+        /// DISENGAGE (AttackStep.Disengage, the user's calls 2026-10-18): out of the RECOIL, a gather
+        /// and a BACKFLIP (AttackMotion.FlipDraw) - a real dash of Tuning.Disengage.Distance from
+        /// takeoff to touchdown, so walls stop it and a chasm where it ends is judged. AWAY from the
+        /// locked target; with none, away from the move input; with neither, back from the facing.
+        /// No immunity (positioning only). Drawn through the turn, the arrow is loosed DOWN at the
+        /// target from the top - the Medium, thrown rules - and the art's own flight costs nothing
+        /// under plant-to-fire. The player is held until the landing. Nothing to shoot at: the
+        /// flip still goes and the art is spent.
+        /// </summary>
+        IEnumerator DisengageStrike(AttackStep step, float swingWindow)
+        {
+            float anim = AttackMotions.SwingSeconds(swingWindow);
+            var target = Targeting != null ? Targeting.Target : null;
+            if (target != null && target.IsDead) target = null;
+            Vector2 dir = target != null
+                ? (Vector2)transform.position - (Vector2)target.transform.position
+                : -Core.Controls.Move;
+            if (dir.sqrMagnitude <= 0.01f) dir = -Facing;
+            if (dir.sqrMagnitude < 1e-6f) dir = Vector2.left;
+            dir.Normalize();
+
+            Rig?.SetSwingHop(Tuning.Disengage.Height);
+            // The raw window: the rig takes SwingSeconds of it itself, so the drawing's phases
+            // and these waits run on one clock (given anim, it ran 15% fast and loosed falling).
+            Rig?.PlayAttack(step.Motion, swingWindow, false);
+            _lockTimer = anim * Mods.LockMul;
+
+            // Off the ground: the dash runs from takeoff to touchdown.
+            float takeoff = anim * Tuning.Disengage.TakeoffAt;
+            float flight = anim * (Tuning.Disengage.LandAt - Tuning.Disengage.TakeoffAt);
+            if (takeoff > 0f) yield return new WaitForSeconds(takeoff);
+            Dash(dir, Tuning.Disengage.Distance / flight, flight);
+
+            // The loose, at the top.
+            float loose = anim * (Tuning.Disengage.LooseAt - Tuning.Disengage.TakeoffAt);
+            if (loose > 0f) yield return new WaitForSeconds(loose);
+            var nockedAt = Rig?.LooseArrow();
+            SettleStrike();   // the loose is the strike
+
+            if (target == null || target.IsDead
+                || Vector2.Distance(transform.position, target.transform.position) > CurrentRange + Tuning.Disengage.Distance)
+            {
+                _cooldown = AttackMotions.CooldownFor(swingWindow) * 0.5f;
+                if (_streakAwaiting) ResolveStreak(false);
+                yield break;
+            }
+
+            float dmg = (BaseDamage + Mods.BonusDamage) * step.DamageMultiplier
+                        * (DamageDealtMultiplier?.Invoke() ?? 1f);
+            dmg *= DamageRoll();
+            dmg *= RollCritFor(true, out bool crit);
+            dmg *= Mods.FinisherDamageMul * FinisherPowerMul * _strikeMul;
+            var arrow = ThrownArrow.Fire(gameObject, target, Facing, dmg, Resource?.Element ?? ElementType.Fire,
+                                         CurrentRange + Tuning.Disengage.Distance, Tuning.Bow.NearFraction, true, crit,
+                                         from: nockedAt);
+            arrow.SplashFraction = SplashFraction;
+            arrow.PierceFraction = PierceFraction;
+            _cooldown = AttackMotions.CooldownFor(swingWindow) * 0.5f;
+        }
+
+        /// <summary>
+        /// CONCUSSION (AttackStep.Concussion, the user's calls 2026-10-18): drawn from the RECOIL,
+        /// and on the loose the arrow BURSTS just off the string (Combat.ConcussionBurst). Every
+        /// enemy in the cone along the aim (Tuning.Concussion.Reach / HalfAngle, not behind a wall)
+        /// takes the Medium, nearest first with a swing's falloff - thrown rules, rolled once - is
+        /// FLINCHED if unarmoured (Medium), and is slid out to PushPast beyond the cone's reach
+        /// (Sunder's rule, x Finisher Knockback; Anchored elites and bosses stay). Everything struck,
+        /// and anything within SlowRadius of the nearest body struck, is SLOWED (the plain slow).
+        /// An empty cone still bursts: the art is spent.
+        /// </summary>
+        IEnumerator ConcussionStrike(AttackStep step, float swingWindow)
+        {
+            float anim = AttackMotions.SwingSeconds(swingWindow);
+            Rig?.SetSwingHop(0f);
+            Rig?.PlayAttack(step.Motion, anim, false);
+            _lockTimer = anim * Mods.LockMul;
+            var watch = new DrawWatch();
+            yield return WatchDraw(watch, anim);
+            var nockedAt = Rig?.LooseArrow();
+            SettleStrike();   // the loose is the strike
+
+            var target = Targeting != null ? Targeting.Target : null;
+            Vector2 at = transform.position;
+            Vector2 aim = target != null && !target.IsDead
+                          && Vector2.Distance(at, target.transform.position) <= CurrentRange
+                ? ((Vector2)target.transform.position - at).normalized
+                : (Facing.sqrMagnitude > 1e-6f ? Facing.normalized : Vector2.right);
+            Vector2 burst = (nockedAt ?? at) + aim * Tuning.Concussion.BurstAhead;
+            Combat.ConcussionBurst.Play(burst, aim, Tuning.Concussion.Reach);
+
+            float dmg = (BaseDamage + Mods.BonusDamage) * step.DamageMultiplier
+                        * (DamageDealtMultiplier?.Invoke() ?? 1f);
+            dmg *= DamageRoll();
+            dmg *= RollCritFor(true, out bool crit);
+            dmg *= Mods.FinisherDamageMul * FinisherPowerMul * _strikeMul;
+            dmg *= watch.DamageMul;   // plant to fire
+            var element = Resource?.Element ?? ElementType.Fire;
+            float falloff = CleaveFalloff(step.ChainFalloff);
+
+            // The cone, nearest first.
+            var struck = new List<(Health hp, float dist)>();
+            Enemies.EnemyRegistry.Prune();
+            foreach (var e in Enemies.EnemyRegistry.All)
+            {
+                if (e == null || e.FellIn) continue;
+                var hp = e.GetComponent<Health>();
+                if (hp == null || hp.IsDead) continue;
+                var to = (Vector2)hp.transform.position - at;
+                float d = to.magnitude;
+                if (d > Tuning.Concussion.Reach) continue;
+                if (d > 0.01f && Vector2.Angle(aim, to) > Tuning.Concussion.HalfAngle) continue;
+                if (Arena.WallBetween(at, hp.transform.position)) continue;
+                struck.Add((hp, d));
+            }
+            struck.Sort((p, q) => p.dist.CompareTo(q.dist));
+
+            Vector2? contact = struck.Count > 0 ? (Vector2)struck[0].hp.transform.position : null;
+            for (int i = 0; i < struck.Count; i++)
+            {
+                var (hp, dist) = struck[i];
+                float share = Mathf.Max(MinChainFraction, Mathf.Pow(falloff, i));
+                float d = ScaleThrownHit(hp, dmg * share, true, crit, dist / Mathf.Max(0.01f, CurrentRange), i == 0);
+                var info = new DamageInfo(d, element, gameObject)
+                    { Thrown = true, IsFinisher = true, Crit = crit, SuppressHitstop = i > 0 };
+                hp.Take(info);
+                OnWeaponUsed?.Invoke();
+                Resource?.OnHitLanded(hp, info);
+                NotifyThrownHit(hp, info, 0f, i == 0);
+                if (hp.IsDead) continue;
+                hp.GetComponent<Enemies.EnemyController>()?.Flinch(Core.Tuning.Finisher.FlinchSeconds, false);
+                StatusEffects.Get(hp.gameObject).ApplySlow(Tuning.Concussion.SlowSeconds, Tuning.Concussion.SlowMultiplier);
+
+                // Out past the cone - Sunder's rule.
+                if (hp.Anchored || hp.GetComponentInParent<Bosses.Boss>() != null) continue;
+                var rb = hp.GetComponent<Rigidbody2D>();
+                if (rb == null || rb.bodyType != RigidbodyType2D.Dynamic) continue;
+                float travel = Mathf.Max(Tuning.Concussion.PushMin,
+                                         Tuning.Concussion.Reach + Tuning.Concussion.PushPast - dist)
+                               * Art.Gear.StatPercents.Apply(1f, Stats.FinisherKnockback);
+                rb.linearVelocity = Vector2.zero;
+                // From the archer, so the crowd goes straight back along its own line.
+                Combat.DragToward.Push(hp, dist > 0.05f ? at : at - aim, travel);
+            }
+
+            // The group round the point of contact is slowed with it.
+            if (contact.HasValue)
+                foreach (var e in Enemies.EnemyRegistry.All)
+                {
+                    var hp = e != null ? e.GetComponent<Health>() : null;
+                    if (hp == null || hp.IsDead) continue;
+                    if (Vector2.Distance(contact.Value, hp.transform.position) > Tuning.Concussion.SlowRadius) continue;
+                    StatusEffects.Get(hp.gameObject).ApplySlow(Tuning.Concussion.SlowSeconds, Tuning.Concussion.SlowMultiplier);
+                }
+
+            _cooldown = AttackMotions.CooldownFor(swingWindow) * 0.5f;
+            if (struck.Count == 0 && _streakAwaiting) ResolveStreak(false);
+        }
+
+        /// <summary>
+        /// A bow basic that is a MOVE (AttackStep.KneelRoll, the user's calls 2026-10-17): a turn
+        /// through the views down onto one knee while the body travels Tuning.Bow.RollDistance - a
+        /// real dash, so walls stop it and a chasm at its end is judged. The direction is the
+        /// MOVE input held as it goes, never the aim; with none it rolls AWAY from the target (the
+        /// bow wants space), else back from the facing. No arrow, no i-frames - positioning only.
+        /// </summary>
+        void BowRollStrike(AttackStep step, float swingWindow)
+        {
+            float anim = AttackMotions.SwingSeconds(swingWindow);
+            // The roll goes by the move input; the RECOIL always straight back from the target.
+            Vector2 dir = step.RecoilHop ? Vector2.zero : Core.Controls.Move;
+            if (dir.sqrMagnitude <= 0.01f)
+            {
+                var t = Targeting != null ? Targeting.Target : null;
+                dir = t != null && !t.IsDead
+                    ? (Vector2)transform.position - (Vector2)t.transform.position
+                    : -Facing;
+            }
+            if (dir.sqrMagnitude < 1e-6f) dir = Vector2.left;
+            Rig?.SetSwingHop(step.RecoilHop ? Tuning.Bow.RecoilHopHeight : 0f);
+            Rig?.PlayAttack(step.Motion, anim, false);
+            float seconds = Mathf.Min(step.RecoilHop ? Tuning.Bow.RecoilSeconds : Tuning.Bow.RollSeconds, anim);
+            float distance = step.RecoilHop ? Tuning.Bow.RecoilDistance : Tuning.Bow.RollDistance;
+            Dash(dir.normalized, distance / seconds, seconds);
         }
 
         /// <summary>
@@ -4287,6 +6885,16 @@ namespace Convergence.Player
         /// disc's swing has no blade to smear, and the bow never swings. Shadow's echo figures
         /// play their own swings and smear nothing.
         /// </summary>
+        /// <summary>
+        /// The knockback a thrown disc or an arrow carries: a HEAVY weapon art's, lengthened by
+        /// Finisher Knockback, as a swing's (ResolveArc) - 0 for anything lighter or a basic. The
+        /// swords' rule for every class (the user's call, 2026-10-15).
+        /// </summary>
+        float HeavyKnockback(AttackStep step, bool isFinisher)
+            => isFinisher && step != null && step.Weight == FinisherWeight.Heavy
+                ? step.Knockback * Art.Gear.StatPercents.Apply(1f, Stats.FinisherKnockback)
+                : 0f;
+
         void SmearSwing(float swingWindow, bool isFinisher)
         {
             if (Weapon != Art.Gear.WeaponClass.Greatsword) return;
@@ -4359,7 +6967,7 @@ namespace Convergence.Player
                 var ctx = new Exchange.HitContext
                 {
                     IsFinisher = isFinisher,
-                    First = !ledgerDesignated,
+                    First = !ledgerDesignated && !_arcRepeat,
                     Reach01 = range > 0.01f ? dist / range : 0f,
                 };
                 if (Effects != null) dmg = Effects.ModifyOutgoing(hp, dmg, ctx);
@@ -4474,14 +7082,14 @@ namespace Convergence.Player
                 ledgerDesignated = true;
                 if (Board != null && !_echoing)
                 {
-                    bool first = !boardDesignated;
+                    bool first = !boardDesignated && !_arcRepeat;
                     if (first) { boardDesignated = true; boardFirstHit = dmg; }
                     Board.OnHitLanded(hp, info, isFinisher, range > 0.01f ? dist / range : 0f, first);
                 }
 
                 // Splash spills off the DESIGNATED target only - the first body the swing reached
                 // (targets are nearest-first). Off every body in a cleave it would compound.
-                if (!splashed && !_echoing)
+                if (!splashed && !_echoing && !_arcRepeat)
                 {
                     splashed = true;
                     CrowdHits.Splash(hp, dmg, SplashFraction, info.Element, gameObject);
@@ -4523,6 +7131,15 @@ namespace Convergence.Player
                                   step.Weight == FinisherWeight.Heavy);
                 }
 
+                // A REAL push (Sunder): every body the circle caught slides out past its rim. A
+                // knockback is one impulse into heavy damping - 0.43 units, measured - so the
+                // impulse is cancelled and the body is moved a set distance instead
+                // (DragToward.Push: walls stop it, a chasm on the way takes it). The hit's
+                // knockback still decided whether a chasm within reach throws it in
+                // (EnemyController.ThrowIfChasm, on Damaged) - a body already going over is left.
+                if (step.PushesOut && isFinisher && !hp.IsDead && displaces)
+                    PushOut(hp, origin, dist, range);
+
                 // SULFUR - basics season, finishers do not. The chain rewards sustained
                 // pressure, and letting the swing that already pays best also build fastest would
                 // collapse that into "use finishers", which every build already wants to do.
@@ -4538,7 +7155,7 @@ namespace Convergence.Player
             // The board hears the swing once, however many bodies it caught: a basic steeps the next
             // weapon art (Cohobation); an AREA weapon art draws the crowd in and salts the ground
             // (Borax, Fermentation) round its blast.
-            if (landed && !_echoing && Board != null)
+            if (landed && !_echoing && !_arcRepeat && Board != null)
             {
                 if (!isFinisher) Board.OnBasicLanded();
                 else if (step.AreaOfEffect) Board.OnAreaAttack(origin, range, boardFirstHit);
@@ -4547,7 +7164,8 @@ namespace Convergence.Player
             // ONE swing, one wear tick. An Echo finisher resolves up to five times - once as the
             // player's own blast and once per shadow - and charging durability for each would
             // make the weapon that summons them the fastest way to destroy itself.
-            if (landed && !_echoing) OnWeaponUsed?.Invoke();   // landing a hit is what wears a weapon
+            if (_arcRepeat) { }   // a later part of one swing (Carousel's turn): the swing counted once
+            else if (landed && !_echoing) OnWeaponUsed?.Invoke();   // landing a hit is what wears a weapon
             else Resource?.OnAttackMissed();
 
             // The cycle turns on the finisher being COMPLETED, not on it connecting. A blast that
@@ -4580,7 +7198,7 @@ namespace Convergence.Player
                 // stage ahead of the sword that made it.
                 Spr.GroundBurn(origin, range, tintAtSwing, 0.55f);
             }
-            else if (step.AreaOfEffect)
+            else if (step.AreaOfEffect && !step.DiscCarousel && !step.Gyres)   // Carousel's discs draw their own circle; Gyre's grind its rotor
             {
                 var tint = _echoing ? Core.Tuning.Shadow.Tint
                           : ActiveMoveset != null && ActiveMoveset.Id == PhantomSignatureId

@@ -542,6 +542,21 @@ namespace Convergence.Art.Gear
         /// <see cref="IdleFrameSeconds"/>. Null for everything else.</summary>
         public Sprite[] CombinedFrames;
 
+        /// <summary>A bow's ARROW (level, head to the right, at the weapon's density) - nocked
+        /// through the draw and flying - and its QUIVER (upright, worn on the back at body
+        /// density, pivoted at the mouth). See DemoGear.BowKit. Null for everything else.</summary>
+        public Sprite ArrowSprite;
+        public Sprite QuiverSprite;
+
+        /// <summary>A bow's STRING, so the draw can pull it (the user's report, 2026-10-17 - the string
+        /// never drew): the arena sprite drawn WITHOUT its string (same canvas and pivot), the two
+        /// nocks where the string meets the limbs (sprite-local, world units from the pivot at the
+        /// sprite's own scale), and the string's colour. Null stringless: the bow's string is
+        /// painted in and stays straight.</summary>
+        public Sprite BowStringless;
+        public Vector2 BowNockTop, BowNockBottom;
+        public Color BowStringColor = Color.black;
+
         /// <summary>The off-hand half to draw, or null when the off hand copies the main.</summary>
         public LayerSprite OffhandFor(bool menu)
             => menu && OffhandMenuLayer?.Sprite != null ? OffhandMenuLayer : OffhandLayer;

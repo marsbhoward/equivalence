@@ -156,10 +156,53 @@ namespace Convergence.Player
                 return;
             }
 
+            // A RANGED weapon swaps its lock with the aim (the right stick, a touch drag, the
+            // mouse): the enemy in reach nearest the aim's direction.
+            if (AimPick(origin)) return;
+
             // Take the new target only if there is nothing held, or the rival is decisively closer.
             // The ledger's Wandering Eye makes "decisively" easier to meet.
             if (Target == null || walled || (best != Target && bestDist < currentDist * CurrentSwitchAdvantage))
                 Target = best;
+        }
+
+        /// <summary>
+        /// Discs and bows: while there is an aim (Controls.Aim), the lock goes to the enemy in
+        /// reach (not behind a wall) whose direction is nearest the aim, inside
+        /// Tuning.Targeting.AimSwapConeDegrees - held until a rival lines up better by
+        /// AimSwapHysteresisDegrees. False (the nearest rule applies) with no aim, a melee weapon,
+        /// or nothing in the cone.
+        /// </summary>
+        bool AimPick(Vector2 origin)
+        {
+            var weapon = Player != null ? Player.Weapon : Art.Gear.WeaponClass.Greatsword;
+            if (weapon != Art.Gear.WeaponClass.Disc && weapon != Art.Gear.WeaponClass.Bow) return false;
+            var aim = Core.Controls.Aim;
+            if (!aim.HasValue || aim.Value.sqrMagnitude < 0.0001f) return false;
+            var dir = aim.Value.normalized;
+
+            Health best = null;
+            float bestAngle = Tuning.Targeting.AimSwapConeDegrees;
+            float heldAngle = float.MaxValue;
+            foreach (var enemy in EnemyRegistry.All)
+            {
+                if (enemy == null || enemy.FellIn) continue;
+                var hp = enemy.GetComponent<Health>();
+                if (hp == null || hp.IsDead) continue;
+                Vector2 to = (Vector2)enemy.transform.position - origin;
+                float d = to.magnitude;
+                if (d > Acquire || d < 0.0001f) continue;
+                if (Core.Arena.WallBetween(origin, enemy.transform.position)) continue;
+                float angle = Vector2.Angle(dir, to);
+                if (hp == Target) heldAngle = angle;
+                if (angle < bestAngle) { best = hp; bestAngle = angle; }
+            }
+            if (best == null) return false;
+            if (best != Target && heldAngle <= Tuning.Targeting.AimSwapConeDegrees
+                && bestAngle > heldAngle - Tuning.Targeting.AimSwapHysteresisDegrees)
+                return true;   // the held lock is still lined up nearly as well - keep it
+            Target = best;
+            return true;
         }
 
         float _repickIn;

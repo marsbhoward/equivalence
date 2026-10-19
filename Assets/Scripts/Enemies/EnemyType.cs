@@ -33,7 +33,7 @@ namespace Convergence.Enemies
         /// <summary>Turret: the beam overcharges for a burst.</summary>
         Overcharge,
 
-        /// <summary>Dasher: it chains straight into a second rush instead of evading.</summary>
+        /// <summary>Dasher: it turns and dashes back through instead of standing spent.</summary>
         Redouble,
 
         /// <summary>
@@ -91,7 +91,7 @@ namespace Convergence.Enemies
         public float MoveSpeedJitterMin, MoveSpeedJitterMax;
 
         /// <summary>Meaning varies by kind and is documented per row - a per-event amount for
-        /// most, a per-second RATE for Turret, a per-combo-hit amount for Dasher.</summary>
+        /// most, a per-second RATE for Turret, a per-bite amount for Dasher.</summary>
         public float Damage;
 
         /// <summary>Likewise: reach for melee, cast range for Ranged, blast radius for Bomb.</summary>
@@ -254,11 +254,10 @@ namespace Convergence.Enemies
                     // directly, since neither has a shared field to ride on the way this one rides
                     // MoveSpeed.
                     MoveSpeed = Tuning.Enemy.DasherApproachSpeed,
-                    // Per COMBO HIT, not per combo - applied once per swing, 3-5 times a connecting
-                    // charge.
-                    Damage = Tuning.Enemy.DasherComboHitDamage,
-                    // Doubles as the combo's melee reach once the charge closes the distance.
-                    AttackRange = Tuning.Enemy.DasherComboRange,
+                    // Per BITE - one per dash that passes through the player.
+                    Damage = Tuning.Enemy.DasherBiteDamage,
+                    // The bite's reach: a dash bites what its centre passes this close to.
+                    AttackRange = Tuning.Enemy.DasherBiteReach,
                     TelegraphDuration = Tuning.Enemy.DasherTelegraphDuration,
                     Elite = ElitePattern.Redouble,
                     EliteEvery = 2,
@@ -309,27 +308,28 @@ namespace Convergence.Enemies
                     Kind = EnemyKind.Booster,
                     Name = "Booster",
                     Size = Tuning.Enemy.BoosterSize,
-                    // Pale green - the statue's own colour, and the exact tint a buffed ally
-                    // wears too (see EnemyController.ApplyBoosterBuff), so the effect visibly
-                    // traces back to its source.
+                    // Pale green - the Green Lion's roar, and the motes a boosted ally carries
+                    // (BoostedMotes), so the effect visibly traces back to its source.
                     Tint = new Color(0.55f, 0.85f, 0.55f),
                     Art = () => EnemyLooks.Of(EnemyKind.Booster) == EnemyLook.Construct
                         ? Convergence.Art.GameArt.I.BoosterConstruct
                         : Convergence.Art.GameArt.I.BoosterAutomaton,
                     BaseHp = Tuning.Enemy.BoosterHp,
                     // Stationary, like Gargoyle's own basic form - and this kind never leaves its
-                    // spot at all, having no elite variant to ever make it move.
+                    // spot at all; even its elite only roars at more allies.
                     MoveSpeed = 0f,
                     // NEVER USED. This kind does not attack the player under any circumstance -
                     // not even the one exception Gargoyle's elite carries - so Damage stays 0
                     // rather than merely unread, the same honesty Turret's own MoveSpeed=0 states.
                     Damage = 0f,
-                    // Reused for the CAST range instead of a melee/blast reach - see Tuning.Enemy's
-                    // own BoosterCastRange note.
-                    AttackRange = Tuning.Enemy.BoosterCastRange,
+                    // Reused for the PICK radius instead of a melee/blast reach - see Tuning.Enemy's
+                    // own BoosterPickRadius note.
+                    AttackRange = Tuning.Enemy.BoosterPickRadius,
                     TelegraphDuration = Tuning.Enemy.BoosterTelegraphDuration,
                     NeverArmored = true,
-                    // No elite variant of its own - see Tuning.Enemy's own Booster notes for why.
+                    // ELITE = None does NOT mean elite-less (since 2026-10-19): the elite roars TWO
+                    // allies to power and keeps two, read straight off the Elite bool as Bubbles'
+                    // own elite is - see Tuning.Enemy's Booster notes.
                     Elite = ElitePattern.None,
                     EliteEvery = 1,
                 },
@@ -356,13 +356,11 @@ namespace Convergence.Enemies
                     AttackRange = Tuning.Enemy.BubblesCastRange,
                     TelegraphDuration = Tuning.Enemy.BubblesTelegraphDuration,
                     NeverArmored = true,
-                    // ELITE = None here does NOT mean elite-less - unlike Booster's row, where it
-                    // genuinely does. Bubbles' elite grants a more resilient bubble
-                    // (BubblesEliteCharges), but a basic and an elite perform the IDENTICAL
-                    // channel-then-bubble action, so there is no distinct extra move to declare as
-                    // a pattern - EnemyController.ResolveBubbles reads the Elite bool directly, the
-                    // same shape Gargoyle's own Elite check already uses for its own fork. See
-                    // WaveComposer.EliteKinds - this kind IS in it.
+                    // ELITE = None here does NOT mean elite-less. Bubbles' elite blows two-wall
+                    // bubbles (BubblesEliteCharges) and bubbles ITSELF as well with every blow -
+                    // read off the Elite bool in EnemyController.UpdateBubbles/ResolveBubbles, the
+                    // same shape Gargoyle's own Elite check uses. See WaveComposer.EliteKinds - this
+                    // kind IS in it.
                     Elite = ElitePattern.None,
                     EliteEvery = 1,
                 },
@@ -372,9 +370,8 @@ namespace Convergence.Enemies
                     Kind = EnemyKind.Mortar,
                     Name = "Mortar",
                     Size = Tuning.Enemy.MortarSize,
-                    // Gunmetal with a brown cast - a cannon, not a creature. Deliberately NOT the
-                    // red its shells blink, so the warning on the ground can never be mistaken for
-                    // the body that sent it.
+                    // Basalt brown - the Salamander's crust (MortarArt), its magma the crimson its
+                    // shells blink. The drawn art bakes its own colour; this tints only fallbacks.
                     Tint = new Color(0.55f, 0.5f, 0.42f),
                     // Same shape as every other kind's own look lambda - see EnemyLooks. Both
                     // slots are blank today, so either look draws the placeholder circle.

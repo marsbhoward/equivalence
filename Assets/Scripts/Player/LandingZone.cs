@@ -60,6 +60,7 @@ namespace Convergence.Player
             _ring.enabled = radius > 0f;
             if (!_ring.enabled) return;
 
+            _ring.transform.position = _player.ImpactCentre;   // ahead of a directed leap
             _ring.transform.localScale = Vector3.one * radius * 2f;
             _ring.transform.localRotation = Quaternion.identity;
 

@@ -142,17 +142,9 @@ namespace Convergence.Player
             // on every hit stops reading as a threshold and becomes background noise.
             if (_stacks.Count <= before) return;
 
-            // A tight, translucent ring hugging the body.
-            //
-            // Two failure modes to stay between. At 0.5-to-0.95 units it fired at the moment of a
-            // swing, centred on the player, at roughly the size of the old circular hitbox - so it
-            // read as the attack's reach being drawn on screen. Filled instead of ringed, it
-            // covered the character entirely with an orange disc, which is worse: the heat cue
-            // hid the thing it was describing. Small and see-through does neither.
-            float t = Stacks / (float)MaxStacks;
-            var heat = Color.Lerp(new Color(1f, 0.5f, 0.15f), Color.white, t * 0.45f);
-            heat.a = 0.45f;
-            Spr.Pulse(transform, 0.34f + t * 0.12f, heat, 0.2f + t * 0.1f, true, 0.5f);
+            // No ring round the body for heat gained (the user's call, 2026-10-15: a ring on a
+            // landed hit reads as "damage was done", and those are gone from every attack). The
+            // element seal's Kindling shows the heat.
 
             // A release coming ready is the moment worth interrupting for, so it gets its own ring.
             if (Stacks >= MaxStacks)

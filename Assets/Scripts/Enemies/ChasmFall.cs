@@ -47,13 +47,14 @@ namespace Convergence.Enemies
             var depth = root.GetComponent<DepthSorted>();
             if (depth != null) depth.enabled = false;
             foreach (var cycle in root.GetComponentsInChildren<EnemyStageCycle>()) cycle.enabled = false;
+            foreach (var drawn in root.GetComponentsInChildren<TexelVisual>()) drawn.enabled = false;
 
             var parts = new List<RowClip>();
             bounds = new Bounds(root.position, Vector3.zero);
             bool any = false;
             foreach (var sr in root.GetComponentsInChildren<SpriteRenderer>())
             {
-                if (!IsBody(sr.transform, root))
+                if (!IsBody(sr.transform, root) || sr.name == Combat.HitFlash.ChildName)
                 {
                     sr.enabled = false;
                     continue;

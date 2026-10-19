@@ -88,6 +88,7 @@ namespace Convergence.Enemies
             var ec = go.AddComponent<EnemyController>();
             ec.Kind = kind;
             ec.Elite = elite;
+            ec.Look = EnemyLooks.Of(kind);
             // SPEED SCALES WITH DEPTH NOW. It never did, and that was the whole reason a
             // seasoned player felt no tension anywhere from floor 1 to floor 70: nothing could
             // ever catch them, so the only thing depth bought was a longer fight.
@@ -120,21 +121,23 @@ namespace Convergence.Enemies
             // delegates, not one shared getter. Harmless no-op for a future Prefab-based look,
             // which would animate itself instead of being driven here.
             if (kind == EnemyKind.Bomb)
-            {
-                // BombArt bakes its own yellow, so the fallback Tint must not multiply over it
-                // (pixel art is drawn at white - see PixelSprite). Only once the stage art is on:
-                // a missing stage cycle leaves the tinted placeholder circle, which needs it.
-                if (EnemyStageCycle.Attach(visual, BombArt.For(EnemyLooks.Of(kind)), size, ec, kind) != null)
-                    visual.GetComponent<SpriteRenderer>().color = Color.white;
-            }
+                BombVisual.Attach(visual, ec, EnemyLooks.Of(kind), elite);
             else if (kind == EnemyKind.Turret)
-                TurretArt.Attach(go, visual, ec, kind, EnemyLooks.Of(kind), size);
+                TurretVisual.Attach(visual, ec, EnemyLooks.Of(kind), elite);
             else if (kind == EnemyKind.Chaser)
-                EnemyStageCycle.Attach(visual, ChaserArt.For(EnemyLooks.Of(kind)), size, ec, kind);
+                ChaserVisual.Attach(visual, ec, EnemyLooks.Of(kind), elite);
             else if (kind == EnemyKind.Ranged)
-                EnemyStageCycle.Attach(visual, RangedArt.For(EnemyLooks.Of(kind)), size, ec, kind);
+                RangedVisual.Attach(visual, ec, EnemyLooks.Of(kind), elite);
             else if (kind == EnemyKind.Dasher)
-                EnemyStageCycle.Attach(visual, DasherArt.For(EnemyLooks.Of(kind)), size, ec, kind);
+                DasherVisual.Attach(visual, ec, EnemyLooks.Of(kind), elite);
+            else if (kind == EnemyKind.Gargoyle)
+                GargoyleVisual.Attach(visual, ec, EnemyLooks.Of(kind), elite);
+            else if (kind == EnemyKind.Booster)
+                BoosterVisual.Attach(visual, ec, EnemyLooks.Of(kind), elite);
+            else if (kind == EnemyKind.Bubbles)
+                BubblesVisual.Attach(visual, ec, EnemyLooks.Of(kind), elite);
+            else if (kind == EnemyKind.Mortar)
+                MortarVisual.Attach(visual, ec, EnemyLooks.Of(kind), elite);
 
             // ---- armor: a shield-style absorb pool in front of HP ----
             //

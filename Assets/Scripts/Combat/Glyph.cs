@@ -70,6 +70,10 @@ namespace Convergence.Combat
         /// <summary>A hive's cell with three arrowheads swarming inside it - the Swarm art.
         /// Appended, for the reason above.</summary>
         Swarm,
+
+        /// <summary>Four arrowheads in a V, flying right - the Four Birds' formation. Appended, for
+        /// the reason above.</summary>
+        Formation,
     }
 
     /// <summary>
@@ -266,6 +270,13 @@ namespace Convergence.Combat
                                  return false;
                              }),
 
+            // Four arrowheads in a V pointing right, the lead one largest.
+            Glyph.Formation => Render((x, y) =>
+                                 RightWedge(x, y, 0.20f, 0.85f, 0.22f) ||
+                                 RightWedge(x, y - 0.42f, -0.30f, 0.30f, 0.15f) ||
+                                 RightWedge(x, y + 0.42f, -0.30f, 0.30f, 0.15f) ||
+                                 RightWedge(x, y, -0.80f, -0.20f, 0.15f)),
+
             _              => Render((x, y) =>
                                  RotRect(x, y, 0f, 0f, 0.80f, 0.12f, 45f) ||
                                  RotRect(x, y, 0f, 0f, 0.80f, 0.12f, -45f)),
@@ -308,21 +319,23 @@ namespace Convergence.Combat
             ? DownWedge(x, y, 0.60f, -0.50f, 0.62f)
             : DownWedge(x, y, 0.85f, -0.85f, 0.92f);
 
-        static Sprite BuildSigil(Core.ElementType element) => element switch
-        {
-            Core.ElementType.Fire  => Render((x, y) => TriUp(x, y, false) && !TriUp(x, y, true)),
+        static Sprite BuildSigil(Core.ElementType element) => Render((x, y) => InElement(element, x, y));
 
-            Core.ElementType.Water => Render((x, y) => TriDown(x, y, false) && !TriDown(x, y, true)),
+        /// <summary>Whether (x, y) in -1..1 is inked on <paramref name="element"/>'s sigil - the
+        /// shape alone, shared with what draws it on the texel grid (Combat.MarkSigil).</summary>
+        internal static bool InElement(Core.ElementType element, float x, float y) => element switch
+        {
+            Core.ElementType.Fire  => TriUp(x, y, false) && !TriUp(x, y, true),
+
+            Core.ElementType.Water => TriDown(x, y, false) && !TriDown(x, y, true),
 
             // The bar spans the triangle at the height it sits at, so it reads as crossing the
             // shape rather than as a separate dash laid over it.
-            Core.ElementType.Air   => Render((x, y) =>
-                                         (TriUp(x, y, false) && !TriUp(x, y, true)) ||
-                                         (Rect(x, y, 0f, 0.20f, 0.355f, 0.075f) && TriUp(x, y, false))),
+            Core.ElementType.Air   => (TriUp(x, y, false) && !TriUp(x, y, true)) ||
+                                      (Rect(x, y, 0f, 0.20f, 0.355f, 0.075f) && TriUp(x, y, false)),
 
-            _                      => Render((x, y) =>
-                                         (TriDown(x, y, false) && !TriDown(x, y, true)) ||
-                                         (Rect(x, y, 0f, -0.20f, 0.355f, 0.075f) && TriDown(x, y, false))),
+            _                      => (TriDown(x, y, false) && !TriDown(x, y, true)) ||
+                                      (Rect(x, y, 0f, -0.20f, 0.355f, 0.075f) && TriDown(x, y, false)),
         };
 
         // ---------------------------------------------------------------- the tria prima

@@ -201,6 +201,11 @@ namespace Convergence.Art.Gear
 
         /// <summary>No-op: no back-facing art authored for this rig yet.</summary>
         public void SetFacingAway(bool away) { }
+        public void SetAimViews(bool on) { }
+        public bool PastStrike => true;
+        public float StrikeDrawnSeconds(Combat.AttackMotion motion, float duration) => 0f;
+        public float StrikeStartSeconds(Combat.AttackMotion motion, float duration) => 0f;
+        public void ThrowFromOffhandNext() { }
         public void SyncAttunement(Core.ElementType element) { }
 
         /// <summary>
@@ -230,6 +235,10 @@ namespace Convergence.Art.Gear
 
         /// <summary>No hip vial art exists in the authored library yet.</summary>
         public void SetVialCount(int count) { }
+        public void SetQuiver(Sprite quiver, Sprite arrow) { }
+        public Vector2? LooseArrow() => null;
+        public void HoldDrawn(float seconds) { }
+        public void SetBowString(Sprite stringless, Vector2 nockTop, Vector2 nockBottom, Color color) { }
 
         /// <summary>
         /// The factory plants this rig at the actor's local origin, so the lift is simply the

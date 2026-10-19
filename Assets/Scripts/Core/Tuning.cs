@@ -239,15 +239,14 @@ namespace Convergence.Core
             public const float HpEarth = 125f;
 
             /// <summary>
-            /// How steeply travel has to point toward the top of the screen (away from the
-            /// camera) before untargeted movement turns the rig around to show its back - the
-            /// same treatment <see cref="Art.Gear.ICharacterRig.SetFacingAway"/> already gives the
-            /// scripted door beat, now driven by ordinary walking. Shared by
-            /// <c>PlayerController.UpdateTravelFacingAway</c> and
-            /// <c>Hub.HubRoom.UpdateAvatarFacingAway</c> so the arena and the hub agree on what
-            /// "walking away" means.
+            /// How steeply the facing has to point toward the top of the screen (away from the
+            /// camera) before the rig turns round to show its back - the same treatment
+            /// <see cref="Art.Gear.ICharacterRig.SetFacingAway"/> gives the scripted door beat -
+            /// the hub avatar's walk (<c>Hub.HubRoom.UpdateAvatarFacingAway</c>). The arena's
+            /// player chooses its view from its aim on steeper lines of its own
+            /// (PrimitiveCharacterRig's Facing partial, AwayFromY / FrontFromY).
             ///
-            /// A plain deadzone rather than two asymmetric thresholds, the same shape
+            /// In the hub, a plain deadzone rather than two asymmetric thresholds, the same shape
             /// <c>PrimitiveCharacterRig.MirrorDeadzone</c> already uses on the x axis: state only
             /// flips on a clear vertical commitment, so a mostly-sideways stride never chatters
             /// between front and back as it wobbles across zero.
@@ -336,6 +335,170 @@ namespace Convergence.Core
         /// wrong answer to any of them. Versatility is the thing being paid for, and the payment
         /// is that both halves sit just under the specialist.
         /// </summary>
+        /// <summary>Carousel (the user's calls, 2026-10-15) - PlayerController.CarouselStrike.</summary>
+        public static class Carousel
+        {
+            /// <summary>Full turns; each strikes every body in the circle once, for its share of
+            /// the step's damage.</summary>
+            public const int Revolutions = 2;
+        }
+
+        /// <summary>Gyre (the user's call, 2026-10-16 - a "helicopter style" melee pull; the name
+        /// and numbers mine): the discs spun overhead as a rotor, a cone along the aim drawn in,
+        /// then the cut - PlayerController.GyreStrike, Combat.DiscRotor.</summary>
+        public static class Gyre
+        {
+            /// <summary>The cone: how far it reaches and its half-angle either side of the aim.</summary>
+            public const float Reach = 4.0f;
+            public const float HalfAngle = 35f;
+            /// <summary>How long the draft pulls, how fast a body is drawn, and where it stops
+            /// (from the player's centre - inside melee reach, in front).</summary>
+            public const float PullSeconds = 0.6f;
+            public const float DragSpeed = 9f;
+            public const float DragStopAt = 0.9f;
+            /// <summary>The rotor: IN FRONT of the body (the user's call - not overhead), at chest
+            /// height and RotorAhead out along the aim, spinning in the plane facing the aim.</summary>
+            public const float RotorHeight = 0.55f;
+            public const float RotorAhead = 0.6f;
+            public const float RotorRadius = 0.42f;
+            public const float RotorDegreesPerSecond = 1260f;
+            /// <summary>Out of the hands up onto the rotor.</summary>
+            public const float RiseSeconds = 0.1f;
+            /// <summary>The rotor GRINDS what comes close while it turns (the user's call): every
+            /// GrindEvery seconds each body within GrindRadius of the rotor's ground point takes
+            /// GrindShare of the step - a melee hit, no hit-stop. The cut is CutShare of it, so a
+            /// lone body drawn in and held there totals about the Light (0.8 + ~3 x 0.1).</summary>
+            public const float GrindEvery = 0.15f;
+            /// <summary>Wide enough for the PILE: bodies drawn in jam against each other (enemies
+            /// collide), and at 0.75 the second one stopped out of reach of everything.</summary>
+            public const float GrindRadius = 1.1f;
+            public const float GrindShare = 0.1f;
+            public const float CutShare = 0.8f;
+            /// <summary>The draft's streaks.</summary>
+            public const float StreakEvery = 0.022f;
+            public const float StreakSeconds = 0.28f;
+            public const float StreakSpeed = 9f;
+            public const float StreakLength = 0.32f;
+        }
+
+        /// <summary>Orrery (the user's calls, 2026-10-16): the pair flung out of ORBIT onto two
+        /// orbits round the player - Combat.OrbitingDiscs, PlayerController.OrreryStrike.</summary>
+        public static class Orrery
+        {
+            /// <summary>The main hand's orbit - melee reach, so a body pressed against the player
+            /// is cut too.</summary>
+            public const float InnerRadius = 1.3f;
+            /// <summary>The off hand's orbit, wider and slower, as an outer planet.</summary>
+            public const float OuterRadius = 2.4f;
+            public const float InnerRevolutions = 2f;
+            public const float OuterRevolutions = 1f;
+            /// <summary>Of the step's damage per pass: a body under either path for the whole art
+            /// takes the step once (2 x 0.5, or 1 x 1).</summary>
+            public const float InnerShare = 0.5f;
+            public const float OuterShare = 1f;
+            /// <summary>Out of the hands onto the orbits, and back in, each.</summary>
+            public const float SpiralSeconds = 0.2f;
+            /// <summary>How near a disc's ground point a body must be as it passes.</summary>
+            public const float HitRadius = 0.45f;
+            /// <summary>The disc is drawn this far over its ground point (drawing only).</summary>
+            public const float DrawnHeight = 0.35f;
+            /// <summary>The rails on the ground at their brightest.</summary>
+            public const float RailAlpha = 0.35f;
+        }
+
+        /// <summary>Sublimate (the user's calls, 2026-10-16): discs flung out of CROSS that fly to
+        /// hang over their enemies, following them, and go off with the next weapon art -
+        /// PlayerController.SublimateStrike, Combat.SuspendedDiscs.</summary>
+        public static class Sublimate
+        {
+            /// <summary>Seconds from the hand to the hang, slowing to a stop.</summary>
+            public const float FlightSeconds = 0.3f;
+            /// <summary>How high over the ground (its enemy's feet) a disc hangs, drawing only -
+            /// the blast is on the ground under it.</summary>
+            public const float HangHeight = 0.75f;
+            /// <summary>How fast a disc follows its enemy (a Chaser walks at about 2.5).</summary>
+            public const float FollowSpeed = 3f;
+            /// <summary>Several over one enemy stand this far round it.</summary>
+            public const float Cluster = 0.25f;
+            /// <summary>Each disc's blast radius on the ground (x Area): its own enemy and the
+            /// edge of what is pressed against it. At 1.2 a clump walking in took every blast on
+            /// every body - 9 hits, ~7.4 basics off a Light.</summary>
+            public const float BlastRadius = 0.7f;
+            /// <summary>Damage at the blast's rim, of its centre - the area rule.</summary>
+            public const float EdgeDamageFraction = 0.5f;
+            /// <summary>The vapour: one wisp per disc this often, rising and thinning.</summary>
+            public const float WispEvery = 0.12f;
+            public const float WispSeconds = 0.7f;
+            public const float WispRise = 0.45f;
+        }
+
+        /// <summary>Mark (the user's calls, 2026-10-16): one disc flicked out, bouncing far and
+        /// painting what it strikes for the next weapon art - PlayerController.MarkStrike,
+        /// Combat.MarkSigil.</summary>
+        public static class Mark
+        {
+            /// <summary>What the next weapon art's hit on a painted body is multiplied by.</summary>
+            public const float Multiplier = 1.5f;
+            /// <summary>How long a mark waits for that art - past a chain's two basics.</summary>
+            public const float Seconds = 8f;
+            /// <summary>Its bounce reach, x melee reach (an ordinary disc's is 2).</summary>
+            public const float BounceRangeMul = 3f;
+        }
+
+        /// <summary>Scattershot (the user's calls, 2026-10-16): a jump, a ring of discs flung out
+        /// at its top - PlayerController.ScattershotStrike, ThrownDisc.Spoke.</summary>
+        public static class Scattershot
+        {
+            /// <summary>The jump's height (drawing only - the swing hop).</summary>
+            public const float HopHeight = 0.5f;
+            /// <summary>How far through the motion's strike the discs leave: the arms well open,
+            /// the body still near the top of the jump.</summary>
+            public const float ReleaseAt = 0.6f;
+        }
+
+        /// <summary>Heavy Cleaver (the user's calls, 2026-10-15): an overhand chop out of HALO,
+        /// one disc that reads HEAVY - PlayerController.CleaverStrike.</summary>
+        public static class Cleaver
+        {
+            /// <summary>The disc's size in flight, x an ordinary thrown disc's.</summary>
+            public const float FlightScale = 1.3f;
+            /// <summary>Its speed (an ordinary disc flies at 17).</summary>
+            public const float Speed = 11f;
+            /// <summary>Its spin, x an ordinary disc's.</summary>
+            public const float SpinMul = 0.45f;
+            /// <summary>Each bounce carries this much of the hit before it - the weight is in the
+            /// first (5 basics, then 2.5, then 1.25: about the old crowd total, near a Heavy alone).</summary>
+            public const float BounceFalloff = 0.5f;
+        }
+
+        /// <summary>Carom (the user's calls, 2026-10-15): the pair combined and hurled as one
+        /// disc that reflects off walls and pillars - ThrownDisc's carom,
+        /// PlayerController.CaromStrike.</summary>
+        public static class Carom
+        {
+            /// <summary>How close the disc passes to strike a body.</summary>
+            public const float HitRadius = 0.3f;
+            /// <summary>The disc's radius against walls and pillars.</summary>
+            public const float DiscRadius = 0.12f;
+            /// <summary>A leg's longest flight (a bank shot's two parts together), x the
+            /// bounce range.</summary>
+            public const float LegReach = 1.6f;
+            /// <summary>When the hands meet over the head and the pair becomes one disc, as a
+            /// share of the hurl's drawn strike.</summary>
+            public const float CombineAt = 0.5f;
+        }
+
+        /// <summary>Ripple (the user's call, 2026-10-15): four discs, two from each hand, fanned
+        /// out and homing - PlayerController.HomingVolley, ThrownDisc.Home.</summary>
+        public static class Ripple
+        {
+            /// <summary>The fan the discs leave on, centred on the facing.</summary>
+            public const float SpreadDegrees = 140f;
+            /// <summary>How far each disc's curve bows out along its fan heading, as a share of
+            /// the distance to its target (at least 0.4) - the fan's width at any range.</summary>
+            public const float Bow = 1.1f;
+        }
+
         public static class Disc
         {
             /// <summary>Melee cadence against the greatsword's. Above 1 is slower.</summary>
@@ -356,7 +519,15 @@ namespace Convergence.Core
             /// ranged class, when it exists, should fire at the same rate. The disc keeps up; it
             /// just does less with each shot.
             /// </summary>
-            public const float ThrowIntervalMul = 0.72f;
+            public const float ThrowIntervalMul = 1.14f;
+
+            /// <summary>
+            /// Each throw's damage against the old cadence's (the user's call, 2026-10-15): the
+            /// throws became a DANCE (the ranged pairs - AttackStep.ThrowMotion) at ~0.6 s a throw
+            /// where they were 0.38 s, and each hits harder by exactly the cadence lost, so ranged
+            /// damage per second is where it was. Was 0.72 / 0.72.
+            /// </summary>
+            public const float ThrowDamagePerThrow = ThrowIntervalMul / 0.72f;
 
             /// <summary>
             /// <summary>
@@ -449,6 +620,35 @@ namespace Convergence.Core
             /// position it did not choose should cost less than one the disc player did.
             /// </summary>
             public const float NearFraction = 0.6f;
+
+            /// <summary>The roll to the KNEEL connector (AttackStep.KneelRoll): how far the body
+            /// travels, and over how long at most (it never outlasts the basic's animation).
+            /// Mine, unconfirmed.</summary>
+            public const float RollDistance = 1.5f;
+            public const float RollSeconds = 0.3f;
+
+            /// <summary>The hop back to the RECOIL connector (AttackStep.RecoilHop): how far, over how
+            /// long at most, and how high the drawing leaves the ground. Mine, unconfirmed.</summary>
+            public const float RecoilDistance = 2f;
+            public const float RecoilSeconds = 0.25f;
+            public const float RecoilHopHeight = 0.14f;
+
+            /// <summary>The HIGH pair's lob: its peak as a share of the distance to the target, and
+            /// how far above the aim the bow is raised to loose it. Mine, unconfirmed.</summary>
+            public const float LobArc = 0.35f;
+            public const float LobRaiseDegrees = 45f;
+
+            /// <summary>The SNAP shot leaves at this share of its swing. The CANTED bow's height on
+            /// screen, as a share of its upright height (turned flat, toward the camera). Mine.</summary>
+            public const float SnapRelease = 0.6f;
+            public const float CantSquash = 0.45f;
+            /// <summary>The CANTED shot is sidearm: the bow arm this far under the aim. Mine.</summary>
+            public const float CantDropDegrees = 15f;
+
+            /// <summary>TWIN NOCK: how far from the target its neighbour may be to take the second
+            /// arrow, and how far apart the two leave the string. Mine.</summary>
+            public const float TwinReach = 2.5f;
+            public const float TwinSpread = 0.05f;
         }
 
         /// <summary>
@@ -1870,11 +2070,13 @@ namespace Convergence.Core
         public static class Impale
         {
             /// <summary>Seconds the lunge (the dash and the thrust) takes. The hit lands as it
-            /// ends, so this is the last stretch of the timing bar - StrikeDelay counts it.</summary>
-            public const float LungeSeconds = 0.12f;
+            /// ends, so this is the last stretch of the timing bar - StrikeDelay counts it. 0.12
+            /// for the old 1.4-unit lunge; 0.2 for the 4-unit one through the crowd (2026-10-14),
+            /// 20 units a second. The rig's thrust reads it too (LungeThrustSeconds).</summary>
+            public const float LungeSeconds = 0.2f;
 
-            /// <summary>How far short of a locked target in front the lunge stops, so the target
-            /// is inside the thrust's reach rather than run through and left behind.</summary>
+            /// <summary>How far short of a locked target in front a lunge that does NOT pierce
+            /// stops - Impale itself goes through (AttackStep.PiercesPath).</summary>
             public const float StopShort = 0.6f;
 
             /// <summary>Floor margin the lunge keeps from a wall or a chasm's edge.</summary>
@@ -1936,6 +2138,14 @@ namespace Convergence.Core
             /// <summary>World units from the player's origin to the ward's centre, toward the
             /// facing (in front of the body), and up from the origin to its centre.</summary>
             public const float WardSideOffset = 0.34f;
+
+            /// <summary>How far the counter (AttackMotion.RiposteTurnabout) steps the player along
+            /// the aim, world units - over the turn, until the blade comes level and strikes.</summary>
+            public const float CounterStep = 1.2f;
+
+            /// <summary>Seconds from the counter's start to its strike, if the rig cannot say
+            /// (ICharacterRig.StrikeDrawnSeconds is the measure).</summary>
+            public const float CounterSecondsFallback = 0.36f;
             public const float WardCentreY = 0.02f;
 
             /// <summary>Seconds the ward takes to form outward from its centre, and to fade
@@ -2275,6 +2485,15 @@ namespace Convergence.Core
             /// </summary>
             public const float TapBufferSeconds = 0.05f;
 
+            /// <summary>
+            /// How long a fresh press on a banked weapon art must be HELD before it aims (the
+            /// user's call, 2026-10-14: hold to aim, release to fire). Released sooner it was a
+            /// tap and the art goes at the auto-target; held past it the aim arrow appears and the
+            /// stick, mouse or touch drag points the art until the button is let go. Longer than a
+            /// tap's own press, short enough that a deliberate hold never waits for the arrow.
+            /// </summary>
+            public const float ArtAimHoldSeconds = 0.18f;
+
             /// <summary>How many finisher movesets a run can hold at once.</summary>
             public const int MaxMovesets = 3;
         }
@@ -2425,11 +2644,411 @@ namespace Convergence.Core
             /// fraction of full strength. Above zero so a scattered fight always closes up.
             /// </summary>
             public const float EdgePullFraction = 0.15f;
+
+            // ---- the wind (Combat/VortexWind) - a picture only ----
+
+            /// <summary>Seconds the wind lines spiral in after the art goes.</summary>
+            public const float WindSeconds = 0.6f;
+
+            /// <summary>How far out the lines start, world units - capped so the canvas stays a
+            /// sensible size (the pull itself reaches the whole screen).</summary>
+            public const float WindRadius = 6.5f;
+
+            /// <summary>How many lines.</summary>
+            public const int WindStreaks = 16;
+
+            /// <summary>How far a line turns on its way in: radians per e-fold of radius, so
+            /// the lines are log spirals, winding tighter as they near the middle.</summary>
+            public const float WindTwist = 1.5f;
+
+            /// <summary>Each line's length as a share of its head's radius.</summary>
+            public const float WindTail = 0.7f;
+
+            /// <summary>Where the lines vanish, world units from the player.</summary>
+            public const float WindInner = 0.45f;
+        }
+
+        /// <summary>Sunder's push (AttackStep.PushesOut, PlayerController.PushOut): the slam
+        /// slides every body it catches out past its own rim (the user's call, 2026-10-14 - the
+        /// knockback impulse moved a body 0.43 units).</summary>
+        /// <summary>Plow, the discs' PUSH (Combat/DiscPlow, AttackStep.Plows; 2026-10-15).</summary>
+        public static class Plow
+        {
+            /// <summary>How far the discs roll (6.5 - the user's call), how fast, and how fast they
+            /// come home.</summary>
+            public const float Reach = 6.5f;
+            public const float Speed = 11f;
+            public const float ReturnSpeed = 20f;
+
+            /// <summary>The lanes: each this far either side of the aim, starting this far ahead,
+            /// a disc striking what is within LaneRadius of its lane.</summary>
+            public const float LaneHalf = 0.4f;
+            public const float StartAhead = 0.3f;
+            public const float LaneRadius = 0.38f;
+
+            /// <summary>A struck body is slid out to the side until it is this far past the outside
+            /// of its lane (at least PushMin), x Finisher Knockback - parting the crowd.</summary>
+            public const float PushPast = 0.7f;
+            public const float PushMin = 0.6f;
+
+            /// <summary>The drawing: how far under a body's origin the ground is, the rolling
+            /// disc's radius, and its width seen edge-on (rolling up or down the screen).</summary>
+            public const float GroundBelow = 0.5f;
+            public const float DiscRadius = 0.16f;
+            public const float EdgeOnWidth = 0.3f;
+
+            /// <summary>The furrows: held, then faded.</summary>
+            public const float FurrowHoldSeconds = 1.6f;
+            public const float FurrowFadeSeconds = 1.0f;
+        }
+
+        /// <summary>Revolve, the discs' defensive art (Combat/DiscOrbit, AttackStep.Orbits;
+        /// 2026-10-15).</summary>
+        public static class Revolve
+        {
+            /// <summary>One revolution, straight through (the user's call).</summary>
+            public const float Seconds = 1.5f;
+
+            /// <summary>Discs in the ring - the pair and two more (the user's call, 2026-10-15): a
+            /// basic knocks one out, the weapon art after two basics takes the last two, so one
+            /// chain spends the ring. It turns until then, revolution after revolution, up to
+            /// MaxSeconds.</summary>
+            public const int Discs = 4;
+            public const float MaxSeconds = 6f;
+
+            /// <summary>The circle's radius, world units. What the discs hit and where shots are
+            /// stopped is this circle ON THE GROUND round the player's origin.</summary>
+            public const float Radius = 0.75f;
+
+            /// <summary>The DRAWN ring (the user's call, 2026-10-15 - it read as a wheel round the
+            /// head and feet): a flat ellipse round the TORSO - its centre this far above the
+            /// player's origin (the hips), squashed to this - the far half behind the body, the
+            /// near half in front and a little larger (DepthScale either way).</summary>
+            public const float CentreUp = 0.12f;
+            public const float Squash = 0.3f;
+            public const float DepthScale = 0.12f;
+
+            /// <summary>An enemy bolt or shell this far past the ring's radius is stopped too.</summary>
+            public const float StopMargin = 0.15f;
+
+            /// <summary>A disc's reach into an enemy it runs into, and the hit, in basics.</summary>
+            public const float TouchRadius = 0.32f;
+            public const float TouchBasics = 0.6f;
+
+            /// <summary>Seconds for what is left to fly home to the hands.</summary>
+            public const float HomeSeconds = 0.14f;
+        }
+
+        /// <summary>The Tether disc art (Combat/DiscTether, AttackStep.Tethers; 2026-10-15).</summary>
+        /// <summary>SPLIT (PlayerController.SplitStrike; built 2026-10-18 at the user's ask, the shape
+        /// and numbers mine): LIGHT, from the CANTED. One arrow breaks into three at SplitAt of the
+        /// way to the target; the three go to the target and its nearest within Reach of it (the
+        /// target again when there are fewer), each a third of the step.</summary>
+        public static class Split
+        {
+            public const float SplitAt = 0.5f;
+            public const float Reach = 2.5f;
+            public const float Speed = 15f;
+            /// <summary>The three leave the break fanned this far apart, perpendicular to the line.</summary>
+            public const float Fan = 0.12f;
+        }
+
+        /// <summary>PIN (PlayerController.PinStrike; built 2026-10-18, the shape and numbers mine):
+        /// LIGHT, from the KNEEL. Two arrows at the target, half the step each; the first to strike
+        /// ROOTS it (StatusEffects.ApplyPetrify) - it still attacks. A boss is never rooted.</summary>
+        public static class Pin
+        {
+            public const float RootSeconds = 2.5f;
+        }
+
+        /// <summary>TRIPWIRE (Combat.BowTripwire; built 2026-10-18, reworked the same day by the
+        /// user's calls: HEAVY, the wire EXPLODES the first time it is crossed - area damage and a
+        /// slow round it - and the posts stand a SET distance apart): from the TWIN NOCK. Two arrows
+        /// staked either side of the aim, Ahead out (nearer when the target is closer), always
+        /// Length apart, a wire between; spares the perfect streak (a trap). The rest mine.</summary>
+        public static class Tripwire
+        {
+            public const float Ahead = 3f;
+            /// <summary>The posts' spacing, fixed (the user's call).</summary>
+            public const float Length = 2.6f;
+            /// <summary>An enemy whose centre comes within this of the wire sets it off - about a
+            /// body's half-width, so it goes off as the body MEETS the wire (at 0.3 a Chaser stood
+            /// visibly across it for a dozen frames first).</summary>
+            public const float HalfWidth = 0.5f;
+            /// <summary>The blast, centred where the wire was crossed, x Area: the step at the centre,
+            /// EdgeShare of it at the rim.</summary>
+            public const float BlastRadius = 1.6f;
+            public const float EdgeShare = 0.5f;
+            /// <summary>Everything within SlowRadius of the blast (x Area) is slowed.</summary>
+            public const float SlowRadius = 2.2f;
+            public const float SlowSeconds = 3f;
+            public const float SlowMultiplier = 0.5f;
+            /// <summary>Unset after this long, the wire goes slack and the posts fade.</summary>
+            public const float Seconds = 8f;
+            public const float FlightSeconds = 0.22f;
+            public const float FadeSeconds = 0.3f;
+            public static readonly UnityEngine.Color WireColor = new(0.85f, 0.82f, 0.72f, 0.9f);
+            public static readonly UnityEngine.Color BlastCore = new(1f, 0.93f, 0.7f, 1f);
+            public static readonly UnityEngine.Color BlastVein = new(1f, 0.55f, 0.2f, 1f);
+            public static readonly UnityEngine.Color BlastEmber = new(0.55f, 0.2f, 0.1f, 1f);
+        }
+
+        /// <summary>LONGSHOT (PlayerController.LongshotStrike, Combat.LongshotStreak; the user's calls,
+        /// 2026-10-18 - HEAVY, a long kneeling draw of about a second, a gentle falloff, across the
+        /// room until a wall). The rest mine.</summary>
+        public static class Longshot
+        {
+            /// <summary>Press to loose: held at full draw from the kneel, rooted.</summary>
+            public const float DrawSeconds = 1.0f;
+            /// <summary>Each body after the first keeps this of the one before (a sword's 0.78).</summary>
+            public const float Falloff = 0.85f;
+            /// <summary>A body whose centre is within this of the line is struck.</summary>
+            public const float HalfWidth = 0.45f;
+            /// <summary>The longest line (no wall nearer); the room is 24 wide.</summary>
+            public const float MaxReach = 30f;
+            /// <summary>The arrow's speed down the line - the hits land as it passes.</summary>
+            public const float Speed = 40f;
+            /// <summary>The streak behind it, and the arrow stuck in the wall at the end.</summary>
+            public const float StreakFadeSeconds = 0.35f;
+            public const float StuckSeconds = 0.8f;
+        }
+
+        /// <summary>PIERCING RAIN (Combat.ArrowRain; the user's calls, 2026-10-18 - HEAVY, on the
+        /// target, radius 1.3, raining over about a second, from the HIGH; "piercing" is the name
+        /// only). The rest mine.</summary>
+        public static class PiercingRain
+        {
+            /// <summary>x Area. Fixed where the locked target stood at the loose.</summary>
+            public const float Radius = 1.3f;
+            /// <summary>With nothing locked, centred this far out along the aim.</summary>
+            public const float NoTargetAhead = 3.5f;
+            /// <summary>The loosed arrow climbing out of sight before the rain.</summary>
+            public const float RiseSeconds = 0.3f;
+            public const float RainSeconds = 1.0f;
+            /// <summary>How many hits a body standing in it the whole rain takes - spread over the
+            /// rain, each 1/Ticks of the step at the centre and RimShare of that at the rim.</summary>
+            public const int Ticks = 5;
+            public const float RimShare = 0.6f;
+            /// <summary>The picture: how many arrows fall, each drop's time and height, how long
+            /// one stands stuck.</summary>
+            public const int Arrows = 22;
+            public const float FallSeconds = 0.12f;
+            public const float DropHeight = 1.6f;
+            public const float StickSeconds = 0.45f;
+        }
+
+        /// <summary>PALISADE, the bow's DEFENSIVE (Combat.BowPalisade; the user's calls, 2026-10-18 -
+        /// Intercept and Palisade mixed: arrows land ON shots in flight and stick there, the rest
+        /// make a line; a stake blocks ONE more shot; an enemy walking over one breaks it and takes
+        /// a hit; 5 arrows; the art spares the perfect streak. The rest of the numbers mine).</summary>
+        public static class Palisade
+        {
+            public const int Arrows = 5;
+            /// <summary>Only shots within this of the archer are taken.</summary>
+            public const float InterceptReach = 9f;
+            /// <summary>The line: how far out along the aim, and the stakes' spacing across it.</summary>
+            public const float LineAhead = 2f;
+            public const float Spacing = 0.55f;
+            /// <summary>Up off the string and down: the flight's time, and its arc's height for a
+            /// LineAhead-long flight (longer flights arc higher in proportion).</summary>
+            public const float FlightSeconds = 0.3f;
+            public const float LobHeight = 0.7f;
+            public const float StakeSeconds = 5f;
+            /// <summary>A bolt within this of a stake's foot bursts on it.</summary>
+            public const float BlockRadius = 0.4f;
+            /// <summary>An enemy whose centre comes within this of a stake's foot breaks it.</summary>
+            public const float TrampleRadius = 0.4f;
+            /// <summary>A trampled stake's hit, as a share of the step - five trampled make the Medium.</summary>
+            public const float StakeShare = 0.2f;
+            public const float BreakSeconds = 0.25f;
+        }
+
+        /// <summary>DISENGAGE, the bow's REPOSITION (PlayerController.DisengageStrike; the user's calls,
+        /// 2026-10-18 - a backflip 4 away from the target, one shot at the top, no immunity, Medium;
+        /// the phases and the height mine). Phases are shares of the art's animation.</summary>
+        public static class Disengage
+        {
+            public const float Distance = 4f;
+            /// <summary>Drawing only - how high the figure is lifted at the top.</summary>
+            public const float Height = 0.75f;
+            /// <summary>The gather ends and the body leaves the ground (the dash starts).</summary>
+            public const float TakeoffAt = 0.12f;
+            /// <summary>The turn is done - upright at the top, the draw finishing.</summary>
+            public const float FlipEnd = 0.5f;
+            /// <summary>The loose, at the top.</summary>
+            public const float LooseAt = 0.68f;
+            /// <summary>The feet touch down (the dash ends).</summary>
+            public const float LandAt = 0.86f;
+        }
+
+        /// <summary>CONCUSSION, the bow's PUSH (Combat.ConcussionBurst; the user's calls, 2026-10-18 -
+        /// Medium, from the RECOIL, the slow 50% for 3 s, Sunder's push-out; the cone's size mine).</summary>
+        public static class Concussion
+        {
+            /// <summary>The cone in front of the archer: how far, and its half-angle either side of the aim.</summary>
+            public const float Reach = 3.0f;
+            public const float HalfAngle = 45f;
+            /// <summary>Where the arrow bursts, out along the aim from the nocked arrow.</summary>
+            public const float BurstAhead = 0.35f;
+            /// <summary>Sunder's rule: each body slides out until it stands PushPast beyond the
+            /// cone's reach, at least PushMin - a near body goes further.</summary>
+            public const float PushPast = 0.8f;
+            public const float PushMin = 1.0f;
+            /// <summary>The group round the point of contact (the nearest body struck) is slowed:
+            /// everything struck, and anything within SlowRadius of that body.</summary>
+            public const float SlowRadius = 1.5f;
+            public const float SlowSeconds = 3f;
+            public const float SlowMultiplier = 0.5f;
+            /// <summary>The burst's picture: fronts running out through the cone, then fading.</summary>
+            public const float WaveSeconds = 0.22f;
+            public const float WaveFadeSeconds = 0.18f;
+            public static readonly UnityEngine.Color Core = new(1f, 0.97f, 0.88f, 1f);
+            public static readonly UnityEngine.Color Dust = new(0.72f, 0.64f, 0.52f, 1f);
+        }
+
+        /// <summary>HARPOON, the bow's pull (Combat.BowHarpoon; the user's calls, 2026-10-17 -
+        /// the numbers are mine). Two arrows off the Twin nock: the LINE arrow carries
+        /// <see cref="LineShare"/> of the art, the other the rest.</summary>
+        public static class Harpoon
+        {
+            public const float LineShare = 0.5f;
+            /// <summary>Others within this of the struck enemy are reeled with it, at most Extra.</summary>
+            public const float GrabRadius = 1.5f;
+            public const int Extra = 2;
+            /// <summary>Where the struck enemy stops in front of the archer - out of their face,
+            /// so the next shots land near full strength.</summary>
+            public const float StopAt = 2.2f;
+            public const float DragSpeed = 9f;
+            /// <summary>The reel lets go after this, wherever the bodies are.</summary>
+            public const float MaxSeconds = 1.0f;
+            public static readonly UnityEngine.Color LineColor = new(0.30f, 0.24f, 0.17f, 1f);
+        }
+
+        public static class Tether
+        {
+            /// <summary>How far a target may be to be tethered, and how far the disc goes with
+            /// none, world units.</summary>
+            public const float Reach = 5.5f;
+
+            /// <summary>Disc speed out and on the hook back, and home again, units a second.</summary>
+            public const float Speed = 16f;
+            public const float ReturnSpeed = 20f;
+
+            /// <summary>How far PAST the target the curve carries the disc before it hooks back,
+            /// and how far the curve bows out beside the target.</summary>
+            public const float PastBy = 0.9f;
+            public const float Bow = 1.0f;
+
+            /// <summary>How far behind the target (from the player) the disc holds it.</summary>
+            public const float HoldBehind = 0.35f;
+
+            /// <summary>The drag: speed, where it stops (from the player's centre - in front, at
+            /// melee reach), and a backstop.</summary>
+            public const float DragSpeed = 13f;
+            public const float DragStopAt = 1.0f;
+            public const float MaxDragSeconds = 0.8f;
+
+            /// <summary>Radius the flying disc tags other enemies in, and the share of the art's
+            /// damage a tag deals (the swing's falloff in order after the first).</summary>
+            public const float TagRadius = 0.35f;
+            public const float TagShare = 0.35f;
+        }
+
+        /// <summary>Falling Star's spinning leap (AttackStep.SpinLeap, PlayerController.LeapStrike).
+        /// The leap's length is the step's LeapSeconds; the fall is as long as the slam takes to
+        /// draw its strike, so the blade plants as the feet touch.</summary>
+        public static class FallingStar
+        {
+            /// <summary>How high the drawing has risen when the takeoff's turn is done - the
+            /// spin happens close to the ground, where it can be seen.</summary>
+            public const float SpinHeight = 1.3f;
+
+            /// <summary>Then up off the top of the screen in this long.</summary>
+            public const float LaunchSeconds = 0.16f;
+
+            /// <summary>The flight's height, world units - clears the top of the camera.</summary>
+            public const float PeakHeight = 9f;
+
+            /// <summary>How far the leap CARRIES the body along the aim over the flight, world
+            /// units - less, to land on a locked target in front. Walking steers on top.</summary>
+            public const float LeapDistance = 5f;
+        }
+
+        public static class Sunder
+        {
+            /// <summary>How far past the circle's rim a body lands, world units.</summary>
+            public const float PushPast = 0.8f;
+
+            /// <summary>The least any body is moved - one already at the rim still goes.</summary>
+            public const float PushMin = 1.0f;
+
+            // ---- the blade in the ground (Art/Gear/GroundPierce, Combat/GroundCracks) ----
+
+            /// <summary>The ground line the planted blade is cut at, world units under the feet.</summary>
+            public const float PierceBelowFeet = 0.05f;
+
+            /// <summary>Seconds after the slam ends that the cut is kept - the follow-through
+            /// hold and the carry lifting the blade back out of the floor.</summary>
+            public const float PierceLingerSeconds = 0.6f;
+
+            /// <summary>Seconds the cracks stay at full strength, then fade over this long.</summary>
+            public const float CrackHoldSeconds = 1.5f, CrackFadeSeconds = 1.2f;
+        }
+
+        /// <summary>
+        /// The Grappling Hook art (Light, built 2026-10-14 from the user's brief): a hooked chain
+        /// thrown along the aim. The first thing it meets decides the move - an ordinary enemy is
+        /// reeled in to the player; an elite, a boss, a wall or a pillar pulls the PLAYER there
+        /// instead. A miss is spent. No immunity on the way (the user's calls).
+        /// </summary>
+        public static class Grapple
+        {
+            /// <summary>How far the hook flies before it gives up, world units.</summary>
+            public const float Reach = 7f;
+
+            /// <summary>The hook's speed out, units per second.</summary>
+            public const float HookSpeed = 26f;
+
+            /// <summary>The hook's speed home after a miss.</summary>
+            public const float RetractSpeed = 34f;
+
+            /// <summary>A caught enemy is reeled in at this speed...</summary>
+            public const float ReelSpeed = 15f;
+
+            /// <summary>...and set down this far from the player, inside a sword's reach
+            /// (Player.BaseRange 1.9) so the next swing lands.</summary>
+            public const float ReelStopAt = 1.0f;
+
+            /// <summary>The player is hauled at this speed...</summary>
+            public const float HaulSpeed = 15f;
+
+            /// <summary>...and stops this far short of an elite or a boss, in reach of it...</summary>
+            public const float HaulStopShortBody = 0.95f;
+
+            /// <summary>...or this far short of a wall or a pillar.</summary>
+            public const float HaulStopShortWall = 0.45f;
+
+            /// <summary>Radius of the hook's catch, world units.</summary>
+            public const float HookRadius = 0.2f;
+
+            /// <summary>Backstop: a reel or a haul never runs longer than this.</summary>
+            public const float MaxMoveSeconds = 0.8f;
         }
 
         /// <summary>Sticky auto-target acquisition. Keeps the character from flip-flopping between enemies.</summary>
         public static class Targeting
         {
+            /// <summary>
+            /// RANGED weapons (discs, bows) take their lock from the AIM when there is one (the
+            /// user's call, 2026-10-15; PlayerTargeting.AimPick): the enemy in reach nearest the
+            /// aim's direction, within this many degrees either side of it.
+            /// </summary>
+            public const float AimSwapConeDegrees = 50f;
+
+            /// <summary>Degrees a rival must line up BETTER than the held lock to take it - so
+            /// two enemies either side of the aim don't trade the lock every frame.</summary>
+            public const float AimSwapHysteresisDegrees = 10f;
+
             /// <summary>
             /// World units of lock-on reach BEYOND the pending swing's own range.
             ///
@@ -2481,6 +3100,11 @@ namespace Convergence.Core
 
             /// <summary>Alpha while closing in, and the floor of a ranged shot's curve.</summary>
             public const float Dim = 0.55f;
+
+            /// <summary>Aiming an art by hand (PlayerController.AimingArt), the rim says a press
+            /// lands only on a target within this cone of the aim (cos of ~35 degrees) - the art
+            /// goes along the stick, not at the lock.</summary>
+            public const float AimConeDot = 0.82f;
 
             /// <summary>How quickly the alpha follows a change (per second, exponential).</summary>
             public const float Ease = 14f;
@@ -2746,6 +3370,46 @@ namespace Convergence.Core
         /// bow again. Scaled seconds. The player moves freely while it is out, but cannot attack -
         /// the bow is only its grip.
         /// </summary>
+        /// <summary>
+        /// THE FOUR BIRDS, the Phoenix's weapon art (the user's calls, 2026-10-17: a FORMATION of all
+        /// the bows, a flanking volley, Heavy) - PlayerController.FormationStrike, Combat.BowFormation.
+        /// The target takes exactly one Heavy when every arrow lands: Crow + Swan + Peacock shares,
+        /// then the Phoenix's share x the Mark the peacock's arrow just painted (Tuning.Mark).
+        /// Each bird's way of flying and every number here are mine, unconfirmed.
+        /// </summary>
+        public static class Formation
+        {
+            /// <summary>The three birds' shares of the step on the target, and the Phoenix's -
+            /// 0.15 x 3 + 0.367 x 1.5 (the mark) = 1.0.</summary>
+            public const float CrowShare = 0.15f, SwanShare = 0.15f, PeacockShare = 0.15f, PhoenixShare = 0.367f;
+
+            /// <summary>The swan's arrow SPLITS on the target into this many, at the nearest others
+            /// within the radius, each this share.</summary>
+            public const int SplitCount = 3;
+            public const float SplitRadius = 2.6f, SplitShare = 0.1f;
+
+            /// <summary>The peacock's arrow bursts into eyes, MARKING every enemy this near the target.</summary>
+            public const float MarkRadius = 1.8f;
+
+            /// <summary>How far past the target the crow's arrow carries, piercing.</summary>
+            public const float CrowOvershoot = 2f;
+
+            /// <summary>The Phoenix's own shot leaves this long after the three, so it lands last -
+            /// onto the peacock's mark.</summary>
+            public const float PhoenixDelay = 0.14f;
+
+            /// <summary>Where the spectral bows stand, in the aim's frame (forward, across) from the
+            /// player, plus a lift up the screen: a V with the Phoenix at its point.</summary>
+            public static readonly UnityEngine.Vector2 CrowAt = new(0.15f, 1.2f), SwanAt = new(0.15f, -1.2f), PeacockAt = new(-1.15f, 0f);
+            public const float PeacockLift = 0.1f, BowLift = 0.45f;
+
+            /// <summary>The bows fade in over the first part of the draw, and out after the volley.</summary>
+            public const float FadeIn = 0.2f, FadeOut = 0.4f, Alpha = 0.9f;
+
+            /// <summary>How far each spectral bow's arrow is drawn back at full draw, units.</summary>
+            public const float Pull = 0.22f;
+        }
+
         public static class Swarm
         {
             /// <summary>How fast an arrow flies (out, darting, home) and how hard it turns, units/s and units/s^2.</summary>
@@ -2817,6 +3481,16 @@ namespace Convergence.Core
             /// ground, as a leap's does), how long it hangs at the top after the catch, and how fast
             /// the hurled discs reach the target.</summary>
             public const float JumpHeight = 1.3f, HangSeconds = 0.1f, HurlSeconds = 0.12f;
+            /// <summary>The hurl's two-handed swing (AttackMotion.DiscPincerHurl) - the discs leave
+            /// as its arms come over the top.</summary>
+            public const float HurlSwingSeconds = 0.4f;
+            /// <summary>Caught, the pair is held OVERHEAD between the raised hands: this far above
+            /// the jump's height (the figure's origin is at its hips).</summary>
+            public const float CatchAbove = 1.0f;
+            /// <summary>The wave of energy off the impact (Combat.EnergyWave): how long its front takes
+            /// to reach the blast's edge (the blast lands on each body as it arrives), and how long it
+            /// then takes to fade.</summary>
+            public const float WaveSeconds = 0.28f, WaveFadeSeconds = 0.18f;
 
             /// <summary>The jump is a SHADOW STEP (the user's call): the after-image left on the
             /// ground, and how long it takes to fade.</summary>
@@ -3185,6 +3859,18 @@ namespace Convergence.Core
             /// </summary>
             public const float ChaserRecoverSeconds = 0.45f;
 
+            /// <summary>How long the Grave Brute's STRIKE frame (and the riposte's backhand) holds
+            /// after the hit lands, before the planted recovery pose - see Enemies.ChaserVisual.</summary>
+            public const float ChaserStrikeFrameSeconds = 0.15f;
+
+            /// <summary>The share of the telegraph, counted back from the hit, that shows the
+            /// COCKED frame (the tell) rather than the raise - the old stage cycle's Full step.</summary>
+            public const float ChaserCockedShare = 0.3f;
+
+            /// <summary>World units walked per frame of the Chaser's four-frame walk, so its feet
+            /// keep pace with its real speed (0.3 at 1.47 u/s is ~0.2 s a frame).</summary>
+            public const float ChaserStrideFrameUnits = 0.3f;
+
             /// <summary>
             /// How much of a knockback an ELITE keeps. 0 is a normal body, 1 is immovable.
             ///
@@ -3359,6 +4045,47 @@ namespace Convergence.Core
             /// <summary>Cut 30% alongside every other enemy speed and the player's own - see Player.MoveSpeed.</summary>
             public const float BombRetreatSpeed = 2.1f;
 
+            // ---- the Brimstone Heart's fireball sweep (the user's design, 2026-10-18) ----
+            //
+            // Above BombCriticalFraction of its health the Bomb no longer walks in to explode: it
+            // fights at arm's length, throwing fireballs straight out of itself, swept one after
+            // another across a fan toward the player. Close in they come thick; further back the
+            // gaps open and there is time to see the sweep coming. Under the fraction it stops
+            // fighting and rushes in to self-destruct as it always did (arming within
+            // BombAttackRange for BombTelegraphDuration) - but a sweep already started finishes.
+
+            /// <summary>Health share under which the Bomb abandons the sweep for the self-destruct
+            /// rush (the user's 20%).</summary>
+            public const float BombCriticalFraction = 0.2f;
+            /// <summary>The wind-up before a sweep (the heart swelling), before floor scaling -
+            /// scaled with depth the way every telegraph is, floored at TelegraphMinSeconds.</summary>
+            public const float BombSweepWindup = 0.7f;
+            /// <summary>Fireballs in a sweep, and the seconds between them (the reference's pace).</summary>
+            public const int BombFireballs = 5;
+            public const float BombFireballEvery = 0.16f;
+            /// <summary>The fan the sweep covers, degrees, centred on the player at the sweep's
+            /// start; each fireball flies down the middle of its share of it.</summary>
+            public const float BombSweepDegrees = 80f;
+            /// <summary>Fireball speed (steady, the user's 4 u/s), reach, and radius (0.2 - 0.4
+            /// across, the size the mock-up showed).</summary>
+            public const float BombFireballSpeed = 4f;
+            public const float BombFireballReach = 3.5f;
+            public const float BombFireballRadius = 0.2f;
+            /// <summary>A fireball's damage as a share of the Bomb's own (its blast).</summary>
+            public const float BombFireballDamageFraction = 0.5f;
+            /// <summary>How long it gutters after the last fireball leaves - the window to close in.</summary>
+            public const float BombSpentSeconds = 0.8f;
+            /// <summary>The band it fights from: closer than Min it backs off, past Max it comes in,
+            /// and it starts a sweep from anywhere inside Trigger it can see the player.</summary>
+            public const float BombFightRangeMin = 2.2f;
+            public const float BombFightRangeMax = 3.0f;
+            public const float BombSweepTriggerRange = 3.3f;
+            /// <summary>Seconds the THROW frame (the heart's pulse) holds after each fireball.</summary>
+            public const float BombThrowFrameSeconds = 0.08f;
+            /// <summary>Seconds a frame of the hover (and the critical flicker) holds - it bobs in
+            /// place, so its cycle is timed, not paced by distance.</summary>
+            public const float BombDriftFrameSeconds = 0.13f;
+
             /// <summary>How close an elite must be to land its hit, world units.</summary>
             public const float ChaserAttackRange = 1.5f;
 
@@ -3477,6 +4204,15 @@ namespace Convergence.Core
             public const float RangedKiteSeconds = 0.85f;
             /// <summary>Cut 30% alongside every other enemy speed and the player's own - see Player.MoveSpeed.</summary>
             public const float RangedKiteSpeed = 2.38f;
+
+            /// <summary>How long the Cinder Stinger's recoil frame holds after a bolt leaves - see
+            /// Enemies.RangedVisual.</summary>
+            public const float RangedFireFrameSeconds = 0.12f;
+
+            /// <summary>World units per frame of its four-frame scuttle (~0.12 s a frame at
+            /// RangedMoveSpeed), and per stride of its two-frame backing-off.</summary>
+            public const float RangedStrideFrameUnits = 0.2f;
+            public const float RangedKiteStrideUnits = 0.3f;
 
             // ---- Mortar (the lobber) ----
             //
@@ -3707,9 +4443,9 @@ namespace Convergence.Core
             //
             // The fourth archetype, and the first that is dangerous up close on its own terms
             // rather than by walking into you (Bomb) or standing there swinging (Elite). It pays
-            // for a real melee combo with fragility and total commitment either side of it: a
-            // telegraphed glow you can step out of, then a frozen-line charge that whiffs if you
-            // did, then a combo it cannot cancel, then a retreat that buys it nothing but distance.
+            // for a blinding dash with fragility and total commitment either side of it: two tells
+            // you can read, a frozen-line charge that whiffs if you stepped off it, then standing
+            // spent where it stopped, then a retreat that buys it nothing but distance.
 
             /// <summary>Dasher starting HP, before per-wave scaling - the low end of the roster, on purpose.</summary>
             public const float DasherHp = 75f;
@@ -3721,41 +4457,72 @@ namespace Convergence.Core
             /// Cut 30% alongside every other enemy speed and the player's own - see Player.MoveSpeed.</summary>
             public const float DasherApproachSpeed = 1.96f;
 
-            /// <summary>Charge speed during the rush itself - well above anything else on the floor, which is the point.
-            /// Cut 30% alongside every other enemy speed and the player's own - see Player.MoveSpeed.</summary>
-            public const float DasherRushSpeed = 7f;
-
-            /// <summary>Retreat speed after a combo (landed or missed).
+            /// <summary>Retreat speed after the attack (landed or missed).
             /// Cut 30% alongside every other enemy speed and the player's own - see Player.MoveSpeed.</summary>
             public const float DasherEvadeSpeed = 3.15f;
 
-            /// <summary>Distance at which an approaching Dasher stops and begins its telegraph.</summary>
-            public const float DasherEngageRange = 6f;
+            // THE ATTACK IS AN L (the user's reference clip, 2026-10-18): a short dash SIDEWAYS
+            // that lines it up with the player, a beat braced, then a dash straight THROUGH where
+            // the player stood - one bite as it passes - and it stands spent where it stopped.
+            // Both dashes hurt anything they pass through (the user's call). It replaced a charge
+            // that stopped for a 3-5 hit combo.
 
-            /// <summary>Melee reach for landing a combo hit once the rush closes the distance.</summary>
-            public const float DasherComboRange = 1.2f;
+            /// <summary>Distance at which an approaching Dasher stops and begins its attack.</summary>
+            public const float DasherEngageRange = 3.2f;
 
             /// <summary>
-            /// Seconds the red glow holds before the charge fires. The charge target is frozen the
-            /// MOMENT this starts, not when it ends - same reasoning as Ranged's own aim: the
-            /// player needs the whole window watching a committed, known line, not a turret that
-            /// could still re-aim on them.
+            /// The line-up dash ends level with the player on whichever axis it is already further
+            /// along, this far out (clamped to the band) - the reference's brute stayed about two
+            /// units to the player's side.
+            /// </summary>
+            public const float DasherLineUpMin = 2f;
+            public const float DasherLineUpMax = 3f;
+
+            /// <summary>A line-up shorter than this is skipped: it is already lined up, and goes
+            /// straight to the charge's tell.</summary>
+            public const float DasherLineUpSkip = 0.5f;
+
+            /// <summary>The line-up's tell as a share of the charge's (0.3 s of 0.5 at base, the
+            /// reference's wind-up), floored at TelegraphMinSeconds.</summary>
+            public const float DasherLineUpTellShare = 0.6f;
+
+            /// <summary>Seconds it stands braced after the line-up, before the charge's tell.</summary>
+            public const float DasherBracedSeconds = 0.35f;
+
+            /// <summary>Speed of both dashes. The reference measures about this; the old rush was 7.</summary>
+            public const float DasherDashSpeed = 15f;
+
+            /// <summary>How far past the frozen point the charge carries - it goes THROUGH you.</summary>
+            public const float DasherRushPast = 1.5f;
+
+            /// <summary>Backstop on either dash, in case its end is never reached.</summary>
+            public const float DasherDashMaxSeconds = 0.6f;
+
+            /// <summary>
+            /// Seconds the charge's tell holds. The end point is frozen the MOMENT this starts - the
+            /// player gets the whole window watching a committed, known line. Kept at 0.5 against
+            /// the reference's 0.3: at 15 u/s this is the one that has to be stepped off.
             /// </summary>
             public const float DasherTelegraphDuration = 0.5f;
 
-            /// <summary>Safety backstop on the charge itself, in case the frozen point is never reached
-            /// (e.g. it was already adjacent when the telegraph ended).</summary>
-            public const float DasherRushMaxSeconds = 1.5f;
+            /// <summary>The bite a dash lands on whatever it passes through, once per dash, before
+            /// per-wave scaling: the old combo's average (4 hits of 6).</summary>
+            public const float DasherBiteDamage = 24f;
 
-            /// <summary>Seconds between each hit in the combo once the charge connects.</summary>
-            public const float DasherComboHitInterval = 0.18f;
+            /// <summary>A dash bites a body whose centre its own centre passes within this of.</summary>
+            public const float DasherBiteReach = 0.6f;
 
-            /// <summary>Damage per individual combo hit, before per-wave scaling - small alone, a real punish across a full combo.</summary>
-            public const float DasherComboHitDamage = 6f;
+            /// <summary>Seconds it stands spent where the charge ended, hit or miss - the window to
+            /// punish it. Then the retreat.</summary>
+            public const float DasherSpentSeconds = 0.8f;
 
-            /// <summary>Combo length is rolled in this range (inclusive) every time a charge connects.</summary>
-            public const int DasherMinComboHits = 3;
-            public const int DasherMaxComboHits = 5;
+            /// <summary>Visual: the Bite frame's hold after a bite lands, and the lope's distance
+            /// per frame.</summary>
+            public const float DasherBiteFrameSeconds = 0.12f;
+            public const float DasherStrideFrameUnits = 0.25f;
+
+            /// <summary>Visual: how long a dash's wind lies on the floor after the dash ends.</summary>
+            public const float DasherTrailFadeSeconds = 0.7f;
 
             /// <summary>Seconds spent retreating before the Dasher is willing to approach again.</summary>
             public const float DasherEvadeDuration = 0.9f;
@@ -3839,7 +4606,7 @@ namespace Convergence.Core
             /// <summary>
             /// Flight speed during the elite's swoop - a flat constant read directly rather than
             /// through the ordinary MoveSpeed/FloorDifficulty.Speed pipeline, the same choice
-            /// DasherRushSpeed already makes and for the same reason: the target is frozen the
+            /// DasherDashSpeed already makes and for the same reason: the target is frozen the
             /// moment the flight commits, so the player dodges by moving BEFORE that moment, not
             /// by outrunning the flight once it is under way. Deliberately fast.
             ///
@@ -3856,27 +4623,25 @@ namespace Convergence.Core
             /// flinched out of a flight or a glow.</summary>
             public const float GargoyleEliteRecoverSeconds = 1.5f;
 
-            // ---- Booster (the second hazard: a green lion statue) ----
+            // ---- Booster (the second hazard: the Green Lion) ----
             //
             // NEVER ATTACKS THE PLAYER, AT ALL - not even the AoE exception Gargoyle's elite
-            // carries. A stationary statue, like Gargoyle's basic form, and also never armored
-            // (see EnemyDef.NeverArmored) for the same reason: it is fought through raw HP, and
-            // being able to flinch its cast is the only counterplay this family ever offers.
+            // carries. Stationary, like Gargoyle's basic form, and never armored (see
+            // EnemyDef.NeverArmored) for the same reason: it is fought through raw HP, and being
+            // able to flinch its channel is the only counterplay this family ever offers.
             //
-            // ITS THREAT IS ENTIRELY INDIRECT: it picks one nearby ally (never another Booster,
-            // never a Gargoyle - see EnemyController.FindBoosterCandidate for why the latter is
-            // excluded), casts on it, and grants that ally its OWN kind's elite attack pattern -
-            // Riposte, Volley, Cluster, Overcharge or Redouble - with NO stat change: no HP or
-            // damage multiplier, no displacement resistance. An ALREADY-elite ally has nothing
-            // left to grant that way, so the cast instead raises what it already deals
-            // (BoosterEliteDamageMul). Either way the buff is PERMANENT ON THE TARGET, independent
-            // of the Booster's own fate - killing the statue after a successful cast does not undo
-            // it, only a fresh one can ever be prevented. The buffed ally is tinted the statue's
-            // own pale green, so the effect visibly traces back to its source.
+            // ITS THREAT IS ENTIRELY INDIRECT (redesigned 2026-10-19, the user's calls): it draws
+            // breath for its telegraph and ROARS at the ally it picked - within BoosterPickRadius,
+            // in sight, NON-ELITES FIRST, then the biggest wave budget, then the nearest (never
+            // another Booster, never a Gargoyle - see EnemyController.FindBoosterCandidate). A
+            // basic ally gains its OWN kind's elite attack pattern, with no stat change; an elite
+            // ally (picked only when no basic is in reach) has its attacks come round faster
+            // (BoosterEliteTempo, BoosterEliteTelegraphMul). Either way the buff is PERMANENT ON
+            // THE TARGET - killing the lion afterwards does not undo it - and the lion lies spent
+            // until that ally dies. The boosted ally carries green motes rising off it.
             //
-            // DELIBERATELY HAS NO ELITE VARIANT OF ITS OWN. "An elite amplifier" is a real
-            // question - boost two targets? boost harder? - without an obvious answer yet, so it
-            // ships elite-LESS (EnemyDef.Elite = None) rather than guessed at.
+            // THE ELITE roars two allies to power at once and keeps two (BoosterEliteSlots),
+            // roaring again when one dies. Read straight off the Elite bool, as Bubbles' elite is.
 
             /// <summary>Lowish, on purpose - this is a priority-kill support unit, not a tank.
             /// Letting it survive is what costs a fight, not clearing it.</summary>
@@ -3888,13 +4653,13 @@ namespace Convergence.Core
             /// <summary>How long the statue channels before the buff lands on its chosen ally.</summary>
             public const float BoosterTelegraphDuration = 2.5f;
 
-            /// <summary>
-            /// The cast range - how far the statue can reach an ally to buff, read off
-            /// EnemyDef.AttackRange the same way every other kind reuses that field for its own
-            /// meaning. Effectively unlimited and sight-gated, the same reasoning as Turret's and
-            /// Gargoyle's own ranges: a statue's reach is bounded by what it can see.
-            /// </summary>
-            public const float BoosterCastRange = 40f;
+            /// <summary>How far from the lion an ally may be to be picked (the user's call,
+            /// 2026-10-19, chosen against the floor drawn to scale - 7 is the lion's half of the
+            /// room, not all of it). Sight-gated as well. Read off EnemyDef.AttackRange too.</summary>
+            public const float BoosterPickRadius = 7f;
+
+            /// <summary>Boosted allies an ELITE lion keeps at once (a basic keeps one).</summary>
+            public const int BoosterEliteSlots = 2;
 
             /// <summary>Cooldown before the statue may cast again - after a successful cast fails
             /// to find a live target (rare), or after its current ally finally dies.</summary>
@@ -3904,9 +4669,17 @@ namespace Convergence.Core
             /// like a Turret or a Gargoyle, not walked in from the edge.</summary>
             public const float BoosterMinPlayerDistance = 4f;
 
-            /// <summary>Damage multiplier granted to an ALREADY-elite ally, since the ordinary
-            /// buff (its kind's own attack pattern) has nothing left to give it.</summary>
-            public const float BoosterEliteDamageMul = 1.35f;
+            /// <summary>An ELITE ally's boost, since its kind's attack pattern is already its own:
+            /// its attack cooldowns run this many times as fast (EnemyController.AttackTempo).</summary>
+            public const float BoosterEliteTempo = 1.35f;
+
+            /// <summary>An ELITE ally's boost: its wind-ups (TelegraphDuration) are this long,
+            /// never under TelegraphMinSeconds.</summary>
+            public const float BoosterEliteTelegraphMul = 0.8f;
+
+            /// <summary>Chance a floor's Booster comes as an ELITE, rolled from its own seed so the
+            /// rest of the wave's draw is untouched.</summary>
+            public const float BoosterEliteChance = 0.25f;
 
             /// <summary>
             /// THE ACCOUNT-PROGRESSION GATE. CharacterProfile.BestFloor is the deepest floor this
@@ -3929,14 +4702,16 @@ namespace Convergence.Core
             /// curveball.</summary>
             public const float BoosterFloorChance = 0.35f;
 
-            // ---- Bubbles (the third hazard: a shielding statue) ----
+            // ---- Bubbles (the third hazard: the Drowned Bell) ----
             //
             // The last of the trio, and structurally Booster's twin: stationary, never armored,
             // never attacks the player, channels for a bit before doing something to a chosen
             // ally rather than to you. What it grants is different in kind rather than in
             // degree - not an attack pattern or a damage bump, but IMMUNITY: a bubbled enemy
-            // takes nothing at all, from anything, until a FINISHER pops it (see
-            // EnemyController.ApplyBubble and DamageInfo.IsFinisher). Ordinary INTRODUCTION rules
+            // takes nothing at all, from anything, until a WEAPON ART breaks it (see
+            // EnemyController.ApplyBubble and DamageInfo.IsFinisher). Redesigned 2026-10-19 (the
+            // user's calls): it shields the unbubbled enemy NEAREST THE PLAYER that it can see,
+            // other than itself; bubbles never stack; its elite bubbles itself as well. Ordinary INTRODUCTION rules
             // rather than Booster's account-progression gate - nothing about this mechanic was
             // asked to be reserved for veteran accounts, so it follows Gargoyle's own shape
             // instead: unlocked by FLOOR depth alone, scaling in the same way.
@@ -3954,8 +4729,8 @@ namespace Convergence.Core
             /// others".</summary>
             public const float BubblesTelegraphDuration = 2.5f;
 
-            /// <summary>The cast range, read off EnemyDef.AttackRange the same way Booster's own
-            /// row reuses that field - effectively unlimited and sight-gated.</summary>
+            /// <summary>Read off EnemyDef.AttackRange only - the pick has NO range limit (the user's
+            /// call): it is the enemy nearest the player, sight-gated.</summary>
             public const float BubblesCastRange = 40f;
 
             /// <summary>Cooldown before the statue may cast again - after a successful cast fails
@@ -3988,10 +4763,9 @@ namespace Convergence.Core
             // "read Elite directly, no ElitePattern needed" shape Gargoyle's own Elite check uses
             // for its fly-vs-stand fork, just here it is a number rather than a mechanism.
 
-            /// <summary>Finisher hits an elite's bubble absorbs before popping - "turning an
-            /// inconvenience into an issue that actually must be dealt with", per the brief.
-            /// Also what a SECOND cast (elite or not) adds when it stacks onto an existing bubble
-            /// - see EnemyController.BubbleCharges.</summary>
+            /// <summary>Walls on an elite's bubble: a Light or Medium weapon art breaks one, a Heavy
+            /// breaks the whole bubble at once (the user's call). The elite blows two - one on an
+            /// ally and one on itself - and nothing stacks.</summary>
             public const int BubblesEliteCharges = 2;
         }
 

@@ -322,6 +322,14 @@ namespace Convergence.Chain
                 Inputs = new[] { DemoGear.IgnisBandId, DemoGear.AerBandId, DemoGear.AquaBandId, DemoGear.TerraBandId },
                 Weapon = DemoGear.ArmillaryId, Relic = DemoGear.ArmillaryRelicId,
             },
+            new Fusion
+            {
+                // The Four Birds: the Crow, the Swan and the Peacock into the Phoenix, and the Golden
+                // Cage carrying its art.
+                Id = "four_birds", Name = "The Phoenix", Class = WeaponClass.Bow,
+                Inputs = new[] { DemoGear.CrowBowId, DemoGear.SwanBowId, DemoGear.PeacockBowId },
+                Weapon = DemoGear.PhoenixBowId, Relic = DemoGear.PhoenixCageId,
+            },
         };
 
         public static Fusion FusionById(string id) => Array.Find(Fusions, f => f.Id == id);

@@ -39,6 +39,8 @@ namespace Convergence.Enemies
         static readonly Color ShellColor = new(0.22f, 0.2f, 0.19f);
         static readonly Color BlinkColor = new(1f, 0.12f, 0.08f);
         static readonly Color DeflectedColor = new(0.25f, 0.6f, 1f);
+        /// <summary>A turned Salamander shell's blue, dim to hot - the blue every turned shell blinks.</summary>
+        static readonly Color[] DeflectedRamp = TexelRig.Hex("#0c2440", "#1f5fa8", "#4aa0ff", "#d8ecff");
 
         // Plain, non-readonly fields throughout - see the domain-reload notes in CLAUDE.md.
         Vector2 _from, _to;
@@ -47,9 +49,21 @@ namespace Convergence.Enemies
         /// begins in the air where the parry caught it, not back on the ground.</summary>
         float _startHeight;
         bool _landed, _deflected;
+
+        /// <summary>In the air and still the enemy's - what the orbiting discs stop (DiscOrbit).</summary>
+        public bool Hostile => !_landed && !_deflected && _shell != null;
+
+        /// <summary>Where the shell is DRAWN (its height included), world.</summary>
+        /// <summary>The ground under the shell in flight (its shadow) - where it would stand.</summary>
+        public Vector2 GroundPosition => _shadowSr != null ? (Vector2)_shadowSr.transform.position : (Vector2)transform.position;
+
+        public Vector2 DrawnPosition => _shell != null ? (Vector2)_shell.position : (Vector2)transform.position;
         float _damage;
         /// <summary>A mire shell: no fuse, no damage, lands as a slowing patch.</summary>
         bool _mire;
+        /// <summary>The Tempest Eye's lob: a ball of static and charged ground in this accent
+        /// ramp, not the yellow mire (null for the Mortar's shell and the yellow mire).</summary>
+        Color[] _static;
         /// <summary>What the landing ring marks - the blast for a shell, the patch for a mire.</summary>
         float _radius;
         Transform _target;
@@ -59,15 +73,53 @@ namespace Convergence.Enemies
         Transform _shell;
         SpriteRenderer _shellSr, _glowSr, _shadowSr, _markSr;
 
+        /// <summary>The Salamander's magma (MortarArt.Accent): its shell is drawn as a texel glob, its
+        /// landing ring as a broken ring of red light that blinks the count, and its blast as a
+        /// MortarBurst (the user's sign-off, 2026-10-19). Null for the Turret's mire and static
+        /// shells, which keep their own look.</summary>
+        Color[] _magma;
+        Color[] Ramp => _deflected ? DeflectedRamp : _magma;
+
         /// <param name="from">Where the mortar stands.</param>
         /// <param name="to">Where it lands - already clamped inside the walls by the caller.</param>
+        /// <param name="magma">The Salamander's ramp - the texel glob and ring (see _magma).</param>
         public static MortarShell Launch(Vector2 from, Vector2 to, Transform parent, Transform target,
-                                         float damage)
-            => Create(from, to, parent, target, damage, mire: false);
+                                         float damage, Color[] magma = null)
+        {
+            var s = Create(from, to, parent, target, damage, mire: false);
+            if (magma != null && magma.Length >= 4)
+            {
+                s._magma = magma;
+                s._shell.localScale = Vector3.one;
+                s._markSr.transform.localScale = Vector3.one;
+                s._glowSr.enabled = false;
+                s.Paint(false, Mathf.Lerp(0.12f, 0.35f, 0f));
+            }
+            return s;
+        }
+
+        /// <summary>The glob and its ring in the shell's ramp; <paramref name="ringAlpha"/> fades the ring.</summary>
+        void Paint(bool lit, float ringAlpha)
+        {
+            var ramp = Ramp;
+            _shellSr.sprite = GlobSprite(ramp, lit);
+            _shellSr.color = Color.white;
+            _markSr.sprite = RingSprite(_radius, ramp);
+            _markSr.color = new Color(1f, 1f, 1f, ringAlpha);
+        }
 
         /// <summary>The elite Turret's mire shell - see the class summary.</summary>
-        public static MortarShell LaunchMire(Vector2 from, Vector2 to, Transform parent, Transform target)
-            => Create(from, to, parent, target, 0f, mire: true);
+        public static MortarShell LaunchMire(Vector2 from, Vector2 to, Transform parent, Transform target,
+                                             Color[] staticRamp = null)
+        {
+            var s = Create(from, to, parent, target, 0f, mire: true);
+            if (staticRamp != null && staticRamp.Length >= 4)
+            {
+                s._static = staticRamp;
+                s._shellSr.color = staticRamp[2];
+            }
+            return s;
+        }
 
         static MortarShell Create(Vector2 from, Vector2 to, Transform parent, Transform target,
                                   float damage, bool mire)
@@ -145,6 +197,8 @@ namespace Convergence.Enemies
             {
                 float t = Mathf.Clamp01(_clock / _flightSeconds);
                 Place(t);
+                // a ball of static crackles as it flies
+                if (_static != null) _shellSr.color = Mathf.FloorToInt(_clock * 20f) % 2 == 0 ? _static[2] : _static[3];
                 if (!_deflected && TryDeflect()) return;
                 if (t >= 1f) Land();
                 return;
@@ -152,15 +206,22 @@ namespace Convergence.Enemies
 
             if (_clock >= FuseSeconds) { Explode(); return; }
 
+            if (_magma != null)
+            {
+                bool on = LitAt(_clock);
+                Paint(on, on ? 0.95f : 0.35f);
+                return;
+            }
+
             var c = FuseColor;
             bool lit = LitAt(_clock);
             _glowSr.enabled = lit;
             _glowSr.color = c;
-            _shellSr.color = lit ? c : _mire ? Hazards.MireField.ShellYellow : ShellColor;
+            _shellSr.color = lit ? c : _static != null ? _static[2] : _mire ? Hazards.MireField.ShellYellow : ShellColor;
             _markSr.color = new Color(c.r, c.g, c.b, lit ? 0.85f : 0.35f);
         }
 
-        Color FuseColor => _deflected ? DeflectedColor : _mire ? Hazards.MireField.Yellow : BlinkColor;
+        Color FuseColor => _deflected ? DeflectedColor : _static != null ? _static[3] : _mire ? Hazards.MireField.Yellow : BlinkColor;
 
         /// <summary>
         /// A parry catching the shell in the air. Measured to where the shell is DRAWN, since
@@ -217,7 +278,8 @@ namespace Convergence.Enemies
             _shadowSr.color = new Color(0f, 0f, 0f, Mathf.Lerp(0.45f, 0.18f, lift));
 
             // The landing ring firms up as the shell comes down.
-            var c = _deflected ? DeflectedColor : _mire ? Hazards.MireField.Yellow : new Color(1f, 0.3f, 0.2f);
+            if (_magma != null) { Paint(false, Mathf.Lerp(0.12f, 0.35f, t)); return; }
+            var c = _deflected ? DeflectedColor : _static != null ? _static[2] : _mire ? Hazards.MireField.Yellow : new Color(1f, 0.3f, 0.2f);
             _markSr.color = new Color(c.r, c.g, c.b, Mathf.Lerp(0.12f, 0.35f, t));
         }
 
@@ -235,7 +297,7 @@ namespace Convergence.Enemies
             // negate, and asking would spend a window the player may want for something else.
             if (_mire)
             {
-                Hazards.MireField.Spawn(transform.position, transform.parent, turned: _deflected);
+                Hazards.MireField.Spawn(transform.position, transform.parent, turned: _deflected, staticRamp: _static);
                 Destroy(gameObject);
                 return;
             }
@@ -252,8 +314,9 @@ namespace Convergence.Enemies
                     hp.Take(new DamageInfo(_damage, ElementType.Fire, gameObject));
             }
 
-            Spr.Flash(transform.position, Tuning.Enemy.MortarBlastRadius,
-                      _deflected ? DeflectedColor : new Color(1f, 0.4f, 0.12f), 0.3f);
+            if (_magma != null) MortarBurst.Spawn(transform.position, Tuning.Enemy.MortarBlastRadius, Ramp, transform.parent);
+            else Spr.Flash(transform.position, Tuning.Enemy.MortarBlastRadius,
+                           _deflected ? DeflectedColor : new Color(1f, 0.4f, 0.12f), 0.3f);
             Destroy(gameObject);
         }
 
@@ -309,6 +372,69 @@ namespace Convergence.Enemies
                 at += Tuning.Enemy.MortarGroupGap;
             }
             return false;
+        }
+
+        // ---- the Salamander's shell, drawn ----
+
+        static readonly System.Collections.Generic.Dictionary<string, Sprite> _sprites = new();
+        static readonly Color Crust = TexelRig.Hex("#2c221c")[0], Outline = TexelRig.Hex("#090605")[0];
+
+        static string Key(Color[] ramp, string what) => what + ColorUtility.ToHtmlStringRGB(ramp[2]);
+
+        /// <summary>A molten glob with a crust: hot at the heart, brighter when the fuse is lit.</summary>
+        static Sprite GlobSprite(Color[] ramp, bool lit)
+        {
+            string key = Key(ramp, lit ? "glob.lit" : "glob");
+            if (_sprites.TryGetValue(key, out var hit) && hit != null) return hit;
+            const int n = 11;
+            var px = new Color[n * n];
+            float c = n / 2f;
+            for (int y = 0; y < n; y++)
+            for (int x = 0; x < n; x++)
+            {
+                float d = Mathf.Sqrt((x + 0.5f - c) * (x + 0.5f - c) + (y + 0.5f - c) * (y + 0.5f - c));
+                Color col = Color.clear;
+                if (d < 1.5f) col = lit ? ramp[3] : ramp[2];
+                else if (d < 2.6f) col = lit ? ramp[2] : ramp[1];
+                else if (d < 3.6f) col = TexelRig.Hash(x, y) < 0.35f ? ramp[1] : Crust;
+                else if (d < 4.6f) col = Outline;
+                px[y * n + x] = col;
+            }
+            return _sprites[key] = Make(key, px, n);
+        }
+
+        /// <summary>The blast's edge as a broken ring of light in the ramp, on the texel grid.</summary>
+        static Sprite RingSprite(float radius, Color[] ramp)
+        {
+            string key = Key(ramp, "ring" + radius);
+            if (_sprites.TryGetValue(key, out var hit) && hit != null) return hit;
+            float r = radius * TexelRig.TexelsPerUnit;
+            int n = Mathf.CeilToInt(r) * 2 + 3;
+            var px = new Color[n * n];
+            float c = n / 2f;
+            for (int y = 0; y < n; y++)
+            for (int x = 0; x < n; x++)
+            {
+                float dx = x + 0.5f - c, dy = y + 0.5f - c, d = Mathf.Sqrt(dx * dx + dy * dy);
+                if (Mathf.Abs(d - r) >= 0.6f) continue;
+                int bin = Mathf.FloorToInt((Mathf.Atan2(dy, dx) * Mathf.Rad2Deg + 180f) / 6f);
+                if (TexelRig.Hash(bin, 3) < 0.2f) continue;   // broken, like a ring of cracks
+                px[y * n + x] = ramp[2];
+            }
+            return _sprites[key] = Make(key, px, n);
+        }
+
+        static Sprite Make(string name, Color[] px, int n)
+        {
+            var tex = new Texture2D(n, n, TextureFormat.RGBA32, false)
+            {
+                filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp, hideFlags = HideFlags.HideAndDontSave, name = name,
+            };
+            tex.SetPixels(px);
+            tex.Apply();
+            var sp = Sprite.Create(tex, new Rect(0, 0, n, n), new Vector2(0.5f, 0.5f), TexelRig.TexelsPerUnit, 0, SpriteMeshType.FullRect);
+            sp.name = name;
+            return sp;
         }
     }
 }

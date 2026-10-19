@@ -1848,11 +1848,11 @@ namespace Convergence.Hub
         }
 
         /// <summary>
-        /// Turn the avatar around while it walks toward the top of the room, on the same
-        /// deadzone-and-hold shape <c>PlayerController.UpdateTravelFacingAway</c> uses for the
-        /// arena. The hub avatar has no combat state to guard against - see its own class doc,
-        /// "no attack, no targeting" - so unlike the arena version this is the ONLY thing that
-        /// ever drives it here.
+        /// Turn the avatar around while it walks toward the top of the room, on a
+        /// deadzone-and-hold shape (Tuning.Player.FacingAwayDot). The arena's player chooses its
+        /// view in the rig instead, from its turned aim (ICharacterRig.SetAimViews); the hub
+        /// avatar has no aim but its walk - see its own class doc, "no attack, no targeting" - so
+        /// this is the ONLY thing that ever drives it here.
         /// </summary>
         void UpdateAvatarFacingAway()
         {

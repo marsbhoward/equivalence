@@ -1287,15 +1287,28 @@ namespace Convergence.Art.Gear
             //
             // First-pass silhouette, not yet iterated against a live render the way the discs
             // and the relics were - flag for a follow-up pass once it has been seen on the rig.
-            items.Add(Bow(Make("hunting_bow", "Hunting Bow", GearSlot.Weapon, LootTier.Silver, 6f,
+            var hunting = Bow(Make("hunting_bow", "Hunting Bow", GearSlot.Weapon, LootTier.Silver, 6f,
                 Pixels(RigLayer.Weapon, "gear.weapon.bow", BowRows, bowPal, 0f, 0f,
-                       pivotTexel: BowGrip, ppu: FinePpu, upscale2x: true))));
+                       pivotTexel: BowGrip, ppu: FinePpu, upscale2x: true)));
+            Strung(hunting, Pixels(RigLayer.Weapon, "gear.weapon.bow.unstrung", BuildBow(strung: false), bowPal, 0f, 0f,
+                                   pivotTexel: BowGrip, ppu: FinePpu, upscale2x: true),
+                   BowGrip, new Vector2(HuntingStringCol + 0.5f, HuntingNockRow), bowPal['k']);
+            items.Add(hunting);
 
             // The Artemis Hunting Bow: a crescent blade for an arch - DemoGear.Artemis.cs.
             AddArtemis(items);
 
             // Umbra: a bow of shadow on a silver ring - DemoGear.Umbra.cs.
             AddUmbra(items);
+
+            // The Crow: the Nigredo's bird, the first of the four birds - DemoGear.Crow.cs.
+            AddCrow(items);
+            // The Swan: the Albedo's bird - DemoGear.Swan.cs (the birds' skeleton is DemoGear.Birds.cs).
+            AddSwan(items);
+            // The Peacock: the Cauda Pavonis' bird - DemoGear.Peacock.cs.
+            AddPeacock(items);
+            // The Phoenix and its relic the Golden Cage: the three birds in one - DemoGear.Phoenix.cs.
+            AddPhoenix(items);
 
             // The Hive: a bow made of arrows, and the Hive Remote - DemoGear.Hive.cs.
             AddHive(items);
@@ -1413,6 +1426,9 @@ namespace Convergence.Art.Gear
                     DyeChannel.Of("Stone", DyeMaterial.Gem, seraphBlue));
 
             foreach (var item in items) AddDerivedMenuArt(item);
+
+            // Every bow's quiver and arrow - DemoGear.Quivers.cs.
+            AddQuivers(items);
 
             return items;
         }
@@ -1613,6 +1629,22 @@ namespace Convergence.Art.Gear
         /// wearer from the feet to above the helm) is answered once for every bow, not per bow.
         /// </summary>
         static int BowHeightRows => SwordHeightRows;
+
+        /// <summary>
+        /// Give a bow its DRAWN STRING (GearItem.BowStringless): <paramref name="unstrung"/> is the
+        /// arena picture without the string, same grid and pivot; <paramref name="topNock"/> the upper
+        /// nock in the AUTHORED cells (x across, y down from the top row - the pivot's convention), the
+        /// lower one mirrored top to bottom. Cells are the authored grid's (75 a unit, before the 2x).
+        /// </summary>
+        static void Strung(GearItem bow, LayerSprite unstrung, Vector2Int grip, Vector2 topNock, Color color)
+        {
+            bow.BowStringless = unstrung.Sprite;
+            float gx = grip.x + 0.5f, gy = grip.y + 0.5f;
+            float cells = FinePpu / FineUpscale;   // the authored grid's own density
+            bow.BowNockTop = new Vector2(topNock.x - gx, gy - topNock.y) / cells;
+            bow.BowNockBottom = new Vector2(topNock.x - gx, gy - (BowHeightRows - topNock.y)) / cells;
+            bow.BowStringColor = color;
+        }
 
         /// <summary>
         /// Stamp a relic as granting a finisher. Class/TwoHanded default to the greatsword, since
@@ -5136,66 +5168,61 @@ namespace Convergence.Art.Gear
         };
 
         /// <summary>
-        /// A plain longbow: a two-texel stave curving away from a taut string, wrapped at the
-        /// grip. Hand-drawn rather than generated - a computed curve risks a topologically broken
-        /// shape with no render to check it against, where a straight taper is forgiving to get
-        /// right on the first pass. First pass in every sense: silhouette only, not yet iterated
-        /// against a live render the way the discs and the relics were.
+        /// The Hunting Bow: a plain longbow in stained wood - a D-shaped stave thickest at the
+        /// leather-wrapped grip and tapering to dark horn tips, the string straight between the
+        /// nocks. Rebuilt 2026-10-17 at BowHeightRows (the user's call - at 28 rows it was a third
+        /// the height of every other bow); a field sampled over the cells, string at the left.
         /// </summary>
-        // Mirrored from the first pass: the string sat on the OUTER edge (column 7, away from
-        // the body) and the stave's belly on the inner columns, so the bow rendered with its
-        // string facing away from the character - backwards from how a bow is actually held,
-        // string toward the archer, belly toward the target. Column order reversed so the
-        // string (k) is now on column 0, nearest the body.
-        static string[] BuildBow() => new[]
+        static string[] BuildBow(bool strung = true)
         {
-            "ld......",
-            "ld......",
-            "kld.....",
-            "kld.....",
-            "kld.....",
-            "kld.....",
-            "k.ld....",
-            "k.ld....",
-            "k.ld....",
-            "k.ld....",
-            "k..LD...",
-            "k..LD...",
-            "k..LD...",
-            "k..LD...",
-            "k..LD...",
-            "k..LD...",
-            "k..LD...",
-            "k..LD...",
-            "k.ld....",
-            "k.ld....",
-            "k.ld....",
-            "k.ld....",
-            "kld.....",
-            "kld.....",
-            "kld.....",
-            "kld.....",
-            "ld......",
-            "ld......",
-        };
+            int h = BowHeightRows;
+            float mid = h * 0.5f, half = h * 0.5f - 0.5f;
+            var rows = new string[h];
+            for (int y = 0; y < h; y++)
+            {
+                float py = y + 0.5f;
+                float at = Mathf.Abs(py - mid) / half;
+                float centre = HuntingStaveX(at);
+                bool grip = Mathf.Abs(py - mid) < HuntingGripHalf;
+                float w = grip ? 1.9f : 1.5f - 0.8f * Mathf.Clamp01(at);
+                var sb = new System.Text.StringBuilder(HuntingCanvas);
+                for (int x = 0; x < HuntingCanvas; x++)
+                {
+                    float px = x + 0.5f, dx = px - centre;
+                    char c = '.';
+                    if (at <= 1f && Mathf.Abs(dx) < w)
+                    {
+                        if (grip)
+                            c = (y % 3 == 0) ? 'D' : dx < -w * 0.3f ? 'L' : dx > w * 0.4f ? 'D' : 'B';
+                        else if (at > 0.94f)
+                            c = 'S';                                   // the horn tips
+                        else
+                            c = dx < -w * 0.3f ? 'l' : dx > w * 0.35f ? 'd' : 'b';
+                    }
+                    else if (strung && at < 0.94f && x == HuntingStringCol)
+                        c = 'k';                                       // the string, nock to nock
+                    sb.Append(c);
+                }
+                rows[y] = sb.ToString();
+            }
+            return rows;
+        }
 
-        static readonly string[] BowRows = BuildBow();
+        const int HuntingCanvas = 12, HuntingStringCol = 1;
+        /// <summary>The upper nock's row - where the string meets the limb (the lower mirrors it).</summary>
+        static float HuntingNockRow => BowHeightRows * 0.5f - (BowHeightRows * 0.5f - 0.5f) * 0.94f;
+        const float HuntingGripHalf = 4.5f, HuntingDepth = 7f;
 
-        /// <summary>
-        /// Pushed low in the wrapped band rather than dead centre - see the note on
-        /// GreatswordGrip for the counted-from-the-string-literal convention. Column mirrored
-        /// to 3 (was 4) along with the grid reversal above.
-        ///
-        /// A real bow is gripped near its own middle, but every OTHER weapon in this rig hangs
-        /// from a pivot near one end (the greatsword's sits close to the pommel, with the whole
-        /// blade extending one way from it), because the shared arm-pivot math was built around
-        /// "one end at the hand, the rest reaches away" - a genuinely centred pivot instead reads
-        /// as a shape straddling the hand and drew as a diagonal stripe across the torso rather
-        /// than a held object. Moved low so most of the stave reaches away from the hand the same
-        /// way a blade does; true to a bow's own anatomy less than it is to how this rig holds
-        /// anything at all.
-        /// </summary>
-        static readonly Vector2Int BowGrip = new(3, 20);
+        /// <summary>The stave's middle line at <paramref name="at"/> (0 the grip, 1 a tip): a D
+        /// whose ends meet the string at the nocks.</summary>
+        static float HuntingStaveX(float at) => 0.9f + HuntingDepth * (1f - at * at);
+
+        static string[] _bowRows;
+        static string[] BowRows => _bowRows ??= BuildBow();
+
+        /// <summary>The middle of the wrapped grip - the bow's pivot, as every designed bow's
+        /// (Artemis, the birds).</summary>
+        static Vector2Int BowGrip => new(Mathf.FloorToInt(HuntingStaveX(0f)), BowHeightRows / 2);
 
         static readonly Vector2Int GreatswordGrip = new(13, GripCentre(6 + BladeRows + 2 + 4 + 1, SwordGripRows));
 

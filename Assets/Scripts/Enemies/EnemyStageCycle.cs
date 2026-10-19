@@ -74,20 +74,7 @@ namespace Convergence.Enemies
             if (_sr == null || _stages == null || _enemy == null) return;
 
             int wanted;
-            if (_kind == EnemyKind.Dasher)
-            {
-                // Dasher's phases are discrete states, not a 0..1 ramp - Telegraph is the coil,
-                // Rushing/Combo are one continuous strike (the charge THROUGH to the hits that
-                // follow it, not two separate movements), Evading is the retreat.
-                wanted = _enemy.CurrentDasherPhase switch
-                {
-                    EnemyController.DasherPhase.Telegraph => (int)EnemyStage.Mid,
-                    EnemyController.DasherPhase.Rushing or EnemyController.DasherPhase.Combo => (int)EnemyStage.Full,
-                    EnemyController.DasherPhase.Evading => (int)EnemyStage.Cooling,
-                    _ => (int)EnemyStage.Idle,
-                };
-            }
-            else if (_enemy.Recovering)
+            if (_enemy.Recovering)
             {
                 wanted = (int)EnemyStage.Cooling;
             }

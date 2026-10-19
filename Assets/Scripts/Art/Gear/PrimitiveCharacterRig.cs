@@ -958,6 +958,16 @@ namespace Convergence.Art.Gear
         /// </summary>
         const float ArmBendSign = 1f;
 
+        /// <summary>The far arm's elbow sign seen from BEHIND (its own-shoulder reach - see the
+        /// turned-away branch of the two-handed grip): OUT, past the edge of the back (the user's
+        /// call, 2026-10-14). The front view's sign folded it in across the spine. Judged on
+        /// tinted stills of the turned-away swings.</summary>
+        const float BackViewBendSign = -1f;
+
+        /// <summary>The weapon arm's, seen from behind: out too - the far arm's mirror image, as
+        /// the two shoulders are.</summary>
+        const float BackViewNearBendSign = 1f;
+
         /// <summary>
         /// The figure's own drawing-only shift this frame, in the TORSO's frame: what the near arm
         /// could not reach even fully extended and shoved (an Impale's lunge). Recomputed every
@@ -1201,6 +1211,9 @@ namespace Convergence.Art.Gear
         /// short enough that stopping still reads as letting go.
         /// </summary>
         const float CarryReturnDelay = 0.2f;
+
+        /// <summary>Under this speed the kneel the bow's roll ends in is held (see kneelHeld).</summary>
+        const float KneelHoldSpeed = 0.25f;
 
         /// <summary>Seconds since the last swing or charge ended - see CarryReturnDelay. A plain
         /// float, so a domain reload keeps it. Starts past the delay so a new rig rests carried.</summary>
@@ -1506,6 +1519,7 @@ namespace Convergence.Art.Gear
             Check(ShoulderCarryOrder, nameof(ShoulderCarryOrder));
             Check(FacingAwayOrder, nameof(FacingAwayOrder));
             Check(FacingAwayHeldOrder, nameof(FacingAwayHeldOrder));
+            Check(FacingAwayHeldFrontNear, nameof(FacingAwayHeldFrontNear));
             Check(FacingAwayFrontCarryOrder, nameof(FacingAwayFrontCarryOrder));
             Check(HandsUpOrder, nameof(HandsUpOrder));
             Check(ArmsRaisedOrder, nameof(ArmsRaisedOrder));
@@ -2400,6 +2414,16 @@ namespace Convergence.Art.Gear
         /// </summary>
         public void SetFacingAway(bool away)
         {
+            // A caller's word is a SCRIPTED hold (a door): it wins over the aim-chosen view
+            // (SetAimViews) until it is let go. See the Facing partial.
+            _scriptedAway = away;
+            ApplyFacingAway(away);
+        }
+
+        /// <summary>Show the back or the face-on view - the work behind SetFacingAway, also called
+        /// by the aim-chosen views (FaceAimTurning) and by Apply re-asserting the current one.</summary>
+        void ApplyFacingAway(bool away)
+        {
             bool turned = away != _facingAway;
             _facingAway = away;
             ApplyLayerOrder();
@@ -3181,7 +3205,7 @@ namespace Convergence.Art.Gear
             SetTwoHanded(WeaponIsTwoHanded(loadout));   // recomputes the whole stack
 
             if (_helmHidden) SetHelmHidden(true);
-            if (_facingAway) SetFacingAway(true);
+            if (_facingAway) ApplyFacingAway(true);
             SyncDrapeSide();
             ApplyWeaponVisibility();
 
@@ -3262,6 +3286,12 @@ namespace Convergence.Art.Gear
             sr.enabled = true;
             // Authored against the SHOULDER; a hand layer now hangs from the elbow.
             sr.transform.localPosition = offset - PivotShift(layer);
+            // A BOW is held IN THE FIST of the bow arm (the user's report, 2026-10-17: the bow was
+            // not held by the hand and moved apart from it). Its grip hung from the elbow at the
+            // sword's authored offset - 0.18 up the arm from the fist - so through the draw the bow
+            // turned about the upper arm while the hand sat out at arm's length. The fist is the
+            // string hand's own point (CarryGrip, where the nocked arrow's nock sits).
+            if (layer == RigLayer.Weapon && _bowGrip) sr.transform.localPosition = new Vector3(CarryGrip.x, CarryGrip.y, sr.transform.localPosition.z);
             if (layer == RigLayer.Weapon) _weaponGripRest = sr.transform.localPosition;
             if (layer == RigLayer.Shoulders) _shouldersRest = sr.transform.localPosition;
             if (layer == RigLayer.ShouldersBack) _shouldersBackRest = sr.transform.localPosition;
@@ -3624,6 +3654,70 @@ namespace Convergence.Art.Gear
                 ranked.Remove(part);
                 ranked.Insert(ranked.IndexOf(cap), part);
             }
+
+            var order = new int[ranked.Count];
+            for (int i = 0; i < ranked.Count; i++) order[(int)ranked[i]] = i;
+            return order;
+        }
+
+        /// <summary>
+        /// The turned-away held stack's arms, as they are seen from BEHIND a two-handed grip (the
+        /// user's calls, 2026-10-14): each UPPER arm at the side of the back, over the body and
+        /// capped by its pauldron, the elbow out; the FOREARM going forward under the body to the
+        /// hilt, and UNDER the sword; the HAND on top of the grip. So: forearms, then the weapon,
+        /// then the hands and the ring, all under the body - a grip in front of the chest is
+        /// hidden behind the back, one out to the side shows with the fist closed over it - and
+        /// the upper arms directly over the body's top layer with both pauldrons straight over
+        /// them, everything else (the head, the cape) still above. The table it replaces drew both
+        /// whole arms under everything but OVER the weapon, so the arms crossed the hilt they held
+        /// and nothing showed them leaving the shoulders.
+        /// </summary>
+        static int[] TurnedAwayGrip(int[] table, bool frontVisible)
+        {
+            var ranked = new List<RigLayer>();
+            for (int i = 0; i < table.Length; i++) ranked.Add((RigLayer)i);
+            ranked.Sort((a, b) => table[(int)a].CompareTo(table[(int)b]));
+
+            var forearms = new[] { RigLayer.ArmBackLower, RigLayer.GlovesBackLower,
+                                   RigLayer.ArmFrontLower, RigLayer.GlovesFrontLower };
+            var hands = new[] { RigLayer.ArmBackHand, RigLayer.GlovesBackHand,
+                                RigLayer.ArmFrontHand, RigLayer.GlovesFrontHand, RigLayer.Ring };
+            // Only the arm on the HILT's side is in sight from its shoulder; the other reaches across
+            // in front of the chest, and from behind that is all under the body (with the
+            // forearms) - drawn over it, it crossed the middle of the back. Chosen per frame off the
+            // grip's side (SetAwayGripSide).
+            var uppers = frontVisible ? new[] { RigLayer.ArmFront, RigLayer.GlovesFront }
+                                      : new[] { RigLayer.ArmBack, RigLayer.GlovesBack };
+            var hiddenUppers = frontVisible ? new[] { RigLayer.ArmBack, RigLayer.GlovesBack }
+                                            : new[] { RigLayer.ArmFront, RigLayer.GlovesFront };
+            var pauldrons = new[] { RigLayer.ShouldersBack, RigLayer.Shoulders };
+            var body = new[] { RigLayer.Torso, RigLayer.TorsoArmor, RigLayer.BackOver,
+                               RigLayer.Tasset, RigLayer.Belt };
+
+            // Each group keeps its own internal order (arm before glove, back before front).
+            List<RigLayer> Take(RigLayer[] group)
+            {
+                var taken = new List<RigLayer>(group);
+                taken.Sort((a, b) => ranked.IndexOf(a).CompareTo(ranked.IndexOf(b)));
+                foreach (var l in taken) ranked.Remove(l);
+                return taken;
+            }
+            var hu = Take(hiddenUppers);
+            var f = Take(forearms);
+            ranked.Remove(RigLayer.Weapon);
+            var h = Take(hands);
+            var u = Take(uppers);
+            var p = Take(pauldrons);
+
+            ranked.InsertRange(0, h);
+            ranked.Insert(0, RigLayer.Weapon);
+            ranked.InsertRange(0, f);
+            ranked.InsertRange(0, hu);
+
+            int top = -1;
+            foreach (var l in body) top = Mathf.Max(top, ranked.IndexOf(l));
+            ranked.InsertRange(top + 1, p);
+            ranked.InsertRange(top + 1, u);
 
             var order = new int[ranked.Count];
             for (int i = 0; i < ranked.Count; i++) order[(int)ranked[i]] = i;
@@ -4188,7 +4282,7 @@ namespace Convergence.Art.Gear
         /// The pauldron sinks back beside its far twin, since nothing rests on it here. Every other
         /// layer keeps its relative order from FacingAwayOrder.
         /// </summary>
-        static readonly int[] FacingAwayHeldOrder = TrinketBehindBody(PauldronsCapArms(ManeOverCape(DrapeOverCape(NeckUnderCape(WithForearms(new[]
+        static readonly int[] FacingAwayHeldBase = TrinketBehindBody(PauldronsCapArms(ManeOverCape(DrapeOverCape(NeckUnderCape(WithForearms(new[]
         {
             24, // Back         - still the outermost garment
             6,  // HairBack
@@ -4220,6 +4314,13 @@ namespace Convergence.Art.Gear
             28, // Hood         - over HeadBack: the cowl's back view covers the skull stand-in
             0,  // Weapon       - under everything; only what clears the body shows
         }))))));
+
+        /// <summary>The turned-away held stack with the FAR arm (arm.back, on +X) the visible
+        /// one - the hilt on its side. See TurnedAwayGrip.</summary>
+        static readonly int[] FacingAwayHeldOrder = TurnedAwayGrip(FacingAwayHeldBase, frontVisible: false);
+
+        /// <summary>...and with the WEAPON arm (arm.front, on -X) the visible one.</summary>
+        static readonly int[] FacingAwayHeldFrontNear = TurnedAwayGrip(FacingAwayHeldBase, frontVisible: true);
 
         static bool WeaponIsTwoHanded(Loadout loadout)
         {
@@ -4264,6 +4365,24 @@ namespace Convergence.Art.Gear
 
         /// <summary>Whether HandsUpOrder is applied. A plain bool, so a domain reload keeps it.</summary>
         bool _handsUp;
+
+        /// <summary>Turned away and holding: whether the hilt is on the WEAPON arm's side (-X), so
+        /// that arm is the one in sight from its shoulder (FacingAwayHeldFrontNear). A plain bool.</summary>
+        bool _awayGripFrontNear;
+
+        /// <summary>How far past the centre line the grip must travel to hand the visible arm to the
+        /// other side, rig units - either way, so a hilt crossing the middle can't flicker it.</summary>
+        const float AwayGripSideBand = 0.02f;
+
+        void SetAwayGripSide(float gripX)
+        {
+            bool frontNear = gripX < -AwayGripSideBand ? true
+                           : gripX > AwayGripSideBand ? false
+                           : _awayGripFrontNear;
+            if (frontNear == _awayGripFrontNear) return;
+            _awayGripFrontNear = frontNear;
+            if (_facingAway) ApplyLayerOrder();
+        }
 
         /// <summary>
         /// How far above / below the shoulder line the near fist must be to lift / drop the
@@ -4357,7 +4476,8 @@ namespace Convergence.Art.Gear
             // Facing-away wins over every combat stack. It is a scripted, non-combat state -
             // nothing plays a swing while it is on - so there is no case where it needs to
             // agree with which shoulder a two-hander is drawn from.
-            int[] table = _facingAway    ? (!_shoulderCarry ? FacingAwayHeldOrder
+            int[] table = _facingAway    ? (!_shoulderCarry ? (_awayGripFrontNear ? FacingAwayHeldFrontNear
+                                                                                  : FacingAwayHeldOrder)
                                            : _carryInBack  ? FacingAwayOrder
                                                            : FacingAwayFrontCarryOrder)
                         : _weaponBehind   ? WeaponBehindOrder
@@ -4377,6 +4497,10 @@ namespace Convergence.Art.Gear
             // Two hands each holding something in front of the body: the disc pair's stack.
             if (_twinReach && !_facingAway) table = DualWieldOrder;
 
+            // A combo crossing the off hand over in front (ComboKey.OffFront - Cross Cut's X): the
+            // arms trade depths, and SetWeaponSplit trades the discs.
+            if (OffInFront) table = SwapArms(table);
+
             // A shroud worn as the outermost garment (GearItem.ShroudOverCloak). Under a hood it
             // goes directly over the HOOD in either facing - and so over the chin, or the back of
             // the head, where the cowl would cover them; the weapon and the gripping hands stay
@@ -4392,11 +4516,21 @@ namespace Convergence.Art.Gear
                 if (!_layers.TryGetValue(layer, out var sr) || sr == null) continue;
                 sr.sortingOrder = BaseSortingOrder + table[(int)layer];
             }
+            _weaponRank = table[(int)RigLayer.Weapon];
+            OrderQuiver(table);   // the bow's quiver: behind the figure, or over the cape turned away
 
             if (_split) SetWeaponSplit(true);   // re-derives the off-hand's order from the new base
         }
 
         bool _dualWield;
+
+        /// <summary>The weapon layer's rank in the stack last applied - the off disc takes it
+        /// while it is drawn in front (OffInFront).</summary>
+        int _weaponRank = (int)RigLayer.Weapon;
+
+        /// <summary>The split pair with the OFF hand crossed over in front of the body - the arms
+        /// and discs have traded depths (WeaponTrail restarts a disc's arc when this flips).</summary>
+        public bool OffInFront => _comboOffFront && _split && !_facingAway;
 
         /// <summary>A one-handed weapon whose class wants the hand painted over it.</summary>
         static bool WeaponIsDualWield(Loadout loadout)
@@ -4553,6 +4687,7 @@ namespace Convergence.Art.Gear
             if (_stone) return;     // a statue holds the pose it was caught in
             if (_twinReach) ApplyTwinReach();
             else if (_reaching) ApplyReach();
+            PlaceNockedArrow();   // the bow's arrow in the string hand, on the posed arm
         }
 
         /// <summary>
@@ -4592,6 +4727,46 @@ namespace Convergence.Art.Gear
         {
             SolveArmTo(_armFront, _elbowFront, _armFrontRest, _twinFront, back: false);
             SolveArmTo(_armBack, _elbowBack, _armBackRest, _twinBack, back: true);
+        }
+
+        /// <summary>How much of the off arm the off fist's reach owns, eased; and the last target
+        /// it reached for (root frame), held through the ease out.</summary>
+        float _offReach;
+        Vector2 _offReachAt;
+
+        /// <summary>
+        /// The off arm reaching the live combo's OFF FIST (ComboKey.Off - a disc's second hand),
+        /// blended over the straight shoulder pose already written: the arm's turn and position
+        /// and the returned ELBOW angle. Held through the follow-through pause like the rest of
+        /// the swing's pose, then eased back out.
+        /// </summary>
+        float OffFistReach(float elbow, float poseAim, float dt)
+        {
+            Vector2? off = null;
+            var c = ComboOf(_motion);
+            bool swinging = _attackTimer > 0f && _attackHold <= 0f;
+            bool holding = _sinceSwing < CarryReturnDelay;
+            if (c != null && (swinging || holding))
+                off = ComboOffFist(c, swinging ? SwingKNow : 1f, _attackLength);
+            else if (c != null && _attackHold > 0f)
+                off = ComboOffFist(c, 0f, _attackLength);
+
+            if (off.HasValue && _armBack != null && _armBack.parent != null)
+            {
+                Vector2 shoulder = transform.InverseTransformPoint(_armBack.parent.TransformPoint(_armBackRest));
+                _offReachAt = shoulder + Rotate(off.Value, poseAim);
+            }
+            float target = off.HasValue ? 1f : 0f;
+            _offReach = Mathf.MoveTowards(_offReach, target, dt / Mathf.Max(0.01f, EntryBlendSeconds));
+            if (_offReach <= 0.001f || _elbowBack == null) return elbow;
+
+            var straightRot = _armBack.localRotation;
+            var straightPos = _armBack.localPosition;
+            SolveArmTo(_armBack, _elbowBack, _armBackRest, _offReachAt, back: true);
+            float solvedElbow = Mathf.DeltaAngle(0f, _elbowBack.localEulerAngles.z);
+            _armBack.localRotation = Quaternion.Slerp(straightRot, _armBack.localRotation, _offReach);
+            _armBack.localPosition = Vector3.Lerp(straightPos, _armBack.localPosition, _offReach);
+            return Mathf.Lerp(elbow, solvedElbow, _offReach);
         }
 
         void SolveArmTo(Transform arm, Transform elbow, Vector3 rest, Vector2 rootTarget, bool back)
@@ -4838,7 +5013,9 @@ namespace Convergence.Art.Gear
             if (!TryGetWeaponVisual(out sprite, out tint, out size)) return false;
             // The order the hands empty (ApplyWeaponVisibility): the main hand's disc goes first,
             // the off hand's second, the rest alternate.
-            int which = index >= 0 ? index : _weaponHides;
+            int which = index >= 0 ? index
+                      : _weaponHides == 0 ? (_offNext ? 1 : 0)
+                      : _offHiddenFirst ? 0 : 1;
             if (which % 2 == 1) sprite = OffhandSpriteFor(sprite);
             return true;
         }
@@ -4923,13 +5100,35 @@ namespace Convergence.Art.Gear
             // recorded "it was already invisible", so neither of them could restore it and the
             // character stayed empty-handed for the rest of the run. A disc volley throws five at
             // once, so that is not an edge case - it is the common path.
-            if (!visible) _weaponHides++;
-            else _weaponHides = Mathf.Max(0, _weaponHides - 1);
+            if (!visible)
+            {
+                // The first hide takes the hand asked for (ThrowFromOffhandNext); a second takes
+                // the other.
+                if (_weaponHides == 0) _offHiddenFirst = _offNext;
+                _offNext = false;
+                _weaponHides++;
+            }
+            else
+            {
+                // Discs come home in the order they left, so when one of two returns, the hand
+                // still empty is the one that threw SECOND.
+                if (_weaponHides == 2) _offHiddenFirst = !_offHiddenFirst;
+                _weaponHides = Mathf.Max(0, _weaponHides - 1);
+                if (_weaponHides == 0) _offHiddenFirst = false;
+            }
 
             ApplyWeaponVisibility();
         }
 
         int _weaponHides;
+
+        /// <summary>With ONE hide, it is the off hand that is empty (see SetWeaponVisible).</summary>
+        bool _offHiddenFirst;
+
+        /// <summary>The next hide is the off hand's - ThrowFromOffhandNext, one-shot.</summary>
+        bool _offNext;
+
+        public void ThrowFromOffhandNext() => _offNext = true;
 
         /// <summary>A standing preference, orthogonal to the transient hides above - see
         /// ICharacterRig.SetWeaponHidden.</summary>
@@ -4957,9 +5156,11 @@ namespace Convergence.Art.Gear
         void ApplyWeaponVisibility()
         {
             if (!_layers.TryGetValue(RigLayer.Weapon, out var sr) || sr == null) return;
-            bool shown = !_weaponHiddenPref && _weaponHides == 0;
+            bool oneOffFirst = _weaponHides == 1 && _offHiddenFirst && _split;
+            bool shown = !_weaponHiddenPref && (_weaponHides == 0 || oneOffFirst);
             sr.enabled = shown;
-            if (_split && _offhand != null) _offhand.enabled = !_weaponHiddenPref && _weaponHides <= 1;
+            if (_split && _offhand != null)
+                _offhand.enabled = !_weaponHiddenPref && (_weaponHides == 0 || (_weaponHides == 1 && !_offHiddenFirst));
         }
 
         // ---------------------------------------------------------------- off-hand (dual wield)
@@ -5076,9 +5277,19 @@ namespace Convergence.Art.Gear
             // that gap, still clear of the previous depth step, whose top is base-11.
             off.sortingOrder = BaseSortingOrder - 1;
 
-            // One hide is a single disc in flight - the off hand still has its own, which is
-            // exactly what the player just did. Only a volley empties both hands.
-            off.enabled = _weaponHides <= 1;
+            // Crossed over in front (OffInFront): the two discs trade places - the off one takes
+            // the main's rank, under its fist, and the main goes behind the body with its arm.
+            if (OffInFront)
+            {
+                off.sortingOrder = BaseSortingOrder + _weaponRank;
+                main.sortingOrder = BaseSortingOrder - 1;
+            }
+
+            // Which hand is empty is ApplyWeaponVisibility's one rule - it knows which hand a
+            // single disc in flight left from. This used to show the off disc whenever one was
+            // out, so any re-sort mid-throw (a turn through the back view) put an off hand's
+            // thrown disc back in its hand while it was still flying.
+            ApplyWeaponVisibility();
         }
 
         // ---------------------------------------------------------------- bow's hip vials
@@ -5250,7 +5461,19 @@ namespace Convergence.Art.Gear
         float HopAt(float k, float seconds)
         {
             if (_swingHop <= 0f) return 0f;
-            ChopPhases(seconds, out float cockEnd, out float strikeEnd);
+            // The bow's recoil hops on its own arc: off at once, down by RecoilAirEnd.
+            if (_motion == AttackMotion.FlipDraw) return FlipLift(k);
+            if (_motion == AttackMotion.BowRecoilHop)
+            {
+                float a = Mathf.Clamp01(k / RecoilAirEnd);
+                return k >= RecoilAirEnd ? 0f : _swingHop * 4f * a * (1f - a);
+            }
+            // A combo motion hops on its OWN beats (the disc throws' jumps: the cock is the jump),
+            // anything else on the Chop's.
+            float cockEnd, strikeEnd;
+            var combo = ComboOf(_motion);
+            if (combo != null) ComboPhases(combo, seconds, out cockEnd, out strikeEnd);
+            else ChopPhases(seconds, out cockEnd, out strikeEnd);
             if (k >= strikeEnd) return 0f;
 
             if (k < cockEnd)
@@ -5278,6 +5501,7 @@ namespace Convergence.Art.Gear
             _entryBackSwing = _poseBackSwing;
             _entryBodySpin = _poseBodySpin;
             _entryArmReach = _poseArmReach;
+            _entryBody = _poseBody;
         }
 
         public void PlayAttack(AttackMotion motion, float duration, bool alt)
@@ -5289,6 +5513,14 @@ namespace Convergence.Art.Gear
             _alt = alt;
             _attackLength = AttackMotions.SwingSeconds(duration);
             _attackTimer = _attackLength;
+            // A draw holds at full until the arrow leaves (LooseArrow), never past a backstop.
+            _awaitLoose = IsBowDraw(motion);
+            _flipLooseK = -1f;
+            _looseBackstop = _attackLength + LooseBackstopSeconds;
+            // The hit has just gone this way; the drawn strike follows it, staged from the side or
+            // centred on a steep aim (the Facing partial).
+            CaptureStrikeAim();
+            DecideStaging(motion, alt, _attackLength);
             // Counter-clockwise already leads with the authored edge; anything else turns it over.
             if (_singleEdged) _edgeTurned = SweepSign(motion, alt, _attackLength) <= 0f;
 
@@ -5303,6 +5535,7 @@ namespace Convergence.Art.Gear
             _entryBackSwing = _poseBackSwing;
             _entryBodySpin = _poseBodySpin;
             _entryArmReach = _poseArmReach;
+            _entryBody = _poseBody;
 
             // Out of the CARRY, though, the arm is not where _poseArmSwing says - the grip blend
             // owns it, and that blend IS the travel into the swing. Blending in from the walk's
@@ -5440,6 +5673,10 @@ namespace Convergence.Art.Gear
             // the feet: they stay where the stride puts them and the KNEES take up whatever the
             // hips did (PoseLegs) - which is what makes a dip read as weight rather than as the
             // whole figure sinking into the floor.
+            //
+            // Placed AFTER the pose branch (PlaceBody), which adds a swing's crouch and stance:
+            // this is only the walk's share of the height.
+            float gaitHipsY;
             {
                 // The legs take the load whichever way the chest is thrown, so the plant reads off
                 // the lean's MAGNITUDE - a hard stop and a hard start compress the same way.
@@ -5448,9 +5685,7 @@ namespace Convergence.Art.Gear
                 // A landing bends the knees, so the hips drop with the rest of it.
                 dip += _landDepth;
 
-                float hipsY = HipsRest.y + body - dip;
-                if (_hips) _hips.localPosition = new Vector3(HipsRest.x, hipsY, 0f);
-                PoseLegs(cycle, hipsY);
+                gaitHipsY = HipsRest.y + body - dip;
             }
 
             // The arms swing against the legs, a beat behind them. Attack overrides both.
@@ -5492,6 +5727,8 @@ namespace Convergence.Art.Gear
                 _poseBackSwing = ChargeArmSwing - shake;
                 _poseBodySpin = Mathf.Sin(Time.time * 26f) * t * 2.5f;
                 _poseArmReach = ReachFor(ChargeFist, ChargeArmSwing + shake);
+                // The body sinks into a loaded stance as the charge fills - see the Body partial.
+                _poseBody = HoldLoad * Mathf.SmoothStep(0f, 1f, t);
 
                 float into = Mathf.Clamp01((_chargeLength - _chargeTimer) / EntryBlendSeconds);
                 if (into < 1f)
@@ -5501,6 +5738,7 @@ namespace Convergence.Art.Gear
                     _poseBackSwing = Mathf.LerpAngle(_entryBackSwing, _poseBackSwing, e);
                     _poseBodySpin = Mathf.Lerp(_entryBodySpin, _poseBodySpin, e);
                     _poseArmReach = Vector3.Lerp(_entryArmReach, _poseArmReach, e);
+                    _poseBody = SwingBody.Lerp(_entryBody, _poseBody, e);
                 }
                 posed = true;
             }
@@ -5519,7 +5757,15 @@ namespace Convergence.Art.Gear
                 }
                 float swingArm = 0f, swingBack = 0f, swingBody = 0f;
                 var swingReach = Vector3.zero;
+                _drawFromQuiver = HasQuiver;   // Animate is static: this rig's draw reaches a quiver
                 Animate(_motion, k, _alt, _facingLeft, _attackLength, ref swingArm, ref swingBack, ref swingBody, ref swingReach);
+                _drawFromQuiver = false;
+                // A turning rig's Spin turns about the body's axis instead of rolling (the Facing
+                // partial's SpinTurning) - the motion's roll is dropped.
+                if (SpinIsTurn) swingBody = 0f;
+                // The legs, hips and waist on the same clock - see the Body partial.
+                var swingWhole = BodyFor(_motion, k, _attackLength);
+                var bodyZero = swingWhole;   // before the entry blend - a hold's target reads it
 
                 // A single-edged blade's edge FOLLOWS the motion: whichever way the blade is about
                 // to sweep decides it, so a swing that reverses (the Flurry's cut down and cut up)
@@ -5551,6 +5797,7 @@ namespace Convergence.Art.Gear
                     swingBack = Mathf.LerpAngle(_entryBackSwing, swingBack, e);
                     swingBody = Mathf.Lerp(_entryBodySpin, swingBody, e);
                     swingReach = Vector3.Lerp(_entryArmReach, swingReach, e);
+                    swingWhole = SwingBody.Lerp(_entryBody, swingWhole, e);
                 }
 
                 // A held wind-up trembles, harder as the strike nears - the charge's own tell at a
@@ -5563,12 +5810,19 @@ namespace Convergence.Art.Gear
                     float shake = Mathf.Sin(Time.time * 34f) * (0.8f + t * 2.6f);
                     swingArm += shake;
                     swingBack -= shake;
+                    // ...and the body sinks into a loaded stance as the bar fills, so the hold is
+                    // a coil rather than a figure standing still with its arms up. It eases there
+                    // from wherever the body WAS over the whole hold - snapping onto the first
+                    // frame in the 0.06 s entry blend and then sinking straightened a body coming
+                    // out of a crouch and dropped it again (Wanderblade out of Wind, 2026-10-14).
+                    swingWhole = SwingBody.Lerp(_entryBody, bodyZero + HoldLoad, Mathf.SmoothStep(0f, 1f, t));
                 }
 
                 _poseArmSwing = swingArm;
                 _poseBackSwing = swingBack;
                 _poseBodySpin = swingBody;
                 _poseArmReach = swingReach;
+                _poseBody = swingWhole;
                 _hopHeight = HopAt(k, _attackLength);
 
                 // The alt-swing starts with the blade on the far side of the body and CROSSES to
@@ -5579,7 +5833,18 @@ namespace Convergence.Art.Gear
                 // Set ChopCrossToFront above 1 to keep it behind for the entire swing instead.
                 wantWeaponBehind = _alt && _motion == AttackMotion.Chop &&
                                    ChopProgress(k, _attackLength) < ChopCrossToFront;
+                // A dimensional basic says when its blade is behind the body (the Combos partial).
+                TickComboDimensions(_attackHold <= 0f, k, dt);
+                if (_comboBehind) wantWeaponBehind = true;
                 posed = true;
+            }
+
+            // Outside a swing a dimensional basic's turn and depth hold through the follow-through
+            // pause and ease home after it (the Combos partial).
+            if (_attackTimer <= 0f)
+            {
+                TickComboDimensions(false, 1f, dt);
+                if (_comboBehind) wantWeaponBehind = true;
             }
 
             // The rest carry lays the blade across the character's BACK, so it passes behind the
@@ -5618,7 +5883,11 @@ namespace Convergence.Art.Gear
                 _poseBackSwing = Mathf.LerpAngle(_poseBackSwing, idleBackSwing, ease);
                 _poseBodySpin = Mathf.Lerp(_poseBodySpin, 0f, ease);
                 _poseArmReach = Vector3.Lerp(_poseArmReach, Vector3.zero, ease);
+                _poseBody = SwingBody.Lerp(_poseBody, default, ease);
             }
+
+            // The hips, legs and crouch, now that this frame's body is known.
+            PlaceBody(cycle, gaitHipsY, dt);
 
             // Grounded motions ignore the aim entirely; everything else rides on it as before.
             float suppressTarget = _attackTimer > 0f && IgnoresAim(_motion) ? 1f : 0f;
@@ -5631,15 +5900,24 @@ namespace Convergence.Art.Gear
             float bodySpin = _poseBodySpin;
             var armReach = _poseArmReach;
 
+            // The motion's turn goes in at the WAIST, so the feet stay planted (see the Body
+            // partial); it used to turn the whole figure about its feet. Only a real revolution
+            // still turns the root - a Spin, whose relax unwinds the turn on the root as well.
+            bool revolves = TopDown || DevArmsOnly || (_motion == AttackMotion.Spin && !SpinIsTurn)
+                            || Mathf.Abs(bodySpin) > 90f;
+            float waistTurn = revolves ? 0f : bodySpin;
+
             // FaceAim first: the arms need this frame's residual, not last frame's, and the cape
             // needs this frame's mirror to know which way "behind" is.
             FaceAim();
-            ApplyWeightShift(wasFacingLeft);
+            ApplyWeightShift(wasFacingLeft, waistTurn);
             AnimateCape(dt, speed);
             AnimateHipPieces(dt);
             AnimateScarf(dt, speed);
             AnimateVials(dt);
+            AnimateQuiver();
             AnimateLegCloth(dt, speed);
+            TickGroundPierce();
 
             // The rest carry is only ever a TWO-HANDED weapon's idle: a one-handed weapon already
             // hangs from one hand, and the bow's two hands do genuinely different jobs. A live
@@ -5647,7 +5925,16 @@ namespace Convergence.Art.Gear
             // to hit its real angles (see the pose fields' own note), so the grip must already be
             // closed by the time the blade moves.
             bool swinging = _attackTimer > 0f || _chargeTimer > 0f;
-            _sinceSwing = swinging ? 0f : _sinceSwing + dt;
+            // The bow's roll to the KNEEL holds its end - down on the knee, bow ready - until the art
+            // that starts there, or until the player walks off: relaxing after the usual delay
+            // began to stand the body up a frame or two before the kneeling draw took it back down
+            // (the user's report, 2026-10-17: jitter between the spin and the art).
+            bool kneelHeld = !swinging && (_motion == AttackMotion.BowKneelRoll || _motion == AttackMotion.BowRecoilHop
+                                           || _motion == AttackMotion.LobDraw || _motion == AttackMotion.CantedDraw
+                                           || _motion == AttackMotion.TwinDraw
+                                           || (_motion == AttackMotion.KneelDraw && _awaitLoose))
+                             && speed < KneelHoldSpeed;
+            _sinceSwing = swinging || kneelHeld ? 0f : _sinceSwing + dt;
             bool wantShouldered = _gripShouldered && HeldTwoHanded && !HeldBow
                                   && !swinging && _sinceSwing >= CarryReturnDelay && _present <= 0f;
             float gripSharpness = _attackTimer > 0f || _chargeTimer > 0f
@@ -5710,17 +5997,26 @@ namespace Convergence.Art.Gear
             // angle. Every arc, hand-off and lead-in still lands where it was tuned to; only the
             // arms stop tearing off. What even a full arm cannot reach moves the whole figure
             // (_reachShift, drawing-only like the hop) - a lunge is the body going with the blade.
-            float swingFrontA = armSwing + aim, swingFrontE = 0f, swingWrist = 0f;
+            // The turn the SWING pose takes: the aim's, or a centred swing's (the Facing partial).
+            // Only the swing pose reads it - a hanging arm, the bow and the off disc keep the aim.
+            float poseAim = PoseTurnNow(aim, dt);
+            float swingFrontA = armSwing + poseAim, swingFrontE = 0f, swingWrist = 0f;
             Vector2 frontShove = armReach;
             _reachShift = Vector2.zero;
             if (_armFront && _elbowFront && !HeldBow)
             {
                 Vector2 upper = _elbowFront.localPosition;
                 Vector2 grip = FrontGripPoint;
-                Vector2 target = (Vector2)armReach + Rotate(upper + grip, swingFrontA);   // from rest
-                SolveArmReach(upper, grip, target, ArmBendSign, out swingFrontA, out swingFrontE,
-                              out frontShove, out _reachShift);
-                swingWrist = Mathf.DeltaAngle(swingFrontA + swingFrontE, armSwing + aim);
+                // A turning rig turns the WHOLE pose - the grip's orbit as well as the arm - about
+                // the shoulder (the Facing partial); otherwise only the arm takes the aim.
+                Vector2 target = _aimViews
+                    ? Rotate((Vector2)armReach + Rotate(upper + grip, armSwing), poseAim)
+                    : (Vector2)armReach + Rotate(upper + grip, swingFrontA);   // from rest
+                SolveArmReach(upper, grip, target, _facingAway ? BackViewNearBendSign : ArmBendSign,
+                              out swingFrontA, out swingFrontE, out frontShove, out _reachShift);
+                // Turned away, the arm on the hilt's side is the one in sight (TurnedAwayGrip).
+                if (_facingAway) SetAwayGripSide(_armFrontRest.x + target.x);
+                swingWrist = Mathf.DeltaAngle(swingFrontA + swingFrontE, armSwing + poseAim);
             }
 
             if (_armFront)
@@ -5764,7 +6060,7 @@ namespace Convergence.Art.Gear
                 // is whatever puts it there on top of the arm as drawn. Blending the wrist on its
                 // own let the blade take the long way round between two poses far apart - on the
                 // alt chop's first frame it pointed up where both ends had it pointing down.
-                float blade = Mathf.LerpAngle(armSwing + aim,
+                float blade = Mathf.LerpAngle(armSwing + poseAim,
                     side * (CarryShoulderNow + CarryElbowHeld - CarryWeaponNow), carryBlend);
                 float wrist = carryBlend > 0f && !carryBack && _armFront && _elbowFront && !_bowGrip
                               && _weaponPivot.parent == _elbowFront
@@ -5812,7 +6108,7 @@ namespace Convergence.Art.Gear
                     // centre line, because the arm is 8 long and the shoulders are 12 apart (see
                     // its own note), so letting go is the joint travelling back rather than the
                     // hand rotating off.
-                    float gripAngle = armSwing + GripTrail + aim;
+                    float gripAngle = armSwing + GripTrail + poseAim;
                     float rest = carryBack ? side * CarryShoulderNow
                                            : backSwing + ShoulderOffArmDegrees + aim * ShoulderAimFraction;
 
@@ -5829,8 +6125,11 @@ namespace Convergence.Art.Gear
                         // nothing for the frames a swing takes to close the grip.
                         Vector2 upper = _elbowBack.localPosition;
                         Vector2 reachTo = upper + CarryGrip;
-                        Vector2 onHilt = ArmBackGripRest + (Vector2)armReach
-                                         + Rotate(reachTo, gripAngle) - _reachShift;
+                        Vector2 onHilt = _aimViews
+                            // The off fist turns with the whole pose, about the NEAR shoulder.
+                            ? (Vector2)_armFrontRest + Rotate(ArmBackGripRest - (Vector2)_armFrontRest
+                                  + (Vector2)armReach + Rotate(reachTo, armSwing + GripTrail), poseAim) - _reachShift
+                            : ArmBackGripRest + (Vector2)armReach + Rotate(reachTo, gripAngle) - _reachShift;
                         Vector2 hanging = (Vector2)_armBackRest + Rotate(reachTo, rest);
                         // Squared, so the hand is on the hilt within a couple of frames of a swing
                         // starting - on the way it crosses in front of the face.
@@ -5841,6 +6140,28 @@ namespace Convergence.Art.Gear
                         _armBack.localRotation = Quaternion.Euler(0, 0, reachAngle);
                         _armBack.localPosition = shoulderAt + shove * (1f - letGo);
                     }
+                    else if (_elbowBack && carryBack)
+                    {
+                        // Turned away, the far arm is in plain sight from its SHOULDER to its fist,
+                        // so it reaches the hilt from its own shoulder joint with the elbow bent -
+                        // never from ArmBackGripRest, the shoulder relocated past the centre line
+                        // for the front view, which from behind is the SPINE (the user's report,
+                        // 2026-10-14: "the hand anchored to the grip but not the upper arm to the
+                        // shoulder"). It used to swing there as a straight stick. Blended into the
+                        // carry as before; the carry's bent elbow stays a pose of its own - reached
+                        // for, it could come back as the mirrored solution.
+                        Vector2 upper = _elbowBack.localPosition;
+                        Vector2 reachTo = upper + CarryGrip;
+                        Vector2 onHilt = _aimViews
+                            ? (Vector2)_armFrontRest + Rotate(ArmBackGripRest - (Vector2)_armFrontRest
+                                  + (Vector2)armReach + Rotate(reachTo, armSwing + GripTrail), poseAim) - _reachShift
+                            : ArmBackGripRest + (Vector2)armReach + Rotate(reachTo, gripAngle) - _reachShift;
+                        SolveArmReach(upper, CarryGrip, onHilt - (Vector2)_armBackRest, BackViewBendSign,
+                                      out float reachAngle, out float reachElbow, out var shove, out _);
+                        _armBack.localRotation = Quaternion.Euler(0, 0, Mathf.LerpAngle(reachAngle, rest, _gripBlend));
+                        elbow = Mathf.Lerp(reachElbow, side * CarryElbowHeld, _gripBlend);
+                        _armBack.localPosition = (Vector3)((Vector2)_armBackRest + shove * (1f - _gripBlend));
+                    }
                     else
                     {
                         // Turned away the far arm CARRIES, and the carry's bent elbow is a pose
@@ -5848,8 +6169,11 @@ namespace Convergence.Art.Gear
                         if (carryBack) elbow = side * CarryElbowHeld * _gripBlend;
                         _armBack.localRotation = Quaternion.Euler(
                             0, 0, Mathf.LerpAngle(gripAngle, rest, _gripBlend));
-                        _armBack.localPosition = Vector3.Lerp(
-                            (Vector3)ArmBackGripRest + armReach, _armBackRest, _gripBlend);
+                        Vector2 heldAt = _aimViews
+                            ? (Vector2)_armFrontRest + Rotate(ArmBackGripRest - (Vector2)_armFrontRest
+                                                              + (Vector2)armReach, poseAim)
+                            : ArmBackGripRest + (Vector2)armReach;
+                        _armBack.localPosition = Vector3.Lerp((Vector3)heldAt, _armBackRest, _gripBlend);
                     }
                 }
                 else
@@ -5863,6 +6187,11 @@ namespace Convergence.Art.Gear
                                                   SplitOffArmDegreesPerSecond * Time.unscaledDeltaTime);
                     _armBack.localRotation = Quaternion.Euler(0, 0, backSwing + aim * 0.4f + _offSplay);
                     _armBack.localPosition = _armBackRest;
+
+                    // A keyframed motion that places the OFF FIST (ComboKey.Off) bends this arm to
+                    // it with the twin reach's two-bone solve, as the near arm reaches its grip -
+                    // eased in and out so the hand leaves and rejoins the splayed carry smoothly.
+                    elbow = OffFistReach(elbow, poseAim, dt);
 
                     // ...and the disc turned back by the same amount, so it stands upright like
                     // the near one rather than tilting with the arm.
@@ -5882,10 +6211,16 @@ namespace Convergence.Art.Gear
             FollowPauldron(RigLayer.ShouldersBack, _shouldersBackRest, carryBack, side, carryBlend);
             SyncDrapeSide();
 
-            // In top-down the root carries the facing; in 3/4 it only carries a spin finisher.
-            float rootZ = Mathf.Abs(bodySpin) > 0.01f
-                ? (TopDown ? _facingYaw + bodySpin : bodySpin)
+            // In top-down the root carries the facing; in 3/4 it only carries a spin finisher -
+            // every other motion's turn is at the waist (waistTurn above).
+            float rootSpin = revolves ? bodySpin : 0f;
+            float rootZ = Mathf.Abs(rootSpin) > 0.01f
+                ? (TopDown ? _facingYaw + rootSpin : rootSpin)
                 : (TopDown ? _facingYaw : 0f);
+            // Disengage's backflip turns the whole figure about its middle, head first AWAY from
+            // the facing (the mirror's sign, so a figure facing left flips the other way).
+            if (_motion == AttackMotion.FlipDraw && _attackTimer > 0f)
+                rootZ += FlipDegrees(SwingKNow) * Mathf.Sign(transform.localScale.x);
             transform.localRotation = Quaternion.Euler(0, 0, rootZ);
 
             // The rig root sits at the player's origin, so these offsets are the only thing
@@ -5909,6 +6244,16 @@ namespace Convergence.Art.Gear
                 transform.localPosition += new Vector3(
                     Mathf.Sign(transform.localScale.x) * _reachShift.x * (1f - carryBlend) * _visualScale,
                     0f, 0f);
+
+            // The swing's step into the strike - drawing only, like the reach shift (the user's
+            // call): the player's own transform, hitbox and shadow stay put. See the Body partial.
+            float drawnStep = BodyStepNow;
+            if (Mathf.Abs(drawnStep) > 1e-5f)
+            {
+                var along = StepDirection * drawnStep;   // turned up or down with the aim
+                transform.localPosition += new Vector3(
+                    Mathf.Sign(transform.localScale.x) * along.x * _visualScale, along.y * _visualScale, 0f);
+            }
 
             if (_shadow != null)
             {
@@ -6936,6 +7281,23 @@ namespace Convergence.Art.Gear
                     backSwing = Mathf.Lerp(0f, straight - 13f, turn);   // off hand trails on the hilt
                     break;
 
+                case AttackMotion.Cast:
+                {
+                    // Wanderblade's cast: the Wind lead-in's end, whipped into Throw's release.
+                    // The start is READ off Wind rather than copied, so the two can never drift
+                    // apart: the hand-off (and the gather that holds this first frame) is exact.
+                    float wArm = 0f, wBack = 0f, wBody = 0f;
+                    var wReach = Vector3.zero;
+                    Animate(AttackMotion.Wind, 1f, alt, mirrored, seconds, ref wArm, ref wBack, ref wBody, ref wReach);
+                    float whip = Mathf.Min(1f, k * 1.6f);
+                    float s = Mathf.SmoothStep(0f, 1f, whip);
+                    armSwing = Mathf.Lerp(wArm, 10f, s);
+                    armReach = Vector3.Lerp(wReach, new Vector3(0.26f, 0f, 0f), whip);
+                    backSwing = Mathf.Lerp(wBack, -20f, ease);
+                    bodySpin = Mathf.Lerp(wBody, 0f, s) + Mathf.Sin(k * Mathf.PI) * -10f;
+                    break;
+                }
+
                 case AttackMotion.Throw:
                     // Whip from behind the ear and snap straight, ending with the arm extended:
                     // the release has to land at the moment the blade appears in the world.
@@ -6945,6 +7307,50 @@ namespace Convergence.Art.Gear
                     bodySpin = Mathf.Sin(k * Mathf.PI) * -10f;
                     break;
 
+                case AttackMotion.BowKneelRoll:
+                {
+                    // The turn itself is the aim's (FaceAimTurning -> TurnBy): here only the hands.
+                    // The bow comes down across the body through the spin and up again to the
+                    // ready as the knee goes down; the string hand stays by the string.
+                    float spin01 = Mathf.Clamp01(k / BowRollTurnEnd);
+                    float dip = Mathf.Sin(spin01 * Mathf.PI);
+                    backSwing = Mathf.Lerp(30f, BowKneelReady, Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((k - 0.45f) / 0.55f)))
+                                - 18f * dip;
+                    armSwing = Mathf.Lerp(-10f, -30f, Mathf.SmoothStep(0f, 1f, k));
+                    armReach = Vector3.zero;
+                    break;
+                }
+
+                case AttackMotion.BowRecoilHop:
+                {
+                    // Back off the ground with the bow coming in to the chest; landing, it is held
+                    // pulled in, low and close, the string hand on the string.
+                    float in01 = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(k / 0.5f));
+                    backSwing = Mathf.Lerp(40f, BowRecoilIn, in01);
+                    armSwing = Mathf.Lerp(-10f, -25f, in01);
+                    armReach = Vector3.zero;
+                    break;
+                }
+
+                case AttackMotion.FlipDraw:
+                    // The draw on the flip's clock - nocked through the turn, full at the top,
+                    // loosed there (Tuning.Disengage.LooseAt), held through the fall.
+                    Animate(AttackMotion.Draw, Mathf.Min(1f, k / Core.Tuning.Disengage.LooseAt), alt, mirrored, seconds,
+                            ref armSwing, ref backSwing, ref bodySpin, ref armReach);
+                    break;
+
+                case AttackMotion.SnapDraw:
+                    // The draw on the snap's faster clock - nocked, drawn and loosed early, held.
+                    Animate(AttackMotion.Draw, Mathf.Min(1f, k / Core.Tuning.Bow.SnapRelease), alt, mirrored, seconds,
+                            ref armSwing, ref backSwing, ref bodySpin, ref armReach);
+                    break;
+
+                case AttackMotion.TwinDraw:
+                case AttackMotion.CantedDraw:
+                case AttackMotion.LobDraw:
+                case AttackMotion.HighDraw:
+                case AttackMotion.RecoilDraw:
+                case AttackMotion.KneelDraw:
                 case AttackMotion.Draw:
                 {
                     // Beat one: a dip down to the belt for a vial - a flourish, not the point of
@@ -6962,6 +7368,33 @@ namespace Convergence.Art.Gear
                     // reach-and-draw would read as two hands throwing the same object back and
                     // forth rather than one steady grip and one working hand.
                     backSwing = Mathf.Lerp(0f, 58f, Mathf.Clamp01(k / 0.25f));
+
+                    // With a QUIVER on the back (the user's call, 2026-10-16 - it replaced the belt
+                    // vials): up over the shoulder into it, the arrow brought forward onto the bow,
+                    // then the pull - the nocked arrow is PlaceNockedArrow's.
+                    if (_drawFromQuiver)
+                    {
+                        if (k < DrawQuiverEnd)
+                        {
+                            float up01 = Mathf.SmoothStep(0f, 1f, k / DrawQuiverEnd);
+                            armSwing = Mathf.Lerp(0f, DrawQuiverSwing, up01);
+                            armReach = Vector3.zero;
+                        }
+                        else if (k < DrawNockEnd)
+                        {
+                            float nock01 = Mathf.SmoothStep(0f, 1f, (k - DrawQuiverEnd) / (DrawNockEnd - DrawQuiverEnd));
+                            armSwing = Mathf.Lerp(DrawQuiverSwing, DrawNockSwing, nock01);
+                            armReach = Vector3.zero;
+                        }
+                        else
+                        {
+                            float pull01 = 1f - Mathf.Pow(1f - Mathf.Clamp01((k - DrawNockEnd) / (1f - DrawNockEnd)), 2f);
+                            armSwing = Mathf.Lerp(DrawNockSwing, -95f, pull01);
+                            armReach = Vector3.zero;
+                            bodySpin = Mathf.Sin(pull01 * Mathf.PI * 0.5f) * -6f;
+                        }
+                        break;
+                    }
 
                     if (k < ReachEnd)
                     {
@@ -7018,6 +7451,14 @@ namespace Convergence.Art.Gear
                     FlurryPose(Mathf.Clamp01(k) * Core.Tuning.Flurry.Seconds,
                                out var fist, out armSwing, out bodySpin, out backSwing);
                     armReach = ReachFor(fist, armSwing);
+                    break;
+                }
+
+                default:
+                {
+                    // The dimensional basics are keyframed - see the Combos partial.
+                    var combo = ComboOf(motion);
+                    if (combo != null) AnimateCombo(combo, k, seconds, ref armSwing, ref backSwing, ref bodySpin, ref armReach);
                     break;
                 }
             }
@@ -7118,7 +7559,9 @@ namespace Convergence.Art.Gear
         /// Runs immediately after FaceAim because that is what flips the mirror, and because
         /// FaceAim clears the torso and head rotations - anything written before it is discarded.
         /// </summary>
-        void ApplyWeightShift(bool wasFacingLeft)
+        /// <param name="waistTurn">The motion's own turn (bodySpin), put in at the waist - see
+        /// the Body partial. Added to the torso with the swing body's lean on top.</param>
+        void ApplyWeightShift(bool wasFacingLeft, float waistTurn)
         {
             if (_facingKnown && _facingLeft != wasFacingLeft)
             {
@@ -7142,8 +7585,10 @@ namespace Convergence.Art.Gear
             // The spring's lean answers a change of speed, the walk's lean holds while the speed
             // does (see WalkLeanDegrees); the hips' plant reads only the spring's.
             float lean = (_leanAngle + _walkLean) * (1f - _leanSuppress * LeanSwingSuppression);
-            if (_torso) _torso.localRotation = Quaternion.Euler(0f, 0f, lean);
-            if (_head) _head.localRotation = Quaternion.Euler(0f, 0f, -lean * LeanHeadShare);
+            float bodyLean = _poseBody.Lean * LeanShare;   // none aimed straight up or down
+            if (_torso) _torso.localRotation = Quaternion.Euler(0f, 0f, lean + waistTurn + bodyLean);
+            if (_head) _head.localRotation = Quaternion.Euler(0f, 0f,
+                -lean * LeanHeadShare - bodyLean * BodyLeanHeadShare);
         }
 
         /// <summary>
@@ -7216,12 +7661,42 @@ namespace Convergence.Art.Gear
             sr.transform.localPosition = rest + hang - turn * hang;
         }
 
+        /// <summary>
+        /// Sunder's slam plants the blade point-down: through the swing and its follow-through,
+        /// the part of the weapon below the ground line (just under the soles) is cut away
+        /// (GroundPierce), so the tip reads as sunk into the floor - and as the carry lifts the
+        /// blade it draws back out of it. Off for every other motion.
+        /// </summary>
+        void TickGroundPierce()
+        {
+            var w = WeaponRenderer;
+            if (w == null) return;
+            bool on = _motion == AttackMotion.SunderSlam && !_stone
+                      && _sinceSwing < Core.Tuning.Sunder.PierceLingerSeconds;
+            var p = w.GetComponent<GroundPierce>();
+            if (!on) { if (p != null) p.Active = false; return; }
+            if (p == null) p = GroundPierce.On(w);
+            p.Active = true;
+            // The SOLES, where the contact shadow sits - the rig's root is at the hips' level,
+            // 0.57 above them at arena scale.
+            // Less the leap's lift: Falling Star's slam is drawn on the way down, and the ground
+            // stays where the shadow is.
+            float lift = transform.parent != null
+                ? transform.parent.TransformVector(new Vector3(0f, _airHeight * _visualScale, 0f)).y
+                : _airHeight * _visualScale;
+            p.GroundY = transform.TransformPoint(new Vector3(0f, PixelSprite.Px(Proportions.SoleYCells), 0f)).y
+                        - lift - Core.Tuning.Sunder.PierceBelowFeet;
+        }
+
         void AnimateCape(float dt, float speed)
         {
             if (!_hasCape || !_pivots.TryGetValue(RigLayer.Back, out var cape) || cape == null) return;
 
             float forward = Body != null ? Body.linearVelocity.x : 0f;
             if (_facingLeft) forward = -forward;   // into the frame the rig is drawn in
+            // A swing's drawn step moves the body with no velocity of its own - the cape is
+            // flung by it all the same (already in the facing's frame). See the Body partial.
+            forward += _bodyStepVelocity * _visualScale * CapeStepGain;
 
             float reference = Player != null ? Mathf.Max(0.1f, Player.MoveSpeed) : CapeReferenceSpeed;
             float target = -Mathf.Clamp(forward / reference, -1f, 1f) * CapeSwing * _capeSwingScale;
@@ -7472,7 +7947,8 @@ namespace Convergence.Art.Gear
             // for the duration of a swing, and an echo is placed and told to swing in the same
             // frame - so by the time FaceAim next runs the swing is already live and the figure
             // would hold whichever way it happened to be facing before.
-            if (Mathf.Abs(_facingOverride.Value.x) > MirrorDeadzone)
+            // (A rig turning toward its aim - SetAimViews - turns rather than snapping.)
+            if (!_aimViews && Mathf.Abs(_facingOverride.Value.x) > MirrorDeadzone)
                 _facingLeft = _facingOverride.Value.x < 0f;
         }
 
@@ -7480,10 +7956,7 @@ namespace Convergence.Art.Gear
 
         void FaceAim()
         {
-            var aim = _facingOverride ??
-                    ( Player != null ? Player.Facing
-                    : Body != null ? (Vector2)Body.linearVelocity
-                    : Vector2.zero );
+            var aim = AimSource();
             if (aim.sqrMagnitude < 0.0025f) return;
             aim.Normalize();
 
@@ -7503,6 +7976,16 @@ namespace Convergence.Art.Gear
                 if (_head) _head.localRotation = Quaternion.identity;
                 _aimResidual = 0f;
                 _facingYaw = _bodyYaw;
+                return;
+            }
+
+            // The arena's player turns toward its aim and chooses its own view - see the Facing
+            // partial. The torso and head are cleared for ApplyWeightShift as below.
+            if (_aimViews)
+            {
+                FaceAimTurning(aim);
+                if (_torso) _torso.localRotation = Quaternion.identity;
+                if (_head) _head.localRotation = Quaternion.identity;
                 return;
             }
 

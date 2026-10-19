@@ -83,9 +83,9 @@ namespace Convergence.Enemies
         };
 
         /// <summary>
-        /// Which archetypes may carry the elite tier. Booster is the one left out: its Elite is
-        /// permanently None (see Tuning.Enemy's own Booster notes), so the tier would have nothing
-        /// to grant it at all.
+        /// Which archetypes may carry the elite tier. Booster is among them since 2026-10-19 (its
+        /// elite roars two allies to power), but it is never DRAWN as one - it is not pooled; its
+        /// own floor roll decides its tier (Tuning.Enemy.BoosterEliteChance).
         ///
         /// Turret was left out too, once, because the tier only doubled the HP of a thing that
         /// already holds an angle across the room - a chore rather than a threat. It is in now
@@ -103,7 +103,7 @@ namespace Convergence.Enemies
         public static readonly EnemyKind[] EliteKinds =
         {
             EnemyKind.Chaser, EnemyKind.Bomb, EnemyKind.Ranged, EnemyKind.Dasher,
-            EnemyKind.Turret, EnemyKind.Gargoyle, EnemyKind.Bubbles, EnemyKind.Mortar,
+            EnemyKind.Turret, EnemyKind.Gargoyle, EnemyKind.Bubbles, EnemyKind.Mortar, EnemyKind.Booster,
         };
 
         public static int UnlockFloor(EnemyKind kind) => kind switch
@@ -222,9 +222,11 @@ namespace Convergence.Enemies
                 if (elite) elites++;
             }
 
-            // The Booster: a floor-level chance, never more than one, never elite.
+            // The Booster: a floor-level chance, never more than one. Its TIER comes from a draw of
+            // its own seed, so adding the elite moved nothing else in any seeded wave.
             if (boosterEligible && rng.NextDouble() < Tuning.Enemy.BoosterFloorChance)
-                Buy(drawn, EnemyKind.Booster, false);
+                Buy(drawn, EnemyKind.Booster,
+                    new System.Random(seed ^ 0x6B00573).NextDouble() < Tuning.Enemy.BoosterEliteChance);
 
             // A kind's DEBUT is exactly one body, so the floor that introduces it teaches it.
             // Floor-1 kinds have nothing to be introduced against and are drawn normally.

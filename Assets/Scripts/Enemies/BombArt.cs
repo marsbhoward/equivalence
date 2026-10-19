@@ -1,262 +1,386 @@
-using System.Text;
+using System.Collections.Generic;
 using UnityEngine;
-using Convergence.Art;
 
 namespace Convergence.Enemies
 {
+    /// <summary>The Bomb's frames, in the order <see cref="BombArt.For"/> returns them.</summary>
+    public enum BombFrame
+    {
+        Drift0, Drift1, Drift2, Drift3, Idle, Gather, Throw0, Throw1, Spent,
+        Critical0, Critical1, Arming, Bursting, Banked0, Banked1,
+    }
+
     /// <summary>
-    /// Procedural pixel art for Bomb's two coexisting looks - see <see cref="EnemyLooks"/> for
-    /// why there are two and why the floor, not the spawn, picks one. The four sprites returned
-    /// per look are in EnemyStage order (Idle/Mid/Full/Cooling) - EnemyStageCycle is what actually
-    /// picks between them at runtime, reading EnemyController's telegraph state so the CREATURE
-    /// says the same thing the ground ring already says, rather than the ring carrying the whole
-    /// read alone.
+    /// The Bomb as a BRIMSTONE HEART (the user's sign-off, 2026-10-18, from the mock-up at
+    /// https://claude.ai/artifact/XkSsnZEUhs3pNbbop75ArK - a bloated creature came first and was
+    /// turned down for something more elemental): a hovering knot of sulphur fire with two dark
+    /// slits for a face, held in a loose shell of slag plates, flames licking off the top.
     ///
-    /// Built the same way every other piece of art in this project is: a PixelSprite grid,
-    /// rasterised once and cached by key, never an imported asset - the scene stays
-    /// CLI-rebuildable. FOUR FRAMES PER VARIANT rather than one static body plus a separate
-    /// telegraph-only cue, because a bomb that looks identical whether it is idle or a third of a
-    /// second from detonating is relying entirely on the ground ring to say so.
+    /// THE BODY SAYS THE ATTACK. It fights at arm's length: the heart SWELLS through the wind-up
+    /// (GATHER) and PULSES with each fireball it throws straight out of itself (THROW) - no
+    /// apparatus, the Bomb is the fire it throws - then gutters (SPENT). Under 20% health it
+    /// stops fighting: the shell is shaken loose and the heart flares (CRITICAL) as it rushes in
+    /// to self-destruct, forcing the shell open (ARMING) until it is wide and white-hot with a halo
+    /// (BURSTING, the tell). Flinched, the shell clamps tight and the heart banks to ember red
+    /// (BANKED). An elite's three orbiting MOTES are the cluster's shards.
     ///
-    /// Both variants are YELLOW - the Bomb's colour, body and light alike, matching its yellow
-    /// blast ring - and share their WARNING material (a pale lamp-yellow, brighter than the body
-    /// so it still reads against it), diverging only in what carries it: cracks in an ochre stone
-    /// for the construct, a rising plunger on a hazard-yellow barrel for the automaton.
-    ///
-    /// THE COLOUR IS BAKED HERE, and the renderer stays white (EnemyFactory). It used to be the
-    /// enemy's orange Tint multiplying grey art - which is why the barrel read brown and its lamp
-    /// red - and a multiply cannot make a yellow lamp out of anything but a yellow tint.
+    /// ONE RIG, TWO MATERIALS: Construct is SLAG (pitted black stone, each plate lit along its
+    /// inner edge, a live fire), Automaton is IRONBOUND - an IRON FLAME: the heart and its tongues
+    /// cast in steel with the fire run through them like piping (the user's call), in the same
+    /// riveted cast-iron shell. Fire is drawn without an outline; the slag (and the iron flame) is.
+    /// Ported from the mock-up's JavaScript line for line - change both or neither.
     /// </summary>
     public static class BombArt
     {
         /// <summary>
         /// The Bomb's BLAST colour - its warning ring, its explosion flash, and an elite's cluster
-        /// shards. Yellow, so a Bomb's blast reads apart from the Mortar's red-orange shell and the
-        /// body's own ember: the colour belongs to the danger zone, not to the thing carrying it.
+        /// shards. Yellow, so a Bomb's blast reads apart from the Mortar's red-orange shell: the
+        /// colour belongs to the danger zone, not to the thing carrying it.
         /// </summary>
         public static readonly Color Blast = new(1f, 0.86f, 0.2f);
 
-        // ---- shared materials ----
-        //
-        // The body carries the Bomb's yellow; Lamp, the warning material (the automaton's light,
-        // the construct's cracks), is paler and brighter so it still stands out on a yellow body
-        // as it heats - Dark at idle, Glow at the brink.
-        static readonly Palette.Ramp Ochre  = new(new Color(0.80f, 0.64f, 0.20f));
-        static readonly Palette.Ramp Lamp   = new(new Color(1.00f, 0.93f, 0.45f));
-        static readonly Palette.Ramp Hazard = new(new Color(0.92f, 0.72f, 0.14f));
+        const float EliteScale = 1.2f;
+        const int W = 36, H = 34;
+        const float PivotX = 17f, PivotY = 13f; // the heart - the body's centre and the shot's origin
 
-        // The automaton's COOLING stage swaps hue rather than just dimming - a machine has a
-        // status light that can change colour; a mineral only loses its glow. See BuildAutomaton.
-        static readonly Palette.Ramp Safety = new(new Color(0.35f, 0.85f, 0.75f));
+        enum Slot { Flame, Heart, Eye, Plate }
 
-        static Sprite[] _construct, _automaton;
-
-        public static Sprite[] Construct => _construct ??= BuildConstruct();
-        public static Sprite[] Automaton => _automaton ??= BuildAutomaton();
-
-        public static Sprite[] For(EnemyLook look) => look == EnemyLook.Construct ? Construct : Automaton;
-
-        // ================================================================== construct
-
-        const int ConstructW = 22, ConstructH = 16;
-
-        static Sprite[] BuildConstruct()
+        sealed class Mat
         {
-            var body = ConstructBody(out var crack);
-            var wideCrack = Dilate(body, crack);
-            var palette = Palette.Of(Ochre, Lamp);
-
-            // Idle, Mid, Full, Cooling - same order as EnemyStage. UPPERCASE: the crack is
-            // the SECOND material (Lamp) in Palette.Of(Ochre, Lamp) - lowercase would draw it
-            // from the stone's own ramp instead and it would read as more stone rather than as
-            // the light showing through it.
-            //
-            // Colour alone was not enough to tell the four stages apart at this size - measured
-            // against a live capture, a one-texel line four brightnesses apart barely moved. Only
-            // ArmFull widens (the dilated mask): "the cracks visibly widen" was the whole pitch
-            // for this look, and colour on its own could not deliver it. Cooling reuses the THIN
-            // mask rather than a still-wider one - it is the same crack sealing back down, not a
-            // new and different one - so only its tone (Dark) needs to say "this is cooling."
-            var mask = new[] { crack, crack, wideCrack, crack };
-            char[] crackTone = { 'B', 'L', 'H', 'D' };
-
-            var sprites = new Sprite[4];
-            for (int i = 0; i < 4; i++)
-            {
-                var rows = ConstructRows(body, mask[i], crackTone[i]);
-                sprites[i] = PixelSprite.From($"enemy.bomb.construct.{i}", rows, palette, outline: true);
-            }
-            return sprites;
+            public Color[] Plate, Steel;
+            public Color? Rivet;
+            public Color Out;
+            public bool Iron;
         }
 
-        /// <summary>Every body cell 4-adjacent to a crack cell, crack cells included - one texel
-        /// of growth in every direction the crack can widen without leaving the silhouette.</summary>
-        static bool[,] Dilate(bool[,] body, bool[,] mask)
+        static readonly Mat Slag = new()
         {
-            int w = mask.GetLength(0), h = mask.GetLength(1);
-            var out_ = new bool[w, h];
+            Plate = TexelRig.Hex("#1b1719", "#2d2628", "#453b3c", "#625555"),
+            Out = TexelRig.Hex("#0b090a")[0],
+        };
+
+        static readonly Mat Ironbound = new()
+        {
+            Plate = TexelRig.Hex("#1f2126", "#363a42", "#565c67", "#878e99"),
+            Steel = TexelRig.Hex("#3d434c", "#69717c", "#9aa3ae", "#cfd6de"),
+            Rivet = TexelRig.Hex("#a8afb9")[0],
+            Out = TexelRig.Hex("#0a0a0c")[0],
+            Iron = true,
+        };
+
+        static readonly Color[] Sulphur = TexelRig.Hex("#4d3b0c", "#a8841e", "#ffdb33", "#fff4b0"); // the heart
+        static readonly Color[] Flame = TexelRig.Hex("#6b2e0a", "#c8641a", "#ffb726", "#fff1a0");   // warmer toward the tips
+        static readonly Color[] Dull = TexelRig.Hex("#2a1208", "#5a2410", "#8a3a16", "#b85a24");    // banked low
+        static readonly Color Eye = TexelRig.Hex("#140a06")[0];
+
+        // ---------------------------------------------------------------- poses
+
+        struct Pose
+        {
+            public float Bx, By, Lift, Swell, Open, Spin, Flare, Orbit, Jitter;
+            public int Glow, Sparks, Seed;
+            public bool Halo;
+            public Vector4[] Flames; // x offset, length, half width, sway
+        }
+
+        static Vector4[] F(float a, float b, float c) => new[]
+        {
+            new Vector4(-2.2f, a, 1.5f, 0.8f), new Vector4(0.4f, b, 1.8f, -1.0f), new Vector4(2.6f, c, 1.3f, 0.6f),
+        };
+
+        static Pose P(float bx = 0, float by = 0, float lift = 0, float swell = 1, float open = 0, float spin = 0,
+                      int glow = 1, float flare = 1, bool halo = false, float orbit = 0, int sparks = 2, int seed = 1,
+                      float jitter = 0, Vector4[] flames = null)
+            => new()
+            {
+                Bx = bx, By = by, Lift = lift, Swell = swell, Open = open, Spin = spin, Glow = glow, Flare = flare,
+                Halo = halo, Orbit = orbit, Sparks = sparks, Seed = seed, Jitter = jitter, Flames = flames ?? F(6, 8, 5),
+            };
+
+        // open: the shell pushed outward; swell: the heart's size; flare: flame length; spin: the
+        // shell's turn. Indexed by BombFrame.
+        static readonly Pose[] Poses =
+        {
+            P(flames: F(6, 8.5f, 5), orbit: 0, seed: 1),                                 // Drift0
+            P(by: 1, flames: F(7, 7.5f, 5.5f), orbit: 30, seed: 2, spin: 3),               // Drift1
+            P(by: 1.5f, flames: F(5.5f, 8, 6.5f), orbit: 60, seed: 3, spin: 5),            // Drift2
+            P(by: 0.5f, flames: F(6.5f, 9, 5), orbit: 90, seed: 4, spin: 2),               // Drift3
+            P(),                                                                         // Idle
+            P(swell: 1.1f, glow: 2, flare: 1.25f, by: 0.5f, sparks: 3, seed: 7, flames: F(7, 9, 6)),          // Gather
+            P(swell: 1.15f, glow: 3, flare: 1.35f, bx: -0.5f, sparks: 4, seed: 8),                           // Throw0
+            P(swell: 1.03f, glow: 3, flare: 1.15f, sparks: 5, seed: 9, flames: F(5, 9.5f, 6)),               // Throw1
+            P(swell: 0.95f, glow: 1, flare: 0.7f, sparks: 1, seed: 10, flames: F(5, 6.5f, 4.5f)),            // Spent
+            P(open: 0.6f, jitter: 18, glow: 3, flare: 1.35f, sparks: 6, seed: 11, flames: F(7, 10, 6.5f), swell: 1.05f), // Critical0
+            P(open: 0.9f, jitter: 22, glow: 2, flare: 1.15f, by: 1, sparks: 5, seed: 12, flames: F(8, 8, 7.5f)),        // Critical1
+            P(open: 1.6f, swell: 1.1f, glow: 2, flare: 1.25f, orbit: 20, sparks: 4, seed: 5, spin: -4),                  // Arming
+            P(open: 3.4f, swell: 1.25f, glow: 3, flare: 1.55f, lift: 1.2f, halo: true, orbit: 45, sparks: 7, seed: 6, spin: -8), // Bursting
+            P(open: -0.6f, swell: 0.82f, glow: 0, flare: 0.45f, bx: -0.5f, by: 0.5f, sparks: 0, flames: F(5, 6, 4), orbit: 10), // Banked0
+            P(open: -0.6f, swell: 0.82f, glow: 0, flare: 0.4f, bx: -0.5f, by: 1, sparks: 0, flames: F(4.5f, 6.5f, 4.5f), orbit: 25), // Banked1
+        };
+
+        // The shell: five plates round the heart - angle, length, near side.
+        static readonly (float a, float len, bool near)[] Plates =
+            { (200f, 3.6f, false), (125f, 3.4f, false), (55f, 3.4f, true), (-15f, 3.6f, true), (-95f, 3.8f, true) };
+
+        // ---------------------------------------------------------------- cache
+
+        static readonly Dictionary<int, Sprite[]> _cache = new();
+        static readonly Dictionary<int, Sprite> _singles = new();
+
+        /// <summary>Every frame of one look and tier, indexed by <see cref="BombFrame"/>.</summary>
+        public static Sprite[] For(EnemyLook look, bool elite)
+        {
+            int key = (look == EnemyLook.Automaton ? 1 : 0) | (elite ? 2 : 0);
+            if (_cache.TryGetValue(key, out var hit) && hit != null && hit.Length > 0 && hit[0] != null) return hit;
+
+            var mat = look == EnemyLook.Automaton ? Ironbound : Slag;
+            var frames = new Sprite[Poses.Length];
+            for (int i = 0; i < frames.Length; i++) frames[i] = Render(i, mat, elite);
+            _cache[key] = frames;
+            return frames;
+        }
+
+        // ---------------------------------------------------------------- geometry
+
+        static float Hash(int x, int y) => TexelRig.Hash(x, y);
+
+        /// <summary>A tongue of flame: a wedge that sways, widest at its root.</summary>
+        static TexelRig.Shape Tongue(Vector2 root, float len, float half, float sway) => (float x, float y, out TexelRig.Hit h) =>
+        {
+            h = default;
+            float t = (y - root.y) / len;
+            if (t < 0f || t > 1f) return false;
+            float cx = root.x + Mathf.Sin(t * Mathf.PI * 1.2f) * sway * t;
+            float hw = half * Mathf.Pow(1f - t, 0.8f) * (t < 0.15f ? 0.7f + 2f * t : 1f);
+            h = new TexelRig.Hit { Nx = (x - cx) / Mathf.Max(0.01f, hw), T = t, HasT = true };
+            return Mathf.Abs(x - cx) <= hw;
+        };
+
+        sealed class Lights
+        {
+            public (Vector2 c, float r)? Halo;
+            public readonly List<Vector2> Sparks = new();
+        }
+
+        static TexelRig.Rig Build(in Pose p, bool elite, Lights fx)
+        {
+            var rig = new TexelRig.Rig();
+            float cx = 17f + p.Bx, cy = 13f + p.By + p.Lift, r = 4.6f * p.Swell;
+
+            // flames off the top, behind the shell's top plates
+            for (int i = 0; i < p.Flames.Length; i++)
+            {
+                var f = p.Flames[i];
+                rig.Add(1f + i * 0.01f, (int)Slot.Flame, Tongue(new Vector2(cx + f.x, cy + r * 0.55f), f.y * p.Flare, f.z, f.w), level: p.Glow);
+            }
+
+            // the heart, with a face of two dark slits
+            rig.Add(3f, (int)Slot.Heart, TexelRig.Ellipse(cx, cy, r, r * 0.95f), level: p.Glow);
+            float eyeY = cy + r * 0.12f;
+            foreach (float ex in new[] { 0.38f, -0.05f })
+                rig.Add(3.5f, (int)Slot.Eye, TexelRig.Ellipse(cx + ex * r + 0.9f, eyeY, 0.75f, 1.15f - (p.Glow == 0 ? 0.5f : 0f), -12f));
+
+            // the shell plates: pushed out as it arms, clamped tight when flinched, loose when critical
+            foreach (var (a0, len, near) in Plates)
+            {
+                int ai = Mathf.RoundToInt(a0);
+                float a = a0 + p.Spin + (p.Jitter > 0f ? (Hash(ai, p.Seed) - 0.5f) * p.Jitter : 0f);
+                var c = TexelRig.Pt(new Vector2(cx, cy), a, r + 0.9f + p.Open + (p.Jitter > 0f ? Hash(p.Seed, ai) * 0.8f : 0f));
+                rig.Add(near ? 5f : 2f, (int)Slot.Plate, TexelRig.Ellipse(c.x, c.y, len, 1.55f, a + 90f), level: p.Glow, extra: near ? 1f : 0f);
+            }
+
+            // elite: three burning motes in orbit - the cluster's shards
+            if (elite)
+                for (int i = 0; i < 3; i++)
+                {
+                    float a = p.Orbit + i * 120f, orbitR = r + 6.2f;
+                    var m = new Vector2(cx + Mathf.Cos(TexelRig.Rad(a)) * orbitR, cy + Mathf.Sin(TexelRig.Rad(a)) * orbitR * 0.55f);
+                    bool front = Mathf.Sin(TexelRig.Rad(a)) < 0f;
+                    rig.Add(front ? 6f : 0.5f, (int)Slot.Heart, TexelRig.Ellipse(m.x, m.y, 1.5f, 1.45f), level: Mathf.Max(1, p.Glow));
+                    rig.Add(front ? 6.1f : 0.6f, (int)Slot.Plate, TexelRig.Ellipse(m.x - 0.6f, m.y - 0.7f, 1.2f, 0.6f, 20f), level: p.Glow);
+                }
+
+            if (p.Halo) fx.Halo = (new Vector2(cx, cy), r + p.Open + 3.2f);
+            for (int i = 0; i < p.Sparks; i++)
+                fx.Sparks.Add(new Vector2(cx - 3f + Hash(i, p.Seed) * 6f, cy + r + 3f + Hash(p.Seed, i) * 6f * p.Flare));
+            return rig;
+        }
+
+        // ---------------------------------------------------------------- raster
+
+        static Sprite Render(int frame, Mat mat, bool elite)
+        {
+            var p = Poses[frame];
+            float scale = elite ? EliteScale : 1f;
+            int w = Mathf.RoundToInt(W * scale / 2f) * 2, h = Mathf.RoundToInt(H * scale);
+            var fx = new Lights();
+            var rig = Build(p, elite, fx);
+            string name = $"enemy.bomb.{(mat.Iron ? "iron" : "slag")}{(elite ? ".elite" : "")}.{(BombFrame)frame}";
+            return TexelRig.Rasterise(name, rig, w, h, scale, mat.Out,
+                (in TexelRig.Cell c, int x, int y, int s, System.Func<int, int, TexelRig.Part> at) => ColourOf(c, x, y, mat, p, at),
+                new Vector2(PivotX, PivotY), (px, cw, ch, sc, filled) => Light(px, cw, ch, sc, filled, fx),
+                // fire has no outline; the slag does, and the iron flame is all metal
+                outlines: part => mat.Iron || part.Slot == (int)Slot.Plate);
+        }
+
+        static void Light(Color[] px, int w, int h, float scale, System.Func<int, int, bool> filled, Lights fx)
+        {
+            foreach (var s in fx.Sparks)
+            {
+                int x = Mathf.FloorToInt(s.x * scale), y = Mathf.FloorToInt(s.y * scale);
+                if (x >= 0 && y >= 0 && x < w && y < h && px[y * w + x].a == 0f) TexelRig.Put(px, w, x, y, Flame[3], 220f / 255f);
+            }
+            if (fx.Halo is not { } halo) return;
             for (int y = 0; y < h; y++)
             for (int x = 0; x < w; x++)
             {
-                if (!body[x, y]) continue;
-                bool near = mask[x, y]
-                    || (x > 0 && mask[x - 1, y]) || (x < w - 1 && mask[x + 1, y])
-                    || (y > 0 && mask[x, y - 1]) || (y < h - 1 && mask[x, y + 1]);
-                out_[x, y] = near;
+                if (filled(x, y)) continue;
+                float d = Vector2.Distance(new Vector2((x + 0.5f) / scale, (y + 0.5f) / scale), halo.c);
+                if (d <= halo.r && (x + y) % 2 == 0) TexelRig.Put(px, w, x, y, Sulphur[2], 120f / 255f);
             }
-            return out_;
         }
+
+        static Color Pipe(int g) => g == 0 ? Dull[2] : Sulphur[Mathf.Min(3, g + 1)];
+
+        static Color? ColourOf(in TexelRig.Cell c, int x, int y, Mat mat, in Pose p, System.Func<int, int, TexelRig.Part> at)
+        {
+            var part = c.Part;
+            var hit = c.Hit;
+            int g = part.Level;
+            switch ((Slot)part.Slot)
+            {
+                case Slot.Flame:
+                {
+                    float t = hit.T, edge = Mathf.Abs(hit.Nx);
+                    if (mat.Iron)
+                    {
+                        // an iron flame: steel, with the fire run up its middle like piping
+                        var st = mat.Steel;
+                        if (edge < 0.3f && t < 0.9f) return Pipe(g);
+                        if (t > 0.85f) return st[1];
+                        return edge > 0.65f ? st[hit.Nx < 0f ? 3 : 0] : st[2];
+                    }
+                    var ramp = g == 0 ? Dull : Flame;
+                    if (t > 0.82f) { var tip = ramp[1]; tip.a = 200f / 255f; return tip; }
+                    if (edge > 0.7f) return ramp[1];
+                    return ramp[t < 0.35f && edge < 0.4f ? 3 : 2];
+                }
+                case Slot.Eye:
+                    return mat.Iron ? Pipe(Mathf.Max(1, p.Glow)) : Eye;
+                case Slot.Heart:
+                {
+                    float r2 = hit.Nx * hit.Nx + hit.Ny * hit.Ny;
+                    if (mat.Iron)
+                    {
+                        // one ring of piping at rest; an inner ring and a line across it as it heats
+                        float r = Mathf.Sqrt(r2);
+                        if (Mathf.Abs(r - 0.8f) < 0.08f) return Pipe(g);
+                        if (g >= 2 && (Mathf.Abs(r - 0.42f) < 0.08f || (r < 0.42f && Mathf.Abs(hit.Ny) < 0.09f))) return Pipe(g);
+                        if (r < 0.2f && g >= 2) return Sulphur[3];
+                        return mat.Steel[TexelRig.BaseShade(hit.Nx, hit.Ny)];
+                    }
+                    if (g == 0) return Dull[r2 < 0.3f ? 3 : r2 < 0.7f ? 2 : 1];
+                    if (r2 < 0.18f + 0.1f * g) return Sulphur[3];   // white at the middle, hotter nearer bursting
+                    if (r2 < 0.75f) return Sulphur[2];
+                    return Hash(x, y) < 0.5f ? Sulphur[1] : Flame[2]; // the rim boils
+                }
+            }
+
+            // a plate: dark stone (or cast iron) lit along the edge that faces the fire
+            var pr = mat.Plate;
+            int s = TexelRig.BaseShade(hit.Nx, hit.Ny);
+            if (part.Extra > 0f)
+            {
+                // a near plate's border against the fire it covers is softened, not cut to black
+                foreach (var (dx, dy) in new[] { (1, 0), (-1, 0), (0, 1), (0, -1) })
+                {
+                    var n = at(x + dx, y + dy);
+                    if (n != null && n.Slot != (int)Slot.Plate && n.Order < part.Order) { s = Mathf.Min(s, 1); break; }
+                }
+            }
+            if (hit.Ny < -0.45f) return g == 0 ? Dull[2] : Flame[Mathf.Min(3, 1 + g)]; // the inner edge, lit
+            if (mat.Iron)
+            {
+                if (Mathf.Abs(hit.Nx) > 0.62f && Mathf.Abs(hit.Ny) < 0.35f && mat.Rivet.HasValue) return mat.Rivet.Value;
+                if (Mathf.Abs(hit.Ny - 0.2f) < 0.16f) return pr[0];   // a cast ridge
+            }
+            else if (Hash(x, y) < 0.18f) return pr[Mathf.Max(0, s - 1)]; // pitted slag
+            return pr[s];
+        }
+
+        // ---------------------------------------------------------------- the fireball, a mote, a plate
 
         /// <summary>
-        /// A squat boulder: a flat resting base (rows 0..2, full width) rising into a quarter-
-        /// ellipse dome, the same flattened-ellipse technique Obsidian's own head silhouette uses
-        /// for a curve that isn't a hand-typed grid. Three crack lines are walked out from a point
-        /// near the crown toward the base, each stepping with a small alternating sideways wobble
-        /// so they read as jagged rather than as ruled diagonals - the same reasoning the Rift
-        /// Blade's own tear edges are never a single straight wave.
+        /// The thrown fireball, 0.2 in radius (0.4 units across): a white-hot core, sulphur, an
+        /// orange rim and a ragged dark-red edge, brighter toward the top. Three flicker frames.
         /// </summary>
-        static bool[,] ConstructBody(out bool[,] crack)
+        public static Sprite[] Fireball()
         {
-            const int w = ConstructW, h = ConstructH, baseRows = 3;
-            var body = new bool[w, h];
-            float cx = (w - 1) / 2f;
-            float half = w / 2f - 0.5f;
-
-            for (int y = 0; y < h; y++)
+            if (_singles.TryGetValue(100, out var f0) && f0 != null)
+                return new[] { _singles[100], _singles[101], _singles[102] };
+            float R = Core.Tuning.Enemy.BombFireballRadius * TexelRig.TexelsPerUnit;
+            int n = Mathf.CeilToInt(R) * 2 + 4;
+            var frames = new Sprite[3];
+            for (int k = 0; k < 3; k++)
             {
-                float hw;
-                if (y < baseRows)
+                var px = new Color[n * n];
+                float c = n / 2f;
+                for (int y = 0; y < n; y++)
+                for (int x = 0; x < n; x++)
                 {
-                    hw = half;
+                    float dx = x + 0.5f - c, dy = y + 0.5f - c, d = Mathf.Sqrt(dx * dx + dy * dy) / R;
+                    float noise = Hash(x + k * 13, y + k * 7);
+                    if (d > 1f + (noise - 0.5f) * 0.35f) continue;
+                    float lit = d - (dy > 0f ? 0.12f : 0f); // brighter toward the top
+                    px[y * n + x] = d > 0.88f ? TexelRig.Hex("#6b1e0c")[0]
+                                  : lit < 0.35f ? Sulphur[3] : lit < 0.6f ? Sulphur[2]
+                                  : noise < 0.4f ? Flame[1] : Flame[2];
                 }
-                else
-                {
-                    float v = (y - baseRows) / (float)(h - 1 - baseRows);
-                    hw = Mathf.Max(1.2f, half * Mathf.Sqrt(Mathf.Max(0f, 1f - v * v)));
-                }
-                for (int x = 0; x < w; x++)
-                    if (Mathf.Abs(x - cx) <= hw) body[x, y] = true;
+                frames[k] = Single($"enemy.bomb.fireball.{k}", px, n, n, new Vector2(0.5f, 0.5f));
+                _singles[100 + k] = frames[k];
             }
-
-            var cr = new bool[w, h];
-            void Crack(float x0, float y0, float dx, float dy, int steps, float wobble)
-            {
-                float x = x0, y = y0;
-                for (int i = 0; i < steps; i++)
-                {
-                    int xi = Mathf.RoundToInt(x), yi = Mathf.RoundToInt(y);
-                    if (xi >= 0 && xi < w && yi >= 0 && yi < h && body[xi, yi]) cr[xi, yi] = true;
-                    x += dx + (i % 2 == 0 ? wobble : -wobble);
-                    y += dy;
-                }
-            }
-
-            // All three start near the crown and run down toward the base, the way a shell cracks
-            // outward from the point of impact - long branch left, shorter branch right, one short
-            // hairline so the pattern doesn't read as perfectly bilateral.
-            Crack(cx, h - 2f, -0.9f, -0.80f, 7, 0.60f);
-            Crack(cx, h - 2f, 0.75f, -0.90f, 6, 0.50f);
-            Crack(cx - 1f, h - 3f, 0.10f, -1.00f, 5, 0.70f);
-
-            crack = cr;
-            return body;
+            return frames;
         }
 
-        static string[] ConstructRows(bool[,] body, bool[,] crack, char crackTone)
+        /// <summary>One of an elite's orbiting motes, flung loose as a cluster shard.</summary>
+        public static Sprite Mote(EnemyLook look) => Piece(look, 200, "mote", rig =>
         {
-            const int w = ConstructW, h = ConstructH;
-            var rows = new string[h];
-            for (int y = 0; y < h; y++)
-            {
-                var sb = new StringBuilder(w);
-                for (int x = 0; x < w; x++)
-                {
-                    if (!body[x, y]) { sb.Append('.'); continue; }
-                    if (crack[x, y]) { sb.Append(crackTone); continue; }
+            rig.Add(1f, (int)Slot.Heart, TexelRig.Ellipse(6f, 6f, 1.5f, 1.45f), level: 2);
+            rig.Add(2f, (int)Slot.Plate, TexelRig.Ellipse(5.4f, 5.3f, 1.2f, 0.6f, 20f), level: 2);
+        });
 
-                    // Cheap directional shading rather than true lighting - the same "brighter
-                    // toward the upper-left, darker along the ground" rule PixelDetail's own
-                    // chamfer pass uses. A silhouette that is one flat tone reads as a sticker;
-                    // this is the minimum that reads as a rounded, resting mass.
-                    bool grounded = y < 2;
-                    bool lit = y >= h - 6 && x <= (w - 1) / 2f;
-                    sb.Append(grounded ? 'd' : lit ? 'l' : 'b');
-                }
-                rows[h - 1 - y] = sb.ToString(); // PixelSprite reads rows[0] as the TOP row.
-            }
-            return rows;
+        /// <summary>One shell plate, flying loose when the heart bursts.</summary>
+        public static Sprite Plate(EnemyLook look) => Piece(look, 300, "plate", rig =>
+            rig.Add(1f, (int)Slot.Plate, TexelRig.Ellipse(6f, 6f, 3.6f, 1.55f, 0f), level: 2));
+
+        static Sprite Piece(EnemyLook look, int key, string name, System.Action<TexelRig.Rig> build)
+        {
+            key += look == EnemyLook.Automaton ? 1 : 0;
+            if (_singles.TryGetValue(key, out var hit) && hit != null) return hit;
+            var mat = look == EnemyLook.Automaton ? Ironbound : Slag;
+            var rig = new TexelRig.Rig();
+            build(rig);
+            var pose = Poses[(int)BombFrame.Idle];
+            var sprite = TexelRig.Rasterise($"enemy.bomb.{name}.{(mat.Iron ? "iron" : "slag")}", rig, 12, 12, 1f, mat.Out,
+                (in TexelRig.Cell c, int x, int y, int s, System.Func<int, int, TexelRig.Part> at) => ColourOf(c, x, y, mat, pose, at),
+                new Vector2(6f, 6f), null, part => mat.Iron || part.Slot == (int)Slot.Plate);
+            _singles[key] = sprite;
+            return sprite;
         }
 
-        // ================================================================== automaton
-
-        const int AutomatonW = 16, AutomatonH = 22;
-        const int BarrelRows = 13;
-        const int RodMaxRows = 9;
-
-        static Sprite[] BuildAutomaton()
+        static Sprite Single(string name, Color[] px, int w, int h, Vector2 pivot01)
         {
-            var palette = Palette.Of(Hazard, Lamp, Safety);
-
-            return new[]
+            var tex = new Texture2D(w, h, TextureFormat.RGBA32, false)
             {
-                PixelSprite.From("enemy.bomb.automaton.0", AutomatonRows(2, 'D'), palette, outline: true),
-                PixelSprite.From("enemy.bomb.automaton.1", AutomatonRows(5, 'L'), palette, outline: true),
-                PixelSprite.From("enemy.bomb.automaton.2", AutomatonRows(RodMaxRows, 'H'), palette, outline: true),
-                // Cooling: the plunger retracts to its idle height but the tip goes to the SAFETY
-                // ramp (digits) instead of a dim warning tone - a status light changing colour
-                // reads as "stood down" more clearly than the same red merely getting darker,
-                // which is easy to mistake for "still arming, just dim."
-                PixelSprite.From("enemy.bomb.automaton.3", AutomatonRows(2, '4'), palette, outline: true),
+                filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp,
+                hideFlags = HideFlags.HideAndDontSave, name = name,
             };
+            tex.SetPixels(px);
+            tex.Apply();
+            var sprite = Sprite.Create(tex, new Rect(0, 0, w, h), pivot01, TexelRig.TexelsPerUnit, 0, SpriteMeshType.FullRect);
+            sprite.name = name;
+            return sprite;
         }
 
-        /// <summary>
-        /// A riveted barrel (rows 0..BarrelRows-1, corners clipped rather than a true ellipse -
-        /// this is a stubby cylinder seen face-on, not a dome) with a thin plunger rod rising out
-        /// of reserved headroom above it. The barrel's own row count and width never change
-        /// between stages - only how far the rod climbs into that headroom, and what tone its tip
-        /// takes - so every stage bakes to the identical canvas size and a driver can swap between
-        /// them without ever touching the renderer's scale.
-        /// </summary>
-        static string[] AutomatonRows(int rodRows, char tipTone)
-        {
-            const int w = AutomatonW, h = AutomatonH;
-            int rodX0 = w / 2 - 1, rodX1 = w / 2;   // the two centre columns of an EVEN-width canvas
-            var rows = new string[h];
-
-            for (int y = 0; y < h; y++)
-            {
-                var sb = new StringBuilder(w);
-
-                if (y < BarrelRows)
-                {
-                    int inset = y == 0 || y == BarrelRows - 1 ? 3 : y == 1 || y == BarrelRows - 2 ? 1 : 0;
-                    bool band = y == 4 || y == 9;   // riveted hoop bands
-                    for (int x = 0; x < w; x++)
-                    {
-                        if (x < inset || x >= w - inset) { sb.Append('.'); continue; }
-                        bool rivet = band && (x == 3 || x == w - 4);
-                        bool rim = x == inset || x == w - inset - 1 || y == 0 || y == BarrelRows - 1;
-                        sb.Append(rivet ? 'l' : band ? 'd' : rim ? 'd' : 'b');
-                    }
-                }
-                else
-                {
-                    int rodY = y - BarrelRows;
-                    bool hasRod = rodY < rodRows;
-                    // The tip is the top two rungs of whatever height the rod currently reaches -
-                    // a fixed FRACTION of the rod would make the idle nub's tip nearly invisible.
-                    bool tip = hasRod && rodY >= rodRows - 2;
-                    for (int x = 0; x < w; x++)
-                    {
-                        bool onRod = hasRod && (x == rodX0 || x == rodX1);
-                        sb.Append(!onRod ? '.' : tip ? tipTone : 'd');
-                    }
-                }
-
-                rows[h - 1 - y] = sb.ToString();
-            }
-            return rows;
-        }
     }
 }

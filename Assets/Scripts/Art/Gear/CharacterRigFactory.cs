@@ -101,9 +101,15 @@ namespace Convergence.Art.Gear
             // puts the base sprite's fire gem back (see Attunement).
             ApplyAttunement(rig, weapon, Attunement.Current);
 
-            // The hub/preview has no run-scoped ledger to read Extra Sigil's stack from, so it
-            // shows the base rack only - the same reason a preview never shows a banked finisher.
-            rig.SetVialCount(weapon != null && weapon.Class == WeaponClass.Bow ? 2 : 0);
+            // A bow's quiver on the back and its arrow (the user's call, 2026-10-16 - they replaced
+            // the belt vials, which no longer show): the DRAWN bow's, a skin's included.
+            rig.SetVialCount(0);
+            var (quiver, arrow) = DemoGear.BowKit(weapon);
+            rig.SetQuiver(quiver, arrow);
+            bool strung = weapon != null && weapon.Class == WeaponClass.Bow && weapon.BowStringless != null;
+            rig.SetBowString(strung ? weapon.BowStringless : null,
+                             strung ? weapon.BowNockTop : Vector2.zero, strung ? weapon.BowNockBottom : Vector2.zero,
+                             strung ? weapon.BowStringColor : Color.black);
 
             // RIFT-TOUCHED WEAPONS CARRY THE RIFT'S OWN DEBRIS. Read from the RESOLVED loadout -
             // the blade being DRAWN - not from what is equipped, which is the same split the heat

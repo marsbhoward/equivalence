@@ -48,6 +48,11 @@ namespace Convergence.Combat
         SpriteRenderer _weapon;
         float _remaining;
 
+        /// <summary>A disc's rig and which side of the body its discs were on when the arc was
+        /// last started - see LateUpdate.</summary>
+        PrimitiveCharacterRig _rig;
+        bool _offFront;
+
         /// <summary>
         /// Draw the arc for <paramref name="seconds"/>. Safe to call on a rig that cannot say
         /// where its weapon is - the SpriteLibrary rig answers null to both accessors and simply
@@ -62,14 +67,54 @@ namespace Convergence.Combat
             if (anchor == null || weapon == null) return;
             if (!rig.TryGetWeaponVisual(out _, out var tint, out var size)) return;
 
+            // A SPLIT disc pair: each disc draws its own arc, struck from its CENTRE - a disc has
+            // no tip, and 0.92 of its height above the grip hung the arc in the air beside it.
+            // The off hand's stroke is as much the swing as the main's (Cross Cut's X ends on it).
+            var off = rig.OffhandRenderer;
+            if (off != null && off.enabled && off.sprite != null)
+            {
+                Start(weapon.transform, CentreOf(weapon), weapon, tint, seconds, DiscWidth(weapon));
+                Start(off.transform, CentreOf(off), off, tint, seconds, DiscWidth(off));
+                return;
+            }
+
+            // `size` is a WORLD size and the trail sits under the weapon anchor, inside the rig's
+            // visual scale - measured in the anchor's own units or it rides past the blade.
+            float anchorY = Mathf.Abs(anchor.lossyScale.y);
+            float bladeLocal = anchorY > 0.0001f ? size.y / anchorY : size.y;
+            Start(anchor, new Vector3(0f, bladeLocal * AlongBlade, 0f), weapon, tint, seconds, Width);
+        }
+
+        /// <summary>The middle of a renderer's picture in its own local space.</summary>
+        static Vector3 CentreOf(SpriteRenderer sr)
+        {
+            var c = sr.sprite != null ? sr.sprite.bounds.center : Vector3.zero;
+            return new Vector3(c.x, c.y, 0f);
+        }
+
+        /// <summary>A disc's arc is a BAND most of the disc's width, struck from its centre: a thin
+        /// line from there is covered by the disc itself, which is drawn over its own arc.</summary>
+        static float DiscWidth(SpriteRenderer sr)
+        {
+            var b = sr.bounds.size;
+            return Mathf.Min(b.x, b.y) * DiscWidthOfDisc;
+        }
+
+        const float DiscWidthOfDisc = 0.7f;
+
+        static void Start(Transform parent, Vector3 local, SpriteRenderer weapon, Color tint, float seconds, float width)
+        {
             // Reused rather than doubled if a second swing starts before the first has faded -
             // the same trap RiftShards.Attach documents, and here it would also leave the older
-            // renderer emitting from a stale position for the rest of the run.
-            var t = anchor.GetComponentInChildren<WeaponTrail>(true);
+            // renderer emitting from a stale position for the rest of the run. Looked for among
+            // the parent's OWN children: the main disc's anchor holds the off hand's further down.
+            WeaponTrail t = null;
+            for (int i = 0; i < parent.childCount; i++)
+                if (parent.GetChild(i).TryGetComponent<WeaponTrail>(out var found)) { t = found; break; }
             if (t == null)
             {
                 var go = new GameObject("weapon.trail");
-                go.transform.SetParent(anchor, false);
+                go.transform.SetParent(parent, false);
                 t = go.AddComponent<WeaponTrail>();
                 t._trail = go.AddComponent<TrailRenderer>();
                 t._trail.autodestruct = false;
@@ -81,16 +126,14 @@ namespace Convergence.Combat
             }
 
             t._weapon = weapon;
-            // `size` is a WORLD size and the trail sits under the weapon anchor, inside the rig's
-            // visual scale - measured in the anchor's own units or it rides past the blade.
-            float anchorY = Mathf.Abs(anchor.lossyScale.y);
-            float bladeLocal = anchorY > 0.0001f ? size.y / anchorY : size.y;
-            t.transform.localPosition = new Vector3(0f, bladeLocal * AlongBlade, 0f);
+            t.transform.localPosition = local;
+            t._rig = width != Width ? parent.GetComponentInParent<PrimitiveCharacterRig>() : null;
+            t._offFront = t._rig != null && t._rig.OffInFront;
 
             var trail = t._trail;
             trail.time = Persistence;
             trail.minVertexDistance = 0.01f;
-            trail.widthCurve = AnimationCurve.EaseInOut(0f, Width, 1f, 0f);
+            trail.widthCurve = AnimationCurve.EaseInOut(0f, width, 1f, 0f);
             trail.numCapVertices = 2;
 
             // Struck in the weapon's own colour, so a skinned blade's arc is that blade's arc.
@@ -124,7 +167,25 @@ namespace Convergence.Combat
                 _trail.sortingOrder = _weapon.sortingOrder - 1;
             }
 
+            // A disc crossing the body (Cross Cut's X): the arms and discs trade depths, and the arc
+            // is one renderer at one depth - the part drawn behind the head would come round in
+            // front of the face with it. It starts again from the crossing.
+            if (_rig != null && _rig.OffInFront != _offFront)
+            {
+                _offFront = !_offFront;
+                if (_trail.emitting) _trail.Clear();
+            }
+
             if (_remaining <= 0f) return;
+
+            // The weapon has LEFT the hand (thrown - its renderer is switched off): an empty hand
+            // draws no arc. What is already drawn fades on its own, as at the swing's end.
+            if (_weapon != null && !_weapon.enabled)
+            {
+                _remaining = 0f;
+                _trail.emitting = false;
+                return;
+            }
 
             _remaining -= Time.deltaTime;
             if (_remaining > 0f) return;

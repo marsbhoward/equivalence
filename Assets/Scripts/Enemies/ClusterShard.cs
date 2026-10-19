@@ -18,12 +18,19 @@ namespace Convergence.Enemies
     /// </summary>
     public class ClusterShard : MonoBehaviour
     {
+        /// <summary>How long a mote takes to fly from the heart to its spot.</summary>
+        const float MoteFlightSeconds = 0.3f;
+
         float _fuse;
         float _damage;
         Transform _target;
         SpriteRenderer _ring;
+        Transform _mote;
+        Vector2 _from;
+        float _flight;
 
-        public static ClusterShard Spawn(Vector2 at, Transform parent, Transform target, float damage)
+        public static ClusterShard Spawn(Vector2 at, Transform parent, Transform target, float damage,
+                                         Vector2? from = null, Sprite mote = null)
         {
             var go = new GameObject("bomb.shard");
             if (parent != null) go.transform.SetParent(parent, false);
@@ -38,12 +45,37 @@ namespace Convergence.Enemies
             s._ring.sprite = Spr.ThinRing;
             s._ring.sortingOrder = SortingOrders.Telegraph;
             go.transform.localScale = Vector3.one * (Tuning.Enemy.ClusterRadius * 2f);
+
+            // The Brimstone Heart's elite: the shard is one of its orbiting motes, flung from the
+            // heart to where it will burst, drawn at scale 1 (its own GameObject, not under the
+            // ring's scale) and sorted as a body.
+            if (mote != null && from.HasValue)
+            {
+                var m = new GameObject("bomb.mote");
+                if (parent != null) m.transform.SetParent(parent, false);
+                m.transform.position = from.Value;
+                var msr = m.AddComponent<SpriteRenderer>();
+                msr.sprite = mote;
+                msr.sortingOrder = SortingOrders.Fx - 1;
+                s._mote = m.transform;
+                s._from = from.Value;
+            }
             return s;
         }
 
         void Update()
         {
             _fuse -= Time.deltaTime;
+
+            // The mote arcs out over the first part of the fuse, then sits on its spot, trembling.
+            if (_mote != null)
+            {
+                _flight += Time.deltaTime;
+                float u = Mathf.Clamp01(_flight / MoteFlightSeconds);
+                var p = Vector2.Lerp(_from, transform.position, u) + Vector2.up * (Mathf.Sin(u * Mathf.PI) * 0.6f);
+                if (u >= 1f) p += new Vector2(Mathf.Sin(Time.time * 40f), Mathf.Cos(Time.time * 33f)) * (1f / 28.125f);
+                _mote.position = p;
+            }
 
             if (_ring != null)
             {
@@ -63,6 +95,7 @@ namespace Convergence.Enemies
             }
 
             Spr.Flash(transform.position, Tuning.Enemy.ClusterRadius, BombArt.Blast, 0.25f);
+            if (_mote != null) Destroy(_mote.gameObject);
             Destroy(gameObject);
         }
     }

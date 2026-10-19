@@ -38,6 +38,9 @@ namespace Convergence.Combat
         {
             get
             {
+                // Rooted (petrify - the Gargoyle's, Congelation's, the bow's Pin): no walking at all.
+                // It was only ever a flag, and nothing an enemy did read it.
+                if (_petrifyRemaining > 0f) return 0f;
                 float m = 1f;
                 if (_soakRemaining > 0f) m *= 0.55f;
                 if (_staggerRemaining > 0f) m *= Mathf.Max(0.25f, 1f - 0.2f * _staggerStacks);
@@ -222,12 +225,15 @@ namespace Convergence.Combat
         /// Paint a target so the NEXT hit on it lands amplified. Falls off on a timer if nothing
         /// cashes it in, so a mark left unused is a wasted finisher rather than a stored one.
         /// </summary>
-        public void ApplyMark(float duration, float multiplier)
+        public void ApplyMark(float duration, float multiplier, ElementType element)
         {
             if (_health == null) return;
             _health.MarkMultiplier = Mathf.Max(1f, multiplier);
             _markRemaining = Mathf.Max(_markRemaining, duration);
+            _markSigil = MarkSigil.Show(_health, element, _markSigil);   // a mark the player can see
         }
+
+        MarkSigil _markSigil;
 
         public bool Marked => _markRemaining > 0f && _health != null && _health.MarkMultiplier > 1f;
 
@@ -260,6 +266,8 @@ namespace Convergence.Combat
                 _markRemaining -= dt;
                 if (_markRemaining <= 0f || _health == null || _health.MarkMultiplier <= 1f)
                 {
+                    // Ran out unspent: the sigil fades (a spend, it sees for itself, and breaks).
+                    if (_markRemaining <= 0f && _markSigil != null) _markSigil.Expire();
                     _markRemaining = 0f;
                     if (_health != null) _health.MarkMultiplier = 1f;
                 }

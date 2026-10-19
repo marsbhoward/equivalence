@@ -37,6 +37,11 @@ namespace Convergence.Enemies
         /// </summary>
         public bool Elite;
 
+        /// <summary>The look this body was drawn in (EnemyLooks, rolled per floor), kept on the
+        /// body so effects it makes later - the Tempest Eye's lightning and static mire - match
+        /// its own art rather than whatever the floor's look is by then.</summary>
+        public EnemyLook Look;
+
         /// <summary>
         /// Which of its floor's bodies this is - the wave's queue order, set as it spawns. Its drops
         /// are rolled from it (Rifts.RunRolls), so a floor replayed after a resume pays the same
@@ -57,6 +62,12 @@ namespace Convergence.Enemies
 
         /// <summary>True when THIS attack should be the elite one. Asked once per attack, and it
         /// counts here so every kind gets the same cadence for free.</summary>
+        /// <summary>Whether the NEXT attack will be the elite pattern - the same count
+        /// <see cref="ElitePatternDue"/> advances, read without advancing it, so art can show
+        /// what is coming (the Cinder Stinger's three lit lobes before a volley).</summary>
+        public bool NextShotIsElitePattern =>
+            ElitePattern != ElitePattern.None && (_attackCount + 1) % Mathf.Max(1, ElitePatternEvery) == 0;
+
         bool ElitePatternDue()
         {
             if (ElitePattern == ElitePattern.None) return false;
@@ -82,6 +93,13 @@ namespace Convergence.Enemies
         /// body art (see EnemyStageCycle) can show the wind-up without reaching into a private
         /// timer.
         /// </summary>
+        /// <summary>Seconds left on the current telegraph, 0 when there is none - the raw timer,
+        /// for art that keys a pose to the moment the attack lands (ChaserVisual's cocked frame).</summary>
+        public float TelegraphRemaining => Mathf.Max(0f, _telegraphTimer);
+
+        /// <summary>Who this enemy is after.</summary>
+        public Transform Target => _target;
+
         public float TelegraphProgress01 =>
             _telegraphTimer > 0f ? 1f - Mathf.Clamp01(_telegraphTimer / Mathf.Max(0.0001f, TelegraphDuration)) : 0f;
 
@@ -103,8 +121,9 @@ namespace Convergence.Enemies
         StatusEffects _status;
 
         /// <summary>How fast this body's attack cooldowns run right now - slower while a stagger
-        /// carries the mastery board's Antimony (StatusEffects.AttackTempo). Telegraphs never slow.</summary>
-        float AttackTempo => _status ? _status.AttackTempo : 1f;
+        /// carries the mastery board's Antimony (StatusEffects.AttackTempo), faster on an elite a
+        /// Booster has roared to power (_boostTempo). Antimony never slows a telegraph.</summary>
+        float AttackTempo => (_status ? _status.AttackTempo : 1f) * (_boostTempo > 0f ? _boostTempo : 1f);
         float _cooldown;
 
         // ---- ranged telegraph state ----
@@ -133,7 +152,7 @@ namespace Convergence.Enemies
         // countdown that always resolves once armed, where the beam is a continuous state that
         // can switch on and off many times a second as line of sight comes and goes.
         GameObject _beamVisual;
-        SpriteRenderer _beamSr;
+        LightningArc _beamArc;
         float _beamTick;
         float _turretCharge;
         float _overchargeUntil;
@@ -145,34 +164,58 @@ namespace Convergence.Enemies
         bool _mireClockStarted;
         SpriteRenderer _mireWindupSr;
 
-        // The piece of a Turret's own art that swivels - see TurretArt.Attach, which hands this
-        // in right after building the body. A Transform, not an interface or a Dictionary, so it
-        // survives a domain reload the same way every other Object reference on this file does.
+        // A piece of a Turret's art that ROTATES to aim, if a look has one. The Tempest Eye has
+        // none - its pupil is the swivel (TurretVisual) - so nothing sets this today; kept for a
+        // look that would. A Transform survives a domain reload like every Object reference here.
         Transform _turretHead;
 
-        /// <summary>Called once by TurretArt.Attach - the aiming half of the split body.</summary>
+        /// <summary>Hands in a piece of the art that rotates to face the target.</summary>
         public void SetTurretHead(Transform head) => _turretHead = head;
+
+        bool _turretFacesLeft;
+
+        /// <summary>Which way the Tempest Eye faces - decided here, with a dead zone, so its
+        /// drawing (TurretVisual) and its beam's origin at the eye always agree.</summary>
+        public bool TurretFacesLeft => _turretFacesLeft;
+        /// <summary>The beam is on, at this moment.</summary>
+        public bool TurretBeamOn => _beamVisual != null;
+        /// <summary>An elite's overcharge is running.</summary>
+        public bool TurretOvercharged => Time.time < _overchargeUntil;
+        /// <summary>An elite's mire lob is winding up.</summary>
+        public bool TurretLobbing => _mireWindup > 0f;
 
         // ---- dasher state ----
         //
-        // Approach -> Telegraph (reuses the shared _telegraphTimer/_telegraphVisual fields above,
-        // a glow hugging its own body rather than a ground shape) -> Rushing (a straight line to
-        // the point frozen when the telegraph BEGAN) -> Combo (frozen, landing hits on a clock) ->
-        // Evading (put distance between itself and the player) -> back to Approach.
+        // The Gale Hound's L (the user's reference clip, 2026-10-18): Approach -> LineUpTell ->
+        // LineUp (a dash SIDEWAYS, to a point level with the player) -> Braced -> Telegraph (the
+        // charge's tell; the end point is frozen as it starts) -> Rushing (straight THROUGH that
+        // point and on past it) -> Spent (standing where it stopped) -> Evading -> Approach. Either
+        // dash bites whatever it passes through, once. An elite's Redouble turns at the end of the
+        // charge and tells again instead of standing spent.
         //
-        // PUBLIC, unlike every other private phase/timer field here - EnemyStageCycle needs it.
-        // Dasher's own art doesn't fit the shared TelegraphProgress01-plus-Recovering shape every
-        // other kind's stage cycle reads (see EnemyStageCycle.Update) because Recovering is never
-        // used for this kind at all (RecoverSeconds returns 0 - Dasher has Evading instead), so the
-        // cycle reads this enum directly rather than being forced through an abstraction built for
-        // a different-shaped state machine.
-        public enum DasherPhase { Approach, Telegraph, Rushing, Combo, Evading }
+        // Its own timers, not the shared _telegraphTimer: nothing draws a ground shape for it, and
+        // two tells and two dashes are not that machinery's shape. PUBLIC read-outs for DasherVisual.
+        public enum DasherPhase { Approach, LineUpTell, LineUp, Braced, Telegraph, Rushing, Spent, Evading }
         public DasherPhase CurrentDasherPhase => _dasherPhase;
 
+        /// <summary>Which way the coming (or current) dash goes, unit length.</summary>
+        public Vector2 DasherAim => _dasherDashDir;
+
+        /// <summary>0..1 through whichever tell is running; 0 outside one.</summary>
+        public float DasherTellProgress01 =>
+            _dasherPhase is DasherPhase.LineUpTell or DasherPhase.Telegraph
+                ? 1f - Mathf.Clamp01(_dasherPhaseTimer / Mathf.Max(0.0001f, _dasherPhaseLength)) : 0f;
+
+        /// <summary>A dash is under way (either of them).</summary>
+        public bool DasherDashing => _dasherPhase is DasherPhase.LineUp or DasherPhase.Rushing;
+
+        /// <summary>When (Time.time) a dash last bit something - DasherVisual's Bite frame.</summary>
+        [System.NonSerialized] public float DasherBitAt = -10f;
+
         DasherPhase _dasherPhase;
-        Vector2 _dasherRushTarget;
-        int _dasherComboHitsLeft;
-        float _dasherPhaseTimer;
+        Vector2 _dasherRushTarget, _dasherDashDir = Vector2.left, _dasherLastPos;
+        float _dasherPhaseTimer, _dasherPhaseLength;
+        bool _dasherBit, _dasherRedoubled;
 
         // ---- gargoyle state ----
         //
@@ -183,19 +226,51 @@ namespace Convergence.Enemies
         // (Dasher's rush), so it gets its own small pair of fields rather than being bent to fit
         // one of those.
         bool _gargoyleFlying;
-        Vector2 _gargoyleFlyTarget;
+        Vector2 _gargoyleFlyTarget, _gargoyleFlyFrom;
         float _gargoyleFlyTimer;
+
+        /// <summary>An elite is in the air (GargoyleVisual's wings and lift).</summary>
+        public bool GargoyleFlying => _gargoyleFlying;
+
+        /// <summary>0..1 along the elite's current flight, by distance.</summary>
+        public float GargoyleFlightProgress01
+        {
+            get
+            {
+                float total = Vector2.Distance(_gargoyleFlyFrom, _gargoyleFlyTarget);
+                return total < 0.01f ? 1f : Mathf.Clamp01(1f - Vector2.Distance(transform.position, _gargoyleFlyTarget) / total);
+            }
+        }
+
+        /// <summary>When (Time.time) a gaze last landed - the root, or the elite's slam.</summary>
+        [System.NonSerialized] public float GargoyleStruckAt = -10f;
 
         // ---- booster state ----
         //
-        // Reuses the shared _telegraphTimer/_telegraphVisual/Recovering machinery for the cast
-        // itself - a channel-then-resolve cycle is exactly Gargoyle's own basic shape, just aimed
-        // at an ally instead of the player. _boosterCandidate is who it is CHANNELLING on right
-        // now (may still fail - see ResolveBooster); _boosterTarget is who it has SUCCESSFULLY
-        // buffed, kept only so this Booster knows when that ally has died and it is free to pick
-        // someone new. The buff itself lives on the RECIPIENT (see Boosted below), not here.
-        EnemyController _boosterCandidate;
-        EnemyController _boosterTarget;
+        // Reuses the shared _telegraphTimer/Recovering machinery for the cast itself - a
+        // channel-then-resolve cycle is exactly Gargoyle's own basic shape, just aimed at an ally
+        // instead of the player. The candidates are who it is CHANNELLING on right now (may still
+        // fail - see ResolveBooster); the targets are who it has SUCCESSFULLY roared to power,
+        // kept so it knows when one has died and its slot is free. An elite has two slots (the
+        // user's call, 2026-10-19); the second pair is only ever used by one. The buff itself
+        // lives on the RECIPIENT (see Boosted below), not here.
+        EnemyController _boosterCandidate, _boosterCandidate2;
+        EnemyController _boosterTarget, _boosterTarget2;
+
+        /// <summary>When (Time.time) a Booster last roared - BoosterVisual's roar frames and waves.</summary>
+        [System.NonSerialized] public float BoosterRoaredAt = -10f;
+
+        /// <summary>Who that roar reached (the second only ever on an elite's double roar).</summary>
+        [System.NonSerialized] public EnemyController BoosterRoaredA, BoosterRoaredB;
+
+        /// <summary>Who a Booster is drawing breath to roar at, while it channels - it turns to it.</summary>
+        public EnemyController BoosterFocus => _telegraphTimer > 0f ? _boosterCandidate : null;
+
+        int BoosterSlots => Elite ? Tuning.Enemy.BoosterEliteSlots : 1;
+        int BoosterHeld => (_boosterTarget != null ? 1 : 0) + (_boosterTarget2 != null ? 1 : 0);
+
+        /// <summary>Every slot holds a living boosted ally: the lion lies spent until one dies.</summary>
+        public bool BoosterSpent => Kind == EnemyKind.Booster && BoosterHeld >= BoosterSlots;
 
         // ---- boosted-recipient state (any kind, when a Booster has successfully cast on it) ----
 
@@ -203,43 +278,53 @@ namespace Convergence.Enemies
         /// Permanent for the rest of this enemy's life; nothing ever clears it early.</summary>
         public bool Boosted { get; private set; }
 
-        SpriteRenderer _boostedVisual;
+        /// <summary>An elite's boost: how much faster its attack cooldowns run (1 = unboosted).
+        /// Read through AttackTempo; zero after an old domain reload means unboosted.</summary>
+        float _boostTempo = 1f;
 
         // ---- bubbles state ----
         //
-        // The third and last of the hazard trio, and structurally the closest to Booster: the
-        // same channel-then-resolve cycle, the same single ally at a time, the same shared
-        // FindNearestAlly hunt. What is genuinely different is that a bubble is not permanent -
-        // it POPS - so unlike _boosterTarget (which only ever needs to notice a death),
-        // UpdateBubbles also has to notice the bubble breaking while its wearer is still alive.
+        // The Drowned Bell (redesigned 2026-10-19, the user's calls): the same channel-then-
+        // resolve cycle as the lion, aimed at the unbubbled enemy NEAREST THE PLAYER that it can
+        // see. A bubble is not permanent - it POPS - so the caster watches its ally's Bubbled flag
+        // as well as its death. An ELITE also bubbles ITSELF with every blow (alone when no ally is
+        // in sight), renewed only once its own is gone.
         EnemyController _bubbleCandidate;
         EnemyController _bubbleTarget;
+        bool _bubbleSelfToo;
+        bool _selfBubbleHeld;   // its own bubble stood last frame - an elite recovers when it pops
+
+        /// <summary>When (Time.time) a Bubbles last blew - BubblesVisual's blow frames.</summary>
+        [System.NonSerialized] public float BubblesBlewAt = -10f;
+
+        /// <summary>Who a Bubbles is drawing water for, while it channels - it turns to it.</summary>
+        public EnemyController BubblesFocus => _telegraphTimer > 0f ? _bubbleCandidate : null;
+
+        /// <summary>Its ally's bubble holds (and its own, if elite): it tends, doing nothing.</summary>
+        public bool BubblesTending => Kind == EnemyKind.Bubbles && _bubbleTarget != null && (!Elite || Bubbled);
 
         // ---- bubbled-recipient state (any kind, while a Bubbles' shield is holding) ----
 
         /// <summary>
-        /// How many separate finisher hits the shield on THIS enemy can still absorb before it
-        /// pops - 1 from an ordinary Bubbles' cast, BubblesEliteCharges (2) from an elite's. A
-        /// second cast landing on an already-bubbled ally ADDS to this rather than being refused
-        /// (see FindBubbleCandidate) - REINFORCING a stacked target rather than wasting the cast,
-        /// which is the whole point of letting a second Bubbles target someone already shielded.
+        /// How many weapon-art breaks the shield on THIS enemy can still take before it pops - 1
+        /// from an ordinary Bubbles' cast, BubblesEliteCharges (2) from an elite's, where a HEAVY
+        /// art takes the whole of it at once (the user's call). Bubbles NEVER STACK (the user's
+        /// call, 2026-10-19): a bubbled enemy is never picked, and a second bubble is refused.
         /// </summary>
         public int BubbleCharges { get; private set; }
 
         /// <summary>True while any charges remain - see BubbleCharges. Temporary, unlike Boosted:
-        /// it clears once the last charge is spent by a finisher.</summary>
+        /// it clears once the last charge is spent by a weapon art.</summary>
         public bool Bubbled => BubbleCharges > 0;
 
-        SpriteRenderer _bubbleFillVisual, _bubbleRimVisual;
-        float _bubbleFillBaseAlpha = 0.18f, _bubbleRimBaseAlpha = 0.55f;
+        /// <summary>The drawn bubble on this body (BubbleShell) while it holds.</summary>
+        BubbleShell _bubbleShell;
 
         /// <summary>
         /// The exact predicate installed on Health.BlocksHit, kept so PopBubble can tell "is this
         /// still MY block" before clearing the slot - Health.BlocksHit is a single field, not an
         /// event (see its own doc), so blindly nulling it on pop would silently erase a different
-        /// system's block if one is ever added to an enemy later. Nothing does yet - only the
-        /// player's own Shield mechanic uses BlocksHit today - but the guard costs nothing and
-        /// documents the trap rather than leaving it to be rediscovered.
+        /// system's block if one is ever added to an enemy later.
         /// </summary>
         System.Func<DamageInfo, bool> _bubbleBlock;
 
@@ -345,7 +430,11 @@ namespace Convergence.Enemies
             // The interrupt itself: whatever it was winding up does not happen.
             CancelTelegraph();
             _cooldown = Mathf.Max(_cooldown, seconds);
-            if (_rb != null) _rb.linearVelocity = Vector2.zero;
+            // Stopped in its tracks - unless the hit that flinched it shoved it this frame. The
+            // shove lands first (Health.Take) and the flinch after, so zeroing here erased every
+            // Heavy knockback and pull before physics moved the body (measured 0.00 units,
+            // 2026-10-14). The reel's own damping in FixedUpdate brings a shoved body to rest.
+            if (_rb != null && _health.ShovedAt < Time.time) _rb.linearVelocity = Vector2.zero;
 
             RouteFlinch();
             return true;
@@ -372,7 +461,8 @@ namespace Convergence.Enemies
             // arrives early at one the kind already performs.
             if (Kind == EnemyKind.Dasher)
             {
-                if (_dasherPhase is DasherPhase.Telegraph or DasherPhase.Rushing or DasherPhase.Combo)
+                if (_dasherPhase is DasherPhase.LineUpTell or DasherPhase.LineUp or DasherPhase.Braced
+                                 or DasherPhase.Telegraph or DasherPhase.Rushing)
                     BeginEvade();
                 return;
             }
@@ -388,6 +478,9 @@ namespace Convergence.Enemies
             // air still land.
             if (Kind == EnemyKind.Mortar) EndMortarAction();
 
+            // Denies whatever is left of a sweep - fireballs already thrown still fly.
+            if (Kind == EnemyKind.Bomb) { _bombShotsLeft = 0; _bombSpent = 0f; }
+
             BeginRecover(RecoverSeconds);
 
             // A Turret cannot gain space by moving, so its recovery is the beam having to spin up
@@ -402,20 +495,19 @@ namespace Convergence.Enemies
         // ---------------------------------------------------------------- the booster buff
 
         /// <summary>
-        /// Applied by a Booster statue's successful cast - see UpdateBooster. GRANTS THIS KIND'S
-        /// OWN ELITE ATTACK PATTERN, and only that: no HP or damage multiplier, no displacement
-        /// resistance. Setting ElitePattern/ElitePatternEvery directly is enough on every kind but
-        /// Gargoyle - ElitePatternDue() (which Riposte/Volley/Cluster/Overcharge/Redouble all read)
-        /// was never gated on the Elite bool to begin with, only on ElitePattern itself. Gargoyle
-        /// is the one kind whose pattern (Descent) checks Elite directly instead, which is why
-        /// FindBoosterCandidate excludes it rather than this method trying to fake a second code
-        /// path for it.
+        /// Applied by a Booster's roar (see UpdateBooster). A BASIC ally GAINS ITS KIND'S OWN ELITE
+        /// ATTACK PATTERN, and only that: no HP or damage multiplier, no displacement resistance.
+        /// Setting ElitePattern/ElitePatternEvery directly is enough on every kind but Gargoyle -
+        /// ElitePatternDue() (which Riposte/Volley/Cluster/Overcharge/Redouble all read) was never
+        /// gated on the Elite bool to begin with, only on ElitePattern itself. Gargoyle is the one
+        /// kind whose pattern (Descent) checks Elite directly instead, which is why
+        /// FindBoosterCandidate excludes it.
         ///
-        /// AN ALREADY-ELITE TARGET HAS NOTHING LEFT TO GRANT THIS WAY - it already rolled its
-        /// kind's pattern - so the buff raises what it already deals instead. Multiplying the
-        /// plain Damage FIELD directly, rather than threading a new modifier through every attack
-        /// call site, is what makes this safe: every kind already reads Damage from wherever it
-        /// happens to deal its hit, so bumping it once here reaches all of them for free.
+        /// AN ELITE ALLY already has its pattern - the lion only picks one when no basic is in
+        /// reach (the user's call, 2026-10-19) - so its attacks come round FASTER instead: its
+        /// cooldowns run BoosterEliteTempo times as fast (through AttackTempo, so the kinds that
+        /// tick a cooldown through it - Chaser, Ranged, Bomb, Mortar) and its wind-ups are
+        /// BoosterEliteTelegraphMul as long, never under TelegraphMinSeconds.
         ///
         /// PERMANENT, and guarded against a second application - both by the Boosted flag here and
         /// by FindBoosterCandidate refusing to target an already-boosted ally in the first place.
@@ -425,7 +517,12 @@ namespace Convergence.Enemies
             if (Boosted) return;
             Boosted = true;
 
-            if (Elite) Damage *= Tuning.Enemy.BoosterEliteDamageMul;
+            if (Elite)
+            {
+                _boostTempo = Tuning.Enemy.BoosterEliteTempo;
+                TelegraphDuration = Mathf.Max(Tuning.Enemy.TelegraphMinSeconds,
+                                              TelegraphDuration * Tuning.Enemy.BoosterEliteTelegraphMul);
+            }
             else
             {
                 var def = EnemyTypes.Of(Kind);
@@ -433,102 +530,54 @@ namespace Convergence.Enemies
                 ElitePatternEvery = Mathf.Max(1, def.EliteEvery);
             }
 
-            ShowBoosted();
-        }
-
-        void ShowBoosted()
-        {
-            if (_boostedVisual != null) return;
-
-            var go = new GameObject("boosted");
-            go.transform.SetParent(transform, false);
-            go.transform.localScale = Vector3.one * 1.3f;
-            _boostedVisual = go.AddComponent<SpriteRenderer>();
-            _boostedVisual.sprite = Spr.Circle;
-            _boostedVisual.sortingOrder = SortingOrders.StatusOverlay;
-            // The statue's own colour (see EnemyTypes' Booster row) - the effect visibly traces
-            // back to its source rather than reading as a generic buff.
-            _boostedVisual.color = new Color(0.55f, 0.95f, 0.55f, 0.32f);
-        }
-
-        void TickBoostedVisual()
-        {
-            if (_boostedVisual == null) return;
-            // Breathes rather than holding flat, the same "motion says this is live" cue
-            // StatusVisuals already uses for burn/soak/stagger - PERMANENT does not mean inert.
-            float pulse = 0.85f + Mathf.Sin(Time.time * 3.2f) * 0.15f;
-            var c = _boostedVisual.color;
-            c.a = 0.32f * pulse;
-            _boostedVisual.color = c;
+            // Green motes rising off it, the colour of the roar (the user's sign-off) - it was a
+            // soft pale circle over the body.
+            BoostedMotes.Attach(this);
         }
 
         // ---------------------------------------------------------------- the bubble shield
 
         /// <summary>
-        /// Applied by a Bubbles' successful cast - see UpdateBubbles. IMMUNITY TO EVERYTHING
-        /// except a finisher: implemented on Health.BlocksHit rather than Health.Immune, because
-        /// Immune short-circuits Take() unconditionally (the very first line) with no hook for a
-        /// per-hit exception - BlocksHit exists specifically for "a block that depends on THIS
-        /// hit rather than being a blanket flag" (see its own doc on Health), which is exactly
-        /// what a bubble needs: block everything whose DamageInfo.IsFinisher is false, and let a
-        /// finisher's hit proceed completely normally - full damage, flinch, durability wear, all
-        /// of it - through the ordinary pipeline, once per charge spent (see OnBubbleDamaged).
+        /// Applied by a Bubbles' blow - see UpdateBubbles. IMMUNITY TO EVERYTHING except a weapon
+        /// art: implemented on Health.BlocksHit rather than Health.Immune, because Immune
+        /// short-circuits Take() unconditionally with no hook for a per-hit exception - BlocksHit
+        /// blocks everything whose DamageInfo.IsFinisher is false and lets a finisher's hit proceed
+        /// completely normally (full damage, flinch, wear), breaking the bubble once (see
+        /// OnBubbleDamaged). LITERALLY EVERYTHING: a burn or bleed tick is a non-finisher Take too.
         ///
-        /// LITERALLY EVERYTHING, not just ordinary attacks: a burn or bleed tick is also a
-        /// Health.Take call with IsFinisher false, so it is blocked too. "Immunity to damage" was
-        /// asked for without a qualifier, and this is the reading that actually holds - an enemy
-        /// that could still be ticked to death by a DoT while "immune" would not read as immune.
+        /// NEVER STACKS: an already-bubbled body refuses a second one (the user's call).
+        /// <paramref name="accent"/> is the blowing bell's colour (BubblesArt.AccentOf);
+        /// <paramref name="from"/> is where the drawn bubble drifts in from - null for one that
+        /// forms in place (an elite bubbling itself).
         /// </summary>
-        /// <param name="charges">
-        /// How many separate finisher hits this application's shield can absorb - 1 for an
-        /// ordinary cast, Tuning.Enemy.BubblesEliteCharges for an elite's. STACKS onto whatever
-        /// the target already carries rather than overwriting it (see BubbleCharges and
-        /// FindBubbleCandidate), so a second Bubbles landing on an already-bubbled ally
-        /// reinforces it instead of the cast being wasted.
-        /// </param>
-        public void ApplyBubble(int charges = 1)
+        public void ApplyBubble(int charges, Color[] accent, Vector2? from)
         {
-            bool wasBubbled = Bubbled;
-            BubbleCharges += Mathf.Max(1, charges);
-
+            if (Bubbled) return;
             var hp = GetComponent<Health>();
             if (hp == null) return;
 
-            // Base alpha set BEFORE ShowBubble - so even a fresh elite cast (2 charges from its
-            // very first frame) shows as reinforced immediately rather than looking like a
-            // single-charge bubble for one frame before TickBubbleVisual catches up.
-            RefreshBubbleVisual();
-
-            // Install the block and subscribe ONLY on the first charge - a second cast stacking
-            // onto an already-bubbled target must NOT subscribe a second time, or one finisher
-            // landing would fire OnBubbleDamaged twice and spend two charges for one hit.
-            if (!wasBubbled)
-            {
-                _bubbleBlock = info => !info.IsFinisher;
-                hp.BlocksHit = _bubbleBlock;
-                hp.Damaged += OnBubbleDamaged;
-                ShowBubble();
-            }
+            BubbleCharges = Mathf.Max(1, charges);
+            _bubbleBlock = info => !info.IsFinisher;
+            hp.BlocksHit = _bubbleBlock;
+            hp.Damaged += OnBubbleDamaged;
+            _bubbleShell = BubbleShell.Attach(this, BubbleCharges, accent, from);
         }
 
         /// <summary>
         /// Fires only for a hit that made it PAST BlocksHit - which, while Bubbled, can only ever
-        /// be a finisher, by construction (see ApplyBubble). So every call here is a charge spent,
-        /// with no need to re-check DamageInfo.IsFinisher - and the hit that spends the LAST
-        /// charge still dealt its own full damage on the way in, same as every other charge.
+        /// be a weapon art, by construction. A Light or Medium art breaks ONE wall; a HEAVY art
+        /// breaks the whole bubble (the user's call: an elite's two walls go in one Heavy), read off
+        /// the art the player last dispatched (PlayerController.LastArtWeight).
         /// </summary>
         void OnBubbleDamaged(DamageInfo info)
         {
             if (BubbleCharges <= 0) return;   // defensive; unreachable while unsubscribed
-            BubbleCharges--;
+            bool heavy = info.Source != null && info.Source.TryGetComponent<Player.PlayerController>(out var pc)
+                      && pc.LastArtWeight == FinisherWeight.Heavy;
+            BubbleCharges = heavy ? 0 : BubbleCharges - 1;
 
             if (BubbleCharges <= 0) { PopBubble(); return; }
-
-            // CHIPPED, not popped - a smaller, quieter cue than the full pop below, so a
-            // multi-charge shield reads as visibly weakening rather than looking untouched right
-            // up until it suddenly gives.
-            RefreshBubbleVisual();
-            Spr.Flash(transform.position, 0.35f, new Color(0.55f, 0.85f, 1f), 0.18f, false);
+            if (_bubbleShell != null) _bubbleShell.SetWalls(BubbleCharges);
         }
 
         void PopBubble()
@@ -544,65 +593,8 @@ namespace Convergence.Enemies
             }
             _bubbleBlock = null;
 
-            HideBubbleVisual();
-            Spr.Flash(transform.position, 0.55f, new Color(0.55f, 0.85f, 1f), 0.28f, true);
-        }
-
-        void ShowBubble()
-        {
-            if (_bubbleFillVisual != null) return;
-
-            var fill = new GameObject("bubble.fill");
-            fill.transform.SetParent(transform, false);
-            fill.transform.localScale = Vector3.one * 1.5f;   // ENCLOSES the body, unlike the
-            _bubbleFillVisual = fill.AddComponent<SpriteRenderer>();   // tighter Boosted wash
-            _bubbleFillVisual.sprite = Spr.Circle;
-            _bubbleFillVisual.sortingOrder = SortingOrders.StatusOverlay;
-            // RGB set once, here; TickBubbleVisual only ever rewrites the alpha channel, so the
-            // hue has to be right from the first frame or it starts life plain white.
-            _bubbleFillVisual.color = new Color(0.55f, 0.85f, 1f, _bubbleFillBaseAlpha);
-
-            // A bright rim at the shell's own edge is what actually reads as a BUBBLE rather than
-            // as a tinted circle - the same reason StatusVisuals' own halo pairs a fill with
-            // motion; here the fill alone reads flat, so the rim carries the shape.
-            var rim = new GameObject("bubble.rim");
-            rim.transform.SetParent(transform, false);
-            rim.transform.localScale = Vector3.one * 1.5f;
-            _bubbleRimVisual = rim.AddComponent<SpriteRenderer>();
-            _bubbleRimVisual.sprite = Spr.ThinRing;
-            _bubbleRimVisual.sortingOrder = SortingOrders.StatusOverlay + 1;
-            _bubbleRimVisual.color = new Color(0.75f, 0.95f, 1f, _bubbleRimBaseAlpha);
-        }
-
-        /// <summary>
-        /// Denser and brighter with more charges held, so a REINFORCED bubble - elite or stacked
-        /// - reads as visibly sturdier rather than looking identical to a single-charge one right
-        /// up until it survives a hit that "shouldn't" have worked. Sets the BASE alpha only;
-        /// TickBubbleVisual multiplies it by the breathing pulse every frame.
-        /// </summary>
-        void RefreshBubbleVisual()
-        {
-            float k = Mathf.Clamp01((BubbleCharges - 1) * 0.35f);   // 0 at a single charge
-            _bubbleFillBaseAlpha = Mathf.Lerp(0.18f, 0.34f, k);
-            _bubbleRimBaseAlpha = Mathf.Lerp(0.55f, 0.85f, k);
-        }
-
-        void TickBubbleVisual()
-        {
-            if (_bubbleFillVisual == null) return;
-            // The same slow breathe every other permanent-until-something-happens marker in this
-            // file uses, so a bubble reads as holding rather than as a static sticker.
-            float pulse = 0.85f + Mathf.Sin(Time.time * 2.4f) * 0.15f;
-            var fc = _bubbleFillVisual.color; fc.a = _bubbleFillBaseAlpha * pulse; _bubbleFillVisual.color = fc;
-            var rc = _bubbleRimVisual.color; rc.a = _bubbleRimBaseAlpha * pulse; _bubbleRimVisual.color = rc;
-        }
-
-        void HideBubbleVisual()
-        {
-            if (_bubbleFillVisual != null) Destroy(_bubbleFillVisual.gameObject);
-            if (_bubbleRimVisual != null) Destroy(_bubbleRimVisual.gameObject);
-            _bubbleFillVisual = null;
-            _bubbleRimVisual = null;
+            if (_bubbleShell != null) _bubbleShell.Burst();
+            _bubbleShell = null;
         }
 
         // ---------------------------------------------------------------- the recover beat
@@ -739,50 +731,60 @@ namespace Convergence.Enemies
                     desired = Strafe(to) * (speed * Tuning.Enemy.RangedStrafeSpeedFraction);
                 }
             }
-            else if (Kind == EnemyKind.Bomb && _telegraphTimer > 0f)
+            else if (Kind == EnemyKind.Bomb && (_telegraphTimer > 0f || _bombShotsLeft > 0 || _bombSpent > 0f))
             {
                 // Frozen once armed, same reasoning as the ranged bolt above - it detonates
-                // where it caught you, not wherever you've since moved to relative to it.
+                // where it caught you, not wherever you've since moved to relative to it. Held
+                // still through a sweep's wind-up, the throw and the gutter after it too.
                 desired = Vector2.zero;
+            }
+            else if (Kind == EnemyKind.Bomb && !BombCritical)
+            {
+                // Fights at arm's length: in from past the band, back off inside it, drift within.
+                if (dist < Tuning.Enemy.BombFightRangeMin)
+                    desired = Flee(to) * speed;
+                else if (dist > Tuning.Enemy.BombFightRangeMax)
+                    desired = Steer(Weave(NavField.RouteDirection(pos, _target.position), dist), dist) * speed;
+                else
+                    desired = Strafe(to) * (speed * 0.4f);
             }
             else if (Kind == EnemyKind.Turret || Kind == EnemyKind.Booster || Kind == EnemyKind.Bubbles)
             {
                 // Never moves, full stop - all three are placed once at spawn and stand there for
-                // the rest of the floor (neither Booster nor Bubbles has an elite variant to ever
-                // make it fly, unlike Gargoyle's). Written explicitly rather than left to fall out
+                // the rest of the floor (no elite of theirs flies, unlike Gargoyle's). Written explicitly rather than left to fall out
                 // of MoveSpeed == 0 so a future tuning pass can't accidentally make either walk.
                 desired = Vector2.zero;
             }
             else if (Kind == EnemyKind.Dasher)
             {
+                if (DasherDashing)
+                {
+                    // NOT steered, ever, and not blended in: a dash is a straight line at full speed
+                    // from its first step, landing exactly on its end (a column in the way is the
+                    // player's to use - see OnCollisionEnter2D). Damping is off for it, as the
+                    // player's own dash suspends it, so the declared speed is the speed moved.
+                    float along = Vector2.Dot(_dasherRushTarget - pos, _dasherDashDir);
+                    float v = along > 0.01f
+                        ? Mathf.Min(Tuning.Enemy.DasherDashSpeed * moveMul, along / Time.fixedDeltaTime) : 0f;
+                    _rb.linearDamping = 0f;
+                    _rb.linearVelocity = _dasherDashDir * v;
+                    return;
+                }
                 switch (_dasherPhase)
                 {
-                    // Committed either way - a charge that could still steer isn't a charge, and
-                    // a combo that could still reposition isn't a combo it can't cancel out of.
-                    case DasherPhase.Telegraph:
-                    case DasherPhase.Combo:
-                        desired = Vector2.zero;
-                        break;
-
-                    case DasherPhase.Rushing:
-                    {
-                        // NOT steered, ever: the rush is a straight line at a frozen point, and a
-                        // column in the way is the player's to use - see OnCollisionEnter2D.
-                        var toRush = _dasherRushTarget - pos;
-                        desired = toRush.sqrMagnitude > 0.0004f
-                            ? toRush.normalized * (Tuning.Enemy.DasherRushSpeed * moveMul)
-                            : Vector2.zero;
-                        break;
-                    }
-
                     case DasherPhase.Evading:
-                        // Straight away from wherever the player IS now, not from the old rush
-                        // target - the whole point is buying real distance from the live threat.
+                        // Straight away from wherever the player IS now - the whole point is
+                        // buying real distance from the live threat.
                         desired = Flee(to) * (Tuning.Enemy.DasherEvadeSpeed * moveMul);
                         break;
 
-                    default: // Approach
+                    case DasherPhase.Approach:
                         desired = MeleeApproach(pos, dist, Tuning.Enemy.DasherEngageRange) * speed;
+                        break;
+
+                    default:
+                        // Committed: the tells, the brace and the spent stand all hold still.
+                        desired = Vector2.zero;
                         break;
                 }
             }
@@ -846,7 +848,7 @@ namespace Convergence.Enemies
         /// </summary>
         internal bool WantsSlot =>
             _health != null && !_health.IsDead && _target != null
-            && Kind is EnemyKind.Chaser or EnemyKind.Bomb or EnemyKind.Dasher;
+            && (Kind is EnemyKind.Chaser or EnemyKind.Dasher || (Kind == EnemyKind.Bomb && BombCritical));
 
         internal void AssignSlot(float bearingRad) { _hasSlot = true; _slotAngle = bearingRad; }
         internal void ClearSlot() => _hasSlot = false;
@@ -1285,14 +1287,14 @@ namespace Convergence.Enemies
         void OnCollisionStay2D(Collision2D c) => TryRushImpact(c);
 
         /// <summary>
-        /// A rush is a straight line that never steers - so one that meets something SOLID (a
+        /// A dash is a straight line that never steers - so one that meets something SOLID (a
         /// column, the spire, a wall) stops dead and the Dasher reels, and a cracked column breaks
         /// under it. This is the player's to use: bait the charge with a column between you, and
         /// it is stunned for longer than any finisher's flinch. Breaking the cover is the price.
         /// </summary>
         void TryRushImpact(Collision2D c)
         {
-            if (Kind != EnemyKind.Dasher || _dasherPhase != DasherPhase.Rushing) return;
+            if (Kind != EnemyKind.Dasher || !DasherDashing) return;
             var other = c.collider;
             if (other == null || other.isTrigger || other.attachedRigidbody != null) return;
 
@@ -1312,11 +1314,6 @@ namespace Convergence.Enemies
         {
             if (_health.IsDead || _target == null || _fellIn) return;
 
-            // Runs regardless of kind and regardless of what follows - ANY kind can be a Booster's
-            // or a Bubbles' recipient, and a status tell should not stop pulsing just because its
-            // wearer is mid-flinch or mid-recover.
-            TickBoostedVisual();
-            TickBubbleVisual();
 
             // REELING: no acting and no steering, for every kind. Returned from before the
             // per-kind dispatch rather than checked inside each one, so a kind added later cannot
@@ -1371,6 +1368,14 @@ namespace Convergence.Enemies
                 BeginChaserTelegraph();
         }
 
+        /// <summary>
+        /// When (Time.time) the Chaser last swung, when its elite riposte is due, and when one
+        /// last landed - read by <see cref="ChaserVisual"/>, which shows the strike, the vein left
+        /// lit and the backhand from them. Plain timestamps, nothing gameplay reads; a domain
+        /// reload resetting them only drops one frame of art.
+        /// </summary>
+        [System.NonSerialized] public float SwungAt = -10f, RiposteDueAt = -10f, RiposteAt = -10f;
+
         void BeginChaserTelegraph()
         {
             _telegraphTimer = Tuning.Enemy.ChaserTelegraphDuration;
@@ -1380,12 +1385,16 @@ namespace Convergence.Enemies
         {
             CancelTelegraph();
             _cooldown = AttackInterval;
+            SwungAt = Time.time;
 
             // ELITE - Riposte: the swing comes back once more, immediately and harder. Scheduled
             // rather than resolved here, so the second hit is a SEPARATE beat the player can step
             // out of - a double hit landing on one frame is just a bigger number, not a pattern.
             if (ElitePattern == ElitePattern.Riposte && ElitePatternDue())
+            {
                 Invoke(nameof(Riposte), Tuning.Enemy.RiposteDelay);
+                RiposteDueAt = Time.time + Tuning.Enemy.RiposteDelay;
+            }
 
             // The beat happens whether or not the swing connects, which is the point: a denied
             // chaser and a whiffing one and a landing one all read the same, so the shape means
@@ -1400,6 +1409,7 @@ namespace Convergence.Enemies
         void Riposte()
         {
             if (_health == null || _health.IsDead || Flinched) return;
+            RiposteAt = Time.time;
             LandMelee(Tuning.Enemy.RiposteDamageMul);
             Spr.Flash(transform.position, 0.8f, new Color(1f, 0.75f, 0.35f), 0.2f, false);
         }
@@ -1457,7 +1467,10 @@ namespace Convergence.Enemies
         {
             // Frozen once, here, and never touched again until it fires - the whole point of the
             // window is that the player is dodging a KNOWN line, not a re-aiming turret.
-            _aimDir = ((Vector2)_target.position - (Vector2)transform.position).normalized;
+            // Aimed FROM the muzzle - the gland's sting, over the Stinger's back - so the line,
+            // the flash and the bolt leave where the player is looking and still meet the target.
+            _aimsLeft = _target.position.x < transform.position.x;
+            _aimDir = ((Vector2)_target.position - RangedMuzzle).normalized;
             _telegraphTimer = TelegraphDuration;
 
             _telegraphVisual = new GameObject("ranged.telegraph");
@@ -1474,7 +1487,7 @@ namespace Convergence.Enemies
 
             float length = AttackRange;
             float angle = Mathf.Atan2(_aimDir.y, _aimDir.x) * Mathf.Rad2Deg - 90f;
-            _telegraphVisual.transform.position = transform.position + (Vector3)(_aimDir * (length * 0.5f));
+            _telegraphVisual.transform.position = (Vector3)(RangedMuzzle + _aimDir * (length * 0.5f));
             _telegraphVisual.transform.rotation = Quaternion.Euler(0f, 0f, angle);
             _telegraphVisual.transform.localScale = new Vector3(Tuning.Enemy.RangedTelegraphWidth, length, 1f);
 
@@ -1492,8 +1505,21 @@ namespace Convergence.Enemies
             _telegraphSr = null;
         }
 
+        /// <summary>When (Time.time) the Ranged last loosed - RangedVisual's recoil frame.</summary>
+        [System.NonSerialized] public float FiredAt = -10f;
+
+        bool _aimsLeft;
+
+        /// <summary>Which way the current (or last) shot was aimed - the drawn Stinger holds this
+        /// facing from the lock to the shot, so its mirrored muzzle and the picture agree.</summary>
+        public bool AimsLeft => _aimsLeft;
+
+        /// <summary>Where a Ranged's shot leaves: the sting's tip on its locked frame (RangedArt).</summary>
+        public Vector2 RangedMuzzle => (Vector2)transform.position + RangedArt.MuzzleOffset(Elite, _aimsLeft);
+
         void Fire()
         {
+            FiredAt = Time.time;
             BeginRecover(Tuning.Enemy.RangedKiteSeconds);
             CancelTelegraph();
             _cooldown = Tuning.Enemy.RangedAttackInterval;
@@ -1512,10 +1538,10 @@ namespace Convergence.Enemies
                     float t = bolts == 1 ? 0f : i / (float)(bolts - 1) - 0.5f;
                     dir = (Quaternion.Euler(0f, 0f, t * Tuning.Enemy.VolleySpreadDegrees) * dir).normalized;
                 }
-                EnemyProjectile.Launch(gameObject, _target, _targetHealth, transform.position, dir,
+                EnemyProjectile.Launch(gameObject, _target, _targetHealth, RangedMuzzle, dir,
                     Damage, AttackKnockback, ProjectileSpeed, ProjectileLifetime);
             }
-            Spr.Flash(transform.position, bolts > 1 ? 0.55f : 0.35f,
+            Spr.Flash(RangedMuzzle, bolts > 1 ? 0.55f : 0.35f,
                       new Color(1f, 0.55f, 0.15f), 0.15f, false);
         }
 
@@ -1554,11 +1580,32 @@ namespace Convergence.Enemies
         float _barrageTimer;
         float _flameTimer, _flameTick, _flameCooldown;
         Vector2 _flameDir;
-        GameObject _flameVisual;
-        SpriteRenderer _flameOuter, _flameInner;
+        /// <summary>The drawn fire (MortarFlame): its licks through the wind-up, then the gout.</summary>
+        MortarFlame _flame;
 
         /// <summary>Standing still: winding up, mid-barrage, or flaming.</summary>
         bool MortarPlanted => _telegraphTimer > 0f || _barrageLeft > 0 || _flameTimer > 0f;
+
+        // ---- what the drawn Salamander reads (MortarVisual) ----
+        /// <summary>When (Time.time) a shell last left its jaws.</summary>
+        [System.NonSerialized] public float MortarLobbedAt = -10f;
+        /// <summary>Rearing to lob: a lob's or a barrage's wind-up.</summary>
+        public bool MortarWindingUp => _telegraphTimer > 0f && _mortarAction != MortarAction.Flame;
+        /// <summary>Crouched to breathe fire: the flame's wind-up.</summary>
+        public bool MortarFlameReady => _telegraphTimer > 0f && _mortarAction == MortarAction.Flame;
+        public bool MortarFlaming => _flameTimer > 0f;
+        /// <summary>Between a barrage's shells: it stays reared.</summary>
+        public bool MortarBarraging => _barrageLeft > 0;
+        public Vector2 MortarFlameDir => _flameDir;
+
+        /// <summary>Where the drawn jaws are on <paramref name="frame"/>, facing whichever side
+        /// <paramref name="toward"/> lies (the Salamander faces what it is aiming at).</summary>
+        Vector2 MortarJaws(MortarFrame frame, float toward)
+        {
+            var m = MortarArt.MouthOffset(frame, Elite);
+            if (toward < 0f) m.x = -m.x;
+            return (Vector2)transform.position + m;
+        }
 
         void UpdateMortar()
         {
@@ -1621,38 +1668,20 @@ namespace Convergence.Enemies
                 if (_flameDir.sqrMagnitude < 0.0001f) _flameDir = Vector2.right;
             }
 
-            _telegraphVisual = new GameObject("mortar.telegraph");
-            var sr = _telegraphVisual.AddComponent<SpriteRenderer>();
-            // The lob's tell is on the MORTAR (its landing point isn't chosen yet); the flame's
-            // tell is the cone itself, faint, so the player sees where it is about to burn.
-            sr.sprite = action == MortarAction.Flame
-                ? Spr.Cone(Tuning.Enemy.MortarFlameHalfAngle, 0.3f)
-                : Spr.ThinRing;
-            sr.sortingOrder = SortingOrders.Telegraph;
-            _telegraphSr = sr;
+            // THE BODY IS THE TELL (the user's sign-off): the Salamander rears to lob and crouches
+            // to breathe fire. The flame's wind-up also shows a few licks of fire along its aim, so
+            // the way it is about to burn reads from above.
+            if (action == MortarAction.Flame)
+            {
+                if (_flame == null) _flame = MortarFlame.Create();
+                _flame.Tell = true;
+            }
             UpdateMortarTelegraphVisual();
         }
 
         void UpdateMortarTelegraphVisual()
         {
-            if (_telegraphVisual == null) return;
-            float t = 1f - Mathf.Clamp01(_telegraphTimer / Mathf.Max(0.0001f,
-                _mortarAction == MortarAction.Flame ? Tuning.Enemy.MortarFlameWindup : TelegraphDuration));
-            _telegraphVisual.transform.position = transform.position;
-
-            if (_mortarAction == MortarAction.Flame)
-            {
-                _telegraphVisual.transform.rotation = Quaternion.Euler(0f, 0f,
-                    Mathf.Atan2(_flameDir.y, _flameDir.x) * Mathf.Rad2Deg);
-                _telegraphVisual.transform.localScale = Vector3.one * (Tuning.Enemy.MortarFlameRange * 2f);
-                _telegraphSr.color = Murk(new Color(1f, 0.45f, 0.1f, Mathf.Lerp(0.08f, 0.4f, t)));
-                return;
-            }
-
-            // Closes IN on the body as it winds up - the opposite of a blast ring growing out -
-            // so it reads as gathering to throw rather than as something about to go off here.
-            _telegraphVisual.transform.localScale = Vector3.one * (Tuning.Enemy.MortarSize * Mathf.Lerp(2.4f, 1.3f, t));
-            _telegraphSr.color = Murk(new Color(1f, 0.6f, 0.2f, Mathf.Lerp(0.15f, 0.8f, t)));
+            if (_mortarAction == MortarAction.Flame) PlaceFlame();
         }
 
         void ResolveMortarWindup()
@@ -1701,8 +1730,10 @@ namespace Convergence.Enemies
             // shell takes the player's position at its own moment, so a player who keeps moving
             // leaves a trail of fuses behind them rather than standing in all three.
             var at = Arena.Clamp(_target.position, 0.3f);
-            MortarShell.Launch(transform.position, at, transform.parent, _target, Damage);
-            Spr.Flash(transform.position, 0.4f, new Color(1f, 0.75f, 0.4f), 0.15f, false);
+            // From the drawn jaws, as the head comes up (the glob's own frame - MortarArt).
+            var jaws = MortarJaws(MortarFrame.Lob, at.x - transform.position.x);
+            MortarShell.Launch(jaws, at, transform.parent, _target, Damage, MortarArt.Accent);
+            MortarLobbedAt = Time.time;
         }
 
         // ---- the flame ----
@@ -1713,18 +1744,8 @@ namespace Convergence.Enemies
             _flameTimer = Tuning.Enemy.MortarFlameSeconds;
             _flameTick = 0f;
 
-            _flameVisual = new GameObject("mortar.flame");
-            _flameOuter = _flameVisual.AddComponent<SpriteRenderer>();
-            _flameOuter.sprite = Spr.Cone(Tuning.Enemy.MortarFlameHalfAngle, 0.55f);
-            _flameOuter.sortingOrder = SortingOrders.Fx - 2;
-
-            // A hotter, shorter, narrower core inside the cone - one flat wedge read as a fan.
-            var core = new GameObject("core");
-            core.transform.SetParent(_flameVisual.transform, false);
-            core.transform.localScale = Vector3.one * 0.62f;
-            _flameInner = core.AddComponent<SpriteRenderer>();
-            _flameInner.sprite = Spr.Cone(Tuning.Enemy.MortarFlameHalfAngle * 0.6f, 0.8f);
-            _flameInner.sortingOrder = SortingOrders.Fx - 1;
+            if (_flame == null) _flame = MortarFlame.Create();
+            _flame.Tell = false;
 
             PlaceFlame();
         }
@@ -1786,18 +1807,8 @@ namespace Convergence.Enemies
 
         void PlaceFlame()
         {
-            if (_flameVisual == null) return;
-            _flameVisual.transform.position = transform.position;
-            _flameVisual.transform.rotation = Quaternion.Euler(0f, 0f,
-                Mathf.Atan2(_flameDir.y, _flameDir.x) * Mathf.Rad2Deg);
-
-            // Flicker by jittering length and alpha, independently for the two layers - one
-            // shared wobble reads as a sprite pulsing, not a fire.
-            float time = Time.time;
-            float l1 = 1f + 0.06f * Mathf.Sin(time * 31f) + 0.04f * Mathf.Sin(time * 53f + 1.3f);
-            _flameVisual.transform.localScale = Vector3.one * (Tuning.Enemy.MortarFlameRange * 2f * l1);
-            _flameOuter.color = new Color(1f, 0.38f, 0.08f, 0.6f + 0.15f * Mathf.Sin(time * 41f));
-            _flameInner.color = new Color(1f, 0.85f, 0.35f, 0.75f + 0.2f * Mathf.Sin(time * 67f + 0.7f));
+            if (_flame == null) return;
+            _flame.Place(MortarJaws(MortarFrame.Breath0, _flameDir.x), _flameDir);
         }
 
         /// <summary>
@@ -1812,41 +1823,157 @@ namespace Convergence.Enemies
             _mortarAction = MortarAction.None;
             _barrageLeft = 0;
             _flameTimer = 0f;
-            if (_flameVisual != null) Destroy(_flameVisual);
-            _flameVisual = null;
-            _flameOuter = _flameInner = null;
+            if (_flame != null) Destroy(_flame.gameObject);
+            _flame = null;
         }
 
         // ---- Bomb: chase, arm within AttackRange, telegraph, then go off ----
 
+        // ---- the Brimstone Heart's sweep (the user's design, 2026-10-18; Tuning.Enemy.Bomb*) ----
+        //
+        // Above BombCriticalFraction of its health it fights at arm's length: a wind-up on the
+        // shared telegraph timer, then BombFireballs thrown straight out of the heart one after
+        // another, swept across a fan toward where the player stood when the sweep began. Under the
+        // fraction it rushes in and arms the self-destruct, as it always did - a sweep under way
+        // finishes first. An elite picks one of four sweeps at random: either way across, or there
+        // and back starting from either side (the user's call).
+
+        bool _bombArming;
+        int _bombShotsLeft, _bombShot, _bombPattern;
+        float _bombShotTimer, _bombSpent;
+        bool _bombAimsLeft, _bombReverseNext;
+        Vector2 _bombAim;
+
+        /// <summary>When (Time.time) the Bomb last threw a fireball - BombVisual's pulse.</summary>
+        [System.NonSerialized] public float BombThrewAt = -10f;
+
+        /// <summary>Under BombCriticalFraction of its health: the self-destruct rush.</summary>
+        public bool BombCritical => _health != null && _health.Current <= _health.Max * Tuning.Enemy.BombCriticalFraction;
+        /// <summary>The telegraph running is the self-destruct arming, not a sweep's wind-up.</summary>
+        public bool BombArming => _bombArming && _telegraphTimer > 0f;
+        public bool BombGathering => !_bombArming && _telegraphTimer > 0f;
+        public bool BombSweeping => _bombShotsLeft > 0;
+        public bool BombSpent => _bombSpent > 0f;
+        /// <summary>Which way the current sweep was aimed - the drawn heart holds this facing.</summary>
+        public bool BombAimsLeft => _bombAimsLeft;
+
         void UpdateBomb()
         {
+            float dt = Time.deltaTime;
+            if (_bombSpent > 0f) _bombSpent -= dt;
+
+            // A sweep under way always finishes - even one the health just dropped under the
+            // fraction during (the user's call).
+            if (_bombShotsLeft > 0) { TickBombSweep(dt); return; }
+
             if (_telegraphTimer > 0f)
             {
                 // The target dying mid-telegraph cancels it outright - same reasoning as the
                 // ranged bolt, there is no body left to threaten. Merely LEAVING the circle does
-                // NOT cancel it, unlike that check: a bomb that's already armed still goes off,
-                // it just may find nobody standing in it by the time it does.
+                // NOT cancel the self-destruct: an armed bomb still goes off, it just may find
+                // nobody standing in it by the time it does.
                 if (_targetHealth == null || _targetHealth.IsDead) { CancelTelegraph(); return; }
 
-                _telegraphTimer -= Time.deltaTime;
-                if (_telegraphTimer <= 0f) Explode();
+                _telegraphTimer -= dt;
+                if (_telegraphTimer <= 0f)
+                {
+                    if (_bombArming) Explode();
+                    else BeginBombSweep();
+                }
                 return;
             }
 
             // A denied bomb has to give ground before it may arm again. Without this the
             // interrupt buys nothing at all - it re-arms on the spot, and the player has spent a
             // finisher to delay an explosion by a third of a second.
-            if (Recovering) return;
+            if (Recovering || _bombSpent > 0f) return;
+            if (_targetHealth == null || _targetHealth.IsDead) return;
+            // The practice dummy is a Bomb with no damage: it neither throws nor explodes.
+            if (Damage <= 0f) return;
 
             float dist = Vector2.Distance(transform.position, _target.position);
-            if (dist <= AttackRange && _targetHealth != null && !_targetHealth.IsDead)
-                BeginBombTelegraph();
+            if (BombCritical)
+            {
+                if (dist <= AttackRange) BeginBombTelegraph();
+                return;
+            }
+
+            _cooldown -= dt * AttackTempo;
+            if (_cooldown > 0f || dist > Tuning.Enemy.BombSweepTriggerRange) return;
+            if (HazardQuery.Query(transform.position, _target.position, gameObject, _target.gameObject) == SightResult.Blocked)
+                return;
+
+            // The wind-up: the heart swelling. Scaled with depth the way the arming is (the
+            // factory scaled TelegraphDuration off the arming's own base), never under the floor.
+            _bombArming = false;
+            _telegraphTimer = Mathf.Max(Tuning.Enemy.TelegraphMinSeconds,
+                TelegraphDuration * (Tuning.Enemy.BombSweepWindup / Tuning.Enemy.BombTelegraphDuration));
         }
 
         void BeginBombTelegraph()
         {
+            _bombArming = true;
             _telegraphTimer = TelegraphDuration;
+        }
+
+        void BeginBombSweep()
+        {
+            CancelTelegraph();
+            _bombAim = ((Vector2)_target.position - (Vector2)transform.position).normalized;
+            if (_bombAim.sqrMagnitude < 0.01f) _bombAim = Vector2.left;
+            _bombAimsLeft = _bombAim.x < 0f;
+            // 0 one way, 1 the other, 2 there and back from the first side, 3 from the other.
+            // A basic alternates; an elite rolls any of the four.
+            _bombPattern = Elite ? Random.Range(0, 4) : (_bombReverseNext ? 1 : 0);
+            _bombReverseNext = !_bombReverseNext;
+            _bombShotsLeft = Tuning.Enemy.BombFireballs * (_bombPattern >= 2 ? 2 : 1);
+            _bombShot = 0;
+            _bombShotTimer = 0f;
+        }
+
+        void TickBombSweep(float dt)
+        {
+            _bombShotTimer -= dt;
+            while (_bombShotTimer <= 0f && _bombShotsLeft > 0)
+            {
+                ThrowBombFireball(BombLane(_bombShot));
+                _bombShot++;
+                _bombShotsLeft--;
+                _bombShotTimer += Tuning.Enemy.BombFireballEvery;
+            }
+            if (_bombShotsLeft == 0)
+            {
+                _bombSpent = Tuning.Enemy.BombSpentSeconds;
+                _cooldown = AttackInterval;
+            }
+        }
+
+        /// <summary>Which lane of the fan the <paramref name="shot"/>th fireball of this sweep
+        /// takes, by the sweep's pattern.</summary>
+        int BombLane(int shot)
+        {
+            int n = Tuning.Enemy.BombFireballs, pass = shot / n, k = shot % n;
+            bool forward = _bombPattern switch
+            {
+                0 => true,
+                1 => false,
+                2 => pass == 0,
+                _ => pass == 1,
+            };
+            return forward ? k : n - 1 - k;
+        }
+
+        void ThrowBombFireball(int lane)
+        {
+            int n = Tuning.Enemy.BombFireballs;
+            float half = Tuning.Enemy.BombSweepDegrees * 0.5f, slice = Tuning.Enemy.BombSweepDegrees / n;
+            var dir = (Vector2)(Quaternion.Euler(0f, 0f, -half + slice * (lane + 0.5f)) * _bombAim);
+            float life = Tuning.Enemy.BombFireballReach / Tuning.Enemy.BombFireballSpeed;
+            EnemyProjectile.Launch(gameObject, _target, _targetHealth, transform.position, dir,
+                    Damage * Tuning.Enemy.BombFireballDamageFraction, AttackKnockback,
+                    Tuning.Enemy.BombFireballSpeed, life)
+                .Dress(BombArt.Fireball(), Tuning.Enemy.BombFireballRadius + 0.16f, ElementType.Fire);
+            BombThrewAt = Time.time;
         }
 
         /// <summary>
@@ -1885,6 +2012,8 @@ namespace Convergence.Enemies
             }
 
             Spr.Flash(transform.position, AttackRange, BombArt.Blast, 0.35f);
+            // The shell comes apart (the user's call): its plates fly loose.
+            ShellBurst.Spawn(transform.position, BombArt.Plate(EnemyLooks.Of(Kind)), transform.parent);
 
             // ELITE - Cluster: the blast leaves delayed shards where it stood, so the space it
             // denied stays denied for a moment after the body is gone.
@@ -1898,8 +2027,10 @@ namespace Convergence.Enemies
                               + Random.value * 0.6f;
                     var at = (Vector2)transform.position
                            + new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * Tuning.Enemy.ClusterScatter;
+                    // Each shard is one of the elite's orbiting motes, flung out from the heart.
                     ClusterShard.Spawn(Core.Arena.NearestFloor(at, 0.4f), transform.parent, _target,
-                                       Damage * Tuning.Enemy.ClusterDamageFraction);
+                                       Damage * Tuning.Enemy.ClusterDamageFraction,
+                                       transform.position, BombArt.Mote(EnemyLooks.Of(Kind)));
                 }
         }
 
@@ -2007,7 +2138,7 @@ namespace Convergence.Enemies
             _mireWindup = Tuning.Enemy.MireWindup;
         }
 
-        /// <summary>The tell: a yellow glow swelling on the turret over the wind-up.</summary>
+        /// <summary>The tell: a glow in the look's accent swelling on the turret over the wind-up.</summary>
         void UpdateMireWindup()
         {
             if (_mireWindupSr == null)
@@ -2020,7 +2151,7 @@ namespace Convergence.Enemies
             }
             float k = 1f - Mathf.Clamp01(_mireWindup / Tuning.Enemy.MireWindup);
             _mireWindupSr.transform.localScale = Vector3.one * Mathf.Lerp(0.6f, 1.8f, k);
-            var y = MireField.Yellow;
+            var y = TurretArt.Accent(Look)[2];
             _mireWindupSr.color = new Color(y.r, y.g, y.b, Mathf.Lerp(0.2f, 0.8f, k));
         }
 
@@ -2036,8 +2167,11 @@ namespace Convergence.Enemies
         void LobMire()
         {
             var at = Arena.Clamp(_target.position, 0.3f);
-            MortarShell.LaunchMire(transform.position, at, transform.parent, _target);
-            Spr.Flash(transform.position, 0.45f, MireField.Yellow, 0.15f, false);
+            // The storm's own (the user's call): a ball of static that lands as charged ground,
+            // in the look's accent - the slow, its radius, its fuse and its parry unchanged.
+            var accent = TurretArt.Accent(Look);
+            MortarShell.LaunchMire(transform.position, at, transform.parent, _target, accent);
+            Spr.Flash(transform.position, 0.45f, accent[2], 0.15f, false);
         }
 
         /// <summary>
@@ -2055,6 +2189,11 @@ namespace Convergence.Enemies
         /// </summary>
         void UpdateTurretHeadFacing()
         {
+            if (_target != null)
+            {
+                float dx = _target.position.x - transform.position.x;
+                if (Mathf.Abs(dx) > 0.15f) _turretFacesLeft = dx < 0f;
+            }
             if (_turretHead == null || _target == null) return;
             var to = (Vector2)_target.position - (Vector2)transform.position;
             if (to.sqrMagnitude < 0.0001f) return;
@@ -2064,99 +2203,76 @@ namespace Convergence.Enemies
 
         void BeginBeam()
         {
-            _beamVisual = new GameObject("turret.beam");
-            var sr = _beamVisual.AddComponent<SpriteRenderer>();
-            sr.sprite = Spr.Capsule;
-            sr.sortingOrder = SortingOrders.Telegraph;
-            _beamSr = sr;
+            // The beam is lightning from the eye (LightningArc) - the picture only; the damage and
+            // the line of sight below are measured from the body's centre, as they always were.
+            _beamArc = LightningArc.Create("turret.beam");
+            _beamVisual = _beamArc.gameObject;
         }
 
         void UpdateBeamVisual()
         {
             if (_beamVisual == null) return;
 
-            var origin = (Vector2)transform.position;
-            var to = (Vector2)_target.position - origin;
-            float length = to.magnitude;
-            float angle = Mathf.Atan2(to.y, to.x) * Mathf.Rad2Deg - 90f;
-
-            _beamVisual.transform.position = origin + to * 0.5f;
-            _beamVisual.transform.rotation = Quaternion.Euler(0f, 0f, angle);
-            _beamVisual.transform.localScale = new Vector3(Tuning.Enemy.TurretBeamWidth, length, 1f);
-
-            // A steady line reads as scenery; a live beam has to look like it is doing something
-            // every frame it's on, so alpha breathes on a fast sine rather than holding flat -
-            // the same "motion carries the readout" rule StatusVisuals already uses for burn/soak.
-            float pulse = 0.7f + 0.3f * Mathf.Sin(Time.time * 14f);
-            _beamSr.color = new Color(0.3f, 0.85f, 0.95f, 0.65f * pulse);
+            if (_beamArc == null) _beamArc = _beamVisual.GetComponent<LightningArc>();
+            if (_beamArc == null) return;
+            var eye = (Vector2)transform.position + TurretArt.IrisOffset((int)TurretFrame.Beam0, Elite, _turretFacesLeft);
+            // A live beam has to look like it is doing something every frame it's on: the arc
+            // re-rolls its jags, and an overcharge thickens it and throws forks.
+            _beamArc.Set(eye, _target.position, TurretArt.Accent(Look), TurretOvercharged);
         }
 
         void EndBeam()
         {
             if (_beamVisual != null) Destroy(_beamVisual);
             _beamVisual = null;
-            _beamSr = null;
+            _beamArc = null;
         }
 
-        // ---- Dasher: approach, telegraph, charge, combo, retreat ----
+        // ---- Dasher: approach, line up, charge through, spent, retreat ----
 
         void UpdateDasher()
         {
+            bool targetGone = _targetHealth == null || _targetHealth.IsDead;
             switch (_dasherPhase)
             {
+                case DasherPhase.LineUpTell:
+                case DasherPhase.Braced:
                 case DasherPhase.Telegraph:
-                    // Same reasoning as the ranged bolt and the bomb blast - no body left to
-                    // threaten, so the charge that would have hunted it is cancelled outright.
-                    if (_targetHealth == null || _targetHealth.IsDead)
-                    {
-                        CancelTelegraph();
-                        _dasherPhase = DasherPhase.Approach;
-                        return;
-                    }
-                    _telegraphTimer -= Time.deltaTime;
-                    if (_telegraphTimer <= 0f) BeginRush();
+                    // No body left to threaten: whatever it was about to do is called off.
+                    if (targetGone) { _dasherPhase = DasherPhase.Approach; return; }
+                    _dasherPhaseTimer -= Time.deltaTime;
+                    if (_dasherPhaseTimer > 0f) return;
+                    if (_dasherPhase == DasherPhase.LineUpTell) BeginDash(DasherPhase.LineUp);
+                    else if (_dasherPhase == DasherPhase.Braced) BeginDasherTelegraph();
+                    else BeginDash(DasherPhase.Rushing);
+                    break;
+
+                case DasherPhase.LineUp:
+                    if (!TickDash()) return;
+                    _dasherPhase = DasherPhase.Braced;
+                    _dasherPhaseTimer = Tuning.Enemy.DasherBracedSeconds;
                     break;
 
                 case DasherPhase.Rushing:
-                    if (_targetHealth == null || _targetHealth.IsDead) { BeginEvade(); return; }
-                    _dasherPhaseTimer -= Time.deltaTime;
-
-                    // Caught something - the frozen point had a body on or near it, i.e. the
-                    // player never dodged (or dodged INTO it). Either way the charge connects.
-                    if (Vector2.Distance(transform.position, _target.position) <= Tuning.Enemy.DasherComboRange)
+                    if (!TickDash()) return;
+                    // ELITE - Redouble: it turns and dashes back through instead of standing
+                    // spent. It still tells, so the answer is the one the player already knows -
+                    // they simply do not get the window.
+                    if (!_dasherRedoubled && !targetGone && ElitePattern == ElitePattern.Redouble && ElitePatternDue())
                     {
-                        BeginCombo();
-                        return;
+                        _dasherRedoubled = true;
+                        BeginDasherTelegraph();
                     }
-
-                    // Reached the frozen point (or timed out) with nobody there - a clean dodge.
-                    // Straight to Evade rather than Approach, so a whiff still buys the player a
-                    // breather instead of the charge chaining into another telegraph immediately.
-                    if (_dasherPhaseTimer <= 0f ||
-                        Vector2.Distance(transform.position, _dasherRushTarget) < 0.15f)
-                        BeginEvade();
+                    else
+                    {
+                        _dasherPhase = DasherPhase.Spent;
+                        _dasherPhaseTimer = Tuning.Enemy.DasherSpentSeconds;
+                    }
                     break;
 
-                case DasherPhase.Combo:
-                    if (_targetHealth == null || _targetHealth.IsDead) { BeginEvade(); return; }
+                case DasherPhase.Spent:
                     _dasherPhaseTimer -= Time.deltaTime;
-                    if (_dasherPhaseTimer <= 0f)
-                    {
-                        LandComboHit();
-                        _dasherComboHitsLeft--;
-                        if (_dasherComboHitsLeft <= 0)
-                        {
-                            // ELITE - Redouble: chain straight into a second charge instead of
-                            // giving ground. It still telegraphs, so the answer is the same one
-                            // the player already knows - they simply do not get the breather.
-                            if (ElitePattern == ElitePattern.Redouble && ElitePatternDue()
-                                && _targetHealth != null && !_targetHealth.IsDead)
-                                BeginDasherTelegraph();
-                            else BeginEvade();
-                            return;
-                        }
-                        _dasherPhaseTimer = Tuning.Enemy.DasherComboHitInterval;
-                    }
+                    if (_dasherPhaseTimer <= 0f) BeginEvade();
                     break;
 
                 case DasherPhase.Evading:
@@ -2165,59 +2281,103 @@ namespace Convergence.Enemies
                     break;
 
                 default: // Approach
-                    if (_targetHealth == null || _targetHealth.IsDead) return;
+                    if (targetGone) return;
                     if (Vector2.Distance(transform.position, _target.position) <= Tuning.Enemy.DasherEngageRange
                         && (Time.time >= _dasherShyUntil || NavField.ClearLine(transform.position, _target.position)))
-                        BeginDasherTelegraph();
+                        BeginDasherLineUp();
                     break;
             }
         }
 
+        /// <summary>
+        /// The line-up: a point level with the player on whichever axis the Dasher is already
+        /// further along, 2-3 units out (the reference's brute dashed straight up to the player's
+        /// height and stayed about two units to their side). Skipped when it is already lined up,
+        /// or the point is off the floor or behind something - then it goes straight to the charge.
+        /// </summary>
+        void BeginDasherLineUp()
+        {
+            _dasherRedoubled = false;
+            Vector2 pos = transform.position, player = _target.position, d = player - pos;
+            Vector2 to;
+            if (Mathf.Abs(d.x) >= Mathf.Abs(d.y))
+                to = new Vector2(player.x - Mathf.Sign(d.x) * Mathf.Clamp(Mathf.Abs(d.x), Tuning.Enemy.DasherLineUpMin, Tuning.Enemy.DasherLineUpMax), player.y);
+            else
+                to = new Vector2(player.x, player.y - Mathf.Sign(d.y) * Mathf.Clamp(Mathf.Abs(d.y), Tuning.Enemy.DasherLineUpMin, Tuning.Enemy.DasherLineUpMax));
+
+            if ((to - pos).magnitude < Tuning.Enemy.DasherLineUpSkip
+                || !Arena.OnFloor(to, BodyRadius) || !NavField.ClearLine(pos, to))
+            {
+                BeginDasherTelegraph();
+                return;
+            }
+            // Frozen here, as the charge's point is: the tell commits to a known line.
+            _dasherRushTarget = to;
+            _dasherDashDir = (to - pos).normalized;
+            _dasherPhase = DasherPhase.LineUpTell;
+            _dasherPhaseTimer = _dasherPhaseLength =
+                Mathf.Max(Tuning.Enemy.TelegraphMinSeconds, TelegraphDuration * Tuning.Enemy.DasherLineUpTellShare);
+        }
+
         void BeginDasherTelegraph()
         {
-            _dasherPhase = DasherPhase.Telegraph;
-            _telegraphTimer = TelegraphDuration;
-
-            // Frozen HERE, at the start of the glow, not when the charge fires - the player gets
+            // Frozen HERE, at the start of the tell, not when the charge fires - the player gets
             // the whole window watching a committed, known point, the same rule Ranged's own aim
-            // lives by. A charge that kept re-aiming through the glow would just be a slower bolt.
-            _dasherRushTarget = _target.position;
+            // lives by. A charge that kept re-aiming through the tell would just be a slower bolt.
+            Vector2 pos = transform.position, player = _target.position;
+            var d = player - pos;
+            _dasherDashDir = d.sqrMagnitude > 1e-4f ? d.normalized : _dasherDashDir;
+            _dasherRushTarget = player + _dasherDashDir * Tuning.Enemy.DasherRushPast;
+            _dasherPhase = DasherPhase.Telegraph;
+            _dasherPhaseTimer = _dasherPhaseLength = TelegraphDuration;
         }
 
-        void BeginRush()
+        void BeginDash(DasherPhase dash)
         {
-            CancelTelegraph();
-            _dasherPhase = DasherPhase.Rushing;
-            _dasherPhaseTimer = Tuning.Enemy.DasherRushMaxSeconds;
+            _dasherPhase = dash;
+            _dasherPhaseTimer = Tuning.Enemy.DasherDashMaxSeconds;
+            _dasherBit = false;
+            _dasherLastPos = transform.position;
         }
 
-        void BeginCombo()
+        /// <summary>One frame of a dash: bites what it passed through since the last, and says
+        /// whether the dash is over (its end reached, or the backstop run out).</summary>
+        bool TickDash()
         {
-            _dasherPhase = DasherPhase.Combo;
-            _dasherComboHitsLeft = Random.Range(Tuning.Enemy.DasherMinComboHits, Tuning.Enemy.DasherMaxComboHits + 1);
-            _dasherPhaseTimer = 0f;   // land the first hit on the very next tick, not a beat late
+            Vector2 pos = transform.position;
+            TryDasherBite(_dasherLastPos, pos);
+            _dasherLastPos = pos;
+            _dasherPhaseTimer -= Time.deltaTime;
+            if (_dasherPhaseTimer > 0f && Vector2.Dot(_dasherRushTarget - pos, _dasherDashDir) > 0.02f) return false;
+            // Stops dead where the dash ends: the last step's speed carried it on ~0.2 into the brace.
+            if (_rb != null) _rb.linearVelocity = Vector2.zero;
+            return true;
         }
 
-        void LandComboHit()
+        /// <summary>
+        /// A dash bites once whatever it passes through - measured along the whole step it took
+        /// this frame, since at 15 u/s a frame carries it a quarter of a unit and a point test
+        /// would let it jump over the player.
+        /// </summary>
+        void TryDasherBite(Vector2 from, Vector2 to)
         {
-            if (_targetHealth == null || _targetHealth.IsDead) return;
-            // Backed out of range mid-combo - this swing whiffs, but the combo's own clock keeps
-            // running rather than chasing to compensate. Standing still is committed; a swing
-            // that could still reposition to land isn't the "cannot cancel" combo this is meant
-            // to be.
-            if (Vector2.Distance(transform.position, _target.position) > Tuning.Enemy.DasherComboRange) return;
-            if (Spire.BubbleSeparates(transform.position, _target.position)) return;
+            if (_dasherBit || _targetHealth == null || _targetHealth.IsDead) return;
+            Vector2 player = _target.position, seg = to - from;
+            float t = seg.sqrMagnitude > 1e-6f ? Mathf.Clamp01(Vector2.Dot(player - from, seg) / seg.sqrMagnitude) : 0f;
+            if (Vector2.Distance(from + seg * t, player) > Tuning.Enemy.DasherBiteReach) return;
+            _dasherBit = true;
+            if (Spire.BubbleSeparates(to, player)) return;
 
-            // Checked before Take, same as every other melee hit in this file - a parry answers
-            // one swing, not the whole combo.
+            // Checked before Take, as every other melee hit in this file - a parry answers it.
             if (_targetController != null && _targetController.TryParry(transform.position)) return;
 
-            var dir = ((Vector2)_target.position - (Vector2)transform.position).normalized;
+            var dir = (player - from).sqrMagnitude > 1e-4f ? (player - from).normalized : _dasherDashDir;
             _targetHealth.Take(new DamageInfo(Damage, ElementType.Air, gameObject)
             {
                 Knockback = dir * AttackKnockback,
             });
-            Spr.Flash(_target.position, 0.45f, new Color(1f, 0.3f, 0.35f), 0.14f, false);
+            DasherBitAt = Time.time;
+            Spr.Flash(player, 0.45f, new Color(0.75f, 0.95f, 0.25f), 0.14f, false);
         }
 
         void BeginEvade()
@@ -2263,7 +2423,6 @@ namespace Convergence.Enemies
                 if (sight == SightResult.Blocked || sight == SightResult.Nulled) { CancelTelegraph(); return; }
 
                 _telegraphTimer -= dt;
-                UpdateGargoyleTelegraphVisual();
                 if (_telegraphTimer <= 0f) ResolveGargoyleAttack();
                 return;
             }
@@ -2283,6 +2442,7 @@ namespace Convergence.Enemies
             if (Elite)
             {
                 _gargoyleFlying = true;
+                _gargoyleFlyFrom = transform.position;
                 _gargoyleFlyTarget = _target.position;
                 _gargoyleFlyTimer = Tuning.Enemy.GargoyleFlyMaxSeconds;
                 return;
@@ -2293,38 +2453,16 @@ namespace Convergence.Enemies
 
         void BeginGargoyleTelegraph()
         {
+            // No glow drawn round it: the Watcher's own face is the tell (GargoyleVisual - its eyes
+            // kindle and its cracks fill with light; the user's pick over a drawn line of sight).
+            // An elite's slam edge is cracked into the floor beside it (GargoyleCracks).
             _telegraphTimer = TelegraphDuration;
-
-            _telegraphVisual = new GameObject("gargoyle.telegraph");
-            var sr = _telegraphVisual.AddComponent<SpriteRenderer>();
-            sr.sprite = Spr.Glow;
-            sr.sortingOrder = SortingOrders.Telegraph;
-            _telegraphSr = sr;
-            UpdateGargoyleTelegraphVisual();
-        }
-
-        void UpdateGargoyleTelegraphVisual()
-        {
-            if (_telegraphVisual == null) return;
-
-            _telegraphVisual.transform.position = transform.position;
-            float t = 1f - Mathf.Clamp01(_telegraphTimer / TelegraphDuration);
-
-            // Eyes glowing IN PLACE, hugging the body - the same "near-invisible to solid" read
-            // every telegraph in this file uses, just centred on the Gargoyle itself rather than
-            // drawn out toward a direction or a landing spot, the same shape Dasher's own
-            // telegraph already uses for the identical reason.
-            _telegraphVisual.transform.localScale =
-                Vector3.one * (Tuning.Enemy.GargoyleSize * Mathf.Lerp(1.0f, 1.8f, t));
-
-            // Cold stone-violet rather than the red/orange every damaging telegraph in this file
-            // wears - the family deals no damage on its own, and the colour is the tell.
-            _telegraphSr.color = Murk(new Color(0.62f, 0.45f, 0.95f, Mathf.Lerp(0.12f, 0.85f, t)));
         }
 
         void ResolveGargoyleAttack()
         {
             CancelTelegraph();
+            GargoyleStruckAt = Time.time;
 
             if (Elite)
             {
@@ -2342,7 +2480,7 @@ namespace Convergence.Enemies
                         StatusEffects.Get(_target.gameObject).ApplyPetrify(Tuning.Enemy.GargoylePetrifySeconds);
                     }
                 }
-                Spr.Flash(transform.position, Tuning.Enemy.GargoyleAoeRadius, new Color(0.62f, 0.45f, 0.95f), 0.32f);
+                // The slam's own picture is its cracks bursting white-hot (GargoyleCracks).
                 return;
             }
 
@@ -2361,255 +2499,247 @@ namespace Convergence.Enemies
             }
         }
 
-        // ---- Booster: a stationary statue that channels an ally's own elite attack into it ----
+        // ---- Booster: the Green Lion, which roars an ally to power ----
 
         void UpdateBooster()
         {
-            // The buff outlives the cast - only the TARGET's death frees this Booster to look for
-            // someone new, whatever happens to the statue itself in the meantime.
-            if (_boosterTarget != null)
-            {
-                var targetHp = _boosterTarget.GetComponent<Health>();
-                if (targetHp == null || targetHp.IsDead)
-                {
-                    _boosterTarget = null;
-                    BeginRecover(Tuning.Enemy.BoosterRecoverSeconds);
-                }
-                else return;
-            }
+            // A slot frees when its ally dies - the buff outlives the lion's own fate, so only the
+            // RECIPIENT's death matters - and the lion recovers before it looks again (unless it is
+            // mid-breath for the other slot: that roar still comes).
+            bool freed = BoostedDied(ref _boosterTarget) | BoostedDied(ref _boosterTarget2);
+            if (freed && _telegraphTimer <= 0f) BeginRecover(Tuning.Enemy.BoosterRecoverSeconds);
+            if (BoosterHeld >= BoosterSlots) return;   // spent: every slot's ally lives
 
             if (_telegraphTimer > 0f)
             {
-                // SIGHT-GATED, the same family rule Gargoyle's own telegraph lives by - a statue
-                // channelling power into an ally it can no longer see has nothing to channel it
-                // at, so losing sight of the CANDIDATE cancels the cast, not losing sight of the
-                // player.
-                if (_boosterCandidate == null)
-                { CancelTelegraph(); return; }
-                var candidateHp = _boosterCandidate.GetComponent<Health>();
-                if (candidateHp == null || candidateHp.IsDead)
-                { CancelTelegraph(); _boosterCandidate = null; return; }
-                var sight = HazardQuery.Query(transform.position, _boosterCandidate.transform.position,
-                                              gameObject, _boosterCandidate.gameObject);
-                if (sight == SightResult.Blocked || sight == SightResult.Nulled)
-                { CancelTelegraph(); _boosterCandidate = null; return; }
+                // SIGHT-GATED per ally, the same family rule Gargoyle's own telegraph lives by: an
+                // ally it can no longer see (or one that died) drops out of the roar; with none
+                // left the breath is let go.
+                if (!StillBoostable(_boosterCandidate)) _boosterCandidate = null;
+                if (!StillBoostable(_boosterCandidate2)) _boosterCandidate2 = null;
+                if (_boosterCandidate == null) { _boosterCandidate = _boosterCandidate2; _boosterCandidate2 = null; }
+                if (_boosterCandidate == null) { CancelTelegraph(); return; }
 
                 _telegraphTimer -= Time.deltaTime;
-                UpdateBoosterTelegraphVisual();
                 if (_telegraphTimer <= 0f) ResolveBooster();
                 return;
             }
 
             if (Recovering) return;
 
-            _boosterCandidate = FindBoosterCandidate();
-            if (_boosterCandidate != null) BeginBoosterTelegraph();
+            int free = BoosterSlots - BoosterHeld;
+            _boosterCandidate = FindBoosterCandidate(null);
+            _boosterCandidate2 = free > 1 && _boosterCandidate != null ? FindBoosterCandidate(_boosterCandidate) : null;
+            if (_boosterCandidate != null) _telegraphTimer = TelegraphDuration;
+        }
+
+        /// <summary>Clears a held ally that has died; true if it did.</summary>
+        static bool BoostedDied(ref EnemyController held)
+        {
+            if (held == null) { held = null; return false; }
+            var hp = held.GetComponent<Health>();
+            if (hp != null && !hp.IsDead) return false;
+            held = null;
+            return true;
+        }
+
+        bool StillBoostable(EnemyController c)
+        {
+            if (c == null || c.Boosted) return false;
+            var hp = c.GetComponent<Health>();
+            if (hp == null || hp.IsDead) return false;
+            var sight = HazardQuery.Query(transform.position, c.transform.position, gameObject, c.gameObject);
+            return sight != SightResult.Blocked && sight != SightResult.Nulled;
         }
 
         /// <summary>
-        /// Nearest OTHER live enemy in sight passing an eligibility test, or null. Shared by
-        /// Booster's own hunt for an ally to empower and Bubbles' hunt for an ally to shield - a
-        /// second, near-identical private copy of this exact loop is the point this project's own
-        /// "build the second one plain, generalise once a THIRD needs the identical shape" rule
-        /// (see EnemyLooks' own history) says to stop duplicating and share.
+        /// Who the lion roars at (the user's calls, 2026-10-19): an ally it can see within
+        /// BoosterPickRadius, NON-ELITES FIRST (an elite only when no basic is in reach), then the
+        /// biggest wave BUDGET - the body's max health plus max armour, exactly what the wave paid
+        /// for it (WaveComposer.Ehp, depth and tier included) - then the nearest. Null: it waits.
+        ///
+        /// NEVER another Booster (nothing to grant it) and NEVER a Gargoyle: Descent is gated on
+        /// the Elite bool directly rather than on ElitePattern the way every other kind's pattern
+        /// is (see ApplyBoosterBuff), so granting a common Gargoyle ElitePattern.Descent alone
+        /// would silently do nothing. <paramref name="except"/> is an elite's first pick, when it
+        /// looks for its second.
         /// </summary>
-        EnemyController FindNearestAlly(float maxRange, System.Func<EnemyController, bool> eligible)
+        EnemyController FindBoosterCandidate(EnemyController except)
         {
             EnemyController best = null;
-            float bestDist = maxRange;
-
+            float bestBudget = 0f, bestDist = 0f;
+            bool bestElite = false;
             foreach (var other in EnemyRegistry.All)
             {
-                if (other == null || other == this) continue;
-                if (!eligible(other)) continue;
-
+                if (other == null || other == this || other == except) continue;
+                if (other.Kind is EnemyKind.Booster or EnemyKind.Gargoyle || other.Boosted) continue;
                 var hp = other.GetComponent<Health>();
                 if (hp == null || hp.IsDead) continue;
-
                 float dist = Vector2.Distance(transform.position, other.transform.position);
-                if (dist > bestDist) continue;
+                if (dist > Tuning.Enemy.BoosterPickRadius) continue;
+
+                var armor = other.GetComponent<EnemyArmor>();
+                float budget = hp.Max + (armor != null ? armor.Max : 0f);
+                if (best != null)
+                {
+                    if (other.Elite != bestElite) { if (other.Elite) continue; }
+                    else if (budget < bestBudget - 0.001f) continue;
+                    else if (budget <= bestBudget + 0.001f && dist >= bestDist) continue;
+                }
 
                 var sight = HazardQuery.Query(transform.position, other.transform.position, gameObject, other.gameObject);
                 if (sight == SightResult.Blocked || sight == SightResult.Nulled) continue;
 
-                bestDist = dist;
                 best = other;
+                bestBudget = budget;
+                bestDist = dist;
+                bestElite = other.Elite;
             }
-
             return best;
         }
 
-        /// <summary>
-        /// NEVER another Booster (nothing to grant it - this kind's own Elite is None) and NEVER a
-        /// Gargoyle: Descent is gated on the Elite bool directly rather than on ElitePattern the
-        /// way every other kind's pattern is (see ApplyBoosterBuff's own note), so granting a
-        /// common Gargoyle ElitePattern.Descent alone would silently do nothing - excluding it
-        /// here is simpler and safer than teaching UpdateGargoyle a second trigger for behaviour
-        /// that already has one.
-        /// </summary>
-        EnemyController FindBoosterCandidate() => FindNearestAlly(AttackRange,
-            other => other.Kind != EnemyKind.Booster && other.Kind != EnemyKind.Gargoyle && !other.Boosted);
-
-        void BeginBoosterTelegraph()
-        {
-            _telegraphTimer = TelegraphDuration;
-
-            _telegraphVisual = new GameObject("booster.telegraph");
-            var sr = _telegraphVisual.AddComponent<SpriteRenderer>();
-            sr.sprite = Spr.Glow;
-            sr.sortingOrder = SortingOrders.Telegraph;
-            _telegraphSr = sr;
-            UpdateBoosterTelegraphVisual();
-        }
-
-        void UpdateBoosterTelegraphVisual()
-        {
-            if (_telegraphVisual == null) return;
-
-            // Hugs the STATUE, not the candidate - it is the caster charging, and the target has
-            // nothing to show yet since the buff has not landed (that is ShowBoosted's job, once
-            // it has).
-            _telegraphVisual.transform.position = transform.position;
-            float t = 1f - Mathf.Clamp01(_telegraphTimer / TelegraphDuration);
-            _telegraphVisual.transform.localScale =
-                Vector3.one * (Tuning.Enemy.BoosterSize * Mathf.Lerp(1.0f, 1.8f, t));
-
-            // The statue's own pale green - see EnemyTypes' Booster row.
-            _telegraphSr.color = Murk(new Color(0.55f, 0.95f, 0.55f, Mathf.Lerp(0.12f, 0.85f, t)));
-        }
-
+        /// <summary>The breath is out: the roar lands on every ally still in it, at once.</summary>
         void ResolveBooster()
         {
             CancelTelegraph();
+            var a = Roar(_boosterCandidate);
+            var b = Roar(_boosterCandidate2);
+            _boosterCandidate = _boosterCandidate2 = null;
 
-            var hp = _boosterCandidate != null ? _boosterCandidate.GetComponent<Health>() : null;
-            if (hp != null && !hp.IsDead)
+            if (a == null && b == null)
             {
-                _boosterCandidate.ApplyBoosterBuff();
-                _boosterTarget = _boosterCandidate;
-                Spr.Flash(_boosterCandidate.transform.position, 0.6f, new Color(0.55f, 0.95f, 0.55f), 0.3f, false);
-            }
-            else
-            {
-                // The candidate died in the same frame the channel completed - rare, but real.
+                // Every ally died in the same frame the breath completed - rare, but real.
                 // Recover before searching again rather than re-scanning on the very next frame.
                 BeginRecover(Tuning.Enemy.BoosterRecoverSeconds);
+                return;
             }
-
-            _boosterCandidate = null;
+            BoosterRoaredAt = Time.time;
+            BoosterRoaredA = a ?? b;
+            BoosterRoaredB = a != null ? b : null;
         }
 
-        // ---- Bubbles: a stationary statue that shields an ally instead of attacking ----
+        EnemyController Roar(EnemyController c)
+        {
+            if (c == null || c.Boosted) return null;
+            var hp = c.GetComponent<Health>();
+            if (hp == null || hp.IsDead) return null;
+            c.ApplyBoosterBuff();
+            if (_boosterTarget == null) _boosterTarget = c;
+            else _boosterTarget2 = c;
+            return c;
+        }
+
+        // ---- Bubbles: the Drowned Bell, which blows a bubble round an ally ----
 
         void UpdateBubbles()
         {
+            // Its ally's bubble ended - popped, or its wearer died: it recovers before it looks
+            // again (unless it is mid-breath for its own bubble: that blow still comes).
             if (_bubbleTarget != null)
             {
                 var targetHp = _bubbleTarget.GetComponent<Health>();
-
-                // TWO ways this ends, unlike Booster's permanent buff: the target died (checked
-                // the same way), OR the bubble simply POPPED while its wearer is still standing -
-                // its own Bubbled flag clears the instant a finisher gets through (see PopBubble),
-                // so reading that back is what tells this statue it is free to pick someone new.
                 if (targetHp == null || targetHp.IsDead || !_bubbleTarget.Bubbled)
                 {
                     _bubbleTarget = null;
-                    BeginRecover(Tuning.Enemy.BubblesRecoverSeconds);
+                    if (_telegraphTimer <= 0f) BeginRecover(Tuning.Enemy.BubblesRecoverSeconds);
                 }
-                else return;
             }
+            // Its OWN bubble popping is the same beat (the user's call): it recovers before it
+            // blows again, so a Heavy on the bell buys more than the channel.
+            if (_selfBubbleHeld && !Bubbled && _telegraphTimer <= 0f) BeginRecover(Tuning.Enemy.BubblesRecoverSeconds);
+            _selfBubbleHeld = Bubbled;
 
             if (_telegraphTimer > 0f)
             {
-                // SIGHT-GATED, the same family rule Gargoyle's and Booster's own telegraphs live
-                // by - see Booster's own note on why this differs from the proximity-committed
-                // kinds.
-                if (_bubbleCandidate == null)
-                { CancelTelegraph(); return; }
-                var candidateHp = _bubbleCandidate.GetComponent<Health>();
-                if (candidateHp == null || candidateHp.IsDead)
-                { CancelTelegraph(); _bubbleCandidate = null; return; }
-                var sight = HazardQuery.Query(transform.position, _bubbleCandidate.transform.position,
-                                              gameObject, _bubbleCandidate.gameObject);
-                if (sight == SightResult.Blocked || sight == SightResult.Nulled)
-                { CancelTelegraph(); _bubbleCandidate = null; return; }
+                // SIGHT-GATED, the family rule: an ally it can no longer see (or one that died, or
+                // was bubbled by another bell meanwhile) drops out of the blow; with nothing left
+                // to blow for, the water is let go.
+                if (!StillBubblable(_bubbleCandidate)) _bubbleCandidate = null;
+                if (_bubbleSelfToo && Bubbled) _bubbleSelfToo = false;
+                if (_bubbleCandidate == null && !_bubbleSelfToo) { CancelTelegraph(); return; }
 
                 _telegraphTimer -= Time.deltaTime;
-                UpdateBubblesTelegraphVisual();
                 if (_telegraphTimer <= 0f) ResolveBubbles();
                 return;
             }
 
             if (Recovering) return;
 
-            _bubbleCandidate = FindBubbleCandidate();
-            if (_bubbleCandidate != null) BeginBubblesTelegraph();
+            // An elite renews its own bubble once it is gone - with its next blow, or alone.
+            bool needSelf = Elite && !Bubbled;
+            var ally = _bubbleTarget == null ? FindBubbleCandidate() : null;
+            if (ally == null && !needSelf) return;   // tending, or nobody to shield
+            _bubbleCandidate = ally;
+            _bubbleSelfToo = needSelf;
+            _telegraphTimer = TelegraphDuration;
+        }
+
+        bool StillBubblable(EnemyController c)
+        {
+            if (c == null || c.Bubbled) return false;
+            var hp = c.GetComponent<Health>();
+            if (hp == null || hp.IsDead) return false;
+            var sight = HazardQuery.Query(transform.position, c.transform.position, gameObject, c.gameObject);
+            return sight != SightResult.Blocked && sight != SightResult.Nulled;
         }
 
         /// <summary>
-        /// UNRESTRICTED by kind or by an existing bubble - any other live enemy in sight is fair
-        /// game, including another Bubbles, an already-Boosted ally, or an already-BUBBLED one.
-        /// Landing on an already-bubbled target STACKS (see ApplyBubble/BubbleCharges) rather than
-        /// being refused, which is the whole point of dropping the exclusion this method used to
-        /// carry: a second statue reinforcing an already-shielded priority target is the intended
-        /// outcome, not a wasted cast to guard against. Bubbled and Boosted are independently
-        /// orthogonal flags too, so a boosted-AND-bubbled target is equally fair game.
+        /// Who the bell shields (the user's call, 2026-10-19): the enemy NEAREST THE PLAYER that it
+        /// can see, other than itself, any kind, not already bubbled - whatever is about to take the
+        /// next swing. No range limit; sight-gated. Decided as it starts drawing water, never
+        /// switched mid-breath.
         /// </summary>
-        EnemyController FindBubbleCandidate() => FindNearestAlly(AttackRange, other => true);
-
-        void BeginBubblesTelegraph()
+        EnemyController FindBubbleCandidate()
         {
-            _telegraphTimer = TelegraphDuration;
-
-            _telegraphVisual = new GameObject("bubbles.telegraph");
-            var sr = _telegraphVisual.AddComponent<SpriteRenderer>();
-            sr.sprite = Spr.Glow;
-            sr.sortingOrder = SortingOrders.Telegraph;
-            _telegraphSr = sr;
-            UpdateBubblesTelegraphVisual();
+            if (_target == null) return null;
+            Vector2 player = _target.position;
+            EnemyController best = null;
+            float bestDist = float.MaxValue;
+            foreach (var other in EnemyRegistry.All)
+            {
+                if (other == null || other == this || other.Bubbled) continue;
+                var hp = other.GetComponent<Health>();
+                if (hp == null || hp.IsDead) continue;
+                float dist = Vector2.Distance(player, other.transform.position);
+                if (dist >= bestDist) continue;
+                var sight = HazardQuery.Query(transform.position, other.transform.position, gameObject, other.gameObject);
+                if (sight == SightResult.Blocked || sight == SightResult.Nulled) continue;
+                bestDist = dist;
+                best = other;
+            }
+            return best;
         }
 
-        void UpdateBubblesTelegraphVisual()
-        {
-            if (_telegraphVisual == null) return;
-
-            // Hugs the STATUE, not the candidate - same reasoning as Booster's own telegraph: it
-            // is the caster charging, and the target has nothing to show until ShowBubble runs.
-            _telegraphVisual.transform.position = transform.position;
-            float t = 1f - Mathf.Clamp01(_telegraphTimer / TelegraphDuration);
-            _telegraphVisual.transform.localScale =
-                Vector3.one * (Tuning.Enemy.BubblesSize * Mathf.Lerp(1.0f, 1.8f, t));
-
-            // Pale water-blue - the bubble's own colour, so the glow already tells you what is
-            // coming before it lands.
-            _telegraphSr.color = Murk(new Color(0.55f, 0.85f, 1f, Mathf.Lerp(0.12f, 0.85f, t)));
-        }
-
+        /// <summary>The blow: the bubble round the ally, and round itself too for an elite.</summary>
         void ResolveBubbles()
         {
             CancelTelegraph();
 
-            var hp = _bubbleCandidate != null ? _bubbleCandidate.GetComponent<Health>() : null;
-            if (hp != null && !hp.IsDead)
+            // ELITE: a two-wall bubble (see Tuning.Enemy's own note) - the same shield, more of it.
+            int charges = Elite ? Tuning.Enemy.BubblesEliteCharges : 1;
+            var accent = BubblesArt.AccentOf(Look);
+            bool any = false;
+            // Sight was held every frame of the breath; here it only has to be alive and unshielded.
+            var allyHp = _bubbleCandidate != null ? _bubbleCandidate.GetComponent<Health>() : null;
+            if (allyHp != null && !allyHp.IsDead && !_bubbleCandidate.Bubbled)
             {
-                // ELITE: a more resilient bubble, not a different one - the same shield, just
-                // carrying more charges from the moment it lands. See Tuning.Enemy's own note on
-                // why this reads Elite directly rather than through an ElitePattern: the basic and
-                // elite perform the identical action, so there is no distinct "extra move" to
-                // declare, only a bigger number - the same shape Gargoyle's own Elite check uses.
-                int charges = Elite ? Tuning.Enemy.BubblesEliteCharges : 1;
-                _bubbleCandidate.ApplyBubble(charges);
+                _bubbleCandidate.ApplyBubble(charges, accent, (Vector2)transform.position + BubblesArt.MouthOffset(Elite));
                 _bubbleTarget = _bubbleCandidate;
-                Spr.Flash(_bubbleCandidate.transform.position, 0.6f, new Color(0.55f, 0.85f, 1f), 0.3f, false);
+                any = true;
             }
-            else
+            if (_bubbleSelfToo && !Bubbled)
             {
-                // The candidate died in the same frame the channel completed - rare, but real.
-                // Recover before searching again rather than re-scanning on the very next frame.
-                BeginRecover(Tuning.Enemy.BubblesRecoverSeconds);
+                ApplyBubble(charges, accent, null);
+                any = true;
             }
 
+            if (any) BubblesBlewAt = Time.time;
+            // Everything it blew for died in the same frame the channel completed - rare, but real.
+            // Recover before searching again rather than re-scanning on the very next frame.
+            else BeginRecover(Tuning.Enemy.BubblesRecoverSeconds);
+
             _bubbleCandidate = null;
+            _bubbleSelfToo = false;
         }
     }
 }

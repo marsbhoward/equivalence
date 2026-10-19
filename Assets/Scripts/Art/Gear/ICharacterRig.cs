@@ -83,6 +83,24 @@ namespace Convergence.Art.Gear
         /// </summary>
         void SetVialCount(int count);
 
+        /// <summary>The drawn bow's quiver (worn on the back) and arrow (nocked through the draw) -
+        /// DemoGear.BowKit; null, null for anything else.</summary>
+        void SetQuiver(UnityEngine.Sprite quiver, UnityEngine.Sprite arrow);
+
+        /// <summary>The drawn bow's string (GearItem.BowStringless and its nocks) - the draw pulls
+        /// it back to the string hand. Null stringless: none.</summary>
+        /// <summary>The drawn arrow has LEFT the string: the rig holds full draw - bow still, string
+        /// back - until this (or a short backstop after the draw's own clock runs out). Returns where
+        /// the nocked arrow's middle was, so the shot flies from there; null when none was shown.</summary>
+        UnityEngine.Vector2? LooseArrow();
+
+        /// <summary>Hold full draw at least <paramref name="seconds"/> from now - a draw longer than
+        /// the swing (Longshot's), so the backstop does not let the arrow go first.</summary>
+        void HoldDrawn(float seconds);
+
+        void SetBowString(UnityEngine.Sprite stringless, UnityEngine.Vector2 nockTop,
+                          UnityEngine.Vector2 nockBottom, UnityEngine.Color color);
+
         /// <summary>
         /// Repaint the weapon layer, keeping its size, offset and pivot.
         ///
@@ -243,16 +261,12 @@ namespace Convergence.Art.Gear
         void SetAimRange(float degrees);
 
         /// <summary>
-        /// Turn the figure to show its BACK - for a scripted beat (walking through a door) or for
-        /// ordinary untargeted movement toward the top of the screen (see
-        /// <c>PlayerController.UpdateTravelFacingAway</c>), never for combat. This is deliberately
-        /// NOT derived from <see cref="SetFacing"/> or from aim INSIDE THE RIG: the 3/4 combat view
-        /// exists because a body rotated to track a target has to stay legible mid-fight (see the
-        /// reverted TopDown mode), and none of that applies once nothing is being fought. The rig
-        /// itself must never read PlayerTargeting or wire this into FaceAim's own aim value - the
-        /// decision belongs one layer up, in whichever caller can tell combat facing apart from
-        /// travel facing, and PlayerController forces this back to front the instant a target is
-        /// acquired or a finisher locks.
+        /// Turn the figure to show its BACK - a SCRIPTED hold (walking through a door), or the
+        /// hub avatar walking toward the top of the screen (HubRoom). In the arena the player's
+        /// rig chooses its own view from its aim instead (<see cref="SetAimViews"/>, the user's
+        /// call 2026-10-14); a call here holds the back view over that until it is let go with
+        /// <c>false</c>. Combat used to force the front for legibility (see the reverted TopDown
+        /// mode) - that decision is reversed: four views, the back when aiming up.
         ///
         /// Swaps the head for its back-of-skull layer, drops the accessories that have nothing to
         /// show from behind (Ring, Trinket, Neck), and reorders the rig so the BACK-slot cloak
@@ -264,6 +278,40 @@ namespace Convergence.Art.Gear
         /// everywhere else in this rig, without needing to be drawn in front of anything.
         /// </summary>
         void SetFacingAway(bool away);
+
+        /// <summary>
+        /// Let the rig choose its own view from where it is aiming (the back when aiming up the
+        /// screen, face-on otherwise), TURN toward a new aim rather than flipping to it, carry the
+        /// whole swing toward the aim (up to straight up or down), and hold a swing's drawn strike
+        /// on the direction its hit went until the strike is drawn. The arena's player only -
+        /// PrimitiveCharacterRig's Facing partial. A rig without views may ignore this.
+        /// </summary>
+        void SetAimViews(bool on);
+
+        /// <summary>
+        /// True unless a swing is live and its drawn strike is not finished - when a finisher's
+        /// held facing may move again (PlayerController). Motions without three-phase timing
+        /// report false for their whole swing, the old lock. A rig with no swings returns true.
+        /// </summary>
+        bool PastStrike { get; }
+
+        /// <summary>
+        /// Seconds from the start of <paramref name="motion"/>, played over
+        /// <paramref name="duration"/> (PlayAttack's argument), until its strike is fully drawn -
+        /// so a caller can start a swing that lands on a moment of its own (Falling Star's slam
+        /// planting as the feet touch). A rig with no swings returns 0.
+        /// </summary>
+        float StrikeDrawnSeconds(AttackMotion motion, float duration);
+
+        /// <summary>Seconds from the start of <paramref name="motion"/> to where its STRIKE
+        /// begins (its cock's end) - Carousel's turn starts there.</summary>
+        float StrikeStartSeconds(AttackMotion motion, float duration);
+
+        /// <summary>
+        /// The NEXT weapon hide (SetWeaponVisible(false) - a thrown disc) empties the OFF hand
+        /// first, not the main one: the ranged pairs' second throw is the off hand's. One-shot.
+        /// </summary>
+        void ThrowFromOffhandNext();
 
         /// <summary>
         /// Repaint any sigil-bearing piece (GearItem.BearsSigil) for <paramref name="element"/> -

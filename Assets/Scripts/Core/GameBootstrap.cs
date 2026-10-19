@@ -490,6 +490,9 @@ namespace Convergence.Core
             // Same wiring, for the chest's defensive ability (GUARD).
             Controls.GuardReady = () => _player != null && _player.DefenseReady;
 
+            // Whether a drag on the touch ATTACK button aims a weapon art right now.
+            Controls.ArtAimable = () => _player != null && _player.ArtAimPossible;
+
             // The rings on those same buttons - how long, where the flags above only say whether.
             // Each one hands back a number somebody else already owns; none of them keeps a
             // clock of its own, for the reason GuardRing is written the way it is.
@@ -599,6 +602,11 @@ namespace Convergence.Core
             // mid-run heat stage - it can't, because heat only fires from the SOURCE item locked
             // at the door, but Prism's gem depends only on the run's element, which never changes,
             // so it is always safe to just re-apply it after any weapon-slot equip.
+            // The discs' combined picture in flight follows the weapon AND its relic.
+            if ((slot == Art.Gear.GearSlot.Weapon || slot == Art.Gear.GearSlot.Relic) && _player != null)
+                _player.CombinedInFlight = RelicMatchesDrawn(_profile, Art.Gear.GearCatalog.Get(
+                    _profile.Look.Resolve(_profile.Gear).Get(Art.Gear.GearSlot.Weapon)));
+
             if (slot == Art.Gear.GearSlot.Weapon && _player != null)
             {
                 var shown = Art.Gear.GearCatalog.Get(
@@ -614,6 +622,7 @@ namespace Convergence.Core
                 _player.GeminiHalves   = shown != null && shown.HasGeminiSplit ? shown.HalfBlades : null;
                 if (_player.Split != null) _player.Split.Blades = shown?.SplitBlades;
                 _player.CombinedFrames = shown?.CombinedFrames;          // Quintessence's overhead picture
+                _player.ArrowSprite = Art.Gear.DemoGear.BowKit(shown).arrow;   // the drawn bow's arrow
                 if (shown != null) _player.CombinedFrameSeconds = shown.IdleFrameSeconds;
 
                 // Phantom's haze animation, same re-sync. RepaintLive (above) already reset the
@@ -2310,6 +2319,18 @@ namespace Convergence.Core
             => Art.Gear.GearCatalog.Get(profile.Gear.Get(Art.Gear.GearSlot.Relic));
 
         /// <summary>
+        /// Whether the DRAWN weapon's bespoke treatment is on: its own relic (the same signature
+        /// art) is in the relic socket - the Black Diamond rule, cosmetic plus relic. Gates the
+        /// discs' combined picture in flight (Combat.DiscPictures; the user's call, 2026-10-16).
+        /// </summary>
+        static bool RelicMatchesDrawn(CharacterProfile profile, Art.Gear.GearItem shown)
+        {
+            var relic = EquippedRelic(profile);
+            return shown != null && relic != null && !string.IsNullOrEmpty(shown.SignatureFinisher)
+                   && relic.SignatureFinisher == shown.SignatureFinisher;
+        }
+
+        /// <summary>
         /// The item whose signature finisher and heat cycle the run runs on: the weapon in hand if
         /// it has one, otherwise the relic in the socket.
         ///
@@ -2567,6 +2588,8 @@ namespace Convergence.Core
             // what is on screen.
             pc.CombinedFrames = shown?.CombinedFrames;
             if (shown != null) pc.CombinedFrameSeconds = shown.IdleFrameSeconds;
+            pc.CombinedInFlight = RelicMatchesDrawn(_profile, shown);   // and its relic socketed
+            pc.ArrowSprite = Art.Gear.DemoGear.BowKit(shown).arrow;     // the drawn bow's arrow
 
             // The arena sorts by depth now, same as the hub. The bias is the concession to
             // readability: honest sorting means a crowd closing from below covers you exactly

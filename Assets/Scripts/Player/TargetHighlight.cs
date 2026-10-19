@@ -112,6 +112,20 @@ namespace Convergence.Player
             float d = Vector2.Distance(_player.transform.position, t.transform.position);
             var weapon = _player.Weapon;
 
+            // Aimed by hand (the right stick - PlayerController.AimingArt), the art goes along the
+            // aim, not at the lock: a target off that line is not met however close it stands.
+            if (_player.AimingArt)
+            {
+                Vector2 to = (Vector2)(t.transform.position - _player.transform.position);
+                if (to.sqrMagnitude > 1e-6f
+                    && Vector2.Dot(to.normalized, _player.Facing) < Tuning.Highlight.AimConeDot)
+                {
+                    solid = false;
+                    alpha = Tuning.Highlight.Dim;
+                    return;
+                }
+            }
+
             bool ranged = weapon == Art.Gear.WeaponClass.Bow
                        || (weapon == Art.Gear.WeaponClass.Disc && _player.ThrowsInsteadOfSwinging);
             if (ranged)
