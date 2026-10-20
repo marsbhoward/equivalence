@@ -154,12 +154,14 @@ namespace Convergence.Rifts
         public static Chain.AvatarBoxes RollAvatarLocal(int floor) => new()
         {
             Floor = floor,
-            Diamond = IsRolledAvatar(floor) && Random.value < Tuning.GearRoll.AvatarDiamondBoxChance ? 1 : 0,
-            BlackDiamond = IsRolledAvatar(floor) && Random.value < Tuning.GearRoll.AvatarBlackDiamondBoxChance ? 1 : 0,
+            Diamond = IsRolledAvatar(floor) && Random.value < (Core.RunFormat.Short
+                ? Tuning.GearRoll.ShortAvatarDiamondBoxChance : Tuning.GearRoll.AvatarDiamondBoxChance) ? 1 : 0,
+            BlackDiamond = IsRolledAvatar(floor) && Random.value < (Core.RunFormat.Short
+                ? Tuning.GearRoll.ShortAvatarBlackDiamondBoxChance : Tuning.GearRoll.AvatarBlackDiamondBoxChance) ? 1 : 0,
         };
 
-        /// <summary>The last avatar, and the run's completion floor.</summary>
-        public const int FinalFloor = 100;
+        /// <summary>The last avatar, and the run's completion floor - the format's (Core.RunFormat).</summary>
+        public static int FinalFloor => Core.RunFormat.FinalFloor;
 
         /// <summary>
         /// Spend one box. Consumes a FOUND one first.
@@ -349,6 +351,9 @@ namespace Convergence.Rifts
         ///     50-74   Bronze 40   Silver 45   Gold 15
         ///     75+     Bronze 15   Silver 45   Gold 40
         ///
+        /// THE SHORT DESCENT (Core.RunFormat) bands the same four steps at its own bosses, so each
+        /// jump still follows a boss (SHORT-DESCENT.md, "Gear tiers"): 1-9 / 10-24 / 25-39 / 40+.
+        ///
         /// Floor 100's box is the store's decision (Chain/FinalFloorReward - the weekly guarantee).
         /// Diamond never comes from an ordinary floor: only from floor 100 and the avatar bosses'
         /// rare EXTRA (Chain/AvatarBoxes).
@@ -356,6 +361,13 @@ namespace Convergence.Rifts
         public static LootTier TierFor(int floor)
         {
             float r = Random.value;
+            if (Core.RunFormat.Short)
+            {
+                if (floor >= 40) return r < 0.15f ? LootTier.Bronze : r < 0.60f ? LootTier.Silver : LootTier.Gold;
+                if (floor >= 25) return r < 0.40f ? LootTier.Bronze : r < 0.85f ? LootTier.Silver : LootTier.Gold;
+                if (floor >= 10) return r < 0.70f ? LootTier.Bronze : LootTier.Silver;
+                return LootTier.Bronze;
+            }
             if (floor >= 75) return r < 0.15f ? LootTier.Bronze : r < 0.60f ? LootTier.Silver : LootTier.Gold;
             if (floor >= 50) return r < 0.40f ? LootTier.Bronze : r < 0.85f ? LootTier.Silver : LootTier.Gold;
             if (floor >= 25) return r < 0.70f ? LootTier.Bronze : LootTier.Silver;
@@ -461,7 +473,8 @@ namespace Convergence.Rifts
         /// </summary>
         public static (float One, float Two, float Three) DropStarOdds(LootTier tier, int floor)
         {
-            float t = Mathf.Clamp01((floor - TierStartFloor(tier)) / Tuning.GearRoll.DropStarRampFloors);
+            // By DEPTH (Core.RunFormat): the ramp is tuned in Classic floors.
+            float t = Mathf.Clamp01((Core.RunFormat.Depth(floor) - TierStartFloor(tier)) / Tuning.GearRoll.DropStarRampFloors);
             return (Mathf.Lerp(Tuning.GearRoll.DropOneStarMin, Tuning.GearRoll.DropOneStarMax, t),
                     Mathf.Lerp(Tuning.GearRoll.DropTwoStarMin, Tuning.GearRoll.DropTwoStarMax, t),
                     Mathf.Lerp(Tuning.GearRoll.DropThreeStarMin, Tuning.GearRoll.DropThreeStarMax, t));

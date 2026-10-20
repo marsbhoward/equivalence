@@ -122,6 +122,19 @@ namespace Convergence.Core
         /// EndRun settles one still outstanding before the run's loot is banked.</summary>
         System.Threading.Tasks.Task<FinalFloorReward?> _finalAsk;
 
+        /// <summary>The RUN CLOCK and its heat (Core.RunClock) - a component on this object.</summary>
+        Core.RunClock Clock
+        {
+            get
+            {
+                if (_clockComponent != null) return _clockComponent;
+                _clockComponent = GetComponent<Core.RunClock>();
+                if (_clockComponent == null) _clockComponent = gameObject.AddComponent<Core.RunClock>();
+                return _clockComponent;
+            }
+        }
+        Core.RunClock _clockComponent;
+
         /// <summary>The week whose guaranteed floor-100 box this run took, or 0 - rides the run
         /// summary to the profile (ProfileRules.RunEnd).</summary>
         int _runGuaranteeWeek;
@@ -989,6 +1002,109 @@ namespace Convergence.Core
             return weapon;
         }
 
+        // ------------------------------------------------------------------ dev: forcing encounters
+
+        /// <summary>
+        /// DEV, ONE-SHOT: the floor the NEXT run starts on (the floors before it are skipped, paying
+        /// nothing; the planner's counters start fresh). 0 = floor 1. Clamped to the format's last.
+        /// A static, so a domain reload clears it - like the other DevForce switches.
+        /// </summary>
+        public static int DevStartFloor;
+
+        /// <summary>
+        /// DEV: start a run from `eval` (StartRun has overloads reflection cannot tell apart).
+        /// Set Core.RunFormat.Current first to test a format - in Play mode, since entering it
+        /// reloads the domain and resets statics:
+        /// <c>Convergence.Core.RunFormat.Current = Convergence.Core.RunFormatId.ShortDescent;
+        /// FindAnyObjectByType&lt;GameBootstrap&gt;().DevStartRun(ElementType.Fire, 10);</c>
+        /// </summary>
+        public bool DevStartRun(ElementType element, int startFloor = 0)
+        {
+            if (_state != State.Hub || !ReadyForRun("DevStartRun")) return false;
+            DevStartFloor = startFloor;
+            StartRun(element);
+            return true;
+        }
+
+        /// <summary>
+        /// DEV: abandon the floor being fought - its enemies, boss and door go, nothing is paid or
+        /// cleared - and build <paramref name="floor"/> through the ordinary transition (so its
+        /// snapshot, plan, hazards and wave are what that floor really gets). Refused while a
+        /// screen or a transition is up. Returns whether it went.
+        /// <c>FindAnyObjectByType&lt;GameBootstrap&gt;().DevJumpToFloor(25);</c>
+        /// </summary>
+        public bool DevJumpToFloor(int floor)
+        {
+            if (_state != State.Playing || _transitioning || _spawning) return false;
+            if (FloorRewardScreen.IsOpen || ExchangeScreen.IsOpen || ConfirmDialog.IsOpen) return false;
+            floor = Mathf.Clamp(floor, 1, Core.RunFormat.FinalFloor);
+
+            foreach (var e in _alive) if (e) Destroy(e.gameObject);
+            _alive.Clear();
+            _spawnQueue.Clear();
+            Enemies.EnemyRegistry.Prune();
+            if (_boss != null) { _boss.Cease(); Destroy(_boss.gameObject); _boss = null; }
+            if (_activeDoor != null) { Destroy(_activeDoor.gameObject); _activeDoor = null; }
+
+            Debug.Log($"[Dev] floor {_floor} abandoned - jumping to floor {floor}");
+            _floor = floor - 1;          // NextFloor builds _floor + 1
+            StartCoroutine(FloorTransition());
+            return true;
+        }
+
+        /// <summary>
+        /// DEV: every boss's KEY, for <see cref="DevFightBoss"/> - a NUMBER: its place in
+        /// <see cref="Bosses.BossKind"/>, counted from 1 (1 = the first BossKind). READ OFF THE
+        /// ENUM, so a new boss - its BossKind, APPENDED (the enum is append-only, so no key ever
+        /// shifts), and its case in Boss.Spawn, which it needs anyway - has its key with nothing
+        /// else to add or document.
+        /// <c>unity command eval --code 'return Convergence.Core.GameBootstrap.DevBosses();'</c>
+        /// </summary>
+        public static string DevBosses()
+        {
+            var lines = new System.Text.StringBuilder();
+            foreach (Bosses.BossKind kind in Enum.GetValues(typeof(Bosses.BossKind)))
+                lines.AppendLine($"{(int)kind + 1,2}  {kind,-10} " +
+                                 (kind == Bosses.BossKind.Cantor ? "the avatars' stand-in; " : "") +
+                                 (Rifts.FloorPlanner.InMiniBossPool(kind) ? "drawn for mini-boss floors" : "not drawn for any floor yet"));
+            return lines.ToString();
+        }
+
+        /// <summary>
+        /// DEV: fight the boss <paramref name="key"/> numbers (<see cref="DevBosses"/>) on a boss
+        /// floor - <paramref name="floor"/>, or by default the run's next boss floor (from the hub,
+        /// the first). From the hub it starts a run there (<see cref="DevStartRun"/>); mid-run it
+        /// jumps there (<see cref="DevJumpToFloor"/>). The floor's depth sets the boss's strength,
+        /// as ever. Uses the one-shot <see cref="Rifts.FloorPlanner.DevForceBoss"/>, so an avatar
+        /// floor can be forced too. Returns what it did, or why not.
+        /// <c>FindAnyObjectByType&lt;GameBootstrap&gt;().DevFightBoss(2, 20)</c> - Medusa on floor 20.
+        /// </summary>
+        public string DevFightBoss(int key, int floor = 0, ElementType element = ElementType.Fire)
+        {
+            var kind = (Bosses.BossKind)(key - 1);
+            if (!Enum.IsDefined(typeof(Bosses.BossKind), kind))
+                return $"no boss {key}. Keys:\n{DevBosses()}";
+
+            if (floor <= 0)
+            {
+                int from = _state == State.Playing ? _floor + 1 : 1;
+                for (floor = from; floor <= Core.RunFormat.FinalFloor && !IsBossFloor(floor); floor++) { }
+                if (floor > Core.RunFormat.FinalFloor) return "no boss floor left in this run";
+            }
+            if (!IsBossFloor(floor))
+                return $"floor {floor} is not a boss floor ({Core.RunFormat.WireName}: every {Tuning.Boss.RiftInterval}th, and the avatars)";
+
+            Rifts.FloorPlanner.DevForceBoss = kind;
+            bool went = _state == State.Hub ? DevStartRun(element, floor)
+                      : _state == State.Playing && DevJumpToFloor(floor);
+            if (!went)
+            {
+                Rifts.FloorPlanner.DevForceBoss = null;
+                return $"refused - in state {_state} (a screen or a transition may be up)";
+            }
+            return $"{kind} on floor {floor} ({Core.RunFormat.WireName})";
+        }
+
         /// <summary>
         /// DEV: mint an instance of an authored design straight into the profile, no box spent -
         /// the way to hand yourself the three Diamond parts to test the fusion from `eval`:
@@ -1718,7 +1834,7 @@ namespace Convergence.Core
                       || TxScreen.IsOpen || CharacterScreen.IsOpen || ForgeScreen.IsOpen
                       || ManualScreen.IsOpen || GearDisplayScreen.IsOpen || RiftScreen.IsOpen || StakeScreen.IsOpen
                       || PauseScreen.IsOpen || SettingsScreen.IsOpen || ControlsScreen.IsOpen
-                      || InventoryScreen.IsOpen;
+                      || InventoryScreen.IsOpen || UI.EndingScreen.IsOpen;
             bool modal = screenOpen || (_hub != null && _hub.Blocking);
 
             // The sigil door stays open for the day once the player has run, and shuts on its own
@@ -1935,7 +2051,11 @@ namespace Convergence.Core
                 // own legitimate call does.
                 // A puzzle floor never clears this way - it has no wave. Solving it calls
                 // OfferFloorReward itself; giving up builds the adjacent room's fight, which does.
-                if (!dummyHoldsFloor && _boss == null && _activeDoor == null && _puzzle == null &&
+                // Nothing is built past the Short Descent's final floor: its clear opens the ending
+                // (ShowEnding), with no door - and a cleared floor without one reads, to this check, as
+                // a floor whose next should be built.
+                bool runComplete = Core.RunFormat.Short && _floor >= Rifts.RunLoot.FinalFloor && _rewardTaken;
+                if (!dummyHoldsFloor && !runComplete && _boss == null && _activeDoor == null && _puzzle == null &&
                     !_transitioning && !_spawning && _alive.Count == 0 && _spawnQueue.Count == 0 &&
                     !FloorRewardScreen.IsOpen && !MasteryScreen.IsOpen &&
                     !ConfirmDialog.IsOpen && !ExchangeScreen.IsOpen)
@@ -2190,7 +2310,18 @@ namespace Convergence.Core
             _runCalx = 0;
             _runCalxTaken = 0;
             _runStartTime = Time.time;
+            Clock.Restore(0f);
             _floor = 0;
+            if (DevStartFloor > 1)
+            {
+                // DEV (DevStartFloor): the run opens on a later floor - NextFloor builds _floor + 1.
+                _floor = Mathf.Min(DevStartFloor, Core.RunFormat.FinalFloor) - 1;
+                // The skipped floor is not a CLEARED one: the floor-start check reads "a floor with
+                // its reward not taken" as a clear to pay, and would pay it.
+                _rewardTaken = true;
+                Debug.Log($"[Dev] this run starts on floor {_floor + 1}");
+            }
+            DevStartFloor = 0;
             // A LOCAL stand-in for the server's sticky run seed - the day the service issues
             // seeds, this is the one line that changes.
             _planner = new Rifts.FloorPlanner(Guid.NewGuid().GetHashCode());
@@ -2735,7 +2866,8 @@ namespace Convergence.Core
             // Solution: a soaked enemy's blows land lighter - asked with the hit, since it needs
             // to know who struck.
             // The ledger's own (Senescence, Acetum) needs to know who struck too.
-            hp.ScaleIncoming = info => board.ScaleIncoming(info) * effects.ScaleIncoming(info);
+            // The run clock's HEAT on every hit (Core.RunClock): 1 outside the Short Descent.
+            hp.ScaleIncoming = info => board.ScaleIncoming(info) * effects.ScaleIncoming(info) * Core.RunClock.IncomingScale(info);
             hp.ModifyHeal = effects.ModifyHeal;
             hp.SurviveLethal = effects.SurviveLethal;
 
@@ -2863,6 +2995,9 @@ namespace Convergence.Core
             SaveRun(Chain.RunStage.Entering);
 
             _floor++;
+            // The run clock: this floor's attempt opens now - the service opens it at the snapshot
+            // just written (Core.RunClock).
+            Clock.OpenAttempt(_floor);
             _rewardTaken = false;
             _floorKills = 0;
             _floorSpawns = 0;
@@ -3152,7 +3287,7 @@ namespace Convergence.Core
             // brand-new account's early floors stay exactly as tuned.
             bool boosterEligible = _profile != null
                                  && _profile.BestFloor >= Tuning.Enemy.BoosterUnlockBestFloor
-                                 && floor <= Tuning.Enemy.BoosterMaxFloor;
+                                 && Core.RunFormat.Depth(floor) <= Tuning.Enemy.BoosterMaxFloor;
             int seed = _planner != null ? _planner.WaveSeed(floor)
                                         : UnityEngine.Random.Range(int.MinValue, int.MaxValue);
             return Enemies.WaveComposer.Compose(floor, seed, floor % EliteEveryNFloors == 0, boosterEligible);
@@ -3253,6 +3388,8 @@ namespace Convergence.Core
         void OfferFloorReward()
         {
             _rewardTaken = true;
+            // The run clock stops at the clear - the menus after it are off it (Core.RunClock).
+            Clock.CloseAttempt();
 
             // The spire sinks into the floor, taken or not - see Spire.Sink.
             if (_spire != null) _spire.Sink();
@@ -3279,13 +3416,24 @@ namespace Convergence.Core
             // it early costs nothing: nobody can walk anywhere until the screens release the
             // pause, but the door is standing there the moment the floor actually cleared instead
             // of popping in afterward.
-            OpenFloorDoor();
+            // THE SHORT DESCENT ENDS ON ITS FINAL FLOOR (SHORT-DESCENT.md): no door, no deal, no
+            // reward - its box is paid and every box secured (RollFloorDrop), then the run ends as an
+            // extraction. The avatar's dialogue and a cut scene go here when built. Classic carries on.
+            bool runEnds = Core.RunFormat.Short && _floor >= Rifts.RunLoot.FinalFloor;
+            if (!runEnds) OpenFloorDoor();
             RollFloorDrop();
             int lying = GroundGearCount();
             if (lying > 0)
                 _hud?.Flash(lying == 1 ? "a piece of gear is still on the floor"
                                        : $"{lying} pieces of gear are still on the floor");
             SettleFloorRift();
+            if (runEnds)
+            {
+                SaveRun(Chain.RunStage.Cleared, pending: 0);   // the run clock's last floor closes (the service times it)
+                Debug.Log($"[Run] floor {_floor} cleared - the {Core.RunFormat.WireName} run is complete");
+                ShowEnding();
+                return;
+            }
 
             // Floor-clear costs settle FIRST, so the exchange row is read against the health you
             // actually have left rather than the health you had a moment before Toll took its cut.
@@ -3307,6 +3455,22 @@ namespace Convergence.Core
         }
 
         /// <summary>
+        /// THE SHORT DESCENT's ending (UI.EndingScreen): the final avatar's words, the light, the
+        /// card - then the run ends as an extraction. Skippable; the run is already written down as
+        /// cleared, so a tab closed during it is finished by the resume (ResumeClearedRoom).
+        /// </summary>
+        void ShowEnding()
+        {
+            var ending = GetComponent<UI.EndingScreen>();
+            if (ending == null) ending = gameObject.AddComponent<UI.EndingScreen>();
+            int token = _runToken;
+            ending.Show(_canvas.transform, Core.Narrative.FinalAvatarWords, Clock.Seconds, () =>
+            {
+                if (token == _runToken && _state == State.Playing) EndRun(survived: true);
+            });
+        }
+
+        /// <summary>
         /// The deal after a clear, when the floor has one, then the reward - from OfferFloorReward,
         /// or from a resume into a cleared room whose deal was still waiting.
         /// </summary>
@@ -3320,7 +3484,7 @@ namespace Convergence.Core
             // A deal after the first floor and every second floor after it (50 a run) - see
             // Tuning.Exchange.DealEvery. Drawn from the run's seed for this floor, so a restart
             // meets the same deals.
-            if (!Exchange.ExchangeOffers.DealAfter(_floor) || _planner == null)
+            if (!Exchange.ExchangeOffers.DealAfterInRun(_floor) || _planner == null)
             {
                 if (scry != null) _hud?.Flash(scry);
                 OfferFloorRewardCards();
@@ -3338,7 +3502,7 @@ namespace Convergence.Core
             // previewed and later handed to the reward screen - a preview that re-rolled would
             // be a lie, and is the obvious way to get this wrong.
             _pendingReward = RollFloorReward(_rewardRerolls);
-            string preview = Modifiers.StacksOf("transmuters_eye") > 0
+            string preview = RingsAfter(_floor) && Modifiers.StacksOf("transmuters_eye") > 0
                 ? $"next: {string.Join(" / ", System.Linq.Enumerable.Where(new[] { _pendingReward.Arts[0]?.DisplayName, _pendingReward.Arts[1]?.DisplayName }, n => n != null))}" +
                   $"  or  {RestoreText(_pendingReward.Restore, _pendingReward, 0)}  or  {RestoreText(_pendingReward.Second, _pendingReward, 0)}"
                 : null;
@@ -3382,7 +3546,7 @@ namespace Convergence.Core
         string ScryNextFloor()
         {
             int next = _floor + 1;
-            if (_planner == null || next > Player.PlayerPower.LastFloor) return null;
+            if (_planner == null || next > Core.RunFormat.FinalFloor) return null;
             var plan = _planner.Peek(next);
             string rift = plan.Rift != Rifts.RiftKind.None ? $"  -  and a {plan.Rift} Rift" : "";
             return plan.Category switch
@@ -3586,6 +3750,13 @@ namespace Convergence.Core
                 RingOption(r.Second, null, r, xpAmount, mastery, element),
             };
 
+        /// <summary>
+        /// The reward rings follow this floor's clear: every floor in Classic; in the Short Descent
+        /// every SECOND floor (the user's call) - the EVEN ones, so every mini-boss is followed by a
+        /// pick. The deal still comes every floor (Exchange.ExchangeOffers.DealAfterInRun).
+        /// </summary>
+        static bool RingsAfter(int floor) => !Core.RunFormat.Short || floor % 2 == 0;
+
         void OfferFloorRewardCards()
         {
             // THE DAILY TAPER, and it applies to XP ONLY - see Tuning.Taper for why loot is
@@ -3604,6 +3775,16 @@ namespace Convergence.Core
 
             int mastery = Mathf.RoundToInt(MasteryXpPerFloor * taper);
             _pendingMastery += mastery;
+
+            // No rings on this floor (the Short Descent's come every second floor): its XP above is
+            // paid, and the floor is fully paid here.
+            if (!RingsAfter(_floor))
+            {
+                _pendingReward = null;
+                SaveRun(Chain.RunStage.Cleared, pending: 0);
+                SaveAccount();
+                return;
+            }
 
             // Reuses the roll the exchange row may already have shown. Rolling again here would
             // make Transmuter's Eye show one thing and deliver another.
@@ -3824,6 +4005,8 @@ namespace Convergence.Core
             // middle of the room has to mean one thing all fight, and the player should have seen
             // it there once before being asked to run to it.
             _boss = Bosses.Boss.Spawn(kind, Vector2.zero, _player.transform, _enemyRoot, _floor);
+            // A boss fights at the heat of its arrival, to the end (SHORT-DESCENT.md).
+            Clock.LockHeat();
             Debug.Log($"[Floor] Boss floor {_floor}: {_boss.DisplayName}");
 
             // A fight left part-way and resumed: the boss comes back down the eighths it had lost,
@@ -3951,7 +4134,7 @@ namespace Convergence.Core
             Debug.Log($"[Floor] Red Rift on floor {_floor}, sealed until the player breaks it");
         }
 
-        int RedGuardCount => Tuning.Floors.RedGuards + (_floor >= Tuning.Floors.RedGuardsExtraFloor ? 1 : 0);
+        int RedGuardCount => Tuning.Floors.RedGuards + (Core.RunFormat.Depth(_floor) >= Tuning.Floors.RedGuardsExtraFloor ? 1 : 0);
 
         void AskBreakRedSeal()
         {
@@ -4051,7 +4234,7 @@ namespace Convergence.Core
             if (_floor == Rifts.RunLoot.FinalFloor)
             {
                 _loot.SecureAllBoxes();
-                _hud?.Flash("floor 100 cleared  -  every box is secured");
+                _hud?.Flash($"floor {Rifts.RunLoot.FinalFloor} cleared  -  every box is secured");
             }
         }
 
@@ -4066,11 +4249,11 @@ namespace Convergence.Core
             var ask = _finalAsk = _store.FinalFloorRewardAsync(_profile, _runId);
             FinalFloorReward? reward = null;
             try { reward = await ask; }
-            catch (Exception e) { Debug.LogWarning($"[Rift] floor 100's box: {e.Message}"); }
+            catch (Exception e) { Debug.LogWarning($"[Rift] floor {Rifts.RunLoot.FinalFloor}'s box: {e.Message}"); }
             if (_finalAsk != ask) return;   // EndRun has settled it already
             if (reward == null)
             {
-                _hud?.Flash("floor 100's box is waiting on the service");
+                _hud?.Flash($"floor {Rifts.RunLoot.FinalFloor}'s box is waiting on the service");
                 return;
             }
             CreditFinalFloor(reward);
@@ -4143,7 +4326,7 @@ namespace Convergence.Core
             if (_finalAsk != ask) return;   // ClaimFinalFloor credited it meanwhile
             if (reward == null)
                 try { reward = await _store.FinalFloorRewardAsync(_profile, _runId); }
-                catch (Exception e) { Debug.LogWarning($"[Rift] floor 100's box, asked again: {e.Message}"); }
+                catch (Exception e) { Debug.LogWarning($"[Rift] floor {Rifts.RunLoot.FinalFloor}'s box, asked again: {e.Message}"); }
             CreditFinalFloor(reward);
         }
 
@@ -4162,7 +4345,7 @@ namespace Convergence.Core
             if (reward.Tier == Art.Gear.LootTier.BlackDiamond) boxes = "BLACK DIAMOND BOX";
             _hud?.Flash(reward.Guaranteed ? $"WEEKLY {boxes}" : boxes);
             ResaveCleared();   // the box is the run's now - a resume must not ask for it again
-            Debug.Log($"[Rift] floor 100 paid {reward.Count} {reward.Tier}" +
+            Debug.Log($"[Rift] floor {Rifts.RunLoot.FinalFloor} paid {reward.Count} {reward.Tier}" +
                       (reward.Guaranteed ? $" (the weekly guarantee, week {reward.Week})" : "") +
                       (answered == null ? " - no answer from the store, the guarantee is still unspent" : ""));
         }
@@ -4663,7 +4846,7 @@ namespace Convergence.Core
         {
             if (_player == null) return;
             using (Rifts.RunRolls.Seeded(_planner?.Seed ?? 0, _floor, Rifts.RunRolls.Kind.KillBox, kill))
-                if (UnityEngine.Random.value >= Tuning.Boss.RiftBoxDropChance * chasers) return;
+                if (UnityEngine.Random.value >= Tuning.Boss.RiftBoxDropChance * chasers * Tuning.GearRoll.FormatDropScale) return;
             LayRiftBoxAt(at);
         }
 
@@ -4691,7 +4874,7 @@ namespace Convergence.Core
             MintedGearRecord drop;
             using (Rifts.RunRolls.Seeded(_planner?.Seed ?? 0, _floor, Rifts.RunRolls.Kind.KillGear, kill))
             {
-                if (UnityEngine.Random.value >= Tuning.GearRoll.EnemyGearDropChance * chasers) return;
+                if (UnityEngine.Random.value >= Tuning.GearRoll.EnemyGearDropChance * chasers * Tuning.GearRoll.FormatDropScale) return;
                 drop = _loot.RollGear(_floor);
             }
             Debug.Log($"[Rift] floor {_floor} enemy dropped {drop.DisplayName} (on the ground)");
@@ -5211,6 +5394,8 @@ namespace Convergence.Core
                 PosY = _resumePos.y,
                 Planner = _planner?.Copy(),
                 RunSeconds = Time.time - _runStartTime,
+                RunClock = Clock.Seconds,
+                Format = Core.RunFormat.WireName,
                 PendingMastery = _pendingMastery,
                 RunCalx = _runCalx,
                 RunCalxTaken = _runCalxTaken,
@@ -5403,6 +5588,7 @@ namespace Convergence.Core
                 Placed = maze,
                 PosX = at.x,
                 PosY = at.y,
+                RunClock = Clock.Seconds,
             };
         }
 
@@ -5567,7 +5753,7 @@ namespace Convergence.Core
                 {
                     FinalFloorReward? answered = null;
                     try { answered = await _store.FinalFloorRewardAsync(_profile, s.RunId); }
-                    catch (Exception e) { Debug.LogWarning($"[Rift] floor 100's box, asked at settling: {e.Message}"); }
+                    catch (Exception e) { Debug.LogWarning($"[Rift] floor {Rifts.RunLoot.FinalFloor}'s box, asked at settling: {e.Message}"); }
                     var reward = answered ?? FinalFloorReward.Unanswered;
                     loot.FindTieredBoxes(reward.Tier, reward.Count);
                     loot.SecureAllBoxes();
@@ -5682,6 +5868,11 @@ namespace Convergence.Core
                 return;
             }
             var s = w.Snapshot;
+            // The run comes back in the FORMAT it started in (Core.RunFormat) - its rules are its own.
+            if (!string.IsNullOrEmpty(s.Format))
+                Core.RunFormat.Current = s.Format == "short" ? Core.RunFormatId.ShortDescent : Core.RunFormatId.Classic;
+            // The run clock carries on from the last beat heard (Core.RunClock) - never restarted.
+            Clock.Restore(w.RunClock);
 
             await LeaveHubAsync();
 
@@ -5776,6 +5967,15 @@ namespace Convergence.Core
             int token = _runToken;
             _spawning = true;
             _floor = s.Floor;
+            // A Short Descent left during its ending: its final floor was cleared and written down -
+            // the run ends now, as it would have when the ending closed.
+            if (Core.RunFormat.Short && s.Floor >= Rifts.RunLoot.FinalFloor)
+            {
+                _spawning = false;
+                yield return null;
+                if (token == _runToken && _state == State.Playing) EndRun(survived: true);
+                yield break;
+            }
             _plan = new Rifts.FloorPlan(s.Floor, s.PlanCategory, s.PlanRift, s.PlanForced);
             _rewardTaken = true;
             _puzzleGivenUp = s.PuzzleGivenUp;

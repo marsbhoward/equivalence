@@ -1036,7 +1036,10 @@ namespace Convergence.Player
 
         /// <summary>The armour readout the HUD shows: the mitigated multiplier and, under Corrosion,
         /// the wear that moved outside it - the same pieces Vulnerability composes.</summary>
-        public float IncomingReadout => (IncomingDamageMultiplier?.Invoke() ?? 1f) * WearOutside;
+        /// <remarks>The run clock's HEAT included (Core.RunClock - 1 outside the Short Descent): the
+        /// readout is what an ordinary hit really costs now.</remarks>
+        public float IncomingReadout => (IncomingDamageMultiplier?.Invoke() ?? 1f) * WearOutside
+                                        * (Core.RunClock.Current != null ? Core.RunClock.Current.Heat : 1f);
 
         public System.Action OnWeaponUsed;
 
@@ -1479,7 +1482,7 @@ namespace Convergence.Player
             _rb.linearVelocity = Vector2.zero;
             Spr.Flash(back, 1.1f, Color.white, 0.25f);
             // A MECHANIC hit: a share of max HP through the usual mitigation.
-            if (Health) Health.Take(new DamageInfo(Health.Max * Tuning.Chasm.PlayerFallFraction, ElementType.Earth, null));
+            if (Health) Health.Take(new DamageInfo(Health.Max * Tuning.Chasm.PlayerFallFraction, ElementType.Earth, null) { IgnoresHeat = true });
             Debug.Log($"[Chasm] the player fell at {p}, back to {back}");
         }
 

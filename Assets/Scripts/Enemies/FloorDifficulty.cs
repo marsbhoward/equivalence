@@ -38,13 +38,21 @@ namespace Convergence.Enemies
     /// </summary>
     public static class FloorDifficulty
     {
+        /// <summary>Every curve here reads the DEPTH (Core.RunFormat): the Short Descent's floor f is
+        /// priced like Classic's 2f. Callers pass the FLOOR - this converts it, once.</summary>
+        static int D(int floor) => Core.RunFormat.Depth(floor);
+
         /// <summary>Health per floor. LOWER than the old 0.12, deliberately - the old value was
         /// most of what made deep floors long rather than hard.</summary>
-        public static float Hp(int floor) => 1f + Mathf.Max(0, floor - 1) * Tuning.Enemy.HpPerFloor;
+        public static float Hp(int floor) => 1f + Mathf.Max(0, D(floor) - 1) * Tuning.Enemy.HpPerFloor;
 
         /// <summary>Damage per floor. Slightly steeper than health, so a deep enemy threatens more
         /// than it endures - which is the direction tension comes from.</summary>
-        public static float Damage(int floor) => 1f + Mathf.Max(0, floor - 1) * Tuning.Enemy.DamagePerFloor;
+        /// <remarks>The Short Descent's is its depth's, DIVIDED by the heat an on-pace player carries
+        /// there (Core.RunClock.OnPaceHeat): heat multiplies every hit live, so on pace the two
+        /// multiply back to Classic's curve, and only a faster or slower player is moved off it.</remarks>
+        public static float Damage(int floor)
+            => (1f + Mathf.Max(0, D(floor) - 1) * Tuning.Enemy.DamagePerFloor) / Core.RunClock.OnPaceHeat(floor);
 
         /// <summary>
         /// Move speed per floor - THE AXIS THAT DID NOT EXIST.
@@ -56,7 +64,7 @@ namespace Convergence.Enemies
         /// Closing the gap is the goal; erasing it is a different game.
         /// </summary>
         public static float Speed(int floor)
-            => Mathf.Min(1f + Mathf.Max(0, floor - 1) * Tuning.Enemy.SpeedPerFloor,
+            => Mathf.Min(1f + Mathf.Max(0, D(floor) - 1) * Tuning.Enemy.SpeedPerFloor,
                          Tuning.Enemy.SpeedMaxMultiplier);
 
         /// <summary>
@@ -75,12 +83,12 @@ namespace Convergence.Enemies
         /// differ by more than the rule's own range.
         /// </summary>
         public static float Telegraph(int floor)
-            => Mathf.Max(1f - Mathf.Max(0, floor - 1) * Tuning.Enemy.TelegraphShrinkPerFloor,
+            => Mathf.Max(1f - Mathf.Max(0, D(floor) - 1) * Tuning.Enemy.TelegraphShrinkPerFloor,
                          Tuning.Enemy.TelegraphMinMultiplier);
 
         /// <summary>Attack cadence, same shape as the telegraph: deep enemies swing more often.</summary>
         public static float AttackInterval(int floor)
-            => Mathf.Max(1f - Mathf.Max(0, floor - 1) * Tuning.Enemy.CadencePerFloor,
+            => Mathf.Max(1f - Mathf.Max(0, D(floor) - 1) * Tuning.Enemy.CadencePerFloor,
                          Tuning.Enemy.CadenceMinMultiplier);
 
         // How MANY enemies a floor fields is no longer here: a floor is a budget of effective HP
@@ -97,7 +105,7 @@ namespace Convergence.Enemies
         /// the Cantor and a ledger-only player would need ten windows. What stops a stronger
         /// player skipping the fight is the window cap, not this.
         /// </summary>
-        public static float BossHp(int floor) => 1f + Mathf.Max(0, floor - 1) * Tuning.Boss.HpPerFloor;
+        public static float BossHp(int floor) => 1f + Mathf.Max(0, D(floor) - 1) * Tuning.Boss.HpPerFloor;
 
         /// <summary>One line for the log and for any future difficulty readout.</summary>
         public static string Describe(int floor)

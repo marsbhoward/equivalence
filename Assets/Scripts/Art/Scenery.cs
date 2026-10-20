@@ -124,13 +124,15 @@ namespace Convergence.Art
             _ => default,
         };
 
-        /// <summary>The time of day a floor's windows show (Tuning.Scenery's bands).</summary>
+        /// <summary>The time of day a floor's windows show (Tuning.Scenery's bands), by its DEPTH
+        /// (Core.RunFormat) - and CRIMSON on the run's final floor, whichever floor that is.</summary>
         public static Daylight LightFor(int floor)
         {
-            if (floor >= Tuning.Scenery.CrimsonFloor) return Daylight.Crimson;
-            if (floor >= Tuning.Scenery.NoonFrom) return Daylight.Noon;
-            if (floor >= Tuning.Scenery.DawnFrom) return Daylight.Dawn;
-            if (floor >= Tuning.Scenery.EveningFrom) return Daylight.Evening;
+            int depth = Core.RunFormat.Depth(floor);
+            if (floor >= Core.RunFormat.FinalFloor || depth >= Tuning.Scenery.CrimsonFloor) return Daylight.Crimson;
+            if (depth >= Tuning.Scenery.NoonFrom) return Daylight.Noon;
+            if (depth >= Tuning.Scenery.DawnFrom) return Daylight.Dawn;
+            if (depth >= Tuning.Scenery.EveningFrom) return Daylight.Evening;
             return Daylight.None;
         }
 

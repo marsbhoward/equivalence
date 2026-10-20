@@ -154,7 +154,7 @@ namespace Convergence.Enemies
         }
 
         public static float LivePressureCap(int floor)
-            => Mathf.Min(Tuning.Waves.LivePressureBase + floor * Tuning.Waves.LivePressurePerFloor,
+            => Mathf.Min(Tuning.Waves.LivePressureBase + Core.RunFormat.Depth(floor) * Tuning.Waves.LivePressurePerFloor,
                          Tuning.Waves.LivePressureMax);
 
         /// <summary>
@@ -169,8 +169,9 @@ namespace Convergence.Enemies
         /// <summary>Seconds of damage the floor should take the expected player.</summary>
         public static float TargetSeconds(int floor)
         {
-            var f = Tuning.Waves.TargetFloors;
-            var s = Tuning.Waves.TargetSeconds;
+            // The format's own table, by FLOOR: a Short floor stays short while its depth doubles.
+            var f = Core.RunFormat.Short ? Tuning.Waves.ShortTargetFloors : Tuning.Waves.TargetFloors;
+            var s = Core.RunFormat.Short ? Tuning.Waves.ShortTargetSeconds : Tuning.Waves.TargetSeconds;
             if (floor <= f[0]) return s[0];
             for (int i = 1; i < f.Length; i++)
                 if (floor <= f[i])
@@ -179,15 +180,17 @@ namespace Convergence.Enemies
         }
 
         /// <summary>The floor's effective-HP pool.</summary>
-        public static float Pool(int floor) => TargetSeconds(floor) * PlayerPower.ExpectedDps(floor);
+        /// <remarks>The expected player is the one at this floor's DEPTH (Core.RunFormat) - PlayerPower's
+        /// curves are Classic floors.</remarks>
+        public static float Pool(int floor) => TargetSeconds(floor) * PlayerPower.ExpectedDps(Core.RunFormat.Depth(floor));
 
         static float EliteShareCap(int floor)
-            => Mathf.Min(Tuning.Waves.EliteShareBase + floor * Tuning.Waves.EliteSharePerFloor,
+            => Mathf.Min(Tuning.Waves.EliteShareBase + Core.RunFormat.Depth(floor) * Tuning.Waves.EliteSharePerFloor,
                          Tuning.Waves.EliteShareMax);
 
         static int EliteCap(int floor)
-            => floor <= Tuning.Waves.EliteCapEarlyThrough ? Tuning.Waves.EliteCapEarly
-             : floor <= Tuning.Waves.EliteCapMidThrough ? Tuning.Waves.EliteCapMid
+            => Core.RunFormat.Depth(floor) <= Tuning.Waves.EliteCapEarlyThrough ? Tuning.Waves.EliteCapEarly
+             : Core.RunFormat.Depth(floor) <= Tuning.Waves.EliteCapMidThrough ? Tuning.Waves.EliteCapMid
              : int.MaxValue;
 
         // ------------------------------------------------------------------ composing
@@ -229,9 +232,13 @@ namespace Convergence.Enemies
                     new System.Random(seed ^ 0x6B00573).NextDouble() < Tuning.Enemy.BoosterEliteChance);
 
             // A kind's DEBUT is exactly one body, so the floor that introduces it teaches it.
-            // Floor-1 kinds have nothing to be introduced against and are drawn normally.
+            // Kinds there from the start (the Chaser) have nothing to be introduced against and are
+            // drawn normally.
+            // Unlocks are DEPTHS (Core.RunFormat): a Short floor covers two, so a kind debuts on the
+            // floor whose depth first reaches its unlock.
+            int depth = Core.RunFormat.Depth(floor), depthBefore = Core.RunFormat.DepthBefore(floor);
             foreach (var kind in Pooled)
-                if (UnlockFloor(kind) == floor && floor > 1)
+                if (UnlockFloor(kind) > depthBefore && UnlockFloor(kind) <= depth && UnlockFloor(kind) > 1)
                     Buy(drawn, kind, false);
 
             // The guaranteed elite is paid for FIRST, so the pool knows about it, but queued
@@ -241,7 +248,7 @@ namespace Convergence.Enemies
             WaveSpawn? guaranteed = null;
             if (eliteFloor && elites < eliteCap)
             {
-                var open = EliteKinds.Where(k => UnlockFloor(k) <= floor).ToList();
+                var open = EliteKinds.Where(k => UnlockFloor(k) <= depth).ToList();
                 var light = open.Where(k => CostOf(k, true) <= wave.Pool * 0.5f - wave.Spent).ToList();
                 var from = light.Count > 0 ? light : open;
                 var kind = from.Count > 0 ? from[rng.Next(from.Count)] : EnemyKind.Chaser;
@@ -255,8 +262,9 @@ namespace Convergence.Enemies
             var weights = new Dictionary<EnemyKind, float>();
             foreach (var kind in Pooled)
             {
-                int since = floor - UnlockFloor(kind);
-                if (since < 0 || (since == 0 && floor > 1)) continue;
+                int since = depth - UnlockFloor(kind);
+                // Not yet unlocked, or debuting on this floor (bought alone above).
+                if (since < 0 || (UnlockFloor(kind) > depthBefore && UnlockFloor(kind) > 1)) continue;
                 float ramp = floor == 1 || since >= Tuning.Waves.DebutRampFloors
                     ? 1f
                     : Mathf.Lerp(Tuning.Waves.DebutWeight, 1f, since / (float)Tuning.Waves.DebutRampFloors);
@@ -354,7 +362,7 @@ namespace Convergence.Enemies
             var seenOn = new Dictionary<EnemyKind, int>();
             var report = new HashSet<int> { 1, 2, 3, 4, 5, 6, 8, 10, 15, 20, 25, 30, 40, 50, 60, 75, 80, 100 };
 
-            for (int floor = 1; floor <= PlayerPower.LastFloor; floor++)
+            for (int floor = 1; floor <= Core.RunFormat.FinalFloor; floor++)
             {
                 var bodies = new List<int>();
                 var elites = new List<int>();
@@ -380,9 +388,9 @@ namespace Convergence.Enemies
 
                 ehp /= runs;
                 float chaser = Ehp(EnemyKind.Chaser, false, floor);
-                float r = ehp / PlayerPower.Dps(PowerBuild.Reference, LedgerPlay.Average, floor);
-                float ba = ehp / PlayerPower.Dps(PowerBuild.BuiltThree, LedgerPlay.Average, floor);
-                float bs = ehp / PlayerPower.Dps(PowerBuild.BuiltThree, LedgerPlay.Stacked, floor);
+                float r = ehp / PlayerPower.Dps(PowerBuild.Reference, LedgerPlay.Average, Core.RunFormat.Depth(floor));
+                float ba = ehp / PlayerPower.Dps(PowerBuild.BuiltThree, LedgerPlay.Average, Core.RunFormat.Depth(floor));
+                float bs = ehp / PlayerPower.Dps(PowerBuild.BuiltThree, LedgerPlay.Stacked, Core.RunFormat.Depth(floor));
                 sb.Append($"{floor,5} {Pool(floor) / chaser,5:0.0} | " +
                           $"{P(bodies, .1f),3}/{P(bodies, .5f),3}/{P(bodies, .9f),3} {bodies.Max(),3} | " +
                           $"{P(elites, .5f)}/{P(elites, .9f)} {elites.Max(),2} | " +
@@ -391,7 +399,7 @@ namespace Convergence.Enemies
                           $"{r,5:0}s  {ba,5:0}s  {bs,5:0}s\n");
             }
 
-            sb.Append("\nfloors (of 100) each kind appears on: ");
+            sb.Append($"\nfloors (of {Core.RunFormat.FinalFloor}) each kind appears on: ");
             sb.Append(string.Join(", ", seenOn.OrderByDescending(kv => kv.Value)
                                               .Select(kv => $"{EnemyTypes.Of(kv.Key).Name} {kv.Value}")));
             return sb.ToString();

@@ -27,11 +27,15 @@ namespace Convergence.Puzzles
 
         public override string Title => "THE LIGHTS";
 
+        /// <summary>The Short Descent's clock on this puzzle (PuzzleRoom.ShortClockSeconds).</summary>
+        protected override float ShortClockSeconds => Tuning.Puzzle.ShortLightsSeconds;
+
         public override string Body
         {
             get
             {
                 if (State == PuzzleState.Solved) return "All nine lit. The sigil door opens.";
+                if (State == PuzzleState.Failed && TimedOut) return TimedOutBody;
                 if (State == PuzzleState.Failed) return "Out of steps. The sigil door is sealed - take the side door.";
                 return "Each stone you step on flips itself and the stones beside it. Light all nine.\n" +
                        $"Steps left: {_left}";

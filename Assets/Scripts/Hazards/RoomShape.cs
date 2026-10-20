@@ -332,7 +332,7 @@ namespace Convergence.Hazards
         /// <summary>The raw draw for a floor: a name, or null for open.</summary>
         static string Draw(int floor, int seed)
         {
-            if (floor < Tuning.Rooms.FromFloor || _names.Count == 0) return null;
+            if (Core.RunFormat.Depth(floor) < Tuning.Rooms.FromFloor || _names.Count == 0) return null;
             var rng = new System.Random(seed);
             if (rng.NextDouble() >= Tuning.Rooms.ShapedChance) return null;
             return _names[rng.Next(_names.Count)];

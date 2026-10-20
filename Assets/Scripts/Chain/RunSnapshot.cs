@@ -115,6 +115,13 @@ namespace Convergence.Chain
         /// <summary>The planner as the floor found it: before planning it (Entering), after (Cleared).</summary>
         public Rifts.FloorPlanner Planner;
         public float RunSeconds;
+
+        /// <summary>The RUN CLOCK (Core.RunClock) - floors fought, start to clear - as it stood.</summary>
+        public float RunClock;
+
+        /// <summary>The run's FORMAT (Core.RunFormat.WireName) - a resume plays by its rules. Empty in
+        /// snapshots from before formats: Classic.</summary>
+        public string Format;
         public int PendingMastery;
         public int RunCalx;
         public int RunCalxTaken;
@@ -216,6 +223,10 @@ namespace Convergence.Chain
         public float ClockSpent;
         public bool Placed;
         public float PosX, PosY;
+
+        /// <summary>The RUN CLOCK at this beat, the floor's open attempt included - where a resume
+        /// picks it up, as the service counts an abandoned floor to its last beat.</summary>
+        public float RunClock;
     }
 
     /// <summary>A run waiting to be carried on: its last snapshot and the beat since it, if any.
@@ -230,6 +241,10 @@ namespace Convergence.Chain
         /// the fight since it left.</summary>
         public float Health => Beat != null && Beat.Seq == Snapshot.Seq
             ? Math.Min(Snapshot.Health, Beat.Health) : Snapshot.Health;
+
+        /// <summary>The run clock a resume carries on from: the last beat's, when it is this snapshot's.</summary>
+        public float RunClock => Beat != null && Beat.Seq == Snapshot.Seq
+            ? Math.Max(Snapshot.RunClock, Beat.RunClock) : Snapshot.RunClock;
 
         /// <summary>The boss a resume meets: as far down as the snapshot or the fight since it got
         /// it, in whole eighths - never dead (a dead boss cleared its floor, a Cleared snapshot).</summary>

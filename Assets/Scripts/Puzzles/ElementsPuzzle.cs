@@ -30,11 +30,15 @@ namespace Convergence.Puzzles
 
         public override string Title => "THE ELEMENTS";
 
+        /// <summary>The Short Descent's clock on this puzzle (PuzzleRoom.ShortClockSeconds).</summary>
+        protected override float ShortClockSeconds => Tuning.Puzzle.ShortElementsSeconds;
+
         public override string Body
         {
             get
             {
                 if (State == PuzzleState.Solved) return "The order holds. The sigil door opens.";
+                if (State == PuzzleState.Failed && TimedOut) return TimedOutBody;
                 if (State == PuzzleState.Failed) return "Out of order. The sigil door is sealed - take the side door.";
                 return "Step the four stones in the one order these allow. One wrong stone seals the door.\n\n" +
                        string.Join("\n", _clues.Select(c => "-  " + c)) +

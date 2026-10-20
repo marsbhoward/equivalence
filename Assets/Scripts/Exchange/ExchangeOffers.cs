@@ -60,6 +60,19 @@ namespace Convergence.Exchange
         /// <summary>The floor whose clear brings the deal after the one following <paramref name="floor"/>.</summary>
         public static int NextDealFloor(int floor) => floor + T.DealEvery;
 
+        /// <summary>
+        /// THE GAME's cadence, by the run's FORMAT (Core.RunFormat): Classic's DealAfter; the Short
+        /// Descent a deal after EVERY floor below its final one (the user's call - half the deals
+        /// broke the thresholds: SHORT-DESCENT.md, "Between floors"), 49, as near Classic's 50 as
+        /// makes no difference at the same depth. The balance models (PlayerPower, the Assay) keep
+        /// DealAfter: they count in Classic floors, which a Short floor is two of.
+        /// </summary>
+        public static bool DealAfterInRun(int floor)
+            => Core.RunFormat.Short ? floor >= 1 && floor < Core.RunFormat.FinalFloor : DealAfter(floor);
+
+        /// <summary><see cref="NextDealFloor"/> by the run's format - what Oracle previews.</summary>
+        public static int NextDealFloorInRun(int floor) => Core.RunFormat.Short ? floor + 1 : NextDealFloor(floor);
+
         public static ExchangeOffer Build(RunModifiers mods, int floor, System.Random rng)
         {
             var offer = new ExchangeOffer();
@@ -79,7 +92,7 @@ namespace Convergence.Exchange
             offer.RefusalsLeft = mods.RefusalsLeft;
             offer.CanRefuse = !offer.Forced && mods.RefusalsLeft > 0;
 
-            float t = Mathf.Clamp01((floor - 1) / (T.BargainUntilFloor - 1f));
+            float t = Mathf.Clamp01((Core.RunFormat.Depth(floor) - 1) / (T.BargainUntilFloor - 1f));
             int target = Mathf.Clamp(1 + Mathf.FloorToInt(t * 3f), 1, 3);
             float bargain = Mathf.Lerp(T.BargainEarly, T.BargainDeep, t);
 
@@ -222,7 +235,7 @@ namespace Convergence.Exchange
         {
             var list = new List<ExchangeOffer>();
             if (mods == null || offer == null) return list;
-            int next = NextDealFloor(floor);
+            int next = NextDealFloorInRun(floor);
 
             foreach (var pair in offer.Pairs)
             {

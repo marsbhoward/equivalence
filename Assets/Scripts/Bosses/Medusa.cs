@@ -143,7 +143,7 @@ namespace Convergence.Bosses
                 CheckEnrage(Tuning.Medusa.EnrageAt);
                 bool opening = Cycle == 0;
 
-                if (Floor >= Tuning.Medusa.AddsFromFloor) SummonAdds();
+                if (Core.RunFormat.Depth(Floor) >= Tuning.Medusa.AddsFromFloor) SummonAdds();
 
                 // The opening has no break: the player has never seen the rule, and taking their
                 // cover before the first look would teach "the ring lies" instead.
@@ -180,7 +180,7 @@ namespace Convergence.Bosses
 
             // The push or pull lands on the same beat as the break, so the player re-reads the
             // ring and their own position at once - and with the red about to start.
-            if (Floor >= Tuning.Medusa.PushPullFromFloor && Target != null)
+            if (Core.RunFormat.Depth(Floor) >= Tuning.Medusa.PushPullFromFloor && Target != null)
                 StartCoroutine(PushPull(token, pull: Random.value < 0.5f));
 
             int pick = RandomStanding();
@@ -371,7 +371,7 @@ namespace Convergence.Bosses
             if (hp == null || hp.IsDead || hp.Immune) return false;
             if (_ring.Shadowed(transform.position, Target.position)) return false;
 
-            hp.Take(new DamageInfo(hp.Max * Tuning.Medusa.GazeFraction, ElementType.Earth, gameObject));
+            hp.Take(new DamageInfo(hp.Max * Tuning.Medusa.GazeFraction, ElementType.Earth, gameObject) { IgnoresHeat = true });
             if (hp.IsDead) return true;
 
             float window = Enraged ? Tuning.Medusa.WindowSecondsEnraged : Tuning.Medusa.WindowSeconds;
@@ -450,7 +450,7 @@ namespace Convergence.Bosses
                 for (int i = 0; i < _ring.Count; i++)
                     if (!_ring.Standing(i)) jobs.Add(i);
 
-            int loose = Floor >= Tuning.Medusa.AddsFromFloor ? Tuning.Medusa.DebrisCountDeep
+            int loose = Core.RunFormat.Depth(Floor) >= Tuning.Medusa.AddsFromFloor ? Tuning.Medusa.DebrisCountDeep
                                                              : Tuning.Medusa.DebrisCount;
             for (int i = 0; i < loose; i++) jobs.Add(-1);
             for (int i = jobs.Count - 1; i > 0; i--)
@@ -523,7 +523,7 @@ namespace Convergence.Bosses
             {
                 var hp = Target.GetComponent<Health>();
                 if (hp != null && !hp.IsDead)
-                    hp.Take(new DamageInfo(hp.Max * Tuning.Medusa.DebrisFraction, ElementType.Earth, gameObject));
+                    hp.Take(new DamageInfo(hp.Max * Tuning.Medusa.DebrisFraction, ElementType.Earth, gameObject) { IgnoresHeat = true });
             }
 
             // Debris never breaks a pillar - it only builds them.
@@ -564,7 +564,7 @@ namespace Convergence.Bosses
 
             for (int i = 0; i < n; i++)
             {
-                var kind = Floor >= Tuning.Medusa.RangedAddsFromFloor && Random.value < 0.4f
+                var kind = Core.RunFormat.Depth(Floor) >= Tuning.Medusa.RangedAddsFromFloor && Random.value < 0.4f
                          ? EnemyKind.Ranged : EnemyKind.Chaser;
                 var pos = EdgePoint();
                 var e = EnemyFactory.Spawn(pos, kind, Floor, Target, transform.parent);

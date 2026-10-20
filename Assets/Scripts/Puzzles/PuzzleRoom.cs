@@ -47,11 +47,29 @@ namespace Convergence.Puzzles
 
         /// <summary>Seconds left on the puzzle's clock, shown as the HUD countdown; negative for a
         /// puzzle with no clock (or one already answered).</summary>
-        public virtual float Countdown => -1f;
+        public virtual float Countdown => _state == PuzzleState.Active && _shortLeft >= 0f ? Mathf.Max(0f, _shortLeft) : -1f;
 
         /// <summary>A resumed puzzle's clock, put back to <paramref name="secondsLeft"/>. Nothing for a
         /// puzzle with no clock.</summary>
-        public virtual void SetClock(float secondsLeft) { }
+        public virtual void SetClock(float secondsLeft)
+        {
+            if (_state == PuzzleState.Active && _shortLeft >= 0f) _shortLeft = Mathf.Clamp(secondsLeft, 0.1f, ShortClockSeconds);
+        }
+
+        /// <summary>
+        /// THE SHORT DESCENT's clock on a puzzle with none of its own (SHORT-DESCENT.md - the user's
+        /// call: a puzzle floor has a set timer, and its seconds are the run clock's like any
+        /// floor's). Running out fails it - the sigil door seals and the side door opens, as a wrong
+        /// answer does. Negative: no clock. Classic's puzzles have none; the Labyrinth keeps its own.
+        /// </summary>
+        protected virtual float ShortClockSeconds => -1f;
+
+        [SerializeField] float _shortLeft = -1f;
+
+        /// <summary>The puzzle failed because its clock ran out, not on a wrong answer.</summary>
+        protected bool TimedOut { get; private set; }
+
+        protected const string TimedOutBody = "Out of time. The sigil door is sealed - take the side door.";
 
         /// <summary>Where the puzzle's middle sits: a little north of the room's centre, between
         /// the player's arrival point and the door line.</summary>
@@ -72,6 +90,7 @@ namespace Convergence.Puzzles
             r.Floor = floor;
             r.Rng = new System.Random(seed);
             r.Setup();
+            if (RunFormat.Short && r.ShortClockSeconds > 0f) r._shortLeft = r.ShortClockSeconds;
             return r;
         }
 
@@ -83,6 +102,17 @@ namespace Convergence.Puzzles
         void Update()
         {
             if (_state != PuzzleState.Active || Player == null) return;
+            if (_shortLeft >= 0f)
+            {
+                _shortLeft -= Time.deltaTime;
+                if (_shortLeft <= 0f)
+                {
+                    _shortLeft = 0f;
+                    TimedOut = true;
+                    Fail();
+                    return;
+                }
+            }
             // Every stone's edge is read EVERY frame, even while a puzzle is ignoring input (an
             // Echo call playing), or a stone stood on during the call would read as a fresh step
             // the moment input opened.

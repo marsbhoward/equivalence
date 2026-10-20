@@ -1413,6 +1413,28 @@ namespace Convergence.Core
         /// those a HEARTBEAT carries health and armour, and a resume replays the floor from its
         /// snapshot at the lower of the two healths.
         /// </summary>
+        /// <summary>
+        /// THE RUN CLOCK and its HEAT (Core.RunClock; SHORT-DESCENT.md). The clock runs from a floor's
+        /// start to its clear, as the service times it (web/service/src/runFormat.ts walkInSeconds -
+        /// keep the two in step). Heat - the Short Descent's - steps x TierStep each TierSeconds for
+        /// Tiers tiers (1.00 .. 1.40 at 50-60 min), then from CollapseAtSeconds (the GATE COLLAPSE)
+        /// x CollapseStep more every CollapseStepSeconds, uncapped (the user's call). Set "whatever
+        /// matches Classic best": the smallest step the hourglass can still make felt, with the
+        /// depth curve divided by an on-pace player's heat (RunClock.OnPaceHeat).
+        /// </summary>
+        public static class RunClock
+        {
+            /// <summary>Seconds of each floor attempt not counted: its start is written as the floor
+            /// begins to build, a few seconds before the first spawn.</summary>
+            public const float WalkInSeconds = 3f;
+            public const float TierSeconds = 600f;
+            public const int Tiers = 6;
+            public const float TierStep = 1.07f;
+            public const float CollapseAtSeconds = 3600f;
+            public const float CollapseStepSeconds = 300f;
+            public const float CollapseStep = 1.10f;
+        }
+
         public static class Continuation
         {
             /// <summary>
@@ -1839,6 +1861,13 @@ namespace Convergence.Core
             /// carrying a Diamond toward floor 98 cares about the worst case, not the mean.</summary>
             public const int MaxRiftGap = 9;
 
+            /// <summary>THE SHORT DESCENT's gap limit (SHORT-DESCENT.md, "Rifts"): its floors are half as
+            /// many and each stands for two of Classic's depth, so 7 - measured with
+            /// FloorPlanner.Simulate to bring its exits per HOUR level with Classic's and cut its
+            /// longest stretches without one.</summary>
+            public const int ShortMaxRiftGap = 7;
+            public static int RiftGapLimit => RunFormat.Short ? ShortMaxRiftGap : MaxRiftGap;
+
             /// <summary>
             /// After a Collapsing Rift runs out, no Rift of any kind for this many floors (drawn
             /// from the run seed between the two). A failed timer answered by an exit on the very
@@ -1937,6 +1966,13 @@ namespace Convergence.Core
             /// view is what makes. Shown as a countdown on the HUD (Hud.SetCountdown), urgent
             /// under MazeUrgentSeconds.</summary>
             public const float MazeSeconds = 75f;
+
+            /// <summary>THE SHORT DESCENT's clocks on the puzzles with none of their own (the user's call:
+            /// every puzzle floor has a set timer) - room to read and answer, not to wander. The
+            /// Labyrinth keeps MazeSeconds. A first pass, to tune in play.</summary>
+            public const float ShortEchoSeconds = 45f;
+            public const float ShortElementsSeconds = 60f;
+            public const float ShortLightsSeconds = 60f;
             public const float MazeUrgentSeconds = 15f;
 
             /// <summary>The walls' picture: texels per world unit (a mask cell is 30), and the
@@ -1998,6 +2034,10 @@ namespace Convergence.Core
             public const int GateOneStar = 25;     // 1 -> 2 stars: the first avatar
             public const int GateTwoStar = 50;     // 2 -> 3 stars: the second avatar
             public const int GatePromotion = 75;   // 3 stars -> next tier: the third avatar
+
+            /// <summary>THE SHORT DESCENT's gates (SHORT-DESCENT.md, "Rates"): the same first two floors,
+            /// the top two at its own second-to-last boss and its final floor.</summary>
+            public const int ShortGateBase = 20, ShortGateOneStar = 25, ShortGateTwoStar = 40, ShortGatePromotion = 50;
         }
 
         /// <summary>
@@ -5779,6 +5819,27 @@ namespace Convergence.Core
             public const int FinalGoldBoxesMin = 2, FinalGoldBoxesMax = 3;
 
             /// <summary>
+            /// THE SHORT DESCENT's design-box rates (SHORT-DESCENT.md, "Diamond and Black Diamond"):
+            /// held per HOUR to Classic's - a Short run is ~2.3 to a Classic one - and the final floor
+            /// paying more than the avatar, or short runs to it would be the farm. The service's copy
+            /// is web/service/src/runFormat.ts; these are what a LOCAL save rolls with.
+            /// </summary>
+            public const float ShortAvatarDiamondBoxChance = 0.01f;
+
+            /// <summary>
+            /// THE SHORT DESCENT's enemy drops (gear, Rift Boxes) held PER HOUR to Classic's
+            /// (SHORT-DESCENT.md, "The economy"). Measured off the wave budget, 2026-10-20: a Classic
+            /// run fights ~549 Chaser-equivalents in ~140 min (~3.9 a minute), a Short one ~241 in ~70
+            /// (60 of clock and its menus, ~3.4) - so x1.15. Both run lengths are estimates; re-measure
+            /// against timed runs.
+            /// </summary>
+            public const float ShortDropScale = 1.15f;
+            public static float FormatDropScale => RunFormat.Short ? ShortDropScale : 1f;
+            public const float ShortAvatarBlackDiamondBoxChance = 0.0025f;
+            public const float ShortFinalLaterDiamondChance = 0.025f;
+            public const float ShortFinalLaterBlackDiamondChance = 0.0075f;
+
+            /// <summary>
             /// Forge box costs, in boxes of the tier being spent. Combining costs NO boxes - two
             /// pieces are the price - but PROMOTING (three stars into the next tier) also takes a
             /// RIFT BOX (`PromoteRiftBoxCost`). Boxes buy randomness or remove it: a random
@@ -6132,6 +6193,16 @@ namespace Convergence.Core
             /// </summary>
             public static readonly int[] TargetFloors = { 1, 10, 20, 40, 50, 75, 100 };
             public static readonly float[] TargetSeconds = { 16f, 30f, 30f, 35f, 40f, 60f, 75f };
+
+            /// <summary>
+            /// THE SHORT DESCENT's floor lengths (SHORT-DESCENT.md, "The 60-minute budget"), by its
+            /// own FLOOR, not its depth: ~40 wave floors averaging ~25 s of damage time, so ~45 s
+            /// fought with walking in and stragglers - a floor stays short while its depth (and so
+            /// its enemies' health, damage and the player priced against it) doubles. A first pass,
+            /// to tune against a timed run.
+            /// </summary>
+            public static readonly int[] ShortTargetFloors = { 1, 10, 25, 40, 50 };
+            public static readonly float[] ShortTargetSeconds = { 15f, 22f, 28f, 32f, 35f };
 
             /// <summary>
             /// The expected player turns from the reference player into the BUILT one across these

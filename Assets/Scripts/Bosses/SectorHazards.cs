@@ -102,7 +102,7 @@ namespace Convergence.Bosses
                 // same at any depth or build. Still mitigated - Take applies Vulnerability.
                 if (hp != null)
                     hp.Take(new DamageInfo(hp.Max * Tuning.Boss.EruptionFraction,
-                                           ElementType.Fire, gameObject));
+                                           ElementType.Fire, gameObject) { IgnoresHeat = true });
             }
 
             yield return new WaitForSeconds(Tuning.Boss.EruptionSeconds);

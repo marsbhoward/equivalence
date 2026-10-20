@@ -50,9 +50,12 @@ namespace Convergence.Chain
                     Tier = r < Tuning.GearRoll.FinalGuaranteedBlackDiamondChance ? LootTier.BlackDiamond : LootTier.Diamond,
                     Count = 1, Guaranteed = true, Week = week,
                 };
-            if (r < Tuning.GearRoll.FinalLaterBlackDiamondChance)
+            // A later clear's rates are the format's (Core.RunFormat - the Short Descent's are its own).
+            float black = RunFormat.Short ? Tuning.GearRoll.ShortFinalLaterBlackDiamondChance : Tuning.GearRoll.FinalLaterBlackDiamondChance;
+            float diamond = RunFormat.Short ? Tuning.GearRoll.ShortFinalLaterDiamondChance : Tuning.GearRoll.FinalLaterDiamondChance;
+            if (r < black)
                 return new FinalFloorReward { Tier = LootTier.BlackDiamond, Count = 1, Week = week };
-            if (r < Tuning.GearRoll.FinalLaterBlackDiamondChance + Tuning.GearRoll.FinalLaterDiamondChance)
+            if (r < black + diamond)
                 return new FinalFloorReward { Tier = LootTier.Diamond, Count = 1, Week = week };
             return new FinalFloorReward
             {

@@ -5,6 +5,8 @@ using Convergence.Core;
 namespace Convergence.Bosses
 {
     /// <summary>Which boss a boss floor holds. Picked by Rifts.FloorPlanner.BossFor.</summary>
+    /// <summary>Every boss. APPEND-ONLY: a boss's dev key is its place here counted from 1
+    /// (GameBootstrap.DevBosses / DevFightBoss), so inserting one would renumber the rest.</summary>
     public enum BossKind { Cantor, Medusa }
 
     /// <summary>

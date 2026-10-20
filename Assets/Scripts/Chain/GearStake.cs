@@ -42,13 +42,21 @@ namespace Convergence.Chain
 
         /// <summary>The floor a stake at <paramref name="level"/> stars must clear before an
         /// extraction pays. See Tuning.Stake.</summary>
-        public static int GateFloor(int level) => level switch
-        {
-            0 => Tuning.Stake.GateBase,
-            1 => Tuning.Stake.GateOneStar,
-            2 => Tuning.Stake.GateTwoStar,
-            _ => Tuning.Stake.GatePromotion,
-        };
+        public static int GateFloor(int level) => Core.RunFormat.Short
+            ? level switch
+            {
+                0 => Tuning.Stake.ShortGateBase,
+                1 => Tuning.Stake.ShortGateOneStar,
+                2 => Tuning.Stake.ShortGateTwoStar,
+                _ => Tuning.Stake.ShortGatePromotion,
+            }
+            : level switch
+            {
+                0 => Tuning.Stake.GateBase,
+                1 => Tuning.Stake.GateOneStar,
+                2 => Tuning.Stake.GateTwoStar,
+                _ => Tuning.Stake.GatePromotion,
+            };
 
         /// <summary>Every equipped piece the player could stake, in slot order.</summary>
         public static List<MintedGearRecord> Candidates(CharacterProfile profile)

@@ -80,6 +80,13 @@ namespace Convergence.Combat
         /// </summary>
         public bool Price;
 
+        /// <summary>
+        /// The run clock's HEAT does not apply (Core.RunClock): a boss MECHANIC sized as a share of
+        /// the player's max health (an eruption, Medusa's gaze and debris, a fall) - its whole point
+        /// is a fixed share whatever the depth, and heat would make it a different share.
+        /// </summary>
+        public bool IgnoresHeat;
+
         public DamageInfo(float amount, ElementType element, GameObject source)
         {
             Amount = amount; Element = element; Source = source; Crit = false; Knockback = Vector2.zero;
@@ -91,6 +98,7 @@ namespace Convergence.Combat
             SuppressHitstop = false;
             SparesMark = false;
             Price = false;
+            IgnoresHeat = false;
         }
     }
 }

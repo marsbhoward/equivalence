@@ -58,7 +58,7 @@ namespace Convergence.Hazards
             }
 
             if (spireAllowed && (Spire.DevForceNext ||
-                                 (floor >= Tuning.Spire.FromFloor && Random.value < Tuning.Spire.FloorChance)))
+                                 (Core.RunFormat.Depth(floor) >= Tuning.Spire.FromFloor && Random.value < Tuning.Spire.FloorChance)))
             {
                 Spire.DevForceNext = false;
                 spire = PlaceSpire(floor, halfExtents, playerPos, player, parent, hurt, worn);
@@ -242,7 +242,7 @@ namespace Convergence.Hazards
 
         static bool RollBubble(int floor)
         {
-            if (floor < Tuning.Spire.BubbleFromFloor) return false;
+            if (Core.RunFormat.Depth(floor) < Tuning.Spire.BubbleFromFloor) return false;
             float chance = Mathf.Min(Tuning.Spire.BubbleMaxChance,
                                      Tuning.Spire.BubbleBaseChance + floor * Tuning.Spire.BubbleChancePerFloor);
             return Random.value < chance;
@@ -298,7 +298,7 @@ namespace Convergence.Hazards
             var size = RollLayoutSize();
             var regions = PitGrid.RegionsFor(size);
 
-            bool mixed = floor >= Tuning.Hazards.PitMixedKindsFromFloor;
+            bool mixed = Core.RunFormat.Depth(floor) >= Tuning.Hazards.PitMixedKindsFromFloor;
             var floorKind = RollKind();
 
             foreach (var region in regions)
@@ -348,7 +348,7 @@ namespace Convergence.Hazards
         /// </summary>
         public static float PitKindChance(int floor)
         {
-            if (floor < Tuning.Hazards.PitMixedKindsFromFloor) return Tuning.Hazards.PitsFloorChance / PitKinds;
+            if (Core.RunFormat.Depth(floor) < Tuning.Hazards.PitMixedKindsFromFloor) return Tuning.Hazards.PitsFloorChance / PitKinds;
             float miss = 1f - 1f / PitKinds;
             float wl = Tuning.Hazards.PitLayoutWeightLarge, wm = Tuning.Hazards.PitLayoutWeightMedium,
                   ws = Tuning.Hazards.PitLayoutWeightSmall;

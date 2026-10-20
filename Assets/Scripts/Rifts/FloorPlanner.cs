@@ -82,8 +82,8 @@ namespace Convergence.Rifts
         public static RiftKind DevForceRift;
         public static int DevForcePuzzle = -1;
 
-        public static bool IsAvatarFloor(int floor)
-            => floor == 25 || floor == 50 || floor == 75 || floor == 100;
+        /// <summary>The avatars' floors - the run's format decides them (Core.RunFormat).</summary>
+        public static bool IsAvatarFloor(int floor) => Core.RunFormat.IsAvatarFloor(floor);
 
         public static bool IsBossFloor(int floor)
             => floor > 0 && (IsAvatarFloor(floor) || floor % Tuning.Boss.RiftInterval == 0);
@@ -120,7 +120,7 @@ namespace Convergence.Rifts
                 LastPuzzle = LastPuzzle,
             };
             var plans = new List<FloorPlan>();
-            for (int f = from + 1; f <= Math.Min(100, from + count); f++)
+            for (int f = from + 1; f <= Math.Min(Core.RunFormat.FinalFloor, from + count); f++)
             {
                 var plan = copy.Plan(f, consumeDevForce: false);
                 if (plan.Rift != RiftKind.None) copy.MarkRiftReached();
@@ -139,7 +139,7 @@ namespace Convergence.Rifts
             {
                 if (QuietFloors > 0) QuietFloors--;
                 return new FloorPlan(floor, FloorCategory.Boss,
-                                     floor < 100 ? RiftKind.Blue : RiftKind.None, false);
+                                     floor < Core.RunFormat.FinalFloor ? RiftKind.Blue : RiftKind.None, false);
             }
 
             bool boss = IsBossFloor(floor);
@@ -164,7 +164,7 @@ namespace Convergence.Rifts
             bool riftEligible = pastMin && !quiet;
 
             // The dry-spell limit. Blue, always: a forced exit the player can fail is no limit.
-            if (riftEligible && SinceRift >= Tuning.Floors.MaxRiftGap)
+            if (riftEligible && SinceRift >= Tuning.Floors.RiftGapLimit)
             {
                 SinceRift++;
                 if (!boss) SincePuzzle++;
@@ -261,6 +261,9 @@ namespace Convergence.Rifts
         /// different set. The Cantor stays in it until there are enough to replace it.
         /// </summary>
         static readonly Bosses.BossKind[] MiniBossPool = { Bosses.BossKind.Cantor, Bosses.BossKind.Medusa };
+
+        /// <summary>Whether a boss is drawn for the mini-boss floors (DEV: GameBootstrap.DevBosses).</summary>
+        public static bool InMiniBossPool(Bosses.BossKind kind) => System.Array.IndexOf(MiniBossPool, kind) >= 0;
 
         /// <summary>
         /// Which boss holds <paramref name="floor"/>. The avatars (25/50/75/100) are still all the
@@ -366,7 +369,7 @@ namespace Convergence.Rifts
                 var p = new FloorPlanner(run * 7919 + 1);
                 int lastExit = 0, lastCollapse = 0;
                 bool baseStakePaid = false;
-                for (int floor = 1; floor <= 100; floor++)
+                for (int floor = 1; floor <= Core.RunFormat.FinalFloor; floor++)
                 {
                     var plan = p.Plan(floor);
                     if (!IsAvatarFloor(floor) && floor >= Tuning.Floors.RiftMinFloor)

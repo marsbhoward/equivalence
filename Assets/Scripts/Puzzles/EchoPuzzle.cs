@@ -33,11 +33,15 @@ namespace Convergence.Puzzles
 
         public override string Title => "THE ECHO";
 
+        /// <summary>The Short Descent's clock on this puzzle (PuzzleRoom.ShortClockSeconds).</summary>
+        protected override float ShortClockSeconds => Tuning.Puzzle.ShortEchoSeconds;
+
         public override string Body
         {
             get
             {
                 if (State == PuzzleState.Solved) return "Answered. The sigil door opens.";
+                if (State == PuzzleState.Failed && TimedOut) return TimedOutBody;
                 if (State == PuzzleState.Failed) return "Wrong stone. The sigil door is sealed - take the side door.";
                 if (_calling) return "Listen...";
                 if (!_heard)

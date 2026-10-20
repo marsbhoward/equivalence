@@ -110,8 +110,15 @@ namespace Convergence.UI
             var o = title.gameObject.AddComponent<UnityEngine.UI.Outline>();
             o.effectColor = new Color(0.04f, 0.04f, 0.06f, 1f);
             o.effectDistance = new Vector2(3f, -3f);
+            // The Short Descent's run clock does NOT stop for a pause during a fight (the user's call,
+            // 2026-10-20): the screen says so, and shows it running.
             UiKit.Label(UiKit.Rect(full, "prompt", top, one, new Vector2(0, -164), new Vector2(0, -132)),
-                "Nothing moves until you come back.", 22, Prompt, TextAnchor.MiddleCenter);
+                Core.RunFormat.Short ? "The world holds still. The run clock does not." : "Nothing moves until you come back.",
+                22, Prompt, TextAnchor.MiddleCenter);
+            _clock = Core.RunFormat.Short
+                ? UiKit.Label(UiKit.Rect(full, "clock", top, one, new Vector2(0, -204), new Vector2(0, -168)),
+                              "", 26, BronzeLt, TextAnchor.MiddleCenter)
+                : null;
 
             var rings = UiKit.Rect(full, "rings", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f), Vector2.zero, Vector2.zero);
             rings.sizeDelta = new Vector2(SigilRings.Size, SigilRings.Size);
@@ -201,9 +208,19 @@ namespace Convergence.UI
 
         // ------------------------------------------------------------------ input
 
+        /// <summary>The run clock, live (the Short Descent): running in a fight, stopped after a clear.</summary>
+        Text _clock;
+
         void Update()
         {
             if (!IsOpen) return;
+            var rc = Core.RunClock.Current;
+            if (_clock != null && rc != null)
+            {
+                int s = Mathf.FloorToInt(rc.Seconds);
+                UiKit.SetText(_clock, $"RUN CLOCK  {s / 60}:{s % 60:00}   {Core.RunClock.TierName(Core.RunClock.TierAt(rc.Seconds)).ToUpperInvariant()}   " +
+                                      (rc.AttemptOpen ? "-  still running" : "-  stopped until the next floor"));
+            }
 
             _focus.Clear();
             if (_centre != null) _focus.Add(_centre);   // first: a pad opens on Resume

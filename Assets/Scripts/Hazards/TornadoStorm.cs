@@ -37,7 +37,7 @@ namespace Convergence.Hazards
         {
             if (DevForceNext) { DevForceNext = false; return true; }
             // As often as any one pit kind - Air's hazard, matched to Fire's, Earth's and Water's.
-            return floor >= Tuning.Tornado.FromFloor && Random.value < HazardBuilder.PitKindChance(floor);
+            return Core.RunFormat.Depth(floor) >= Tuning.Tornado.FromFloor && Random.value < HazardBuilder.PitKindChance(floor);
         }
 
         public static TornadoStorm Spawn(int floor, Transform player, Transform parent)
@@ -67,7 +67,7 @@ namespace Convergence.Hazards
         }
 
         static int MaxAlive(int floor) =>
-            floor >= Tuning.Tornado.ThreeFrom ? 3 : floor >= Tuning.Tornado.TwoFrom ? 2 : 1;
+            Core.RunFormat.Depth(floor) >= Tuning.Tornado.ThreeFrom ? 3 : Core.RunFormat.Depth(floor) >= Tuning.Tornado.TwoFrom ? 2 : 1;
 
         void Update()
         {

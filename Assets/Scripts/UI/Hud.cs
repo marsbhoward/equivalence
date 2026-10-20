@@ -88,6 +88,13 @@ namespace Convergence.UI
                 wheelCentre - Vector2.one * wheelSize * 0.5f, wheelCentre + Vector2.one * wheelSize * 0.5f);
             RotationWheel.Build(wheelRt, player);
 
+            // ---------- the hourglass, top-left (the Short Descent's run clock) ----------
+            // Top-left is the one clear corner: the boss bar holds the top centre, wave and GEAR /
+            // MENU the top right. It shows itself only when it has something to say (UI.Hourglass).
+            var glassRt = UiKit.Rect(canvas, "hourglass", new Vector2(0, 1), new Vector2(0, 1),
+                new Vector2(70, -260), new Vector2(370, -40));
+            Hourglass.Build(glassRt);
+
             // ---------- wave / kills, top-right ----------
             // Stepped left of GEAR and MENU, which sit in the corner on every device now.
             var right = UiKit.Rect(canvas, "wave", new Vector2(1, 1), new Vector2(1, 1),
