@@ -3,7 +3,7 @@ import type { TxBuilder } from '@lucid-evolution/lucid';
 import { fundingInputs, getLucid, serialized, serviceAddress, signAndSubmit } from '../chain.js';
 import { getGearPolicy } from '../gearPolicy.js';
 import { ART_KEY, ArtEntry } from '../artIndex.js';
-import { bf } from '../blockfrost.js';
+import { bf, isMainnet } from '../blockfrost.js';
 import { REF_LABEL, USER_LABEL, isUserUnit, nameBody, referenceDatum, unitOf } from '../cip68.js';
 import { resolveArt } from './art.js';
 
@@ -92,7 +92,7 @@ export function invalidPiece(p: Partial<MintPiece>): string | null {
 export async function pfpGate(address: string, character: string): Promise<string | null> {
   if (!isUserUnit(character)) return 'character must be a CIP-68 user-token (222) unit';
   if (process.env.PFP_GATE === 'off') {
-    if ((process.env.NETWORK ?? '').toLowerCase() === 'mainnet') return 'PFP_GATE=off is refused on mainnet';
+    if (isMainnet()) return 'PFP_GATE=off is refused on mainnet (or wherever the network is not plainly a testnet)';
     console.warn(`[mint] PFP gate is OFF - not checking ${address} holds ${character}`);
     return null;
   }

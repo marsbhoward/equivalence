@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express';
+import { internal } from '../errors.js';
 import { assetNameText, assetsAt, resolveImage } from '../blockfrost.js';
 import { cachedAssetInfo } from '../assetCache.js';
 
@@ -57,7 +58,7 @@ export async function components(req: Request, res: Response) {
     // 502 rather than 500: the service is fine, the thing behind it did not answer. The game
     // deliberately KEEPS its previous list on a failed refresh rather than emptying it, so the
     // status code is the only place this is visible.
-    res.status(502).json({ error: String((e as Error).message ?? e) });
+    internal(res, e, 'components', 502, 'chain_unavailable');
   }
 }
 

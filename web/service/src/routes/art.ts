@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express';
+import { internal } from '../errors.js';
 import { ART_KEY, ArtEntry, forget, lookup, record } from '../artIndex.js';
 import { addAndPin, isPinned } from '../ipfs.js';
 
@@ -116,6 +117,6 @@ export async function getArt(req: Request, res: Response): Promise<void> {
     if (entry) res.json({ artKey, entry });
     else res.status(404).json({ artKey, error: 'not pinned' });
   } catch (err) {
-    res.status(502).json({ error: err instanceof Error ? err.message : String(err) });
+    internal(res, err, 'art', 502, 'art_unavailable');
   }
 }

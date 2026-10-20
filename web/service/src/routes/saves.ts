@@ -1,6 +1,9 @@
 import type { Request, Response } from 'express';
+import { internal } from '../errors.js';
 import { q, tx } from '../db.js';
 import { guestId, guestOwner } from '../identity.js';
+import { recordRunStart } from '../runProgress.js';
+import { accepts, formatOf } from '../runFormat.js';
 
 /**
  * SAVES - every browser player's characters and hub room, held by the service from the first run.
@@ -49,7 +52,7 @@ export async function roster(_req: Request, res: Response): Promise<void> {
       'SELECT save FROM characters WHERE owner = $1 ORDER BY profile_id', [res.locals.owner]);
     res.json({ items: rows.map(r => r.save) });
   } catch (e) {
-    fail(res, 500, (e as Error).message);
+    internal(res, e, 'saves');
   }
 }
 
@@ -62,7 +65,7 @@ export async function loadCharacter(req: Request, res: Response): Promise<void> 
     if (!rows.length) return fail(res, 404, 'not_found');
     res.json(rows[0].save);
   } catch (e) {
-    fail(res, 500, (e as Error).message);
+    internal(res, e, 'saves');
   }
 }
 
@@ -78,6 +81,13 @@ export async function saveCharacter(req: Request, res: Response): Promise<void> 
   if (!datum) return fail(res, 400, 'datum must be the CharacterProfile JSON');
   datum.ProfileId = profileId;   // the key wins over whatever the datum claims, as in every store
   const totalRuns = Math.max(0, Math.floor(Number(datum.TotalRuns ?? 0)));
+  // A run starts under a FORMAT (runFormat.ts) - none named is Classic, every build before formats -
+  // and only under one this service accepts (RUN_FORMATS).
+  const format = formatOf(req.body?.format);
+  if (reason === 'run-start') {
+    if (!format) return fail(res, 400, 'unknown run format');
+    if (!accepts(format)) return fail(res, 409, 'format_not_accepted', { format: format.id });
+  }
 
   try {
     const out = await tx(async c => {
@@ -96,6 +106,8 @@ export async function saveCharacter(req: Request, res: Response): Promise<void> 
       const h = await c.query<{ id: string }>(
         `INSERT INTO character_history (owner, profile_id, reason, run_id, save) VALUES ($1, $2, $3, $4, $5)
          RETURNING id`, [owner, profileId, reason, runId, datum]);
+      // A run's clock starts HERE, on the server's time - what its end is judged against.
+      if (reason === 'run-start' && runId && format) await recordRunStart(c, owner, profileId, runId, format);
       await c.query(
         `DELETE FROM character_history WHERE owner = $1 AND profile_id = $2 AND id NOT IN (
            SELECT id FROM character_history WHERE owner = $1 AND profile_id = $2 ORDER BY id DESC LIMIT $3)`,
@@ -108,7 +120,7 @@ export async function saveCharacter(req: Request, res: Response): Promise<void> 
     // also recorded on chain, the chain write carries its own.
     res.json({ hash: `save:${reason}:${out.version}` });
   } catch (e) {
-    fail(res, 500, (e as Error).message);
+    internal(res, e, 'saves');
   }
 }
 
@@ -118,7 +130,7 @@ export async function loadAccount(_req: Request, res: Response): Promise<void> {
     if (!rows.length) return fail(res, 404, 'not_found');
     res.json(rows[0].save);
   } catch (e) {
-    fail(res, 500, (e as Error).message);
+    internal(res, e, 'saves');
   }
 }
 
@@ -131,7 +143,7 @@ export async function saveAccount(req: Request, res: Response): Promise<void> {
        ON CONFLICT (owner) DO UPDATE SET save = $2, updated_at = now()`, [res.locals.owner, datum]);
     res.json({ hash: 'save:account' });
   } catch (e) {
-    fail(res, 500, (e as Error).message);
+    internal(res, e, 'saves');
   }
 }
 
@@ -169,6 +181,12 @@ export async function graduate(req: Request, res: Response): Promise<void> {
       await c.query('UPDATE character_history SET owner = $1 WHERE owner = $2', [wallet, from]);
       // A run left waiting goes with its character (routes/runs.ts).
       await c.query('UPDATE runs SET owner = $1 WHERE owner = $2', [wallet, from]);
+      // And what the service saw of its runs, and any boxes held for it (runProgress.ts).
+      await c.query('UPDATE run_progress SET owner = $1 WHERE owner = $2', [wallet, from]);
+      await c.query('UPDATE held_boxes SET owner = $1 WHERE owner = $2', [wallet, from]);
+      await c.query('UPDATE avatar_boxes SET owner = $1 WHERE owner = $2', [wallet, from]);
+      // A guarantee the guest used this week stays used - else graduating would hand out a second.
+      await c.query('UPDATE final_floor SET owner = $1 WHERE owner = $2', [wallet, from]);
       // The room's own record names its owner (AccountProfile.AccountId) - it follows the move.
       await c.query(
         `UPDATE accounts SET owner = $1, save = jsonb_set(save, '{AccountId}', to_jsonb($1::text)), updated_at = now()
@@ -180,6 +198,6 @@ export async function graduate(req: Request, res: Response): Promise<void> {
     if (out.status === 409) return fail(res, 409, out.error);
     res.json({ moved: out.moved, repeat: out.repeat });
   } catch (e) {
-    fail(res, 500, (e as Error).message);
+    internal(res, e, 'saves');
   }
 }

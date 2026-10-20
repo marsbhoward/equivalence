@@ -55,6 +55,14 @@ namespace Convergence.Chain
         Task<FinalFloorReward?> FinalFloorRewardAsync(CharacterProfile profile, string runId);
 
         /// <summary>
+        /// An AVATAR's boxes (<see cref="AvatarBoxes"/>), asked at its clear: the service decides
+        /// them for a service player and records the decision against the run (asking again
+        /// answers the same boxes), and a local save rolls them. NOT a checkpoint. Null when no
+        /// answer could be had.
+        /// </summary>
+        Task<AvatarBoxes?> AvatarBoxesAsync(CharacterProfile profile, string runId, int floor);
+
+        /// <summary>
         /// Permanent-unlock checkpoint - the third write point named in the roguelite handoff.
         /// Equipping is permanent, account-level and outside any run, so it is its own
         /// transaction rather than something folded into a run boundary.

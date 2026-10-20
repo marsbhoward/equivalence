@@ -32,6 +32,10 @@ namespace Convergence.Chain.Service
 
         /// <summary>A request under the current identity; a guest token the service says was graduated
         /// elsewhere is dropped and a new guest started, once.</summary>
+        /// <summary>How long a rate-limited request waits before its one retry - past the service's
+        /// longest Retry-After for a single request at its limits.</summary>
+        const float RateLimitWaitSeconds = 3f;
+
         static async Task<ServiceClient.Reply> Ask(Func<string, Task<ServiceClient.Reply>> send)
         {
             if (!await ServiceIdentity.EnsureAsync()) return new ServiceClient.Reply { Status = 0, Error = "no identity" };
@@ -41,6 +45,17 @@ namespace Convergence.Chain.Service
                 Debug.Log("[Service] this browser's guest was graduated onto a wallet - starting a new guest");
                 ServiceIdentity.ForgetGuest();
                 if (await ServiceIdentity.EnsureAsync()) r = await send(ServiceIdentity.Token);
+            }
+            if (r.Status == 429)
+            {
+                // RATE LIMITED (web/service/src/rateLimit.ts) - honest play stays far under every
+                // limit, but a refused LOAD would put the player on an unsaved stand-in for the
+                // session, so the bucket is waited out once. Yielded, not Task.Delay: WebGL has no
+                // threads for a timer (RunKeeper waits the same way).
+                Debug.LogWarning($"[Service] rate limited - waiting {RateLimitWaitSeconds} s and asking once more");
+                float until = Time.realtimeSinceStartup + RateLimitWaitSeconds;
+                while (Time.realtimeSinceStartup < until) await Task.Yield();
+                r = await send(ServiceIdentity.Token);
             }
             return r;
         }
@@ -102,7 +117,9 @@ namespace Convergence.Chain.Service
             var tx = TxLog.Post(TxKind.RunStart, $"Run claimed - {element}",
                                 $"run {runId}\nprofile {profile.ProfileId}\nelement {element}");
             ProfileRules.RunStart(profile, element);
-            await Save(tx, profile, "run-start", runId);
+            // The run's FORMAT rides its start: the service judges its boxes by that format's rules
+            // (web/service/src/runFormat.ts).
+            await Save(tx, profile, "run-start", runId, Core.RunFormat.WireName);
 
             // A wallet's run is also REGISTERED for the box mint at its end (routes/player.ts) - only
             // a run the service saw start may mint, and only once.
@@ -120,9 +137,9 @@ namespace Convergence.Chain.Service
             ProfileRules.RunEnd(profile, summary);
             await Save(tx, profile, "run-end", summary.RunId);
 
-            // EXTRACTION, for a wallet: the run's secured design boxes are minted to it.
-            // OPEN (the user's rule, 2026-10-13): nothing should reach a wallet without a PFP - this
-            // path does not check yet. See memory project_pfp_gates_tokens.
+            // EXTRACTION, for a wallet: the run's secured design boxes - judged against what the
+            // service SAW of the run (its run-start save, the snapshots, its own clock), minted only
+            // with the character's PFP and held on the service otherwise (routes/player.ts).
             if (ServiceIdentity.OnWallet)
                 await Write("/write/commit-run",
                     $"{{\"profileId\":{ServiceClient.Quote(profile.ProfileId)},\"summary\":{ServiceClient.Quote(JsonUtility.ToJson(summary))}}}");
@@ -152,6 +169,30 @@ namespace Convergence.Chain.Service
             return new FinalFloorReward { Tier = tier, Count = reply.count, Guaranteed = reply.guaranteed, Week = reply.week };
         }
 
+        [Serializable]
+        class AvatarReply { public int floor; public int diamond; public int blackDiamond; }
+
+        /// <summary>An avatar's boxes, decided by the service (routes/avatarBox.ts) - the run must be
+        /// this character's latest run start, its snapshots on that floor. Null when there is no
+        /// answer; the caller asks again at the run's end, and the service answers what it recorded.</summary>
+        public async Task<AvatarBoxes?> AvatarBoxesAsync(CharacterProfile profile, string runId, int floor)
+        {
+            _unreadable ??= new HashSet<string>();
+            if (_unreadable.Contains(profile.ProfileId)) return null;   // a stand-in was never saved
+            string body = $"{{\"profileId\":{ServiceClient.Quote(profile.ProfileId)},\"runId\":{ServiceClient.Quote(runId)},\"floor\":{floor}}}";
+            var r = await Ask(t => ServiceClient.Post("/saves/avatar-box", body, t));
+            if (!r.Ok)
+            {
+                Debug.LogWarning($"[Service] floor {floor}'s avatar boxes: {r}");
+                return null;
+            }
+            AvatarReply reply = null;
+            try { reply = JsonUtility.FromJson<AvatarReply>(r.Body); }
+            catch (Exception e) { Debug.LogWarning($"[Service] floor {floor}'s avatar boxes unreadable: {e.Message}"); }
+            if (reply == null || reply.floor != floor) return null;
+            return new AvatarBoxes { Floor = floor, Diamond = Math.Max(0, reply.diamond), BlackDiamond = Math.Max(0, reply.blackDiamond) };
+        }
+
         public async Task UnlockAsync(CharacterProfile profile)
         {
             var tx = TxLog.Post(TxKind.Unlock, "Permanent unlocks written",
@@ -160,7 +201,7 @@ namespace Convergence.Chain.Service
             await Save(tx, profile, "unlock", null);
         }
 
-        async Task Save(TxRecord tx, CharacterProfile profile, string reason, string runId)
+        async Task Save(TxRecord tx, CharacterProfile profile, string reason, string runId, string format = null)
         {
             _unreadable ??= new HashSet<string>();
             if (_unreadable.Contains(profile.ProfileId))
@@ -171,6 +212,7 @@ namespace Convergence.Chain.Service
 
             string body = "{\"reason\":" + ServiceClient.Quote(reason)
                         + (runId != null ? ",\"runId\":" + ServiceClient.Quote(runId) : "")
+                        + (format != null ? ",\"format\":" + ServiceClient.Quote(format) : "")
                         + ",\"datum\":" + ServiceClient.Quote(JsonUtility.ToJson(profile)) + "}";
             var r = await Ask(t => ServiceClient.Put(CharacterPath(profile.ProfileId), body, t));
             if (r.Ok) TxLog.Confirm(tx, HashOf(r.Body));

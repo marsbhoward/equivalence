@@ -1,6 +1,8 @@
 import type { Request, Response } from 'express';
+import { internal } from '../errors.js';
 import type pg from 'pg';
 import { q, tx } from '../db.js';
+import { recordBeat, recordSnapshot } from '../runProgress.js';
 
 /**
  * RUNS IN FLIGHT - a run survives a closed tab, a crash or a lost connection, and a player can
@@ -90,7 +92,7 @@ export async function loadRun(req: Request, res: Response): Promise<void> {
     if (!rows.length) return fail(res, 404, 'not_found');
     res.json(reply(rows[0]));
   } catch (e) {
-    fail(res, 500, (e as Error).message);
+    internal(res, e, 'runs');
   }
 }
 
@@ -137,12 +139,14 @@ export async function saveRun(req: Request, res: Response): Promise<void> {
            beat = NULL, beat_seq = NULL, beat_at = NULL, saved_at = now(),
            started_at = CASE WHEN runs.run_id = $3 THEN runs.started_at ELSE now() END`,
         [owner, profileId, runId, session, seq, floor, stage, snapshot]);
+      // How far the run has got, as the service saw it - what its end is minted against.
+      await recordSnapshot(c, owner, profileId, runId, floor, stage, session);
       return { status: 200 } as const;
     });
     if (out.status !== 200) return fail(res, out.status, out.error, 'extra' in out ? out.extra : {});
     res.json({ ok: true, seq });
   } catch (e) {
-    fail(res, 500, (e as Error).message);
+    internal(res, e, 'runs');
   }
 }
 
@@ -171,10 +175,13 @@ export async function beatRun(req: Request, res: Response): Promise<void> {
       if (!row || row.run_id !== runId) return fail(res, 404, 'not_found');
       if (row.session !== session) return fail(res, 409, 'superseded');
       if (row.seq !== seq) return void res.json({ ok: false, stale: true, stored: row.seq });
+    } else {
+      // The run was still being played now - where an abandoned floor attempt's clock stops.
+      await recordBeat(owner, profileId, runId);
     }
     res.json({ ok: true });
   } catch (e) {
-    fail(res, 500, (e as Error).message);
+    internal(res, e, 'runs');
   }
 }
 
@@ -192,7 +199,7 @@ export async function claimRun(req: Request, res: Response): Promise<void> {
     if (!rows.length) return fail(res, 404, 'not_found');
     res.json(reply(rows[0]));
   } catch (e) {
-    fail(res, 500, (e as Error).message);
+    internal(res, e, 'runs');
   }
 }
 
@@ -216,6 +223,6 @@ export async function endRun(req: Request, res: Response): Promise<void> {
     if (out.status === 409) return fail(res, 409, 'superseded');
     res.json({ ended: out.ended });
   } catch (e) {
-    fail(res, 500, (e as Error).message);
+    internal(res, e, 'runs');
   }
 }

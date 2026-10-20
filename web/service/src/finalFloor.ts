@@ -1,35 +1,25 @@
 import { randomInt } from 'node:crypto';
 import { hasDatabase, q } from './db.js';
+import type { RunFormat } from './runFormat.js';
 
 /**
- * FLOOR 100's BOX - the one drop the SERVICE decides (the user's calls, 2026-10-13;
- * MONETIZATION.md "Drops"). The game rolls every other drop itself; this one carries the weekly
- * guarantee, and a guarantee the client could claim would be claimed every clear.
+ * THE FINAL FLOOR's BOX - floor 100 in Classic, 50 in the Short Descent (runFormat.ts) - decided by
+ * the SERVICE (the user's calls, 2026-10-13; MONETIZATION.md "Drops"), as are the avatars' boxes
+ * (avatarBoxes.ts). It carries the weekly guarantee, and a guarantee the client could claim would
+ * be claimed every clear.
  *
- *   the FIRST floor-100 clear of the week, per CHARACTER   a Diamond box (Black Diamond 1% instead)
- *   every later clear that week                            Diamond 2%, Black Diamond 1%,
- *                                                          otherwise 2-3 Gold boxes
+ *   the FIRST final clear of the week, per CHARACTER   a Diamond box (Black Diamond 1% instead)
+ *   every later clear that week                        Diamond / Black Diamond at the format's
+ *                                                      rates, otherwise 2-3 Gold boxes
  *
  * The week turns at SUNDAY 00:00 UTC. The game's copy of these numbers is Tuning.GearRoll (the
  * Final* constants) and Chain/FinalFloorReward.cs - keep the two in step.
  *
  * A decision is recorded per (character, run) BEFORE it is answered, so a retry gets the same
- * box and never a reroll; and commit-run mints a design box for floor 100 only when this table
+ * box and never a reroll; and commit-run mints the final floor's design box only when this table
  * says so (routes/player.ts).
  */
-export const FINAL_FLOOR = 100;
-export const GUARANTEED_BLACK_DIAMOND_CHANCE = 0.01;
-export const LATER_DIAMOND_CHANCE = 0.02;
-export const LATER_BLACK_DIAMOND_CHANCE = 0.01;
-export const GOLD_BOXES_MIN = 2;
-export const GOLD_BOXES_MAX = 3;
-
-/**
- * The fewest seconds a floor can plausibly take - the plausibility check's default (agreed
- * 2026-10-13). A run must have started at least FINAL_FLOOR x this before it may claim floor 100,
- * well under the game's own 16-74 s floor targets, so an honest fast player is never refused.
- */
-export const MIN_SECONDS_PER_FLOOR = Number(process.env.MIN_SECONDS_PER_FLOOR ?? 20);
+// The numbers are per FORMAT (runFormat.ts): Classic's final floor is 100, the Short Descent's 50.
 
 export type FinalTier = 'Diamond' | 'BlackDiamond' | 'Gold';
 
@@ -57,21 +47,21 @@ export function weekStarts(week: number): Date {
 /** A uniform draw in [0, 1) from the server's own randomness. */
 const draw = () => randomInt(1_000_000) / 1_000_000;
 
-/** Floor 100's box, given whether this character's guarantee is still unused this week. */
-export function rollFinal(guaranteeUnused: boolean, week: number): FinalDecision {
+/** The final floor's box under a format, given whether the guarantee is still due this week. */
+export function rollFinal(f: RunFormat, guaranteeDue: boolean, week: number): FinalDecision {
   const r = draw();
-  if (guaranteeUnused)
-    return { tier: r < GUARANTEED_BLACK_DIAMOND_CHANCE ? 'BlackDiamond' : 'Diamond', count: 1, guaranteed: true, week };
-  if (r < LATER_BLACK_DIAMOND_CHANCE) return { tier: 'BlackDiamond', count: 1, guaranteed: false, week };
-  if (r < LATER_BLACK_DIAMOND_CHANCE + LATER_DIAMOND_CHANCE) return { tier: 'Diamond', count: 1, guaranteed: false, week };
-  return { tier: 'Gold', count: GOLD_BOXES_MIN + randomInt(GOLD_BOXES_MAX - GOLD_BOXES_MIN + 1), guaranteed: false, week };
+  if (guaranteeDue)
+    return { tier: r < f.guaranteedBlackDiamondChance ? 'BlackDiamond' : 'Diamond', count: 1, guaranteed: true, week };
+  if (r < f.laterBlackDiamondChance) return { tier: 'BlackDiamond', count: 1, guaranteed: false, week };
+  if (r < f.laterBlackDiamondChance + f.laterDiamondChance) return { tier: 'Diamond', count: 1, guaranteed: false, week };
+  return { tier: 'Gold', count: f.goldBoxesMin + randomInt(f.goldBoxesMax - f.goldBoxesMin + 1), guaranteed: false, week };
 }
 
-/** The decision recorded for one run's floor 100, or null - what commit-run may mint from it. */
-export async function decisionFor(profileId: string, runId: string): Promise<FinalDecision | null> {
+/** The decision recorded for one run's final floor, or null - what commit-run may mint from it. */
+export async function decisionFor(owner: string, profileId: string, runId: string): Promise<FinalDecision | null> {
   if (!hasDatabase()) return null;
   const rows = await q<FinalDecision>(
-    'SELECT tier, count, guaranteed, week FROM final_floor WHERE profile_id = $1 AND run_id = $2',
-    [profileId, runId]);
+    'SELECT tier, count, guaranteed, week FROM final_floor WHERE owner = $1 AND profile_id = $2 AND run_id = $3',
+    [owner, profileId, runId]);
   return rows[0] ?? null;
 }

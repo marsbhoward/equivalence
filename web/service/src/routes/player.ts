@@ -1,43 +1,39 @@
 import type { Request, Response } from 'express';
+import { internal } from '../errors.js';
 import { CML } from '@lucid-evolution/lucid';
 import { bf } from '../blockfrost.js';
 import { fundingInputs, getLucid, serialized, serviceAddress, signAndSubmit } from '../chain.js';
 import { characterUnits } from '../characters.js';
 import { referenceDatum } from '../cip68.js';
 import { BOX_INFO, BOX_TIERS, BoxTier, boxPolicy, boxUnits, boxesHeld } from '../boxes.js';
-import { CharacterLedger, RunRecord, fresh, snapshot, transact } from '../ledger.js';
-import { FINAL_FLOOR, decisionFor } from '../finalFloor.js';
-
-type Claim = { status: 'unknown' | 'busy' | 'claimed' } | { status: 'repeat'; run: RunRecord };
+import { transact } from '../ledger.js';
+import { decisionFor } from '../finalFloor.js';
+import { hasDatabase, q, tx } from '../db.js';
+import { allowance } from '../runProgress.js';
+import { recordedFormat } from '../runFormat.js';
+import { avatarDecisions } from '../avatarBoxes.js';
+import { pfpGate } from './mintDesign.js';
 
 /**
  * The PLAYER's writes - called by the browser build through the connector, authorised by a
  * session (session.ts), never by WRITE_TOKEN. The proven address is `res.locals.address`.
  *
- *   POST /write/begin-run    registers a run id (the only runs a commit may mint boxes for)
- *   POST /write/commit-run   EXTRACTION: mints the run's secured Diamond / Black Diamond boxes
- *                            to the wallet as tokens, once per run - "extract it, check your
- *                            wallet, it's there" (the user's goal)
+ *   POST /write/begin-run    confirms the run the service saw start (the run-start save)
+ *   POST /write/commit-run   EXTRACTION: the run's secured Diamond / Black Diamond boxes - minted
+ *                            to the wallet as tokens if it holds the character's PFP, HELD on the
+ *                            service otherwise - once per run
  *   GET  /boxes/:profileId   the boxes the WALLET holds - a box is a token, the wallet is the balance
+ *
+ * A RUN IS WHAT THE SERVICE SAW (runProgress.ts): its start on the server's clock (the run-start
+ * save, routes/saves.ts) and how far its snapshots got (routes/runs.ts). The run summary a commit
+ * carries is only a CLAIM, cut back to that record - so a client that claims floors it never sent
+ * snapshots for, or faster than the clock allows, mints nothing for them - and every box it may
+ * hold was ROLLED by the service (avatarBoxes.ts, finalFloor.ts), so a claim can only lower it. Wallet saves are keyed by
+ * the address, so the character must be one this address saves.
  *
  * Opening boxes is routes/openBoxes.ts. begin-run answers `{ hash: "ledger:..." }` - not empty
  * (the connector records "" as a FAILED checkpoint) and not pretending to be a transaction.
  */
-
-/**
- * The most of each tier one run can plausibly SECURE. The avatar bosses at 25, 50 and 75 can each
- * drop a Diamond box (2%) and a Black Diamond box (0.5%) - the game rolls those, so the cap is one
- * per avatar reached. FLOOR 100's box is the SERVICE's decision (finalFloor.ts - the weekly
- * guarantee): it adds one of its tier only when /saves/final-floor recorded it for this run. A
- * claim past the cap is clamped, and the clamp is reported.
- *
- * Boxes are claimed whether the run ended in extraction or death: a box secured at a Rift, or by
- * clearing floor 100, is safe from that moment, so a death after it still mints it.
- */
-const AVATAR_INTERVAL = 25;
-const ROLLED_AVATARS = 3;
-const avatarCap = (floors: number) =>
-  Math.min(ROLLED_AVATARS, Math.floor(Math.min(floors, FINAL_FLOOR - 1) / AVATAR_INTERVAL));
 
 const ID = /^[A-Za-z0-9_.:-]{1,96}$/;
 
@@ -45,30 +41,37 @@ function fail(res: Response, status: number, error: string, extra: Record<string
   res.status(status).json({ error, ...extra });
 }
 
-/** Whether `address` may act for this character: the ledger's owner, or the holder of its PFP. */
-export async function owns(c: CharacterLedger | undefined, address: string, profileId: string): Promise<boolean> {
-  if (!c || c.owner === address) return true;
-  const { user } = await characterUnits(profileId);
-  const held = await bf<unknown[]>(`/addresses/${address}/utxos/${user}`);
-  return !!held && held.length > 0;
+/** Whether this address saves the character - the one owner the service knows (routes/saves.ts). */
+async function savesCharacter(address: string, profileId: string): Promise<boolean> {
+  return (await q('SELECT 1 FROM characters WHERE owner = $1 AND profile_id = $2', [address, profileId])).length > 0;
+}
+
+interface ProgressRow {
+  reached: number;
+  cleared: number;
+  elapsed: number;
+  minting: boolean;
+  committed_at: Date | null;
+  minted: Partial<Record<BoxTier, number>> | null;
+  held: Partial<Record<BoxTier, number>> | null;
+  hash: string | null;
+  format: string;
 }
 
 export async function beginRun(req: Request, res: Response): Promise<void> {
   const address = res.locals.address as string;
   const { profileId, runId } = (req.body ?? {}) as Record<string, string>;
   if (!ID.test(profileId ?? '') || !ID.test(runId ?? '')) return fail(res, 400, 'profileId and runId are required');
+  if (!hasDatabase()) return fail(res, 503, 'runs need the database');
   try {
-    if (!(await owns((await snapshot()).characters[profileId], address, profileId)))
-      return fail(res, 403, 'this character belongs to another address');
-    await transact((f) => {
-      const c = (f.characters[profileId] ??= fresh(address));
-      c.owner = address;   // owns() said yes - a sold character's ledger follows its token
-      c.runs[runId] ??= { begunAt: new Date().toISOString() };
-      return { result: null };
-    });
+    // The run-start save already registered the run (runProgress.recordRunStart) - this only
+    // confirms it, so a client learns at the START that its end will have nothing to mint against.
+    const rows = await q('SELECT 1 FROM run_progress WHERE owner = $1 AND profile_id = $2 AND run_id = $3',
+      [address, profileId, runId]);
+    if (!rows.length) return fail(res, 409, 'unknown_run', { runId });
     res.json({ hash: `ledger:run-start:${runId}` });
   } catch (e) {
-    fail(res, 500, (e as Error).message);
+    internal(res, e, 'player');
   }
 }
 
@@ -121,6 +124,7 @@ export async function commitRun(req: Request, res: Response): Promise<void> {
   const address = res.locals.address as string;
   const { profileId, summary } = (req.body ?? {}) as Record<string, string>;
   if (!ID.test(profileId ?? '')) return fail(res, 400, 'profileId is required');
+  if (!hasDatabase()) return fail(res, 503, 'runs need the database');
 
   let s: Record<string, unknown>;
   try {
@@ -129,89 +133,110 @@ export async function commitRun(req: Request, res: Response): Promise<void> {
     return fail(res, 400, 'summary must be the RunSummary JSON');
   }
   const runId = String(s.RunId ?? '');
-  const floors = Number(s.Floors ?? 0);
+  if (!ID.test(runId)) return fail(res, 400, 'summary.RunId is required');
+  const floors = Math.max(0, Math.floor(Number(s.Floors ?? 0)));
   const claimed: Record<BoxTier, number> = {
     Diamond: Math.max(0, Math.floor(Number(s.SecuredDiamondBoxes ?? 0))),
     BlackDiamond: Math.max(0, Math.floor(Number(s.SecuredBlackDiamondBoxes ?? 0))),
   };
 
   try {
-    if (!(await owns((await snapshot()).characters[profileId], address, profileId)))
-      return fail(res, 403, 'this character belongs to another address');
-
     // CLAIM the run first (marking it in flight), so two commits racing can never mint twice.
-    const claim = await transact<Claim>((f) => {
-      const run = f.characters[profileId]?.runs[runId];
-      // Only a run the server saw START can mint, and only once.
-      if (!run) return { result: { status: 'unknown' }, write: false };
-      if (run.committedAt) return { result: { status: 'repeat', run }, write: false };
-      if (run.minting) return { result: { status: 'busy' }, write: false };
-      run.minting = true;
-      return { result: { status: 'claimed' } };
+    const claim = await tx(async (c) => {
+      const r = await c.query<ProgressRow>(
+        `SELECT reached, cleared, EXTRACT(EPOCH FROM now() - started_at)::float AS elapsed,
+                minting, committed_at, minted, held, hash, format
+           FROM run_progress WHERE owner = $1 AND profile_id = $2 AND run_id = $3 FOR UPDATE`,
+        [address, profileId, runId]);
+      const row = r.rows[0];
+      // Only a run the service saw START, for a character this address saves.
+      if (!row) return { status: 'unknown' as const };
+      if (row.committed_at) return { status: 'repeat' as const, row };
+      if (row.minting) return { status: 'busy' as const };
+      await c.query('UPDATE run_progress SET minting = true WHERE owner = $1 AND profile_id = $2 AND run_id = $3',
+        [address, profileId, runId]);
+      return { status: 'claimed' as const, row };
     });
     if (claim.status === 'unknown') return fail(res, 409, 'unknown_run', { runId });
     if (claim.status === 'busy') return fail(res, 409, 'commit_in_flight', { runId });
     if (claim.status === 'repeat')
-      return void res.json({ hash: claim.run.hash ?? `ledger:run-end:${runId}`, minted: claim.run.minted ?? {}, repeat: true });
+      return void res.json({
+        hash: claim.row.hash ?? `ledger:run-end:${runId}`,
+        minted: claim.row.minted ?? {}, held: claim.row.held ?? {}, repeat: true,
+      });
 
-    const final = floors >= FINAL_FLOOR ? await decisionFor(profileId, runId) : null;
-    const minted: Partial<Record<BoxTier, number>> = {};
-    const clamped: Partial<Record<BoxTier, number>> = {};
-    for (const tier of BOX_TIERS) {
-      const cap = avatarCap(floors) + (final?.tier === tier ? final.count : 0);
-      const allowed = Math.min(claimed[tier], cap);
-      if (allowed > 0) minted[tier] = allowed;
-      if (allowed < claimed[tier]) clamped[tier] = claimed[tier] - allowed;
-    }
-    if (Object.keys(clamped).length)
-      console.warn(`[commit-run] ${profileId} run ${runId} claimed past the cap:`, clamped, `floor ${floors}`);
+    // From here on the run is marked in flight. Any failure BEFORE a mint is submitted releases it,
+    // so the game's retry can commit; after a submitted mint it stays marked - better a run stuck
+    // for a look by hand than one that mints twice.
+    let submitted = false;
+    try {
+      const seen = { reached: claim.row.reached, cleared: claim.row.cleared, elapsedSeconds: claim.row.elapsed };
+      const final = await decisionFor(address, profileId, runId);
+      const avatars = await avatarDecisions(address, profileId, runId);
+      const { allowed, clamped, floor, timeFloor } = allowance(floors, claimed, seen, avatars, final, recordedFormat(claim.row.format));
+      if (Object.keys(clamped).length)
+        console.warn(`[commit-run] ${profileId} run ${runId} claimed past what was seen and decided:`, clamped,
+          `claimed floor ${floors}, snapshots ${seen.reached}/${seen.cleared} cleared, clock allows ${timeFloor}, counted ${floor}`);
 
-    let hash = `ledger:run-end:${runId}`;
-    let deposit = 0;
-    if (Object.keys(minted).length) {
-      try {
-        ({ hash, deposit } = await mintBoxes(address, minted));
-      } catch (e) {
+      // NOTHING EARNED REACHES A WALLET WITHOUT A PFP (the user's rule, 2026-10-13): with no PFP for
+      // this character, the boxes are HELD here - a record the client cannot write - not minted.
+      const any = Object.keys(allowed).length > 0;
+      const mintable = any && (await pfpGate(address, (await characterUnits(profileId)).user)) === null;
+
+      let hash = `ledger:run-end:${runId}`;
+      let deposit = 0;
+      if (mintable) {
+        ({ hash, deposit } = await mintBoxes(address, allowed));
+        submitted = true;
+      }
+      const minted = mintable ? allowed : {};
+      const held = any && !mintable ? allowed : {};
+
+      await tx(async (c) => {
+        await c.query(
+          `UPDATE run_progress SET minting = false, committed_at = now(), minted = $4, held = $5, hash = $6
+            WHERE owner = $1 AND profile_id = $2 AND run_id = $3`,
+          [address, profileId, runId, minted, held, hash]);
+        for (const [tier, n] of Object.entries(held))
+          await c.query('INSERT INTO held_boxes (owner, profile_id, run_id, tier, count) VALUES ($1, $2, $3, $4, $5)',
+            [address, profileId, runId, tier, n]);
+      });
+
+      // The deposit is reclaimed per box when they are opened - split across tiers by count.
+      const total = Object.values(minted).reduce((a, b) => a + (b ?? 0), 0);
+      if (total > 0)
         await transact((f) => {
-          delete f.characters[profileId].runs[runId].minting;
+          for (const tier of BOX_TIERS) {
+            const n = minted[tier] ?? 0;
+            if (!n) continue;
+            const pool = ((f.deposits[address] ??= {})[tier] ??= { lovelace: 0, boxes: 0 });
+            pool.lovelace += Math.floor((deposit * n) / total);
+            pool.boxes += n;
+          }
           return { result: null };
         });
-        throw e;
-      }
+      res.json({ hash, minted, held, clamped, repeat: false });
+    } catch (e) {
+      if (!submitted)
+        await q('UPDATE run_progress SET minting = false WHERE owner = $1 AND profile_id = $2 AND run_id = $3',
+          [address, profileId, runId]).catch(() => {});
+      throw e;
     }
-
-    const total = Object.values(minted).reduce((a, b) => a + (b ?? 0), 0);
-    await transact((f) => {
-      const run = f.characters[profileId].runs[runId];
-      delete run.minting;
-      run.committedAt = new Date().toISOString();
-      run.minted = minted;
-      run.hash = hash;
-      // The deposit is reclaimed per box when they are opened - split across tiers by count.
-      for (const tier of BOX_TIERS) {
-        const n = minted[tier] ?? 0;
-        if (!n) continue;
-        const pool = ((f.deposits[address] ??= {})[tier] ??= { lovelace: 0, boxes: 0 });
-        pool.lovelace += Math.floor((deposit * n) / total);
-        pool.boxes += n;
-      }
-      return { result: null };
-    });
-    res.json({ hash, minted, clamped, repeat: false });
   } catch (e) {
-    fail(res, 500, (e as Error).message);
+    internal(res, e, 'player');
   }
 }
 
 export async function boxes(req: Request, res: Response): Promise<void> {
   const address = res.locals.address as string;
-  const profileId = req.params.profileId;
+  const profileId = String(req.params.profileId ?? '');
+  if (!ID.test(profileId)) return fail(res, 400, 'bad profile id');
   try {
-    if (!(await owns((await snapshot()).characters[profileId], address, profileId)))
+    if (hasDatabase() && !(await savesCharacter(address, profileId)))
       return fail(res, 403, 'this character belongs to another address');
     const [Diamond, BlackDiamond] = await Promise.all(BOX_TIERS.map((t) => boxesHeld(address, t)));
     res.json({ profileId, boxes: { Diamond, BlackDiamond } });
   } catch (e) {
-    fail(res, 500, (e as Error).message);
+    internal(res, e, 'player');
   }
 }

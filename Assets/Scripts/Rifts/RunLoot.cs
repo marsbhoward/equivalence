@@ -139,16 +139,24 @@ namespace Convergence.Rifts
         }
 
         /// <summary>
-        /// An avatar boss's own design-box rolls (floors 25, 50, 75), ON TOP of the floor's drop:
-        /// a Diamond box and a Black Diamond box, each rolled separately. Floor 100 is not here -
-        /// its box is the store's decision (Chain/FinalFloorReward).
+        /// An avatar boss whose own design boxes are rolled (floors 25, 50, 75), ON TOP of the
+        /// floor's drop. Floor 100 is not one - its box is the store's decision
+        /// (Chain/FinalFloorReward).
         /// </summary>
-        public void RollAvatarBoxes(int floor)
+        public static bool IsRolledAvatar(int floor) => FloorPlanner.IsAvatarFloor(floor) && floor < FinalFloor;
+
+        /// <summary>
+        /// An avatar's design boxes as a LOCAL save rolls them: a Diamond box and a Black Diamond
+        /// box, each rolled separately. A service player's are the SERVICE's decision
+        /// (Chain/AvatarBoxes, web/service/src/avatarBoxes.ts - the same numbers), asked through
+        /// the store; this is the local store's answer.
+        /// </summary>
+        public static Chain.AvatarBoxes RollAvatarLocal(int floor) => new()
         {
-            if (!FloorPlanner.IsAvatarFloor(floor) || floor >= FinalFloor) return;
-            if (Random.value < Tuning.GearRoll.AvatarDiamondBoxChance) FindTieredBox(LootTier.Diamond);
-            if (Random.value < Tuning.GearRoll.AvatarBlackDiamondBoxChance) FindTieredBox(LootTier.BlackDiamond);
-        }
+            Floor = floor,
+            Diamond = IsRolledAvatar(floor) && Random.value < Tuning.GearRoll.AvatarDiamondBoxChance ? 1 : 0,
+            BlackDiamond = IsRolledAvatar(floor) && Random.value < Tuning.GearRoll.AvatarBlackDiamondBoxChance ? 1 : 0,
+        };
 
         /// <summary>The last avatar, and the run's completion floor.</summary>
         public const int FinalFloor = 100;
@@ -343,7 +351,7 @@ namespace Convergence.Rifts
         ///
         /// Floor 100's box is the store's decision (Chain/FinalFloorReward - the weekly guarantee).
         /// Diamond never comes from an ordinary floor: only from floor 100 and the avatar bosses'
-        /// rare EXTRA (RollAvatarBoxes).
+        /// rare EXTRA (Chain/AvatarBoxes).
         /// </summary>
         public static LootTier TierFor(int floor)
         {

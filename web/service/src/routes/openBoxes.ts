@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express';
+import { internal } from '../errors.js';
 import { randomUUID } from 'node:crypto';
 import type { Assets, UTxO } from '@lucid-evolution/lucid';
 import { fundingInputs, getLucid, rememberSpentCbor, serialized } from '../chain.js';
@@ -210,7 +211,7 @@ export async function openBoxes(req: Request, res: Response): Promise<void> {
     });
   } catch (e) {
     if (e instanceof MintRefused) return void res.status(e.status).json(e.body);
-    res.status(500).json({ error: (e as Error).message });
+    internal(res, e, 'open-boxes');
   }
 }
 
@@ -252,6 +253,6 @@ export async function submitOpen(req: Request, res: Response): Promise<void> {
     });
   } catch (e) {
     // Nothing was burned - the boxes and their pending roll are still there.
-    res.status(409).json({ error: 'submit_failed', detail: (e as Error).message });
+    internal(res, e, 'open-boxes/submit', 409, 'submit_failed');
   }
 }

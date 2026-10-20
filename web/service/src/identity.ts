@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
+import { internal } from './errors.js';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { q } from './db.js';
 import { sessionAddress } from './session.js';
@@ -70,7 +71,7 @@ export async function newGuest(req: Request, res: Response): Promise<void> {
     await q('INSERT INTO guests (id, created_ip) VALUES ($1, $2)', [id, ip]);
     res.json({ guest: `${GUEST_PREFIX}${id}.${mac(id)}`, id });
   } catch (e) {
-    res.status(500).json({ error: (e as Error).message });
+    internal(res, e, 'guest');
   }
 }
 
@@ -101,7 +102,7 @@ export async function requireIdentity(req: Request, res: Response, next: NextFun
       return next();
     }
   } catch (e) {
-    return void res.status(503).json({ error: (e as Error).message });
+    return void internal(res, e, 'identity', 503, 'unavailable');
   }
   res.status(401).json({ error: 'no identity - start a guest, or prove a wallet' });
 }

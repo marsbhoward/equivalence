@@ -1,4 +1,5 @@
 import type { NextFunction, Request, Response } from 'express';
+import { internal } from './errors.js';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { getAddressDetails, verifyData } from '@lucid-evolution/lucid';
 
@@ -13,16 +14,48 @@ import { getAddressDetails, verifyData } from '@lucid-evolution/lucid';
  * signature can't be replayed. The message is exactly what the connector's `proveOwnership` signs.
  * `signData` moves nothing and costs nothing: a player never approves a transaction to log in.
  *
+ * THE MESSAGE NAMES THE SITE (CIP-8 / "Sign-In With" style: domain, URI, issued-at, expiry). A
+ * phishing page can fetch a real nonce for a victim's address and ask them to sign it; Cardano
+ * wallets show the message but do not check it against the page, so the only defence is a message
+ * the player can READ - the site it belongs to, what signing does, and that it is only to be signed
+ * there. `LOGIN_DOMAIN` names the site (the host the game is served from); unset, the request's own
+ * host is used - the address the client reached this service at. What a stolen session can do is
+ * bounded anyway: it moves no token (opening boxes needs the wallet's transaction signature), and a
+ * save it overwrites is kept in `character_history`.
+ *
  * The session is stateless - `<address>.<expiry>.<hmac>` under `SESSION_SECRET` - so a redeploy
  * keeps everyone logged in, and rotating the secret logs everyone out.
  */
 const CHALLENGE_MS = 5 * 60_000;
 const SESSION_MS = 12 * 60 * 60_000;
 
-const challenges = new Map<string, { address: string; expires: number }>();
+interface Challenge {
+  address: string;
+  domain: string;
+  issuedAt: number;
+  expires: number;
+}
+const challenges = new Map<string, Challenge>();
+/** Outstanding challenges at most - a ceiling on memory under a flood the per-IP limit spreads out. */
+const MAX_CHALLENGES = 20_000;
 
-export const loginMessage = (address: string, nonce: string) =>
-  `Equivalence login\naddress: ${address}\nnonce: ${nonce}`;
+/** The text the wallet shows and signs - rebuilt at /auth/prove from what the challenge recorded. */
+export const loginMessage = (address: string, nonce: string, c: Omit<Challenge, 'address'>) =>
+  `${c.domain} wants you to sign in to Equivalence with your Cardano address:\n` +
+  `${address}\n\n` +
+  `Only sign this on https://${c.domain}. It proves this address is yours: it moves nothing, ` +
+  `costs nothing and approves no transaction.\n\n` +
+  `URI: https://${c.domain}\n` +
+  `Nonce: ${nonce}\n` +
+  `Issued At: ${new Date(c.issuedAt).toISOString()}\n` +
+  `Expiration Time: ${new Date(c.expires).toISOString()}`;
+
+/** The site a login belongs to - LOGIN_DOMAIN, else the host this request reached. */
+const DOMAIN = /^[a-z0-9.-]{1,253}(:\d{1,5})?$/i;
+function domainOf(req: Request): string {
+  const d = (process.env.LOGIN_DOMAIN || req.get('host') || '').trim().toLowerCase();
+  return DOMAIN.test(d) ? d : 'unknown-host';
+}
 
 const hexOf = (s: string) => Buffer.from(s, 'utf8').toString('hex');
 
@@ -53,10 +86,16 @@ export function challenge(req: Request, res: Response): void {
   }
   const now = Date.now();
   for (const [n, c] of challenges) if (c.expires < now) challenges.delete(n);
+  if (challenges.size >= MAX_CHALLENGES) {
+    res.status(503).setHeader('Retry-After', '60');
+    res.json({ error: 'too many logins in progress - try again shortly' });
+    return;
+  }
 
   const nonce = randomBytes(16).toString('hex');
-  challenges.set(nonce, { address, expires: now + CHALLENGE_MS });
-  res.json({ nonce, message: loginMessage(address, nonce) });
+  const c: Challenge = { address, domain: domainOf(req), issuedAt: now, expires: now + CHALLENGE_MS };
+  challenges.set(nonce, c);
+  res.json({ nonce, message: loginMessage(address, nonce, c), expiresAt: c.expires });
 }
 
 export function prove(req: Request, res: Response): void {
@@ -76,7 +115,7 @@ export function prove(req: Request, res: Response): void {
 
   let ok = false;
   try {
-    ok = verifyData(f.hex, f.keyHash, hexOf(loginMessage(address, nonce)), { signature, key });
+    ok = verifyData(f.hex, f.keyHash, hexOf(loginMessage(address, nonce, c)), { signature, key });
   } catch {
     ok = false;
   }
@@ -110,7 +149,7 @@ export function requireSession(req: Request, res: Response, next: NextFunction) 
   try {
     address = token ? sessionAddress(token) : null;
   } catch (e) {
-    res.status(503).json({ error: (e as Error).message });
+    internal(res, e, 'session', 503, 'unavailable');
     return;
   }
   if (!address) {

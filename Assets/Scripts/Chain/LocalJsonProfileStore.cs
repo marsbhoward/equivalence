@@ -117,6 +117,15 @@ namespace Convergence.Chain
             return reward;
         }
 
+        public async Task<AvatarBoxes?> AvatarBoxesAsync(CharacterProfile profile, string runId, int floor)
+        {
+            // Rolled BEFORE the first await, so a caller inside a seeded scope (Rifts.RunRolls) gets
+            // the same boxes on a replay.
+            var boxes = Rifts.RunLoot.RollAvatarLocal(floor);
+            await Task.Yield();
+            return boxes;
+        }
+
         public async Task UnlockAsync(CharacterProfile profile)
         {
 

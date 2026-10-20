@@ -106,6 +106,10 @@ namespace Convergence.Chain
         /// <summary>Floor 100's box was asked of the store and had not been credited.</summary>
         public bool FinalFloorUnsettled;
 
+        /// <summary>An avatar's boxes were asked of the store and had not been credited: its floor,
+        /// or 0.</summary>
+        public int AvatarUnsettledFloor;
+
         // ---- the run
 
         /// <summary>The planner as the floor found it: before planning it (Entering), after (Cleared).</summary>

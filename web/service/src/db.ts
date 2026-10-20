@@ -143,6 +143,85 @@ const MIGRATIONS: string[] = [
     PRIMARY KEY (owner, profile_id)
   );
   `,
+
+  // 4 - what the SERVICE saw of each run (runProgress.ts): its start on the server's clock, the
+  // deepest floor its snapshots reached and cleared - the authority a run's end is minted against -
+  // and the commit itself, so a run mints once. Kept after the run ends.
+  // HELD_BOXES: Diamond / Black Diamond boxes a run earned for a character whose owner holds no
+  // PFP. They are kept HERE, never in the save (a save is the client's to write), until the day a
+  // PFP moves them on chain (MONETIZATION.md). RELEASED_AT marks that move.
+  `
+  CREATE TABLE run_progress (
+    owner         TEXT NOT NULL,
+    profile_id    TEXT NOT NULL,
+    run_id        TEXT NOT NULL,
+    started_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    reached       INTEGER NOT NULL DEFAULT 0,
+    cleared       INTEGER NOT NULL DEFAULT 0,
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    minting       BOOLEAN NOT NULL DEFAULT false,
+    committed_at  TIMESTAMPTZ,
+    minted        JSONB,
+    held          JSONB,
+    hash          TEXT,
+    PRIMARY KEY (owner, profile_id, run_id)
+  );
+
+  CREATE TABLE held_boxes (
+    id            BIGSERIAL PRIMARY KEY,
+    owner         TEXT NOT NULL,
+    profile_id    TEXT NOT NULL,
+    run_id        TEXT NOT NULL,
+    tier          TEXT NOT NULL,
+    count         INTEGER NOT NULL,
+    held_at       TIMESTAMPTZ NOT NULL DEFAULT now(),
+    released_at   TIMESTAMPTZ
+  );
+  CREATE INDEX held_boxes_by_character ON held_boxes (owner, profile_id) WHERE released_at IS NULL;
+  `,
+
+  // 5 - the avatars' boxes, decided by the service (avatarBoxes.ts): one row per run per avatar
+  // floor that claimed them, recorded BEFORE it is answered - a retry gets the same boxes.
+  `
+  CREATE TABLE avatar_boxes (
+    owner          TEXT NOT NULL,
+    profile_id     TEXT NOT NULL,
+    run_id         TEXT NOT NULL,
+    floor          INTEGER NOT NULL,
+    diamond        INTEGER NOT NULL,
+    black_diamond  INTEGER NOT NULL,
+    decided_at     TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (owner, profile_id, run_id, floor)
+  );
+  `,
+
+  // 6 - floor 100's decisions keyed by the CHARACTER, which is (owner, profile id) like every save:
+  // keyed by the id alone, another owner using the same id could spend someone's weekly guarantee.
+  // A graduating guest's rows move with it (routes/saves.ts).
+  `
+  DROP INDEX final_floor_one_guarantee_a_week;
+  ALTER TABLE final_floor DROP CONSTRAINT final_floor_pkey;
+  ALTER TABLE final_floor ADD PRIMARY KEY (owner, profile_id, run_id);
+  CREATE UNIQUE INDEX final_floor_one_guarantee_a_week ON final_floor (owner, profile_id, week) WHERE guaranteed;
+  `,
+
+  // 7 - the FORMAT a run started under (runFormat.ts): Classic's 100 floors or the Short Descent's
+  // 50. Every run recorded before formats was Classic.
+  `
+  ALTER TABLE run_progress ADD COLUMN format TEXT NOT NULL DEFAULT 'classic';
+  `,
+
+  // 8 - the RUN CLOCK, measured by the service (runProgress.recordSnapshot): the seconds of every
+  // floor attempt closed so far, the attempt open now (its floor, start, session), and the last
+  // time the service heard from the run.
+  `
+  ALTER TABLE run_progress
+    ADD COLUMN clock_seconds   DOUBLE PRECISION NOT NULL DEFAULT 0,
+    ADD COLUMN attempt_floor   INTEGER,
+    ADD COLUMN attempt_at      TIMESTAMPTZ,
+    ADD COLUMN attempt_session TEXT,
+    ADD COLUMN last_seen       TIMESTAMPTZ;
+  `,
 ];
 
 /** Applies every migration not yet applied. Called once at start-up. */

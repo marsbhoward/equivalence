@@ -102,3 +102,17 @@ export function assetNameText(hexName: string | null): string {
     return hexName;
   }
 }
+
+/**
+ * Whether this service may be on MAINNET - what every testnet-only switch asks (PFP_GATE=off, the
+ * dev character mint, an avatar decision set by hand). FAILS SAFE: mainnet if EITHER the NETWORK
+ * setting or the Blockfrost URL says so, or if neither names a testnet - a guard that trusted one
+ * setting alone would open on mainnet the day that one setting was wrong.
+ */
+export function isMainnet(): boolean {
+  const network = (process.env.NETWORK ?? '').toLowerCase();
+  const url = (process.env.BLOCKFROST_URL ?? '').toLowerCase();
+  if (network === 'mainnet' || url.includes('mainnet')) return true;
+  const testnet = (s: string) => s.includes('preview') || s.includes('preprod');
+  return !(testnet(network) && testnet(url));
+}

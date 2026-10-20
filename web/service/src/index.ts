@@ -1,4 +1,5 @@
 import express from 'express';
+import { internal } from './errors.js';
 import { mintDesign } from './routes/mintDesign.js';
 import { devMintCharacter } from './routes/devCharacter.js';
 import { splitFunds } from './routes/splitFunds.js';
@@ -14,15 +15,28 @@ import { openBoxes, submitOpen } from './routes/openBoxes.js';
 import { graduate, loadAccount, loadCharacter, roster, saveAccount, saveCharacter } from './routes/saves.js';
 import { newGuest, requireIdentity } from './identity.js';
 import { claimFinalFloor, finalFloorStatus } from './routes/finalFloor.js';
+import { claimAvatarBoxes, devDecideAvatarBoxes } from './routes/avatarBox.js';
 import { beatRun, claimRun, endRun, loadRun, saveRun } from './routes/runs.js';
 import { hasDatabase, migrate } from './db.js';
 import { playRouter } from './play.js';
 import { activatePlay, putPlayFile, rollbackPlay } from './routes/playUpload.js';
+import { LIMITS, overall, perIdentity, perIp } from './rateLimit.js';
 
 const app = express();
 // Behind Railway's proxy: req.ip is the player's address (the guest rate limit reads it), not the proxy's.
 app.set('trust proxy', 1);
 app.use(cors);
+
+// RATE LIMITS (rateLimit.ts) - per IP here, ahead of authentication and of the body parsers, so a
+// flood is refused before a signature, a database read or a 512 kB body is spent on it. The
+// per-identity limits sit behind each route's authentication, below.
+const publicRead = perIp('public', LIMITS.publicRead);
+const blockfrostPublic = overall('blockfrost-public', LIMITS.blockfrostPublic);
+app.use('/auth', perIp('auth', LIMITS.auth));
+app.use('/write', perIp('write-ip', LIMITS.writeIp));
+app.use('/boxes', perIp('write-ip', LIMITS.writeIp));
+app.use('/saves', perIp('saves-ip', LIMITS.savesIp));
+app.use('/art', perIp('art', LIMITS.art));
 // Two authorities, two prefixes:
 //   /op/*     the OPERATOR - WRITE_TOKEN (writeAuth.ts). Never reachable from the browser build.
 //   /write/*  the PLAYER   - a session from /auth/prove (session.ts). What the connector calls.
@@ -52,17 +66,17 @@ app.get('/health', (_req, res) => {
  * a read that mysteriously returns nothing. Anything reading MAINNET on this project today is a
  * mistake, and it should be legible at a glance.
  */
-app.get('/read/health', async (_req, res) => {
+app.get('/read/health', publicRead, blockfrostPublic, async (_req, res) => {
   try {
     res.json(await networkInfo());
   } catch (e) {
-    res.status(502).json({ error: String((e as Error).message ?? e) });
+    internal(res, e, 'read/health', 502, 'chain_unavailable');
   }
 });
 
 // The first real read: what a wallet holds. Pure Blockfrost - no service wallet, no signature,
 // nothing to approve.
-app.get('/components', components);
+app.get('/components', perIp('components', LIMITS.components), blockfrostPublic, components);
 
 /**
  * The service wallet's own address - the one that has to hold test ADA before any write can pay a
@@ -74,11 +88,11 @@ app.get('/components', components);
  * exposing it here reveals nothing the ledger will not. The SEED is the secret, and it never leaves
  * this process.
  */
-app.get('/service/address', async (_req, res) => {
+app.get('/service/address', publicRead, async (_req, res) => {
   try {
     res.json({ address: await serviceAddress() });
   } catch (e) {
-    res.status(503).json({ error: String((e as Error).message ?? e) });
+    internal(res, e, 'service/address', 503, 'unavailable');
   }
 });
 
@@ -86,23 +100,27 @@ app.post('/op/mint-design', mintDesign);
 app.post('/op/split-funds', splitFunds);
 // Testnet only (404 on mainnet) - a stand-in character for the PFP gate. See devCharacter.ts.
 app.post('/op/dev/mint-character', devMintCharacter);
+// Testnet only (404 on mainnet) - an avatar's boxes set by hand, for the smoke test (routes/avatarBox.ts).
+app.post('/op/dev/avatar-box', devDecideAvatarBoxes);
 
 // Player auth: a one-time challenge, signed with CIP-30 signData (no fee), traded for a session.
 app.get('/auth/challenge', challenge);
 app.post('/auth/prove', prove);
 
 // The connector's /write/<kind> convention (equivalence-chain.ts `write()`).
-app.use('/write', requireSession);
+app.use('/write', requireSession, perIdentity('write', LIMITS.write));
 app.post('/write/begin-run', beginRun);
-app.post('/write/commit-run', commitRun);
-app.post('/write/open-boxes', openBoxes);
-app.post('/write/open-boxes/submit', submitOpen);
-app.get('/boxes/:profileId', requireSession, boxes);
+// The two that spend the service wallet's ADA, tighter still.
+app.post('/write/commit-run', perIdentity('commit', LIMITS.commit), commitRun);
+const opening = perIdentity('open', LIMITS.open);
+app.post('/write/open-boxes', opening, openBoxes);
+app.post('/write/open-boxes/submit', opening, submitOpen);
+app.get('/boxes/:profileId', requireSession, perIdentity('boxes', LIMITS.boxes), boxes);
 app.get('/art/:artKey', getArt);
 
 // Saves (routes/saves.ts): every browser player's characters and hub room, guest or wallet.
 app.post('/guest', newGuest);
-app.use('/saves', requireIdentity);
+app.use('/saves', requireIdentity, perIdentity('saves', LIMITS.saves));
 app.get('/saves/characters', roster);
 app.get('/saves/characters/:profileId', loadCharacter);
 app.put('/saves/characters/:profileId', saveCharacter);
@@ -112,6 +130,8 @@ app.post('/saves/graduate', graduate);
 // Floor 100's box - the one drop the service decides (routes/finalFloor.ts).
 app.post('/saves/final-floor', claimFinalFloor);
 app.get('/saves/final-floor/:profileId', finalFloorStatus);
+// An avatar's boxes - decided by the service too (routes/avatarBox.ts).
+app.post('/saves/avatar-box', claimAvatarBoxes);
 // A run in flight - snapshots, heartbeats, and one live session per run (routes/runs.ts).
 app.get('/saves/runs/:profileId', loadRun);
 app.put('/saves/runs/:profileId', saveRun);

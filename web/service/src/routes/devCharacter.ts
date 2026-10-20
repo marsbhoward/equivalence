@@ -2,7 +2,7 @@ import type { Request, Response } from 'express';
 import { fundingInputs, getLucid, serialized, serviceAddress, signAndSubmit } from '../chain.js';
 import { characterPolicy } from '../characters.js';
 import { REF_LABEL, USER_LABEL, nameBody, referenceDatum, unitOf } from '../cip68.js';
-import { bf } from '../blockfrost.js';
+import { bf, isMainnet } from '../blockfrost.js';
 
 /**
  * TESTNET ONLY: mints a STAND-IN character - the CIP-68 pair a real character will be - so the
@@ -18,7 +18,7 @@ const NAME = /^[A-Za-z0-9]+([ -][A-Za-z0-9]+)*$/;
 
 /** POST /write/dev/mint-character { address, profileId, name } */
 export async function devMintCharacter(req: Request, res: Response): Promise<void> {
-  if ((process.env.NETWORK ?? '').toLowerCase() === 'mainnet') {
+  if (isMainnet()) {
     res.status(404).end();
     return;
   }

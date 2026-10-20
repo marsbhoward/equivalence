@@ -126,6 +126,11 @@ namespace Convergence.Core
         /// summary to the profile (ProfileRules.RunEnd).</summary>
         int _runGuaranteeWeek;
 
+        /// <summary>An avatar's boxes, asked of the store (ClaimAvatarBoxes) and not yet credited,
+        /// and the floor they are for - EndRun settles one still outstanding, as floor 100's.</summary>
+        System.Threading.Tasks.Task<AvatarBoxes?> _avatarAsk;
+        int _avatarAskFloor;
+
         Transform _arenaRoot, _enemyRoot, _hazardRoot;
         PlayerController _player;
         StuckWatch _stuckWatch;
@@ -2179,6 +2184,7 @@ namespace Convergence.Core
             int token = _runToken;
             _runId = Guid.NewGuid().ToString("N")[..8];
             _finalAsk = null;
+            _avatarAsk = null;
             _runGuaranteeWeek = 0;
             _pendingMastery = 0;
             _runCalx = 0;
@@ -4034,12 +4040,10 @@ namespace Convergence.Core
                 if (!Chain.DesignDrops.IsDesignTier(tier)) _hud?.Flash($"{tier.ToString().ToUpper()} BOX");
             }
 
-            // An avatar's own design-box rolls, on top of the floor's drop.
-            int diamond = _loot.FoundTieredBoxes(Art.Gear.LootTier.Diamond);
-            int black = _loot.FoundTieredBoxes(Art.Gear.LootTier.BlackDiamond);
-            _loot.RollAvatarBoxes(_floor);
-            if (_loot.FoundTieredBoxes(Art.Gear.LootTier.BlackDiamond) > black) _hud?.Flash("BLACK DIAMOND BOX");
-            else if (_loot.FoundTieredBoxes(Art.Gear.LootTier.Diamond) > diamond) _hud?.Flash("DIAMOND BOX");
+            // An avatar's own design boxes, on top of the floor's drop - the STORE's decision (the
+            // service's, for a service player), asked inside the seeded scope so a local save's
+            // roll is the same on a replay.
+            if (Rifts.RunLoot.IsRolledAvatar(_floor)) ClaimAvatarBoxes(_floor);
 
             // FLOOR 100 SECURES THE RUN'S BOXES (the user's call, 2026-10-09) - the completion
             // floor has no Rift, and the boxes it pays are the point of reaching it. From here a
@@ -4070,6 +4074,62 @@ namespace Convergence.Core
                 return;
             }
             CreditFinalFloor(reward);
+        }
+
+        /// <summary>
+        /// An AVATAR's boxes, asked of the store - the service decides them for a service player
+        /// (Chain/AvatarBoxes) and the run's end mints only what it recorded. They arrive after the
+        /// clear's own flash; a failed ask is left for EndRun to ask again (the service answers the
+        /// decision it recorded, never a reroll).
+        /// </summary>
+        async void ClaimAvatarBoxes(int floor)
+        {
+            var ask = _avatarAsk = _store.AvatarBoxesAsync(_profile, _runId, floor);
+            _avatarAskFloor = floor;
+            AvatarBoxes? boxes = null;
+            try { boxes = await ask; }
+            catch (Exception e) { Debug.LogWarning($"[Rift] floor {floor}'s avatar boxes: {e.Message}"); }
+            if (_avatarAsk != ask) return;   // EndRun has settled it already
+            if (boxes == null)
+            {
+                Debug.Log($"[Rift] floor {floor}'s avatar boxes are waiting on the store - asked again at the run's end");
+                return;
+            }
+            CreditAvatarBoxes(boxes.Value);
+        }
+
+        /// <summary>EndRun's half: an outstanding or failed ask is awaited, then asked once more,
+        /// and credited before anything banks.</summary>
+        async System.Threading.Tasks.Task SettleAvatarBoxesAsync()
+        {
+            var ask = _avatarAsk;
+            if (ask == null) return;
+            int floor = _avatarAskFloor;
+            AvatarBoxes? boxes = null;
+            try { boxes = await ask; } catch { /* asked again below */ }
+            if (_avatarAsk != ask) return;   // ClaimAvatarBoxes credited it meanwhile
+            if (boxes == null)
+                try { boxes = await _store.AvatarBoxesAsync(_profile, _runId, floor); }
+                catch (Exception e) { Debug.LogWarning($"[Rift] floor {floor}'s avatar boxes, asked again: {e.Message}"); }
+            _avatarAsk = null;
+            if (boxes != null) CreditAvatarBoxes(boxes.Value);
+        }
+
+        /// <summary>An avatar's boxes into the run's loot - FOUND, carried at risk like every box
+        /// until a Rift, extraction or floor 100 secures it. No answer at all pays nothing: nothing
+        /// was recorded, so the run's end could not mint it anyway.</summary>
+        void CreditAvatarBoxes(AvatarBoxes boxes)
+        {
+            _avatarAsk = null;
+            for (int i = 0; i < boxes.Diamond; i++) _loot.FindTieredBox(Art.Gear.LootTier.Diamond);
+            for (int i = 0; i < boxes.BlackDiamond; i++) _loot.FindTieredBox(Art.Gear.LootTier.BlackDiamond);
+            if (boxes.BlackDiamond > 0) _hud?.Flash("BLACK DIAMOND BOX");
+            else if (boxes.Diamond > 0) _hud?.Flash("DIAMOND BOX");
+            if (boxes.Diamond > 0 || boxes.BlackDiamond > 0)
+            {
+                ResaveCleared();   // the boxes are the run's now - a resume must not ask for them again
+                Debug.Log($"[Rift] floor {boxes.Floor}'s avatar paid {boxes.Diamond} Diamond, {boxes.BlackDiamond} Black Diamond");
+            }
         }
 
         /// <summary>EndRun's half: an outstanding or failed ask is awaited, then asked once more,
@@ -4754,7 +4814,9 @@ namespace Convergence.Core
             _pendingMastery = 0;
             _runCalx = 0;
 
-            // Floor 100's box first, so it is secured and banked with everything else.
+            // An avatar's boxes still outstanding, then floor 100's box, so they are secured and
+            // banked with everything else.
+            await SettleAvatarBoxesAsync();
             await SettleFinalFloorAsync();
             tally.GuaranteeWeek = _runGuaranteeWeek;
 
@@ -5174,6 +5236,7 @@ namespace Convergence.Core
                        : RiftSave.Open;
                 s.RiftSecured = _rift != null ? _rift.Secured : 0;
                 s.FinalFloorUnsettled = _finalAsk != null;
+                s.AvatarUnsettledFloor = _avatarAsk != null ? _avatarAskFloor : 0;
                 if (_groundGear != null)
                     foreach (var g in _groundGear)
                         if (g != null && !g.Taken && g.Record != null)
@@ -5283,6 +5346,14 @@ namespace Convergence.Core
                 {
                     if (Time.unscaledTime - _beatAt < Tuning.Continuation.ClockBeatSeconds) return;
                 }
+                // A fight beats on its cadence whatever health does too: the service times every
+                // floor ATTEMPT itself (web/service runProgress.ts - the run clock), and a floor left
+                // part-way counts up to the last beat it heard. A quiet fight sending none would be
+                // timed as if it stopped at its last hit.
+                else if (FightLive())
+                {
+                    if (Time.unscaledTime - _beatAt < Tuning.Continuation.BeatSeconds) return;
+                }
                 else
                 {
                     if (Mathf.Approximately(_player.Health.Current, _beatHealth) && Mathf.Approximately(WearSum(), _beatWear)) return;
@@ -5291,6 +5362,13 @@ namespace Convergence.Core
             }
             SendBeat();
         }
+
+        /// <summary>A floor is being FOUGHT: a wave arriving or alive, a boss, or a puzzle in play -
+        /// the time the run clock counts (SHORT-DESCENT.md: from the first spawn to the clear).</summary>
+        bool FightLive() =>
+            _state == State.Playing && _floor > 0 &&
+            (_spawning || _alive.Count > 0 || _spawnQueue.Count > 0 || _boss != null ||
+             (_puzzle != null && _puzzle.State == Puzzles.PuzzleState.Active));
 
         /// <summary>
         /// Whether a clock is running on this floor (the Labyrinth's, a Collapsing Rift's), and the
@@ -5472,6 +5550,18 @@ namespace Convergence.Core
                     RunStartDiamondBoxes = _profile.Boxes.Diamond,
                     RunStartBlackDiamondBoxes = _profile.Boxes.BlackDiamond,
                 };
+                // An avatar's boxes, asked again - the service answers the decision it recorded.
+                if (s.AvatarUnsettledFloor > 0)
+                {
+                    AvatarBoxes? answered = null;
+                    try { answered = await _store.AvatarBoxesAsync(_profile, s.RunId, s.AvatarUnsettledFloor); }
+                    catch (Exception e) { Debug.LogWarning($"[Rift] avatar boxes, asked at settling: {e.Message}"); }
+                    if (answered != null)
+                    {
+                        for (int i = 0; i < answered.Value.Diamond; i++) loot.FindTieredBox(Art.Gear.LootTier.Diamond);
+                        for (int i = 0; i < answered.Value.BlackDiamond; i++) loot.FindTieredBox(Art.Gear.LootTier.BlackDiamond);
+                    }
+                }
                 // Floor 100's box, asked again - the service answers the decision it recorded.
                 if (s.FinalFloorUnsettled)
                 {
@@ -5597,6 +5687,7 @@ namespace Convergence.Core
 
             _runId = s.RunId;
             _finalAsk = null;
+            _avatarAsk = null;
             _runGuaranteeWeek = s.GuaranteeWeek;
             _pendingMastery = s.PendingMastery;
             _runCalx = s.RunCalx;
@@ -5721,6 +5812,7 @@ namespace Convergence.Core
                 foreach (var b in s.GroundBoxes)
                     if (b != null) LayRiftBoxAt(new Vector2(b.X, b.Y), b.Life);
             if (s.FinalFloorUnsettled) ClaimFinalFloor();
+            if (s.AvatarUnsettledFloor > 0) ClaimAvatarBoxes(s.AvatarUnsettledFloor);
             _spawning = false;
 
             if (s.PendingScreens >= 2) OfferDeal();
