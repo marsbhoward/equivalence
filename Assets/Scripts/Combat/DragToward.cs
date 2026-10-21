@@ -26,7 +26,8 @@ namespace Convergence.Combat
             float travel = Mathf.Min(distance, Mathf.Max(0f, gap - 0.6f));   // never through the centre
             if (travel <= 0.01f) return;
 
-            var d = body.GetComponent<DragToward>() ?? body.gameObject.AddComponent<DragToward>();
+            var d = body.GetComponent<DragToward>();   // never ?? - a missing component isn't C# null
+            if (d == null) d = body.gameObject.AddComponent<DragToward>();
             d._rb = rb;
             d._step = to / gap * travel / Seconds;
             d._left = Seconds;
@@ -47,7 +48,8 @@ namespace Convergence.Combat
             Vector2 away = rb.position - from;
             if (away.sqrMagnitude < 0.0001f) away = Random.insideUnitCircle.normalized;
 
-            var d = body.GetComponent<DragToward>() ?? body.gameObject.AddComponent<DragToward>();
+            var d = body.GetComponent<DragToward>();   // never ?? - a missing component isn't C# null
+            if (d == null) d = body.gameObject.AddComponent<DragToward>();
             d._rb = rb;
             d._step = away.normalized * distance / Seconds;
             d._left = Seconds;

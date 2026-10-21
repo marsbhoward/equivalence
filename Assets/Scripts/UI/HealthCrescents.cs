@@ -64,7 +64,7 @@ namespace Convergence.UI
         float _chip = -1f, _lastFraction = -1f, _hitAt, _healAt = -10f;
         int _platesLit = -1, _shatterPlate = -1;
         float _shatterAt = -10f;
-        int _shownHp = -1, _shownMax = -1, _shownPct = -1, _shownMul = -1;
+        int _shownHp = -1, _shownMax = -1, _shownPct = -1, _shownMul = -1, _shownPlates = -1, _shownPlatesFull = -1;
         bool _shownLow;
 
         // ---------------------------------------------------------------- building
@@ -95,7 +95,7 @@ namespace Convergence.UI
             h._hpText.supportRichText = true;
             Shadowed(h._hpText);
 
-            var armRt = UiKit.Rect(rt, "armour", mid, mid, new Vector2(x0, -32), new Vector2(x0 + 360, -6));
+            var armRt = UiKit.Rect(rt, "armour", mid, mid, new Vector2(x0, -32), new Vector2(x0 + 520, -6));
             h._armourText = UiKit.Label(armRt, "", 16, new Color(0.70f, 0.77f, 0.87f), TextAnchor.UpperLeft);
             Shadowed(h._armourText);
 
@@ -118,7 +118,8 @@ namespace Convergence.UI
 
         /// <param name="armour01">Armour condition, 0..1.</param>
         /// <param name="incoming">The live incoming-damage multiplier (wear x Resilience).</param>
-        public void Tick(float current, float max, float armour01, float incoming)
+        public void Tick(float current, float max, float armour01, float incoming,
+                         float platingLeft = 0f, float platingFull = 0f)
         {
             if (_texture == null) return;
             float now = Time.unscaledTime;
@@ -143,10 +144,11 @@ namespace Convergence.UI
 
             bool low = fraction > 0f && fraction < LowFraction;
             Redraw(fraction, armour01, low, now);
-            Labels(current, max, armour01, incoming, low);
+            Labels(current, max, armour01, incoming, low, platingLeft, platingFull);
         }
 
-        void Labels(float current, float max, float armour01, float incoming, bool low)
+        void Labels(float current, float max, float armour01, float incoming, bool low,
+                    float platingLeft, float platingFull)
         {
             int cur = Mathf.CeilToInt(current), mx = Mathf.CeilToInt(max);
             if (cur != _shownHp || mx != _shownMax)
@@ -162,11 +164,16 @@ namespace Convergence.UI
 
             // Keyed on what is PRINTED, not the raw floats, so a drift in the sixth decimal does
             // not rebuild a string that reads the same.
+            // PLATING: blows left this floor before the armour wears, whole blows, rounded up so a
+            // part-spent plate still reads as one.
             int pct = Mathf.RoundToInt(armour01 * 100f), mul = Mathf.RoundToInt(incoming * 100f);
-            if (pct != _shownPct || mul != _shownMul)
+            // Both rounded UP: a part-plate still takes part of a blow (it read 10/9 at 9.6 a floor).
+            int plates = Mathf.CeilToInt(platingLeft - 0.001f), platesFull = Mathf.CeilToInt(platingFull - 0.001f);
+            if (pct != _shownPct || mul != _shownMul || plates != _shownPlates || platesFull != _shownPlatesFull)
             {
-                _shownPct = pct; _shownMul = mul;
-                UiKit.SetText(_armourText, $"ARMOUR {pct}%   ·   dmg taken x{incoming:0.00}");
+                _shownPct = pct; _shownMul = mul; _shownPlates = plates; _shownPlatesFull = platesFull;
+                string plating = platesFull > 0 ? $"   ·   plating {Mathf.Max(0, plates)}/{platesFull}" : "";
+                UiKit.SetText(_armourText, $"ARMOUR {pct}%{plating}   ·   dmg taken x{incoming:0.00}");
             }
         }
 

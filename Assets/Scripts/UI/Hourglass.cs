@@ -38,7 +38,7 @@ namespace Convergence.UI
         static readonly Color32 GlassRim = new(0x9a, 0xb2, 0xc4, 255);
         static readonly Color32 Shine = new(0xd8, 0xe8, 0xf2, 255);
 
-        /// <summary>Sand by tier: Calcination's pale through Distillation's red; then ember.</summary>
+        /// <summary>Sand by tier: Calcination's pale through Rectification's red; then ember.</summary>
         static readonly Color32[] Sand =
         {
             new(0xe8, 0xdc, 0xc0, 255), new(0xe8, 0xd0, 0x8c, 255), new(0xe8, 0xb4, 0x5c, 255),

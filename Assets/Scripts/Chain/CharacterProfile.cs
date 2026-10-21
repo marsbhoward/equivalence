@@ -74,8 +74,9 @@ namespace Convergence.Chain
         public bool HelmHidden;
 
         /// <summary>
-        /// Wear on owned items. Mutated during a run, committed at the run-end checkpoint -
-        /// never per hit.
+        /// Wear on owned items - RUN state: emptied at both run checkpoints (ProfileRules), so every
+        /// run starts in whole armour. Mutated during a run, carried by the run's snapshots for a
+        /// resume - never per hit.
         /// </summary>
         public Durability Wear = new();
 

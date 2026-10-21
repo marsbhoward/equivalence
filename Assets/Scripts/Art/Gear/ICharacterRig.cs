@@ -296,6 +296,20 @@ namespace Convergence.Art.Gear
         bool PastStrike { get; }
 
         /// <summary>
+        /// Seconds since the live swing's strike was fully drawn - into its SETTLE. 0 before the
+        /// strike is drawn, or with no swing playing. A rig with no swings returns 0.
+        /// </summary>
+        float SinceStrike { get; }
+
+        /// <summary>
+        /// Let go of the live swing's settle: the follow-through ends here and the pose eases
+        /// into the carry and the walk, as if the swing had ended. Only past the strike - before
+        /// it, nothing happens. The weapon art's settle given back to the player's feet
+        /// (PlayerController, the user's call 2026-10-21).
+        /// </summary>
+        void ReleaseSettle();
+
+        /// <summary>
         /// Seconds from the start of <paramref name="motion"/>, played over
         /// <paramref name="duration"/> (PlayAttack's argument), until its strike is fully drawn -
         /// so a caller can start a swing that lands on a moment of its own (Falling Star's slam

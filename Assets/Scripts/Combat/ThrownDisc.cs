@@ -66,6 +66,14 @@ namespace Convergence.Combat
         Vector2 _origin;
         float _range;
 
+        /// <summary>Basics forms stamped at the throw (RunEffects.ArmDisc). LODESTAR: walls this disc may
+        /// bank off instead of dropping home, and what a banked hit gains (per wall) and soaks.
+        /// SNAPBACK: a share of each hit burned a second, for the seconds.</summary>
+        public int Banks;
+        public float BankBonus, BankSoakSeconds, BankSoakVulnerability = 1f;
+        public float BurnShare, BurnSeconds;
+        int _banked;
+
         GameObject _owner;
         Player.PlayerController _player;
         Art.Gear.ICharacterRig _rig;
@@ -235,7 +243,11 @@ namespace Convergence.Combat
                     case SightResult.Amplified: _damageMul = 2f; break;
                 }
                 transform.position = nextHomePos;
-                if (Vector2.Distance(nextHomePos, home) < 0.35f) Land();
+                if (Vector2.Distance(nextHomePos, home) < 0.35f)
+                {
+                    _player?.Effects?.OnDiscCaught();   // Snapback's moment
+                    Land();
+                }
                 return;
             }
 
@@ -267,8 +279,8 @@ namespace Convergence.Combat
             if ((nextPos - prevPos).sqrMagnitude > 1e-8f) _travel = (nextPos - prevPos).normalized;
             switch (HazardQuery.CheckCrossing(prevPos, nextPos))
             {
-                case SightResult.Nulled:
-                case SightResult.Blocked: Land(); return;
+                case SightResult.Nulled: Land(); return;
+                case SightResult.Blocked: if (!TryBank(prevPos, nextPos)) Land(); return;
                 case SightResult.Amplified: _damageMul = 2f; break;
             }
             // Charnel (the exchange): a corpse in the way drops the disc as a wall does.
@@ -306,6 +318,29 @@ namespace Convergence.Combat
 
         int _strikes;
 
+        /// <summary>
+        /// LODESTAR: off the wall instead of dropping home - reflected, then onto the nearest body
+        /// not yet struck along the new line, else out to the throw's range. Every bank before a
+        /// body is counted (_banked) for that body's hit.
+        /// </summary>
+        bool TryBank(Vector2 prevPos, Vector2 nextPos)
+        {
+            if (Banks <= 0 || _homing) return false;
+            var d = nextPos - prevPos;
+            float len = d.magnitude;
+            if (len < 1e-5f || !SolidOnLine(prevPos, d / len, len + 0.05f, out var wall)) return false;
+            Banks--;
+            _banked++;
+            var pos = wall.centroid + wall.normal * 0.02f;
+            var dir = Vector2.Reflect(d / len, wall.normal).normalized;
+            transform.position = pos;
+            _travel = dir;
+            _seeking = Nearest(pos, dir, BounceRange, _hit, _owner);
+            _target = _seeking != null ? (Vector2)_seeking.transform.position : pos + dir * BounceRange;
+            Spr.Flash(pos, 0.3f, new Color(0.45f, 0.75f, 1f, 0.7f), 0.12f, false);
+            return true;
+        }
+
         /// <summary>One hit on <paramref name="h"/> at the disc's current damage, then the damage
         /// falls off for the next - every path's hit (the straight flight and the carom).</summary>
         void Strike(Health h)
@@ -324,6 +359,9 @@ namespace Convergence.Combat
             if (h == _reserved) _reserved = null;
 
             float dmg = _damage * far * near * _damageMul;
+            int banked = _banked;
+            _banked = 0;
+            if (banked > 0) dmg *= 1f + BankBonus * banked;   // Lodestar
             if (_player != null) dmg = _player.ScaleThrownHit(h, dmg, _isFinisher, Crit, t, first: first);
             var info = new DamageInfo(dmg, _element, _owner)
                 { Thrown = true, IsFinisher = _isFinisher, Crit = Crit,
@@ -342,6 +380,12 @@ namespace Convergence.Combat
             // A thrown hit is still a hit. Until this was here, a disc player at range built
             // NO elemental resource at all and nothing in the run's ledger noticed they were
             // fighting - half the class was disconnected from both systems.
+            if (_player != null && !h.IsDead)
+            {
+                if (banked > 0) _player.Soak(h, BankSoakSeconds, BankSoakVulnerability);   // Lodestar
+                if (BurnShare > 0f) _player.Burn(h, info.Amount * BurnShare, BurnSeconds);   // Snapback
+            }
+
             _player?.Resource?.OnHitLanded(h, info);
             _player?.NotifyThrownHit(h, info, t, first);
 

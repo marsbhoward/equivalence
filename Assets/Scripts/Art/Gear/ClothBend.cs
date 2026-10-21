@@ -54,6 +54,32 @@ namespace Convergence.Art.Gear
         /// units) and its phase this frame.</summary>
         public float RippleAmp, RipplePhase;
 
+        /// <summary>
+        /// The AIR a leap moves through (the user's reference, 2026-10-21 - a cape thrown up and
+        /// out like wings as the wearer drops). Positive: air from below, falling - each row rises
+        /// by its depth (the hem most, past the hinge at full) and the cloth SPREADS from its
+        /// middle. Negative: rising - the cloth hangs taut and narrows a little. 0 on the ground.
+        /// Set every frame by the rig (its billow spring), like the angles above.
+        /// </summary>
+        public float Billow;
+
+        /// <summary>
+        /// The cloth FOLDS up, it is not lifted: each row turns upward by an angle growing with depth
+        /// (this, radians, at the hem at a full billow) and sits where the cloth above it, at its own
+        /// length, puts it - so neighbouring rows are never more than a texel apart, and past
+        /// horizontal they overlap. Lifting rows straight up opened a gap between every pair once a
+        /// row rose more than a texel past the one above (the first build drew the cape as stripes).
+        /// At a full billow the hem points well up; past 1.3 it is thrown over the hinge.
+        /// </summary>
+        const float BillowFoldRad = 150f * Mathf.Deg2Rad;
+
+        /// <summary>How much wider the hem spreads at a full billow (2.2 = 220% wider - past the shoulders, the reference's wings), and how
+        /// much it narrows per unit of NEGATIVE billow.</summary>
+        const float BillowSpread = 2.2f, BillowNarrow = 0.4f;
+
+        /// <summary>How the billow grows with depth - the cloth by the hinge is held by it.</summary>
+        const float BillowPower = 1.5f;
+
         // ---- cloth over the LEGS (a skirt, a coat, faulds - the Tasset and Belt layers) ----
         //
         // Cloth hung at the waist is worn over two things the cape never meets. The HIPS do not
@@ -117,7 +143,7 @@ namespace Convergence.Art.Gear
         int _cols;
         List<Vector3> _pos;
         List<Vector2> _uv;
-        float[] _rowShift, _ahead, _behind, _colU, _colShare;
+        float[] _rowShift, _ahead, _behind, _colU, _colShare, _rowSpread;
 
         /// <summary>The bend on a layer's renderer, added (with its drawing child) the first time.</summary>
         public static ClothBend On(SpriteRenderer source)
@@ -186,6 +212,7 @@ namespace Convergence.Art.Gear
                 _dy = new int[rows];
                 for (int i = 0; i < _dx.Length; i++) _dx[i] = int.MinValue;   // force the first build
                 _rowShift = new float[rows];
+                _rowSpread = new float[rows];
                 _ahead = new float[rows];
                 _behind = new float[rows];
                 _colU = new float[cols];
@@ -218,6 +245,8 @@ namespace Convergence.Art.Gear
             // Top row first: a row may rise no less than the one above it, or a transparent
             // seam would open between them.
             int lift = 0;
+            float fold = 0f;                       // the billow's rise so far, parent units
+            float rowH = sy / ppu;                 // one row's height, parent units
             float sinPlumb = Mathf.Sin(Plumb);
             float ahead = 0f, behind = 0f, lastY = float.NaN;
             for (int r = rows - 1; r >= 0; r--)
@@ -227,13 +256,19 @@ namespace Convergence.Art.Gear
 
                 float x = 0f;
                 int dy = 0;
+                _rowSpread[r] = 0f;
                 if (t > 0f)
                 {
                     float a = Mathf.Lerp(UpperRad, LowerRad, t);
                     float w = Mathf.Pow(t, BendPower);
                     x = length * w * Mathf.Sin(a)
                         + RippleAmp * t * Mathf.Sin(RipplePhase - t * 2f * Mathf.PI);
-                    dy = Mathf.RoundToInt(length * w * (1f - Mathf.Cos(a)) / sy * ppu);
+                    float wb = Mathf.Pow(t, BillowPower);
+                    fold += rowH * (1f - Mathf.Cos(Mathf.Max(0f, Billow) * BillowFoldRad * wb));
+                    dy = Mathf.RoundToInt((length * w * (1f - Mathf.Cos(a)) + fold) / sy * ppu);
+                    // The spread grows EVENLY down the cloth (t, not wb): neighbouring rows stay close
+                    // in width, so where the fold stacks rows their ends don't stick out as streaks.
+                    _rowSpread[r] = t * (Billow >= 0f ? Billow * BillowSpread : Billow * BillowNarrow);
                 }
                 lift = Mathf.Max(lift, dy);
                 if (_dy[r] != lift) changed = true;
@@ -266,7 +301,9 @@ namespace Convergence.Art.Gear
                     {
                         x += Mathf.Lerp(_behind[r], _ahead[r], _colU[c]) * _colShare[c];
                     }
-                    int dx = Mathf.RoundToInt(flip * x / sx * ppu);
+                    // The billow's spread is about the cloth's own pivot, in its own texels - the
+                    // same either way it is mirrored.
+                    int dx = Mathf.RoundToInt(flip * x / sx * ppu + (c + 0.5f - src.pivot.x) * _rowSpread[r]);
                     if (_dx[row + c] != dx) changed = true;
                     _dx[row + c] = dx;
                 }

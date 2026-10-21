@@ -64,6 +64,14 @@ namespace Convergence.Core
                  "arena edge, so there has to be floor out there or it pans onto empty space.")]
         public float FloorMargin = Tuning.Arena.FloorMargin;
 
+        /// <summary>Blows this floor's PLATING still absorbs before armour wears (Tuning.Defense.ArmorPerPlate) -
+        /// refilled at every floor's start, a replayed floor included. Serialized: a domain reload
+        /// must not refill it mid-floor.</summary>
+        [SerializeField] float _plating;
+        public float PlatingLeft => _plating;
+        public float PlatingPerFloor => _player != null
+            ? Mathf.Max(0f, _player.Stats.Armor / Tuning.Defense.ArmorPerPlate - Modifiers.Current.PlatingLost) : 0f;   // Rust
+
         [Header("Durability")]
         [Tooltip("Durability each armour piece loses per hit taken, for a hit the size of the floor's Chaser swing - scaled by how hard the hit was (Tuning.Defense.WearReferenceHit).")]
         public float ArmorWearPerHit = 1.4f;
@@ -430,6 +438,9 @@ namespace Convergence.Core
 
             _canvas = UiKit.CreateCanvas("UI", 10);
             _canvas.transform.SetParent(transform, false);
+
+            // DEV: the format the toggle last chose (Tuning.Testing.FormatToggle).
+            if (DevFormatEnabled && PlayerPrefs.GetInt(DevFormatPref, 0) == 1) RunFormat.Current = RunFormatId.ShortDescent;
 
             _fade = UI.ScreenFade.Build(transform);
 
@@ -1036,7 +1047,7 @@ namespace Convergence.Core
         public bool DevJumpToFloor(int floor)
         {
             if (_state != State.Playing || _transitioning || _spawning) return false;
-            if (FloorRewardScreen.IsOpen || ExchangeScreen.IsOpen || ConfirmDialog.IsOpen) return false;
+            if (FloorRewardScreen.IsOpen || (ExchangeScreen.IsOpen || ChoiceList.IsOpen) || ConfirmDialog.IsOpen) return false;
             floor = Mathf.Clamp(floor, 1, Core.RunFormat.FinalFloor);
 
             foreach (var e in _alive) if (e) Destroy(e.gameObject);
@@ -1736,9 +1747,49 @@ namespace Convergence.Core
             }
         }
 
+        // ---- the dev run-format toggle (Tuning.Testing.FormatToggle) ----
+
+        const string DevFormatPref = "dev.runFormat";
+        Text _devFormatLabel;
+
+        static bool DevFormatEnabled => Tuning.Testing.FormatToggle && (Application.isEditor || Debug.isDebugBuild);
+
+        /// <summary>
+        /// Flips the next run's format on F8 (remembered in PlayerPrefs, applied again at
+        /// <see cref="Start"/>) and keeps the label on RunFormat.Current itself - never written
+        /// every frame, because a resume sets the run's own format and then waits in the hub, and
+        /// an eval may set it for a test. A domain reload mid-Play resets it to Classic; the label
+        /// then says so. True when it took the frame's input.
+        /// </summary>
+        bool TickDevFormat()
+        {
+            if (!DevFormatEnabled || _canvas == null) return false;
+            bool pressed = Controls.DevFormatTapped;
+            if (pressed)
+            {
+                RunFormat.Current = RunFormat.Short ? RunFormatId.Classic : RunFormatId.ShortDescent;
+                PlayerPrefs.SetInt(DevFormatPref, RunFormat.Short ? 1 : 0);
+                PlayerPrefs.Save();
+            }
+
+            if (_devFormatLabel == null)
+            {
+                var rt = UiKit.Rect(_canvas.transform, "DevFormat", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
+                    new Vector2(-420, -54), new Vector2(420, -14));
+                _devFormatLabel = UiKit.Label(rt, "", 20, new Color(0.95f, 0.82f, 0.45f), TextAnchor.MiddleCenter);
+            }
+            _devFormatLabel.gameObject.SetActive(true);
+            _devFormatLabel.text = RunFormat.Short
+                ? "NEXT RUN: SHORT DESCENT  (50 floors, 60 min)   [ F8 ]"
+                : "NEXT RUN: CLASSIC  (100 floors)   [ F8 ]";
+            return pressed;
+        }
+
         void HideHub()
         {
             if (_hub == null) return;
+
+            if (_devFormatLabel != null) _devFormatLabel.gameObject.SetActive(false);
 
             // Photograph the room BEFORE tearing it down - this is the only moment it exists and
             // is framed. What a Rift shows through its tear is this picture: the hub as the player
@@ -1829,7 +1880,7 @@ namespace Convergence.Core
             // field in an undefined order and the button set flickered between them every frame.
             // Ask the room what it is doing instead.
             bool screenOpen = MasteryScreen.IsOpen || ConfirmDialog.IsOpen || FloorRewardScreen.IsOpen
-                      || TransmutationScreen.IsOpen || ShowcasePicker.IsOpen || ExchangeScreen.IsOpen
+                      || TransmutationScreen.IsOpen || ShowcasePicker.IsOpen || (ExchangeScreen.IsOpen || ChoiceList.IsOpen)
                       || TransmuteScreen.IsOpen
                       || TxScreen.IsOpen || CharacterScreen.IsOpen || ForgeScreen.IsOpen
                       || ManualScreen.IsOpen || GearDisplayScreen.IsOpen || RiftScreen.IsOpen || StakeScreen.IsOpen
@@ -1911,7 +1962,7 @@ namespace Convergence.Core
             // Without this, a click meant for the mastery grid fell through to the element cards
             // underneath and started a run, and Esc aimed at a confirm prompt re-opened it.
             if (MasteryScreen.IsOpen || ConfirmDialog.IsOpen || FloorRewardScreen.IsOpen ||
-                TransmutationScreen.IsOpen || ShowcasePicker.IsOpen || ExchangeScreen.IsOpen ||
+                TransmutationScreen.IsOpen || ShowcasePicker.IsOpen || (ExchangeScreen.IsOpen || ChoiceList.IsOpen) ||
                 TransmuteScreen.IsOpen ||
                 TxScreen.IsOpen || ForgeScreen.IsOpen || ManualScreen.IsOpen ||
                 GearDisplayScreen.IsOpen || RiftScreen.IsOpen || StakeScreen.IsOpen ||
@@ -1952,6 +2003,8 @@ namespace Convergence.Core
             {
                 // The room drives itself; it owns the keyboard while its enlarged frame view is up.
                 if (_hub != null && _hub.Blocking) return;
+
+                if (TickDevFormat()) return;
 
                 // Number keys still work. Kept deliberately - walking to a door is the experience,
                 // but a shortcut past it costs nothing and is what makes the menu testable from
@@ -1997,8 +2050,10 @@ namespace Convergence.Core
 
                 // Telemetry only - never resolves anything. See StuckWatch for why a detector
                 // exists alongside player reports rather than instead of them.
+                // An open exit door is a floor waiting on the player's walk to it, not a stall.
                 bool settled = !dummyHoldsFloor && !_spawning && _puzzle == null && _boss == null && !FloorRewardScreen.IsOpen
-                               && !MasteryScreen.IsOpen && !ConfirmDialog.IsOpen && !ExchangeScreen.IsOpen;
+                               && !MasteryScreen.IsOpen && !ConfirmDialog.IsOpen && !(ExchangeScreen.IsOpen || ChoiceList.IsOpen)
+                               && _activeDoor == null;
                 if (_stuckWatch != null)
                 {
                     float fingerprint = _player != null && _player.Health != null ? _player.Health.Current : 0f;
@@ -2058,7 +2113,7 @@ namespace Convergence.Core
                 if (!dummyHoldsFloor && !runComplete && _boss == null && _activeDoor == null && _puzzle == null &&
                     !_transitioning && !_spawning && _alive.Count == 0 && _spawnQueue.Count == 0 &&
                     !FloorRewardScreen.IsOpen && !MasteryScreen.IsOpen &&
-                    !ConfirmDialog.IsOpen && !ExchangeScreen.IsOpen)
+                    !ConfirmDialog.IsOpen && !(ExchangeScreen.IsOpen || ChoiceList.IsOpen))
                 {
                     if (_floor > 0 && !_rewardTaken) OfferFloorReward();
                     else StartCoroutine(NextFloor());
@@ -2283,6 +2338,7 @@ namespace Convergence.Core
             if (ManualScreen.IsOpen) ManualScreen.Close();
             if (GearDisplayScreen.IsOpen) GearDisplayScreen.Close();
             if (ExchangeScreen.IsOpen) ExchangeScreen.Close();
+            if (ChoiceList.IsOpen) Choices.Close();
             if (TransmuteScreen.IsOpen) TransmuteScreen.Close();
             if (TxScreen.IsOpen) TxScreen.Close();
             if (StakeScreen.IsOpen) StakeScreen.Close();
@@ -2337,6 +2393,11 @@ namespace Convergence.Core
             _runStartDiamondBoxes = _profile.Boxes.Diamond;
             _runStartBlackDiamondBoxes = _profile.Boxes.BlackDiamond;
             Modifiers.Clear();
+            Core.RunClock.TierShiftSeconds = 0f;
+            // Whole armour for every run - wear is run state (ProfileRules clears it at both
+            // checkpoints too; this is the copy the player is built from). A resume never comes
+            // through here: it restores the snapshot's wear.
+            _profile.Wear.Entries.Clear();
             _floorBoon = -1;
             _floorBoonFloorsLeft = 0;
 
@@ -2403,6 +2464,8 @@ namespace Convergence.Core
                 () => _profile.Wear.Condition01(_profile.Gear, Art.Gear.SlotKind.Armor, _player.Stats.Armor),
                 () => _player.IncomingReadout,
                 () => _pendingMastery);
+            _hud.SetPlatingSource(() => _plating, () => PlatingPerFloor);
+            _hud.SetOathSource(OathLine);
             _hud.Build(_player, _canvas.transform);
         }
 
@@ -2781,10 +2844,11 @@ namespace Convergence.Core
             // finisher's lock counts as standing still.
             //
             // The run layer joins here too: the ledger's Graze and Brace as factors of their own,
-            // Patina (worn armour stops counting against you) and Lightfoot (Graze counts double
+            // Patina (worn armour counts half against you) and Lightfoot (Graze counts double
             // at full speed).
-            pc.ArmourWearMultiplier = () => Modifiers.Current.ArmourWearIgnored
-                ? 1f : _profile.Wear.DamageTakenMultiplier(_profile.Gear, pc.Stats.Armor);
+            pc.ArmourWearMultiplier = () =>
+                1f + (_profile.Wear.DamageTakenMultiplier(_profile.Gear, pc.Stats.Armor) - 1f)
+                     * Modifiers.Current.ArmourWearPenaltyMul;
             pc.IncomingDamageMultiplier = () =>
             {
                 var m = Modifiers.Current;
@@ -2878,6 +2942,8 @@ namespace Convergence.Core
             // The transmutation circle counts the blows an ENEMY lands while the player stands in
             // it; the player's own landed swings and throws come through the ledger's hook.
             hp.Damaged += info => { if (!info.Price && Exchange.RunEffects.FromEnemy(info, go)) CircleContact(); };
+            // The status layer's answers to a blow (Tidewater, Backdraft).
+            hp.Damaged += info => { if (!info.Price && Exchange.RunEffects.FromEnemy(info, go)) effects.OnStruckBy(info); };
             effects.Contact = CircleContact;
 
             // OnWeaponUsed is deliberately left unhooked: weapon degradation is off (see
@@ -2890,10 +2956,15 @@ namespace Convergence.Core
             hp.Damaged += info =>
             {
                 var m = Modifiers.Current;
-                if (m.ArmourNeverWears || info.Price) return;   // a price the run charges is not a blow
+                if (info.Price) return;   // a price the run charges is not a blow
                 float resistFactor = Art.Gear.StatPercents.ReductionFactor(pc.Stats.DamageResistance);
                 float blows = Mathf.Clamp(info.Amount / (Tuning.Defense.WearReferenceHit * FloorDifficulty.Damage(_floor)),
                                           0f, Tuning.Defense.WearMaxBlows);
+                // PLATING first: the floor's first blows wear nothing (Tuning.Defense.ArmorPerPlate).
+                float soaked = Mathf.Min(_plating, blows);
+                _plating -= soaked;
+                blows -= soaked;
+                if (blows <= 0f) return;
                 _profile.Wear.Wear(_profile.Gear, Art.Gear.SlotKind.Armor,
                                    ArmorWearPerHit * blows * m.ArmourWearMul * resistFactor,
                                    pc.Stats.Armor);
@@ -2998,6 +3069,7 @@ namespace Convergence.Core
             // The run clock: this floor's attempt opens now - the service opens it at the snapshot
             // just written (Core.RunClock).
             Clock.OpenAttempt(_floor);
+            _plating = PlatingPerFloor;   // the floor's plating, whole again
             _rewardTaken = false;
             _floorKills = 0;
             _floorSpawns = 0;
@@ -3266,6 +3338,7 @@ namespace Convergence.Core
             var albedo = Modifiers.Transmute(cost);
             ApplyLedgerToPlayer();
             _circle?.Complete();
+            OfferEvolution(null);   // a circle is one of the two places a form may evolve
             if (albedo != null)
             {
                 int left = Tuning.Exchange.TransmutationsPerRun - Modifiers.TransmutedCount;
@@ -3484,13 +3557,28 @@ namespace Convergence.Core
             // A deal after the first floor and every second floor after it (50 a run) - see
             // Tuning.Exchange.DealEvery. Drawn from the run's seed for this floor, so a restart
             // meets the same deals.
-            if (!Exchange.ExchangeOffers.DealAfterInRun(_floor) || _planner == null)
+            // THE BRAND DEAL (Phase 4): after a mini-boss, one unrefusable pair - a form against a
+            // brand - whether or not the floor would have had an ordinary deal.
+            bool brand = Exchange.ExchangeOffers.BrandDealAfter(_floor) && _floor < Core.RunFormat.FinalFloor;
+            if ((!Exchange.ExchangeOffers.DealAfterInRun(_floor) && !brand) || _planner == null)
             {
                 if (scry != null) _hud?.Flash(scry);
                 OfferFloorRewardCards();
                 return;
             }
-            var offer = Exchange.ExchangeOffers.Build(Modifiers, _floor, new System.Random(_planner.DealSeed(_floor)));
+            // After a BOSS, a form held with its catalyst may evolve first (Phase 5).
+            if (Core.RunFormat.Depth(_floor) > 0 && Rifts.FloorPlanner.IsBossFloor(_floor) && !_evolutionAsked
+                && Modifiers.Evolvable().Count > 0)
+            {
+                _evolutionAsked = true;
+                OfferEvolution(OfferDeal);
+                return;
+            }
+            _evolutionAsked = false;
+            var offer = brand
+                ? Exchange.ExchangeOffers.BuildBrand(Modifiers, new System.Random(_planner.DealSeed(_floor)))
+                : Exchange.ExchangeOffers.Build(Modifiers, _floor, new System.Random(_planner.DealSeed(_floor)));
+            if (brand) _hud?.Flash("a brand deal - one pair, a form against a rule");
             if (offer.Pairs.Count == 0)
             {
                 if (scry != null) _hud?.Flash(scry);
@@ -3509,31 +3597,157 @@ namespace Convergence.Core
 
             // Oracle: each slate shows the deal that would follow it - built on a copy of the ledger
             // with the seed the real one will use.
-            var oracle = Modifiers.StacksOf("oracle") > 0
+            var oracle = !brand && Modifiers.StacksOf("oracle") > 0
                 ? Exchange.ExchangeOffers.PreviewNext(Modifiers, offer, _floor, f => _planner.DealSeed(f))
                 : null;
 
             ExchangeScreen.Show(_canvas.transform, offer, Modifiers, _floor, preview, pair =>
             {
+                int token = _runToken;
+                // The deal is answered: a resume from here shows only the reward.
+                void Answered()
+                {
+                    if (token != _runToken || _state != State.Playing) return;
+                    SaveRun(Chain.RunStage.Cleared, pending: 1);
+                    OfferFloorRewardCards();
+                }
+
                 if (pair != null)
                 {
-                    // Boon first, so a cost that reshapes the next offer cannot be undone by a
-                    // boon taken in the same breath - both are applied, in a fixed order.
-                    if (pair.Boon != null) Modifiers.Take(pair.Boon);
-                    if (pair.Cost != null) Modifiers.Take(pair.Cost);
-                    ApplyLedgerToPlayer();
-                    Debug.Log($"[Exchange] took {pair.Boon?.Name ?? "nothing"} / {pair.Cost?.Name ?? "nothing"}");
+                    // An ART form is inscribed on the rotation socket the player picks, and its
+                    // socket cost goes on the same socket (EXCHANGE.md 5.3). Must be answered.
+                    if (pair.Boon != null && pair.Boon.Slot == Exchange.FormSlot.Art && _player != null && _player.Slots.Count > 0)
+                    {
+                        AskSocket(pair.Boon, socket => { TakePair(pair, socket); Answered(); });
+                        return;
+                    }
+                    TakePair(pair, -1);
                 }
                 else
                 {
                     if (offer.CanRefuse) Modifiers.Refuse();
                     Debug.Log($"[Exchange] refused ({Modifiers.RefusalsLeft} refusals left)");
+                    // A refusal may also take a form out of a stacked slot - the refusal and the
+                    // deal are its price (the user's call, 2026-10-20).
+                    var removable = offer.CanRefuse ? Modifiers.RemovableForms() : null;
+                    if (removable != null && removable.Count > 0)
+                    {
+                        AskRemoval(removable, Answered);
+                        return;
+                    }
                 }
-
-                // The deal is answered: a resume from here shows only the reward.
-                SaveRun(Chain.RunStage.Cleared, pending: 1);
-                OfferFloorRewardCards();
+                Answered();
             }, scry, oracle);
+        }
+
+        /// <summary>
+        /// The OATHS' line on the HUD (Phase 4): each sworn oath and how far along it is - and the
+        /// moment one is fulfilled, said once.
+        /// </summary>
+        string OathLine()
+        {
+            var done = Modifiers.LastFulfilled;
+            if (done != null)
+            {
+                Modifiers.ClearLastFulfilled();
+                _hud?.Flash($"OATH KEPT · {done.Name}");
+            }
+            string line = _player != null && _player.Effects != null ? _player.Effects.GrowthLine : null;   // Kindling, Swell
+            if (Modifiers.StacksOf("blood_debt") > 0)
+                line = (line != null ? line + "      " : "") + $"BLOOD DEBT  {Mathf.FloorToInt(Modifiers.OathProgress("blood_debt"))} / {Tuning.Exchange.BloodDebtWorth:0}";
+            if (Modifiers.StacksOf("unbloodied") > 0)
+                line = (line != null ? line + "      " : "") + "UNBLOODIED  clear a floor unhit";
+            return line;
+        }
+
+        bool _evolutionAsked;
+
+        /// <summary>
+        /// EVOLUTION (Phase 5): every form held with its catalyst may grow into its evolution - asked
+        /// after a circle's transmutation and after a boss. Declining keeps it for the next chance.
+        /// </summary>
+        void OfferEvolution(System.Action then)
+        {
+            var ready = Modifiers.Evolvable();
+            if (ready.Count == 0) { then?.Invoke(); return; }
+            var answers = new List<(string, string)>();
+            foreach (var evo in ready)
+                answers.Add(($"{Exchange.ExchangeCatalog.Get(evo.EvolvesFrom)?.Name}  >>  {evo.Name}", evo.Effect));
+            // The process NAMED, never explained (the user's calls, 2026-10-21).
+            Choices.Show(_canvas.transform, "CAUDA PAVONIS", "",
+                         answers, i =>
+                         {
+                             var evo = ready[i];
+                             Modifiers.Evolve(evo);
+                             ApplyLedgerToPlayer();
+                             _hud?.Flash($"CAUDA PAVONIS · {evo.Name}");
+                             Debug.Log($"[Exchange] evolved {evo.EvolvesFrom} into {evo.Id}");
+                             then?.Invoke();
+                         }, "Not now", then);
+        }
+
+        /// <summary>A pair taken: boon first (so a cost reshaping the next offer can't be undone by a
+        /// boon in the same breath), then the cost; a form and a socket cost inscribed where they go.</summary>
+        void TakePair(Exchange.ExchangePair pair, int socket)
+        {
+            if (pair.Boon != null) { Modifiers.Take(pair.Boon); Modifiers.Inscribe(pair.Boon, socket); }
+            if (pair.Cost != null) { Modifiers.Take(pair.Cost); Modifiers.Inscribe(pair.Cost, socket); }
+            ApplyLedgerToPlayer();
+            // A UNION formed by this take (two opposite humours held level) is announced.
+            var union = Modifiers.LastUnion;
+            if (union != null) _hud?.Flash($"UNION · {union.Name}");
+            Debug.Log($"[Exchange] took {pair.Boon?.Name ?? "nothing"} / {pair.Cost?.Name ?? "nothing"}" +
+                      (socket >= 0 ? $" on socket {socket}" : ""));
+        }
+
+        UI.ChoiceList Choices
+        {
+            get
+            {
+                if (_choices != null) return _choices;
+                _choices = GetComponent<UI.ChoiceList>();   // never ?? - a missing component isn't C# null
+                if (_choices == null) _choices = gameObject.AddComponent<UI.ChoiceList>();
+                return _choices;
+            }
+        }
+        UI.ChoiceList _choices;
+
+        /// <summary>Which art of the rotation an Art form is inscribed on - each with the forms
+        /// already there and what every one would run at once this joins.</summary>
+        void AskSocket(Exchange.ExchangeEntry form, System.Action<int> onPick)
+        {
+            var answers = new List<(string, string)>();
+            for (int i = 0; i < _player.Slots.Count; i++)
+            {
+                var forms = Modifiers.FormsIn(Exchange.FormSlot.Art, i);
+                string art = _player.Slots[i]?.DisplayName ?? "an art";
+                string held = forms.Count == 0 ? "no forms yet - it runs at full strength"
+                    : $"{string.Join(", ", forms.ConvertAll(f => f.Name))} - with this one, each runs at " +
+                      $"{Mathf.RoundToInt(Exchange.RunModifiers.ShareFor(forms.Count + 1) * 100f)}%";
+                answers.Add(($"{i + 1}.  {art}", held));   // numbered: one art can sit in two sockets
+            }
+            Choices.Show(_canvas.transform, $"Inscribe {form.Name}", "Which art carries it? Its cost goes on the same art.",
+                         answers, onPick);
+        }
+
+        /// <summary>After a refusal: take a form out of a stacked slot, or keep them all.</summary>
+        void AskRemoval(List<Exchange.ExchangeEntry> removable, System.Action then)
+        {
+            var answers = new List<(string, string)>();
+            foreach (var f in removable)
+            {
+                int socket = Modifiers.SocketOf(f.Id);
+                string where = f.Slot == Exchange.FormSlot.Art && _player != null && socket >= 0 && socket < _player.Slots.Count
+                    ? $"on {_player.Slots[socket]?.DisplayName}" : $"on your {f.Slot.ToString().ToLowerInvariant()}";
+                answers.Add(($"Take out {f.Name}", where + " - gone for the run; the others there grow stronger"));
+            }
+            Choices.Show(_canvas.transform, "Take a form out?", "Your refusal can also take one form out of a slot that holds two or more.",
+                         answers, i =>
+                         {
+                             Modifiers.RemoveForm(removable[i]);
+                             Debug.Log($"[Exchange] took out {removable[i].Name}");
+                             then();
+                         }, "Keep them all", then);
         }
 
         /// <summary>
@@ -3564,6 +3778,8 @@ namespace Convergence.Core
         /// </summary>
         void ApplyLedgerToPlayer()
         {
+            // Sealed Sands (a brand): the heat is read a tier ahead of the run clock.
+            Core.RunClock.TierShiftSeconds = Modifiers.StacksOf("sealed_sands") > 0 ? Tuning.RunClock.TierSeconds : 0f;
             if (_player == null || _player.Health == null) return;
 
             float baseHp = _player.Resource != null && _player.Resource.Element == ElementType.Air

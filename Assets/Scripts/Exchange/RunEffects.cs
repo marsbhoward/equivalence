@@ -59,6 +59,7 @@ namespace Convergence.Exchange
 
         float _stillSeconds;
         float _movingSeconds;
+        bool _poiseArmed;
 
         /// <summary>Seconds the player has stood still - Lapis, Restless, Quicksand, Mountain.</summary>
         public float StillSeconds => _stillSeconds;
@@ -66,6 +67,10 @@ namespace Convergence.Exchange
         public void Tick(float dt, bool moving, float meter01)
         {
             _floorSeconds += dt;
+            // POISE (Equipoise's Rubedo): a change of pace, after a second held in the old one,
+            // arms a halved hit - starting after standing, or stopping after moving.
+            if (moving ? _stillSeconds >= T.PoiseAfterSeconds : _movingSeconds >= T.PoiseAfterSeconds)
+                _poiseArmed = true;
             _stillSeconds = moving ? 0f : _stillSeconds + dt;
             _movingSeconds = moving ? _movingSeconds + dt : 0f;
 
@@ -93,6 +98,9 @@ namespace Convergence.Exchange
             _projectionTimer = ProjectionEvery * 0.5f;
             _leyTimer = T.LeyLinesEvery * 0.5f;
             _antipathyTimer = T.AntipathyEvery;
+            _hitThisFloor = false;   // Unbloodied
+            _soakedDeaths = 0;       // Swell grows a floor at a time
+            if (AtMax("stubborn_ore")) Resource?.Spill(1f);   // Barren: the meter empties as a floor starts
 
             float start = M.StartMeterFraction;
             if (start > 0f && Resource != null && Resource.Fill01 < start)
@@ -112,7 +120,8 @@ namespace Convergence.Exchange
                 Pay(of * Mathf.Min(0.9f, T.TollFraction * toll));
             }
 
-            if (Has("tribute") && hp != null && !hp.IsDead) hp.Heal(hp.Max * T.TributeHeal);
+            // UNBLOODIED (an oath): a floor cleared without a hit fulfils it.
+            if (Has("unbloodied") && !_hitThisFloor) _mods.Fulfil("unbloodied");
 
             Hazards.ProjectionLines.CalmAll();
         }
@@ -124,6 +133,7 @@ namespace Convergence.Exchange
         public void CaptureCounters(Chain.RunSnapshot s)
         {
             s.HitCount = _hitCount;
+            s.BurningDeaths = _burningDeaths;
             s.Arts = _arts;
             s.VapourCount = _vapourCount;
             s.WellspringCount = _wellspringCount;
@@ -132,6 +142,7 @@ namespace Convergence.Exchange
         public void RestoreCounters(Chain.RunSnapshot s)
         {
             _hitCount = s.HitCount;
+            _burningDeaths = s.BurningDeaths;
             _arts = s.Arts;
             _vapourCount = s.VapourCount;
             _wellspringCount = s.WellspringCount;

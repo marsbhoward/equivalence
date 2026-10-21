@@ -88,7 +88,9 @@ namespace Convergence.UI
             img.sprite = ExchangeGlyphs.Get(e);
             img.preserveAspect = true;
             img.raycastTarget = false;
-            img.color = e.Kind == ExchangeKind.Boon ? BoonTint : CostTint;
+            // The kind's designated colour (ExchangeInk) - a flat tint, so a weapon-art form shows its
+            // violet light here: black would vanish on the chip.
+            img.color = ExchangeInk.Tint(e);
 
             // Repeats collapse to a count. Ten floors of picks as twenty tiles is no longer
             // something anyone can read at a glance.

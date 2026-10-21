@@ -45,6 +45,11 @@ namespace Convergence.Combat
         /// <summary>A Four Birds spectral arrow: its hit never spends a Mark (DamageInfo.SparesMark).</summary>
         public bool SparesMark;
 
+        /// <summary>Basics forms stamped at the loose (RunEffects.ArmArrow): PATIENT STRING bleeds a share
+        /// of the hit over its seconds; LONG EMBER burns what it strikes past a share of the reach.</summary>
+        public float BleedShare, BleedSeconds;
+        public float EmberFrom = 2f, EmberShare, EmberSeconds;
+
         /// <summary>The damage it carries (set after Fire - the twin shot halves it).</summary>
         public float Damage { get => _damage; set => _damage = value; }
 
@@ -181,7 +186,7 @@ namespace Convergence.Combat
         {
             if (_owner == null) { Destroy(gameObject); return; }
             if (_piercing) { UpdatePierce(); return; }
-            if (_target == null || _target.IsDead) { Destroy(gameObject); return; }
+            if (_target == null || _target.IsDead) { Miss(); return; }
             if (_lob > 0f) { UpdateLob(); return; }
 
             if (Through != null)
@@ -215,15 +220,23 @@ namespace Convergence.Combat
             switch (HazardQuery.CheckCrossing(prevPos, nextPos))
             {
                 // A Blue force field nulls the shot outright - it vanishes here, dealing nothing.
-                case SightResult.Nulled: Destroy(gameObject); return;
-                case SightResult.Blocked: Destroy(gameObject); return;
+                case SightResult.Nulled: Miss(); return;
+                case SightResult.Blocked: Miss(); return;
                 case SightResult.Amplified: _damageMul = 2f; break;
             }
             // Charnel (the exchange): a corpse in the way stops the arrow.
-            if (Corpse.StopsShot(prevPos, nextPos, out _)) { Destroy(gameObject); return; }
+            if (Corpse.StopsShot(prevPos, nextPos, out _)) { Miss(); return; }
 
             if (dist <= step) { Hit(); return; }
             transform.position = nextPos;
+        }
+
+        /// <summary>The arrow ends without striking anything - its target gone, or a wall, a field or
+        /// a corpse in the way. A basic's miss tells the ledger (Thornfield, a basics form).</summary>
+        void Miss()
+        {
+            if (!_isFinisher && _player != null) _player.Effects?.OnArrowMissed(transform.position);
+            Destroy(gameObject);
         }
 
         // ---- LOBBED (the bow's High pair, 2026-10-17): the shot homes along the GROUND as any
@@ -303,6 +316,14 @@ namespace Convergence.Combat
                 CrowdHits.Splash(body, info.Amount, SplashFraction, _element, _owner);
                 CrowdHits.Pierce(body, (Vector2)body.transform.position - _origin, info.Amount,
                                  PierceFraction, _element, _owner);
+            }
+
+            if (_player != null && !body.IsDead)
+            {
+                if (BleedShare > 0f && BleedSeconds > 0f)
+                    _player.Bleed(body, info.Amount * BleedShare / BleedSeconds, BleedSeconds);
+                if (EmberShare > 0f && t >= EmberFrom)
+                    _player.Burn(body, info.Amount * EmberShare, EmberSeconds);
             }
 
             _player?.Resource?.OnHitLanded(body, info);

@@ -37,15 +37,23 @@ namespace Convergence.Art.Gear
     // fold as the swinging foot lifts, and give a little as the weight lands on each footfall.
     public partial class PrimitiveCharacterRig
     {
-        /// <summary>Stride cycles a second at the reference speed - two footfalls each.</summary>
-        const float WalkStrideHz = 1.7f;
+        /// <summary>Stride cycles a second at the base walk speed (Tuning.Player.MoveSpeed) - two
+        /// footfalls each. With <see cref="WalkStride"/>, the user's pick from four filmed variants
+        /// (2026-10-21, "E"): at 1.7 and 0.06 a planted foot kept up with ~15% of the ground going by
+        /// and the walk read as floating; here it keeps ~65%, at every speed (see WalkStrideScale).</summary>
+        const float WalkStrideHz = 2.6f;
 
         /// <summary>
         /// How cadence grows with speed. Under 1 because going faster mostly lengthens the stride
         /// and only partly quickens it; at 1 a haste buff turned the legs into a blur, and a sand
-        /// trap slowed them into a moonwalk.
+        /// trap slowed them into a moonwalk. The STRIDE takes the rest (1 - this), so cadence x
+        /// stride follows speed and the feet keep the same share of the ground at any speed.
         /// </summary>
         const float WalkCadenceExponent = 0.5f;
+
+        /// <summary>The stride's growth with speed is capped here - past it a hasted walk splits
+        /// the legs wider than this near face-on view draws cleanly, and it glides a little again.</summary>
+        const float WalkStrideMaxScale = 1.4f;
 
         /// <summary>
         /// Share of each leg's cycle spent on the ground. OVER half, so each footfall lands before
@@ -57,7 +65,7 @@ namespace Convergence.Art.Gear
         /// How far each foot travels either side of its hip through the stance, world units. The
         /// swing overshoots it a little. Narrow on purpose - see the note at the top.
         /// </summary>
-        const float WalkStride = 0.06f;
+        const float WalkStride = 0.21f;
 
         /// <summary>
         /// How high the swinging foot lifts, world units. Enough to clear the floor and fold the
@@ -175,6 +183,7 @@ namespace Convergence.Art.Gear
         // Plain floats, so a domain reload restores all of them.
         float _gaitWeight;   // 0..1, eased: how big the walk is
         float _strideRate;   // radians of _stride per second, SIGNED - negative backpedals
+        float _strideScale = 1f;   // the stride's share of speed (WalkCadenceExponent), eased
         float _walkLean;      // degrees, eased; the steady lean, kept apart from the lean spring
 
         /// <summary>The leg's length, hip to sole, in the rig's own units.</summary>
@@ -198,9 +207,10 @@ namespace Convergence.Art.Gear
         /// </summary>
         void AdvanceGait(float dt, float speed)
         {
-            float reference = Player != null ? Mathf.Max(0.1f, Player.MoveSpeed)
-                                             : Convergence.Core.Tuning.Player.MoveSpeed;
-            float relative = Mathf.Clamp(speed / reference, 0f, 2.5f);
+            // Against the BASE walk speed, not the character's own (Player.MoveSpeed folds gear's
+            // Move Speed in): the walk is drawn for one speed, and every source of more or less -
+            // gear, the ledger, a spire, sand - is ground the legs must cover.
+            float relative = Mathf.Clamp(speed / Convergence.Core.Tuning.Player.MoveSpeed, 0f, 2.5f);
 
             float want = GaitWeightWanted(speed);
             float sharp = want > _gaitWeight ? WalkGrowSharpness : WalkFadeSharpness;
@@ -214,10 +224,20 @@ namespace Convergence.Art.Gear
 
             float rate = direction * Mathf.PI * 2f * WalkStrideHz * Mathf.Pow(relative, WalkCadenceExponent);
             _strideRate = Mathf.Lerp(_strideRate, rate, 1f - Mathf.Exp(-WalkRateSharpness * dt));
+            // A stop keeps the last stride while the walk shrinks (_gaitWeight), so the legs don't
+            // snap together; only real movement re-sizes it.
+            if (relative > 0.05f)
+            {
+                float scale = Mathf.Min(WalkStrideMaxScale, Mathf.Pow(relative, 1f - WalkCadenceExponent));
+                _strideScale = Mathf.Lerp(_strideScale, scale, 1f - Mathf.Exp(-WalkRateSharpness * dt));
+            }
 
             // Wrapped, so the phase never loses precision over a long session.
             _stride = Mathf.Repeat(_stride + _strideRate * dt, Mathf.PI * 2f);
 
+            // The lean still reads the character's own top speed: it is how hard they push, not ground.
+            float reference = Player != null ? Mathf.Max(0.1f, Player.MoveSpeed)
+                                             : Convergence.Core.Tuning.Player.MoveSpeed;
             float lean = forward >= 0f
                 ? -Mathf.Clamp01(forward / reference) * WalkLeanDegrees
                 : Mathf.Clamp01(-forward / reference) * WalkLeanDegrees * WalkBackpedalLeanShare;
@@ -322,7 +342,7 @@ namespace Convergence.Art.Gear
             // the hips' pivot line, so its height is the hips'.
             float sole = HipsRest.y - LegLength;
             float footY = sole + GaitFootLift(cycle) * _gaitWeight - travel * WalkFootDepth;
-            SolveLeg(travel * WalkStride + footShift, footY - hipsY, out float thigh, out float bend);
+            SolveLeg(travel * WalkStride * _strideScale + footShift, footY - hipsY, out float thigh, out float bend);
 
             hip.localRotation = Quaternion.Euler(0f, 0f, thigh);
             knee.localRotation = Quaternion.Euler(0f, 0f, bend);

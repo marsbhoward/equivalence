@@ -44,7 +44,6 @@ namespace Convergence.UI
         static readonly Color RefuseColor = new(0.055f, 0.06f, 0.08f, 1f);
         static readonly Color BronzeLit = new(0.78f, 0.57f, 0.31f);
         static readonly Color BronzeDark = new(0.56f, 0.36f, 0.18f);
-        static readonly Color CitrineText = new(0.91f, 0.78f, 0.29f);
 
         GameObject _root;
         ExchangeOffer _offer;
@@ -173,8 +172,8 @@ namespace Convergence.UI
                 new Vector2(0, -166), new Vector2(0, -132)),
                 _offer.CanRefuse
                     ? "nothing is given that is not also taken"
-                    : _offer.Forced ? "INDENTURE - you must take one"
-                    : "NO REFUSALS LEFT - you must take one",
+                    : _offer.Forced ? "INDENTURE - take one"
+                    : "NO REFUSALS LEFT - take one",
                 18, _offer.CanRefuse ? Muted : new Color(0.88f, 0.5f, 0.4f), TextAnchor.MiddleCenter);
 
             // Slates laid out with the refuse card in the MIDDLE of the row, same size as what it
@@ -352,16 +351,12 @@ namespace Convergence.UI
                 return;
             }
 
-            var tint = boon ? LedgerStrip.BoonTint : LedgerStrip.CostTint;
+            // The kind's designated colour, and the process it came out of NAMED - never explained
+            // (the user's calls, 2026-10-21; ExchangeInk).
+            var tint = ExchangeInk.Tint(e);
             Line(stack, e.Name, 26, tint, FontStyle.Bold);
-
-            if (e.IsCombination && e.Parts != null)
-            {
-                var names = new List<string>();
-                foreach (var id in e.Parts) names.Add(ExchangeCatalog.Get(id)?.Name ?? id);
-                Line(stack, $"{e.Origin.ToString().ToUpperInvariant()} - {string.Join(" + ", names)}", 15,
-                    e.Origin == EntryOrigin.Citrinitas ? CitrineText : Gold);
-            }
+            var process = ExchangeInk.Process(e);
+            if (process != null) Line(stack, process, 15, ExchangeInk.KindOf(e) is ExchangeInk.Kind.Boon or ExchangeInk.Kind.Cost ? Gold : tint);
 
             Line(stack, e.Effect, 20, Body);
 
@@ -372,10 +367,9 @@ namespace Convergence.UI
             // circle would make of it. Said on the card, because that is the decision.
             if (ExchangeScale.Completes(e, held))
             {
-                string cap = $"completes its {e.CapKind.ToUpperInvariant()} - {e.CapName}: {e.CapText}";
-                var albedo = e.AlbedoId != null ? ExchangeCatalog.Get(e.AlbedoId) : null;
-                if (albedo != null) cap += $" A circle makes it {albedo.Name}.";
-                Line(stack, cap, 17, boon ? ExchangeScale.RubedoText : ExchangeScale.NigredoText);
+                var capColor = boon ? ExchangeScale.RubedoText : ExchangeScale.NigredoText;
+                Line(stack, ExchangeInk.Capstone(e), 17, capColor, FontStyle.Bold);
+                Line(stack, e.CapText, 17, capColor);
             }
 
             var icon = UiKit.Rect(col, "icon", new Vector2(0.5f, 0), new Vector2(0.5f, 0),

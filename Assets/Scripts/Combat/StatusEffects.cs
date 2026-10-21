@@ -252,6 +252,42 @@ namespace Convergence.Combat
 
         public const int MaxStaggerStacks = 3;
 
+        /// <summary>Holds a running stagger for at least <paramref name="seconds"/> more WITHOUT adding a
+        /// stack (the exchange's Pin Down) - a stack per hit would reach the deepest slow at once.</summary>
+        public void ExtendStagger(float seconds)
+        {
+            if (_staggerRemaining > 0f) _staggerRemaining = Mathf.Max(_staggerRemaining, seconds);
+        }
+
+        /// <summary>Takes <paramref name="seconds"/> of the bleed now - its damage returned, its time
+        /// shortened (Clot, a union).</summary>
+        public float TakeBleed(float seconds)
+        {
+            if (_bleedRemaining <= 0f) return 0f;
+            float s = Mathf.Min(seconds, _bleedRemaining);
+            _bleedRemaining -= s;
+            return _bleedDps * _bleedStacks * s;
+        }
+
+        /// <summary>Ends the bleed and returns what it had left to deal (Lancet).</summary>
+        public float ConsumeBleed()
+        {
+            if (_bleedRemaining <= 0f) return 0f;
+            float left = _bleedDps * _bleedStacks * _bleedRemaining;
+            _bleedRemaining = 0f; _bleedDps = 0f; _bleedStacks = 1;
+            return left;
+        }
+
+        /// <summary>Ends both burns and returns what they had left to deal (Backdraft).</summary>
+        public float ConsumeBurn()
+        {
+            float left = 0f;
+            if (_burnRemaining > 0f) left += _burnDps * _burnRemaining;
+            if (_wBurnRemaining > 0f) left += _wBurnDps * _wBurnRemaining;
+            _burnRemaining = 0f; _wBurnRemaining = 0f;
+            return left;
+        }
+
         /// <summary>Spends the stagger stacks (Congelation consumes them as it roots).</summary>
         public void ClearStaggerStacks() => _staggerStacks = 0;
 

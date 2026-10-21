@@ -16,7 +16,24 @@ namespace Convergence.Exchange
     {
         Edge, Anvil, Hide, Quicksilver, Azoth, Ledger,          // boons
         Blunted, Brittle, Tithe, Leaden, Leaking, Blindfold,    // costs
+        // The status layer (2026-10-20): the board's four humours - Phase 3's schools.
+        Choler, Phlegm, Sanguine, Melancholy,
     }
+
+    /// <summary>
+    /// Where a FORM is inscribed (Phase 2, EXCHANGE.md section 5.3): an ART of the rotation (the
+    /// player picks the socket), the basics, a kill, or the defensive ability. A form changes what
+    /// that action DOES; forms sharing a slot share its strength. None for every other entry.
+    /// </summary>
+    public enum FormSlot { None, Art, Basics, Kill, Defence }
+
+    /// <summary>
+    /// THE SCHOOLS (Phase 3, EXCHANGE.md 5.4-5.5): the four humours the board names, and the Ledger.
+    /// The humours are two pairs of OPPOSITES - Choler and Phlegm (hot and dry against cold and
+    /// wet), Sanguine and Melancholy (hot and wet against cold and dry). A run that leans into one
+    /// draws more of its costs from the opposite; two opposites held level unlock their UNION.
+    /// </summary>
+    public enum School { None, Choler, Phlegm, Sanguine, Melancholy, Ledger }
 
     /// <summary>The mark drawn inside the family silhouette, which identifies the entry.</summary>
     public enum ExchangeMark { None, Dot1, Dot2, Dot3, Bar, Ring, Cross, Stroke, Drop }
@@ -28,7 +45,7 @@ namespace Convergence.Exchange
     /// white its transmutation (Albedo), yellow a boon and a cost combined (Citrinitas), red a
     /// maxed boon (its Rubedo) - with Conjunction (boon + boon) and Putrefaction (cost + cost).
     /// </summary>
-    public enum EntryOrigin { Base, Albedo, Conjunction, Putrefaction, Citrinitas }
+    public enum EntryOrigin { Base, Albedo, Conjunction, Putrefaction, Citrinitas, Union, Evolution }
 
     /// <summary>How auto-target chooses, when a cost or an Albedo overrides it.</summary>
     public enum TargetMode { Normal, Random, Weakest }
@@ -51,6 +68,10 @@ namespace Convergence.Exchange
     public class Mods
     {
         static readonly int StatCount = Enum.GetValues(typeof(StatKind)).Length;
+
+        /// <summary>FERMENT's reward: an Albedo's potency (1 = as written), read by its own Apply.</summary>
+        public System.Collections.Generic.Dictionary<string, float> Potency;
+        public float PotencyOf(string id) => Potency != null && Potency.TryGetValue(id, out var p) ? p : 1f;
 
         /// <summary>Positive run-layer points per stat (boons), before the Vessel.</summary>
         public readonly float[] Up = new float[StatCount];
@@ -161,11 +182,12 @@ namespace Convergence.Exchange
         public float HealCeiling = 1f;
 
         public float ArmourWearMul = 1f;
+        /// <summary>Blows a floor's plating covers fewer (Rust) - a cost lowering a gear threshold.</summary>
+        public float PlatingLost;
         public float RepairMul = 1f;
-        public bool ArmourNeverWears;
 
-        /// <summary>Worn armour no longer raises the damage taken (Patina).</summary>
-        public bool ArmourWearIgnored;
+        /// <summary>The share of worn armour's extra damage taken that still lands (Patina halves it).</summary>
+        public float ArmourWearPenaltyMul = 1f;
 
         /// <summary>How fast the meter fades or decays (Leaky Vessel).</summary>
         public float DecayMul = 1f;
@@ -310,6 +332,46 @@ namespace Convergence.Exchange
         /// <summary>A cost's Albedo: the boon a transmutation circle turns it into.</summary>
         public string AlbedoId;
 
+        /// <summary>
+        /// The AXIS a boon gives and a cost takes (damage, range, wear...), set only on the pairs
+        /// that mirror each other. A slate never pairs a boon with a cost on its own axis - +Damage
+        /// against -Damage is a choice about nothing, and Kiln-Fired against Rust was a free one
+        /// (docs/balance/2026-10-20-exchange-review.md). A form paid for on its own ACTION is
+        /// different, and intended.
+        /// </summary>
+        public string Axis;
+
+        /// <summary>A FORM's slot (FormSlot.None for every other entry). An Art form is inscribed on
+        /// the rotation socket the player picks when it is taken.</summary>
+        public FormSlot Slot;
+
+        /// <summary>A cost on ONE SOCKET of the rotation - what an Art form's slate pays with, on
+        /// the socket the form is inscribed on. Never drawn on an ordinary slate.</summary>
+        public bool SocketCost;
+
+        /// <summary>The entry's school - its humour, or the Ledger (Phase 3).</summary>
+        public School School;
+
+        /// <summary>A BRAND: a cost that changes a rule (Phase 4) - what the brand deal after a
+        /// mini-boss pays with.</summary>
+        public bool Brand;
+
+        /// <summary>An OATH: a cost that ends when a task is done (Phase 4) - fulfilled, it leaves the
+        /// ledger for the run.</summary>
+        public bool Oath;
+
+        /// <summary>Out of the deal pool (the user's calls - Fleetfoot, Evanescence and Stonestance
+        /// folded into Equipoise, 2026-10-21). Kept in the catalogue, so a run or save that holds it
+        /// still loads and still works, and the Assay's fixed builds still check.</summary>
+        public bool Retired;
+
+        /// <summary>Offered only in the Short Descent (its run clock).</summary>
+        public bool ShortOnly;
+
+        /// <summary>An EVOLUTION (Phase 5): the form it grows from and the status entry that is its
+        /// catalyst - both held, it may evolve at a circle or after a boss. Null otherwise.</summary>
+        public string EvolvesFrom, Catalyst;
+
         /// <summary>A combination's two parts (any stacks of each).</summary>
         public string[] Parts;
 
@@ -348,7 +410,7 @@ namespace Convergence.Exchange
         public string Describe()
         {
             if (CapName == null) return Effect;
-            return $"{Effect} At {Roman(MaxStacks)}, {CapKind} - {CapName}: {CapText}";
+            return $"{Effect} {CapKind.ToUpperInvariant()} · {CapName}: {CapText}";
         }
 
         public static string Roman(int n) => n switch { 1 => "I", 2 => "II", 3 => "III", 4 => "IV", _ => n.ToString() };

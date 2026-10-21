@@ -87,6 +87,14 @@ namespace Convergence.Core
             public const bool DemoShowcase = false;
 
             /// <summary>
+            /// The run-format toggle for playtesting the Short Descent: F8 in the hub flips the NEXT
+            /// run between Classic and Short, a label at the top of the hub says which, and the choice
+            /// is remembered between sessions (PlayerPrefs). Editor and development builds only, so a
+            /// release build never offers a format the service does not accept (RUN_FORMATS).
+            /// </summary>
+            public static readonly bool FormatToggle = true;
+
+            /// <summary>
             /// Read a real wallet's holdings straight from the equivalence-service REST API on
             /// startup, bypassing WebChainBridge entirely - that bridge only exists inside a
             /// browser build, so this is the one way to see the showcase/crate wired to real chain
@@ -220,7 +228,7 @@ namespace Convergence.Core
             /// Distinct from <see cref="Attack.GlobalTempo"/>, which it multiplies against: tempo
             /// is the designer's global feel dial for everyone, this is one character's stat.
             /// </summary>
-            public const float AttackSpeedPercent = 120f;
+            public const float AttackSpeedPercent = 135f;
 
             // Starting max HP. 100% is whichever of these the element uses.
             //
@@ -233,7 +241,7 @@ namespace Convergence.Core
 
             /// <summary>Air, the glass cannon. ~12 basic hits, or 6.5 from an elite. Calibrated with
             /// the elements (Tuning.Elements).</summary>
-            public const float HpAir = 97.5f;
+            public const float HpAir = 98.5f;
 
             /// <summary>Earth, the tank. ~15 basic hits. Calibrated with the elements.</summary>
             public const float HpEarth = 125f;
@@ -890,7 +898,164 @@ namespace Convergence.Core
 
             /// <summary>Cleaving Habit: run-layer Cleave, a Gold weapon's Cleave primary
             /// (12 x 1.5 x 2). Basics losing NOTHING through a crowd made Cleave rolls worthless.</summary>
-            public const float CleavingHabitCleave = 36f;
+            public const float CleavingHabitCleave = 36f;   // retired 2026-10-20 (Scything); kept for old balance notes
+            /// <summary>SCYTHING (Wide Arc II): a swing that strikes this many bodies staggers every one -
+            /// a Rubedo that only added Cleave had no behaviour (docs/balance/2026-10-20-exchange-review.md).</summary>
+            // ---------------------------------------------------------------- the status layer
+            // Phase 1 (2026-10-20, EXCHANGE.md): sources and payoffs on the mastery board's four
+            // humours, through PlayerController.Burn/Soak/Bleed/Stagger so the board's power and
+            // rules apply. Each avoids a board rule: the board's sources are arts and crits, its
+            // payoffs damage against a status, spreading, stacking, slowing attacks and congealing.
+            // Names and numbers are Claude's, unconfirmed.
+
+            // ---------------------------------------------------------------- forms (Phase 2)
+
+            /// <summary>THE SHARED SLOT (the user's call, 2026-10-20): a slot's total strength is 1 for
+            /// its first form plus this for every one after, split equally - two forms run at 75%
+            /// each, three at 67%, and no form ever drops below half (EXCHANGE.md 5.3).</summary>
+            public const float SlotShareStep = 0.5f;
+            /// <summary>The most form visuals alive at once (the clutter guard, decided at about 24 -
+            /// to be measured on the WebGL build). Past it a form still applies but draws nothing.</summary>
+            public const int FormVisualCap = 24;
+
+            public const float AftershockRadius = 1.1f, AftershockSeconds = 3f;
+            public const float ShockwaveRadius = 3f, ShockwaveHitUnits = 2.5f, ShockwaveBurnShare = 0.3f, ShockwaveBurnSeconds = 2f;
+            public const float RiptideLength = 6f, RiptideHalfWidth = 0.9f, RiptideSoakSeconds = 3f, RiptideVulnerability = 1.12f;
+            public const int FaultLineBodies = 3;
+            public const float FaultLineLength = 3f, FaultLineHalfWidth = 0.6f, FaultLineDelay = 0.5f, FaultLineHitUnits = 1f;
+            public const float SplinterShare = 0.4f, SplinterReach = 3f, SplinterBleedShare = 0.3f, SplinterBleedSeconds = 3f;
+            public const float ThornfieldRadius = 0.9f, ThornfieldSeconds = 4f;
+            public const float PyreRadius = 1.2f, PyreSeconds = 2f;
+
+            // The second batch of forms (the user's picks, 2026-10-21; numbers Claude's, to be played).
+            /// <summary>LONE CUT (greatsword basics, Sanguine): a swing that strikes ONE enemy bleeds it.</summary>
+            public const float LoneCutBleedShare = 0.4f, LoneCutBleedSeconds = 3f;
+            /// <summary>DRAWDOWN (a kill, Phlegm): enemies within the radius are drawn a step toward the body.</summary>
+            public const float DrawdownRadius = 3f, DrawdownStep = 1f;
+            /// <summary>AFTERBURN (the defensive ability, Choler): the next basic inside the window gains
+            /// Damage points and burns.</summary>
+            public const float AfterburnWindow = 2f, AfterburnDamage = 30f, AfterburnBurnShare = 0.5f, AfterburnBurnSeconds = 3f;
+
+            // The class basics batch (the user's picks, 2026-10-21; numbers Claude's, to be played).
+            /// <summary>LODESTAR (disc basics, Phlegm): a basic throw banks off this many walls instead of
+            /// dropping home; a banked hit gets the bonus (per wall) and soaks.</summary>
+            public const int LodestarBanks = 1;
+            public const float LodestarBonus = 0.15f, LodestarSoakSeconds = 3f, LodestarSoakVulnerability = 1.12f;
+            /// <summary>SNAPBACK (disc basics, Choler): a basic thrown within the window of a disc landing
+            /// back in the hand burns what it strikes - a share of the hit a second.</summary>
+            public const float SnapbackWindow = 0.3f, SnapbackBurnShare = 0.5f, SnapbackBurnSeconds = 3f;
+            /// <summary>PATIENT STRING (bow basics, Sanguine): a shot drawn without moving bleeds this share of
+            /// the hit over the seconds.</summary>
+            public const float PatientBleedShare = 0.5f, PatientBleedSeconds = 3f;
+            /// <summary>LONG EMBER (bow basics, Choler): a shot landing past this share of the reach burns.</summary>
+            public const float LongEmberFrom = 0.8f, LongEmberBurnShare = 0.4f, LongEmberBurnSeconds = 2f;
+            /// <summary>SPINDRIFT (greatsword basics, Phlegm): a swing throws spray this far past its reach,
+            /// across this half-angle of the facing, soaking (no damage) what stands there.</summary>
+            public const float SpindriftBeyond = 1.5f, SpindriftHalfAngle = 70f;
+            public const float SpindriftSoakSeconds = 3f, SpindriftSoakVulnerability = 1.12f;
+            public const float LacerateRadius = 2.5f, LacerateBleedHitUnits = 1f, LacerateSeconds = 3f;
+            // ---------------------------------------------------------------- schools (Phase 3)
+
+            /// <summary>LEANING (the user's call, 2026-10-20): at a full lean - every humour boon held
+            /// from one humour - this share of a deal's costs is drawn from the opposite humour; it
+            /// scales with how far the lean goes (the leading humour less its opposite, over all held).</summary>
+            public const float LeanCostShare = 0.5f;
+            /// <summary>The most a held humour pulls its own boons forward: this share of boon draws
+            /// at most, a humour picked by how many of its boons are held.</summary>
+            public const float LeanBoonMax = 0.4f, LeanBoonPerHeld = 0.06f;
+            /// <summary>THE UNIONS: two opposite humours each held this many boons deep, within one of
+            /// each other, unlock their union for the run.</summary>
+            public const int UnionAtEach = 3, UnionWithin = 1;
+            /// <summary>STEAM (Choler + Phlegm): a burn on a soaked enemy - or a soak on a burning one -
+            /// bursts, striking everything near it; once per enemy per cooldown.</summary>
+            public const float SteamHitUnits = 1.5f, SteamRadius = 1.5f, SteamCooldown = 3f;
+            /// <summary>CLOT (Sanguine + Melancholy): staggering a bleeding enemy deals this many seconds
+            /// of its bleed at once.</summary>
+            public const float ClotSeconds = 2f;
+
+            // ---------------------------------------------------------------- costs (Phase 4)
+
+            /// <summary>FERMENT (decided 2026-10-20, replacing a timed curse): a cost held at its Nigredo
+            /// ferments for every floor of depth it is carried - each FermentFloorsPerStep is one step,
+            /// up to FermentSteps, and its Albedo comes out FermentStep stronger a step.</summary>
+            public const int FermentFloorsPerStep = 3, FermentSteps = 3;
+            public const float FermentStep = 0.1f;
+            /// <summary>UNBLOODIED (an Oath): damage taken until a floor is cleared without a hit.</summary>
+            public const float UnbloodiedTaken = 0.5f;
+            /// <summary>BLOOD DEBT (an Oath): no healing until this many Chaser-equivalents are killed.</summary>
+            public const float BloodDebtWorth = 30f;
+            /// <summary>SHACKLED (Encumbered III, re-cut from an exposure): the defensive ability is
+            /// shut for this long after every weapon art.</summary>
+            public const float ShackledSeconds = 2f;
+            /// <summary>The reworked Albedos (Phase 4: transform, never the cost read backwards).</summary>
+            public const float PelicanReach = 6f;
+            public const int TributeFloorsPerRefusal = 3;
+            public const float ReboundDashDistance = 2.5f, ReboundDashSeconds = 0.18f;
+            public const float VitalSparkKillHeal = 0.04f, VitalSparkBelow = 0.5f;
+            public const float FelicityReach = 4f, FelicityHalfWidth = 0.7f, FelicityShare = 0.6f;
+            public const float FuryBleedShare = 0.3f, FuryBleedSeconds = 3f;
+
+            // ---------------------------------------------------------------- evolutions, growth (Phase 5)
+
+            /// <summary>NOVA (Shockwave + Tinder): a wider ring, a harder hit, a longer burn.</summary>
+            public const float NovaRadius = 4.5f, NovaHitUnits = 3.5f, NovaBurnShare = 0.5f, NovaBurnSeconds = 3f;
+            /// <summary>MAELSTROM (Riptide + Tidewater): the wave leaves a soaking pool where it ends.</summary>
+            public const float MaelstromPoolRadius = 2f, MaelstromPoolSeconds = 4f;
+            /// <summary>HEMORRHAGE (Lacerate + Serrated): a wider, deeper bleed that staggers too.</summary>
+            public const float HemorrhageRadius = 3.5f, HemorrhageBleedHitUnits = 1.5f, HemorrhageStagger = 0.5f;
+            /// <summary>EARTHQUAKE (Aftershock + Knell): the broken ground staggers what stands on it.</summary>
+            public const float EarthquakeStagger = 0.5f;
+            /// <summary>KINDLING (grows): burns stronger for every BurningDeathsPerStep enemies that die
+            /// burning this run, a step each, up to the cap.</summary>
+            public const int KindlingDeathsPerStep = 10;
+            public const float KindlingStep = 0.04f, KindlingCap = 0.40f;
+            /// <summary>SWELL (grows): soaks last longer for every enemy that dies soaked this floor.</summary>
+            public const float SwellPerDeath = 0.25f, SwellCap = 3f;
+
+            /// <summary>The socket costs an Art form is paid with, on its own socket.</summary>
+            public const float HeavyHandLock = 0.50f, DulledScriptDamage = 0.30f;
+
+            /// <summary>THE PROC WEIGHT: a thrown disc's share of a swing's chance for an on-hit
+            /// status - discs land three to five times as often (WeaponClasses.HitMeterScale's reason).</summary>
+            public const float ProcDisc = 0.35f;
+            /// <summary>TINDER (Choler): a basic's chance to set what it strikes burning.</summary>
+            public const float TinderChance = 0.25f, TinderBurnShare = 0.7f, TinderSeconds = 3f;
+            /// <summary>TIDEWATER (Phlegm): an enemy whose blow lands on you is soaked.</summary>
+            public const float TidewaterSeconds = 3f, TidewaterVulnerability = 1.12f;
+            /// <summary>SERRATED (Sanguine): the first basic of every chain opens a bleed.</summary>
+            public const float SerratedBleedShare = 0.55f, SerratedSeconds = 4f;
+            /// <summary>KNELL (Melancholy): a PERFECT weapon art staggers everything round you.</summary>
+            public const float KnellRadius = 2.5f, KnellStagger = 1.5f;
+            /// <summary>BACKDRAFT (Choler): a burning enemy that strikes you takes the rest of its burn at once.</summary>
+            public const float BackdraftShare = 1f;
+            /// <summary>SATURATE (Phlegm): soaking an enemy already soaked staggers it.</summary>
+            public const float SaturateStagger = 0.6f;
+            /// <summary>LANCET (Sanguine): a weapon art ends every bleed it strikes for this share of what was left.</summary>
+            public const float LancetShare = 2f;
+            /// <summary>PIN DOWN (Melancholy): a basic on a staggered enemy holds the stagger at least this long.</summary>
+            public const float PinDownSeconds = 0.6f;
+
+            public const int ScythingBodies = 3;
+            public const float ScythingStagger = 0.6f;
+            /// <summary>EDDY (Ricochet II): a disc's bounce soaks what it strikes.</summary>
+            public const float EddySoakSeconds = 3f;
+            public const float EddySoakVulnerability = 1.2f;
+            /// <summary>BROADHEAD (Fletching II): an arrow leaves a bleed of this share of its hit.</summary>
+            public const float BroadheadBleedShare = 0.3f;
+            public const float BroadheadBleedSeconds = 3f;
+            /// <summary>TIN WARD (Aegis II): the breaking ward strikes everything near you for this many
+            /// of your own hits. It used to throw them back with the same push as Updraft and Phoenix.</summary>
+            public const float TinWardHitUnits = 2f;
+            /// <summary>PHOENIX: the rising blast sets everything near you burning, this many of your own
+            /// hits over its seconds.</summary>
+            public const float PhoenixBurnHitUnits = 3f;
+            public const float PhoenixBurnSeconds = 4f;
+            /// <summary>SEALED VESSEL: the meter fades this much as fast. It used to never fade - and every
+            /// element's demand (Fire's heat, Earth's charge, Air's momentum) runs through that fade.</summary>
+            public const float SealedVesselDecay = 0.5f;
+            /// <summary>PATINA: worn armour adds this share of its usual damage taken. It used to add none -
+            /// a boon switching the wear system off.</summary>
+            public const float PatinaPenaltyShare = 0.5f;
 
             // ---------------------------------------------------------------- Anvil
             public const float HeavyPayoffArt = 12f;
@@ -914,6 +1079,13 @@ namespace Convergence.Core
             public const float StonestanceBrace = 20f;
             public const float LapisStillSeconds = 1f;
             public const float LapisMul = 0.5f;
+
+            /// <summary>EQUIPOISE (the user's call, 2026-10-21: Fleetfoot, Evanescence's Graze and
+            /// Stonestance's Brace coupled into one mitigation arc - "move, then stand"): stack I moves
+            /// and grazes, stack II braces, and its Rubedo POISE halves the next hit taken after a change
+            /// of pace held this long in the pace before it. Names Claude's, unconfirmed.</summary>
+            public const float EquipoiseMove = 5f, EquipoiseGraze = 20f, EquipoiseBrace = 20f;
+            public const float PoiseAfterSeconds = 1f, PoiseMul = 0.5f;
             public const float ReactivePlateSeconds = 2f;
             public const float ReactivePlateReduction = 0.20f;
             public const float ReactivePlateReductionII = 0.35f;
@@ -1025,7 +1197,12 @@ namespace Convergence.Core
             public const float SlowKnitHeal = 0.20f;
             public const float HollowCeiling = 0.60f;
             public const float VitalSparkRegen = 0.01f;
-            public const float RustWear = 0.5f;
+            /// <summary>RUST: blows a floor's PLATING covers fewer, a stack (Tuning.Defense.ArmorPerPlate) -
+            /// a cost may lower a gear threshold. It made armour wear 50% faster until plating
+            /// (2026-10-20), when that stopped reaching a geared player at all. KILN-FIRED, its mirror,
+            /// was CUT the same day (the user's call): a boon may not raise plating, and slower wear
+            /// under plating was worth about 1%.</summary>
+            public const float RustPlates = 3f;
             public const float CorrosionRepairMul = 0.5f;
             public const int OpenStanceHits = 1;
 
@@ -1433,6 +1610,17 @@ namespace Convergence.Core
             public const float CollapseAtSeconds = 3600f;
             public const float CollapseStepSeconds = 300f;
             public const float CollapseStep = 1.10f;
+
+            /// <summary>
+            /// THE SHORT DESCENT'S OPENING RAMP (the user's call, 2026-10-21 - ten playtests died on
+            /// floors 2-4, every enemy kind met by floor 3): its first RampEasyFloors floors are
+            /// Classic's depth, one a floor, so enemy kinds debut one a floor and damage climbs
+            /// Classic's 10% a floor; from there depth climbs linearly to twice the floor at
+            /// RampCatchUpFloor (2.5 a floor), and is twice the floor after it. Floor 50 is still
+            /// depth 100. Core.RunFormat.Depth.
+            /// </summary>
+            public const int RampEasyFloors = 5;
+            public const int RampCatchUpFloor = 15;
         }
 
         public static class Continuation
@@ -2079,6 +2267,14 @@ namespace Convergence.Core
             public const float LockLight = 1.0f;
             public const float LockMedium = 1.5f;
             public const float LockHeavy = 2.5f;
+
+            /// <summary>
+            /// Seconds into a weapon art's SETTLE (after its strike is drawn) before moving ends
+            /// the lock - the follow-through given back to the feet, the next attack still held to
+            /// the settle's end (PlayerController.SettleRelease; the user's call, 2026-10-21). A
+            /// Heavy art held the player ~0.5 s after its hit, a Medium ~0.2 s.
+            /// </summary>
+            public const float SettleMoveSeconds = 0.15f;
 
             /// <summary>
             /// How long a flinched enemy is interrupted for.
@@ -5913,6 +6109,17 @@ namespace Convergence.Core
             /// <summary>The most wear one blow can cost, in blows - a boss mechanic sized off
             /// max HP would otherwise strip a whole set in one read.</summary>
             public const float WearMaxBlows = 3f;
+
+            /// <summary>
+            /// PLATING (the user's call, 2026-10-20): each floor, armour takes this many Armour
+            /// points' worth of blows per blow absorbed before it starts to WEAR - the character's
+            /// Armour stat / this = Chaser-sized blows a floor that cost nothing. Before plating,
+            /// Armour only grew the pool, the penalty began at the first point of wear, and
+            /// condition fell off a cliff around floor 45 of a run (docs/balance/2026-10-20-exchange-review.md,
+            /// EXCHANGE.md section 8). With ~99 Armour the strongest builds take ~20 of a floor's ~27
+            /// modelled blows free. A gear threshold: a cost may lower it, no boon may raise it.
+            /// </summary>
+            public const float ArmorPerPlate = 5f;
 
             /// <summary>
             /// Shared across all four. This is Parry Stance's ENTIRE active duration - it has no

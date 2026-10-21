@@ -153,6 +153,8 @@ namespace Convergence.Chain
 
         /// <summary>RunEffects' run-long counters (every-Nth entries): hits, arts, Vapour, releases.</summary>
         public int HitCount, Arts, VapourCount, WellspringCount;
+        /// <summary>Kindling (grows): enemies that have died burning this run.</summary>
+        public int BurningDeaths;
     }
 
     /// <summary>A Rift Box lying where it dropped, in a cleared room - with the seconds it had left.</summary>
@@ -199,6 +201,21 @@ namespace Convergence.Chain
         public List<string> Transmuted = new();
         public float Withered, Virid;
         public int Senescence;
+        /// <summary>Forms and socket costs inscribed (Phase 2): id and socket (-1 off the rotation).</summary>
+        public List<string> InscribedIds = new();
+        public List<int> InscribedSockets = new();
+        /// <summary>Forms taken back out of a stacked slot - never offered again this run.</summary>
+        public List<string> Removed = new();
+        /// <summary>Phase 4: floors each Nigredo has fermented, Albedos' potency, oaths' progress and
+        /// the oaths fulfilled, and Tribute's floors toward a refusal.</summary>
+        public List<string> FermentIds = new();
+        public List<int> FermentFloors = new();
+        public List<string> PotencyIds = new();
+        public List<float> PotencyValues = new();
+        public List<string> OathIds = new();
+        public List<float> OathProgress = new();
+        public List<string> Fulfilled = new();
+        public int TributeFloors;
     }
 
     /// <summary>

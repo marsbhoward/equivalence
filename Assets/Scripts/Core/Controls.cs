@@ -836,6 +836,15 @@ namespace Convergence.Core
         /// See the field this reads for why it is not folded into <see cref="CancelTapped"/>.</summary>
         public static bool SettingsTapped { get { Sync(); return _settingsMenu && !_settingsMenuPrev; } }
 
+        /// <summary>
+        /// F8: the dev run-format toggle (Tuning.Testing.FormatToggle). Keyboard only, as
+        /// <see cref="DigitTapped"/> - a testing switch, never something a player needs on a phone.
+        /// </summary>
+        public static bool DevFormatTapped
+        {
+            get { var kb = Keyboard.current; return kb != null && kb.f8Key.wasPressedThisFrame; }
+        }
+
         /// <summary>A click or a tap this frame, and where it landed.</summary>
         public static bool Tapped(out Vector2 position)
         {

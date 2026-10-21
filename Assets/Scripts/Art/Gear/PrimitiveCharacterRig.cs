@@ -595,6 +595,36 @@ namespace Convergence.Art.Gear
         /// <summary>Fallback run speed when the rig is previewed with no player attached.</summary>
         const float CapeReferenceSpeed = 6.5f;
 
+        // ---- billow: the air a leap moves through ----
+        //
+        // The cloth had no gravity and no vertical input at all: every spring above reads sideways
+        // speed, so through a nine-unit leap the cape hung exactly as it does standing. The user's
+        // reference (2026-10-21): dropping, the cape is thrown UP and OUT like wings.
+        //
+        // The cloth is a mass FOLLOWING the drawn body up and down (both lifts - a leap's and a
+        // swing hop's) on a stiff spring, with AIR DRAG on it. Its height above the body is the
+        // billow (ClothBend.Billow): as a drop starts the cloth lags above, falling the drag holds
+        // it up, at the top of a leap it carries on rising as the body slows, rising it trails
+        // below (taut), and a landing stops the body dead while the cloth keeps falling - it
+        // slaps down past rest and settles. Falling Star's drop takes ~0.17 s, so the spring is
+        // fast (~0.08 s); one driven off fall speed alone never built before the feet touched.
+
+        /// <summary>The cloth's spring to the body, its damping against the body's motion, and the
+        /// air's drag on it (per unit of its own speed). DRAG / STIFFNESS x a falling speed is how
+        /// far above the body it rides: a full billow at BillowFullSpeed.</summary>
+        const float BillowStiffness = 150f, BillowDamping = 12f;
+        const float BillowFullSpeed = 7f;
+        const float BillowDrag = BillowStiffness / BillowFullSpeed;
+
+        /// <summary>The billow's range: thrown over the hinge at the top, taut at the bottom.</summary>
+        const float BillowMax = 1.3f, BillowMin = -0.6f;
+
+        /// <summary>Cloth over the legs billows less than a cape - it is held at the waist and
+        /// pressed by the legs.</summary>
+        const float LegClothBillowShare = 0.5f;
+
+        float _billow, _billowY, _billowV, _billowLastLift = -1f;
+
         Vector2 _capeRest;      // where Apply parked the cape, its own centre
         float _capeHalfHeight;  // the hinge sits this far ABOVE the rest position
         float _capeLength;      // hinge to hem
@@ -3985,7 +4015,8 @@ namespace Convergence.Art.Gear
         /// weapon over the torso, the pauldrons and every cap on them, under the carrying fist
         /// and the head. The hilt is in front of the chest, so it shows with the fist closed over
         /// it; the blade LIES ON the shoulder, so it draws over the plate it rests on and only the
-        /// head (by the neck) covers it. Under ShoulderCarryOrder the hilt was hidden behind the
+        /// head covered it until 2026-10-21 - now the blade crosses over the face (the user's call).
+        /// Under ShoulderCarryOrder the hilt was hidden behind the
         /// chest and the fist held nothing; under the pauldrons (until 2026-10-09) the plate cut
         /// off the blade's lower half and it read as passing THROUGH the shoulder.
         /// </summary>
@@ -4011,6 +4042,10 @@ namespace Convergence.Art.Gear
 
             if (weaponToo)
             {
+                // Over the HEAD too (the user's call, 2026-10-21): the shouldered blade crosses in
+                // front of the face - under the head it read as tucked behind it.
+                foreach (var head in new[] { RigLayer.Head, RigLayer.HeadBack, RigLayer.HeadArmor, RigLayer.Hood })
+                    if (table[(int)head] > table[(int)top]) top = head;
                 table = Reranked(table, RigLayer.Weapon, after: top);
                 top = RigLayer.Weapon;
             }
@@ -5911,6 +5946,7 @@ namespace Convergence.Art.Gear
             // needs this frame's mirror to know which way "behind" is.
             FaceAim();
             ApplyWeightShift(wasFacingLeft, waistTurn);
+            AdvanceBillow(dt);
             AnimateCape(dt, speed);
             AnimateHipPieces(dt);
             AnimateScarf(dt, speed);
@@ -7718,21 +7754,56 @@ namespace Convergence.Art.Gear
             float hingeY = _capeRest.y + _capeHalfHeight;
             if (_layers.TryGetValue(RigLayer.Back, out var capeSr) && capeSr != null)
                 Bend(_capeCloth = _capeCloth != null ? _capeCloth : ClothBend.On(capeSr),
-                     hingeY, _capeLength, _capeAngle, _capeHemAngle, ripple, Time.time * 17f);
+                     hingeY, _capeLength, _capeAngle, _capeHemAngle, ripple, Time.time * 17f, _billow);
 
             // The drape that swings with it is the same cloth: the same hinge, the same length,
             // so at any height it bends exactly as the cape behind it does.
             bool drape = _drapeSwings && _layers.TryGetValue(RigLayer.BackOver, out var drapeSr) && drapeSr != null;
             if (drape) Bend(_drapeCloth = _drapeCloth != null ? _drapeCloth : ClothBend.On(_layers[RigLayer.BackOver]),
-                            hingeY, _capeLength, _capeAngle, _capeHemAngle, ripple, Time.time * 17f);
+                            hingeY, _capeLength, _capeAngle, _capeHemAngle, ripple, Time.time * 17f, _billow);
             else if (_drapeCloth != null) _drapeCloth.Active = false;
+        }
+
+        /// <summary>
+        /// Step the billow spring off the drawn lift's speed - see the "billow" constants. The
+        /// lift is measured where the drawing is, so a hit-stop (dt 0) moves nothing.
+        /// </summary>
+        void AdvanceBillow(float dt)
+        {
+            float lift = (_airHeight + _hopHeight) * _visualScale;
+            if (_billowLastLift < 0f) { _billowLastLift = _billowY = lift; _billowV = 0f; }
+            if (dt <= 0f) return;
+            float bodyV = (lift - _billowLastLift) / dt;
+            _billowLastLift = lift;
+            // One unit of height is a full billow (DRAG / STIFFNESS x BillowFullSpeed = 1). Damping
+            // and drag are solved IMPLICITLY: at these rates an explicit step overshoots inside one
+            // frame and turned a landing's slap straight back up.
+            _billowV = (_billowV + (BillowStiffness * (lift - _billowY) + BillowDamping * bodyV) * dt)
+                       / (1f + (BillowDamping + BillowDrag) * dt);
+            _billowY += _billowV * dt;
+            // TETHERED: cloth is fastened at the shoulders, so it can lag no further than its own
+            // range - at the end of it, it is carried at the body's speed. Untethered, a nine-unit
+            // rise left it metres below, and it was still thrown up a third of a second after the
+            // landing instead of slapping down.
+            float off = _billowY - lift;
+            if (off > BillowMax) { _billowY = lift + BillowMax; _billowV = Mathf.Min(_billowV, bodyV); }
+            else if (off < BillowMin) { _billowY = lift + BillowMin; _billowV = Mathf.Max(_billowV, bodyV); }
+            _billow = _billowY - lift;
         }
 
         /// <summary>Hand a cloth this frame's bend: its hinge and length in torso space, the
         /// angle under the hinge and at the end (degrees), and the ripple running down it.</summary>
         static void Bend(ClothBend cloth, float hingeY, float length, float upperDeg, float hemDeg,
-                         float ripple, float phase)
+                         float ripple, float phase, float billow = 0f)
         {
+            cloth.Billow = billow;
+            // In the air the air decides (the user's call, 2026-10-21): a billowing cloth spreads
+            // evenly to both sides - its sideways swing and ripple fade as the billow builds, or a
+            // leap carrying the body forward flung the whole cape to one side.
+            float calm = 1f - Mathf.Clamp01(billow);
+            upperDeg *= calm;
+            hemDeg *= calm;
+            ripple *= calm;
             cloth.Active = true;
             cloth.HingeY = hingeY;
             cloth.Length = length;
@@ -7788,7 +7859,7 @@ namespace Convergence.Art.Gear
             if (_layers.TryGetValue(RigLayer.NeckBack, out var tailSr) && tailSr != null)
                 Bend(_scarfCloth = _scarfCloth != null ? _scarfCloth : ClothBend.On(tailSr),
                      _scarfRest.y + _scarfHalfHeight, length, _scarfAngle, _scarfHemAngle, ripple,
-                     Time.time * 21f);
+                     Time.time * 21f, _billow);
         }
 
         /// <summary>
@@ -7855,7 +7926,7 @@ namespace Convergence.Art.Gear
 
             void Drive(ClothBend cloth)
             {
-                Bend(cloth, 0f, length, _lcAngle, _lcHem, ripple, Time.time * 13f);
+                Bend(cloth, 0f, length, _lcAngle, _lcHem, ripple, Time.time * 13f, _billow * LegClothBillowShare);
                 cloth.OverLegs = true;
                 cloth.Plumb = plumb;
                 cloth.HipFront = hipF;

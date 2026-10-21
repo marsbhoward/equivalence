@@ -153,8 +153,249 @@ namespace Convergence.Exchange
             if (entry.Recurring) _restUntil[entry.Id] = DealIndex + T.RecurringRestDeals + 1;
             entry.OnTaken?.Invoke(Pending);
             OpenCombinations();
+            CheckUnions();
             Recompute();
         }
+
+        // ---------------------------------------------------------------- forms (Phase 2)
+
+        /// <summary>Forms and socket costs inscribed, in the order taken: the entry and its socket
+        /// (a rotation index for an Art slot, -1 off the rotation).</summary>
+        readonly List<(string Id, int Socket)> _inscribed = new();
+        readonly HashSet<string> _removed = new();
+
+        /// <summary>Records where a FORM or a socket cost went. Take it first; this only says where.</summary>
+        public void Inscribe(ExchangeEntry e, int socket)
+        {
+            if (e == null || (e.Slot == FormSlot.None && !e.SocketCost)) return;
+            _inscribed.RemoveAll(x => x.Id == e.Id);
+            _inscribed.Add((e.Id, e.Slot == FormSlot.Art || e.SocketCost ? socket : -1));
+        }
+
+        /// <summary>The socket an entry is inscribed on - -1 off the rotation, -2 not inscribed.</summary>
+        public int SocketOf(string id)
+        {
+            foreach (var x in _inscribed) if (x.Id == id) return x.Socket;
+            return -2;
+        }
+
+        /// <summary>The FORMS sharing a slot (an Art socket, or a whole off-rotation slot).</summary>
+        public List<ExchangeEntry> FormsIn(FormSlot slot, int socket)
+        {
+            var list = new List<ExchangeEntry>();
+            foreach (var x in _inscribed)
+            {
+                var e = ExchangeCatalog.Get(x.Id);
+                if (e == null || e.SocketCost || e.Slot != slot || StacksOf(e) <= 0) continue;
+                if (slot == FormSlot.Art && x.Socket != socket) continue;
+                list.Add(e);
+            }
+            return list;
+        }
+
+        /// <summary>Strength of one form in a slot of <paramref name="forms"/>: (1 + step x (n - 1)) / n.</summary>
+        public static float ShareFor(int forms)
+            => forms <= 1 ? 1f : (1f + T.SlotShareStep * (forms - 1)) / forms;
+
+        /// <summary>
+        /// A form's strength now (the user's call, 2026-10-20): its slot's total shared equally by
+        /// every form in it, oldest and newest alike. A form held but not inscribed (a balance model
+        /// building a ledger without a run) is at full strength.
+        /// </summary>
+        public float Strength(string id)
+        {
+            var e = ExchangeCatalog.Get(id);
+            if (e == null || e.Slot == FormSlot.None) return 1f;
+            int socket = SocketOf(id);
+            if (socket == -2) return 1f;
+            return ShareFor(FormsIn(e.Slot, socket).Count);
+        }
+
+        /// <summary>Whether a socket cost of this id sits on this socket.</summary>
+        public bool SocketHas(string costId, int socket) => StacksOf(costId) > 0 && SocketOf(costId) == socket;
+
+        /// <summary>Slots holding two or more forms - the only ones a form may be taken out of.</summary>
+        public List<ExchangeEntry> RemovableForms()
+        {
+            var list = new List<ExchangeEntry>();
+            foreach (var x in _inscribed)
+            {
+                var e = ExchangeCatalog.Get(x.Id);
+                if (e == null || e.SocketCost || e.Slot == FormSlot.None || StacksOf(e) <= 0) continue;
+                if (FormsIn(e.Slot, x.Socket).Count >= 2) list.Add(e);
+            }
+            return list;
+        }
+
+        /// <summary>A form taken back out of a stacked slot (for a refusal and the deal - the caller
+        /// spends them). Gone for the run: it never comes back on a deal.</summary>
+        public bool RemoveForm(ExchangeEntry e)
+        {
+            if (e == null || !RemovableForms().Contains(e)) return false;
+            _stacks.Remove(e.Id);
+            _order.Remove(e);
+            _inscribed.RemoveAll(x => x.Id == e.Id);
+            _removed.Add(e.Id);
+            Recompute();
+            return true;
+        }
+
+        public bool Removed(string id) => _removed.Contains(id);
+
+        // ---------------------------------------------------------------- schools (Phase 3)
+
+        /// <summary>Boons held of one school (entries, not stacks) - what a run's lean is read from.</summary>
+        public int SchoolCount(School s)
+        {
+            int n = 0;
+            foreach (var e in _order) if (e.Kind == ExchangeKind.Boon && e.School == s) n++;
+            return n;
+        }
+
+        public static School Opposite(School s) => s switch
+        {
+            School.Choler => School.Phlegm, School.Phlegm => School.Choler,
+            School.Sanguine => School.Melancholy, School.Melancholy => School.Sanguine,
+            _ => School.None,
+        };
+
+        static readonly School[] Humours = { School.Choler, School.Phlegm, School.Sanguine, School.Melancholy };
+
+        /// <summary>
+        /// The run's LEAN: the humour it holds most boons of, and how far - that humour's count less
+        /// its opposite's, over every humour boon held (0 - balanced or nothing held - to 1).
+        /// </summary>
+        public (School Leading, float Lean) Lean()
+        {
+            School best = School.None; int top = 0, total = 0;
+            foreach (var h in Humours)
+            {
+                int c = SchoolCount(h);
+                total += c;
+                if (c > top) { top = c; best = h; }
+                else if (c == top) best = School.None;   // a tie leans nowhere
+            }
+            if (best == School.None || total == 0) return (School.None, 0f);
+            return (best, Mathf.Clamp01((top - SchoolCount(Opposite(best))) / (float)total));
+        }
+
+        /// <summary>The humour a boon draw leans toward, picked by how many of each are held (null for
+        /// none) - so a humour's boons come back more often once some are held.</summary>
+        public School PickHeldHumour(System.Random rng)
+        {
+            int total = 0;
+            foreach (var h in Humours) total += SchoolCount(h);
+            if (total == 0) return School.None;
+            int roll = rng.Next(total);
+            foreach (var h in Humours) { roll -= SchoolCount(h); if (roll < 0) return h; }
+            return School.None;
+        }
+
+        /// <summary>The union formed by the last take, if any - for the HUD to announce.</summary>
+        public ExchangeEntry LastUnion { get; private set; }
+
+        /// <summary>
+        /// THE UNIONS: two opposite humours each held UnionAtEach boons deep and within UnionWithin of
+        /// each other form theirs - granted, never drawn, and kept for the run once formed.
+        /// </summary>
+        void CheckUnions()
+        {
+            LastUnion = null;
+            TryUnion("steam", School.Choler, School.Phlegm);
+            TryUnion("clot", School.Sanguine, School.Melancholy);
+        }
+
+        void TryUnion(string id, School a, School b)
+        {
+            var e = ExchangeCatalog.Get(id);
+            if (e == null || StacksOf(id) > 0) return;
+            int ca = SchoolCount(a), cb = SchoolCount(b);
+            if (ca < T.UnionAtEach || cb < T.UnionAtEach || Mathf.Abs(ca - cb) > T.UnionWithin) return;
+            _stacks[id] = 1;
+            _order.Add(e);
+            LastUnion = e;
+        }
+
+        // ---------------------------------------------------------------- evolutions (Phase 5)
+
+        /// <summary>Evolutions ready now: the form held with its catalyst, not yet evolved.</summary>
+        public List<ExchangeEntry> Evolvable()
+        {
+            var list = new List<ExchangeEntry>();
+            foreach (var e in ExchangeCatalog.All)
+                if (e.Origin == EntryOrigin.Evolution && StacksOf(e) <= 0
+                    && StacksOf(e.EvolvesFrom) > 0 && StacksOf(e.Catalyst) > 0) list.Add(e);
+            return list;
+        }
+
+        /// <summary>A form EVOLVES: the evolution takes its place - its slot, its socket, its place in
+        /// the order - and the catalyst stays. The base form never returns this run.</summary>
+        public bool Evolve(ExchangeEntry evo)
+        {
+            if (evo == null || !Evolvable().Contains(evo)) return false;
+            var from = ExchangeCatalog.Get(evo.EvolvesFrom);
+            int at = _order.IndexOf(from);
+            int socket = SocketOf(from.Id);
+            _stacks.Remove(from.Id);
+            _inscribed.RemoveAll(x => x.Id == from.Id);
+            _removed.Add(from.Id);
+            _stacks[evo.Id] = 1;
+            if (at >= 0) _order[at] = evo; else _order.Add(evo);
+            if (socket != -2) _inscribed.Add((evo.Id, socket));
+            Recompute();
+            return true;
+        }
+
+        // ---------------------------------------------------------------- ferment, oaths (Phase 4)
+
+        readonly Dictionary<string, int> _ferment = new();
+        readonly Dictionary<string, float> _potency = new();
+        readonly Dictionary<string, float> _oath = new();
+        readonly HashSet<string> _fulfilled = new();
+        int _tributeFloors;
+
+        /// <summary>Floors of depth a held Nigredo has fermented.</summary>
+        public int Fermented(string costId) => _ferment.TryGetValue(costId, out var f) ? f : 0;
+
+        /// <summary>The ferment steps a Nigredo has reached - what its Albedo would come out at.</summary>
+        public int FermentSteps(string costId) => Mathf.Min(T.FermentSteps, Fermented(costId) / T.FermentFloorsPerStep);
+
+        /// <summary>An Albedo's potency: 1, or more for one made from a fermented Nigredo.</summary>
+        public float Potency(string albedoId) => _potency.TryGetValue(albedoId, out var p) ? p : 1f;
+
+        /// <summary>An oath's progress (Blood Debt: Chaser-equivalents killed).</summary>
+        public float OathProgress(string id) => _oath.TryGetValue(id, out var p) ? p : 0f;
+
+        /// <summary>The oath fulfilled by the last call that fulfilled one - for the HUD.</summary>
+        public ExchangeEntry LastFulfilled { get; private set; }
+
+        /// <summary>Adds to an oath's progress; true when that fulfils it (it leaves the ledger).</summary>
+        public bool AddOathProgress(string id, float amount, float needed)
+        {
+            if (StacksOf(id) <= 0) return false;
+            _oath[id] = OathProgress(id) + amount;
+            if (_oath[id] < needed) return false;
+            Fulfil(id);
+            return true;
+        }
+
+        /// <summary>An OATH done: it leaves the ledger and never returns this run.</summary>
+        public void Fulfil(string id)
+        {
+            var e = ExchangeCatalog.Get(id);
+            if (e == null || StacksOf(id) <= 0) return;
+            _stacks.Remove(id);
+            _order.Remove(e);
+            _oath.Remove(id);
+            _fulfilled.Add(id);
+            LastFulfilled = e;
+            Recompute();
+        }
+
+        public void ClearLastFulfilled() => LastFulfilled = null;
+
+        /// <summary>TRIBUTE (Toll's Albedo, reworked): a refusal given back.</summary>
+        void GiveBackRefusal() { if (RefusalsUsed > 0) RefusalsUsed--; }
 
         // ---------------------------------------------------------------- Nigredo -> Albedo
 
@@ -194,6 +435,9 @@ namespace Convergence.Exchange
             _order.Remove(cost);
             _transmuted.Add(cost.Id);
             if (cost.Id == "withering") Withered = 0f;
+            // FERMENT: a Nigredo carried longer makes a stronger Albedo.
+            _potency[albedo.Id] = 1f + T.FermentStep * FermentSteps(cost.Id);
+            _ferment.Remove(cost.Id);
 
             _stacks[albedo.Id] = 1;
             _order.Add(albedo);
@@ -228,10 +472,13 @@ namespace Convergence.Exchange
         /// </summary>
         public bool Offerable(ExchangeEntry e)
         {
-            if (e == null || AtCap(e) || Resting(e) || _transmuted.Contains(e.Id)) return false;
+            if (e == null || e.Retired || AtCap(e) || Resting(e) || _transmuted.Contains(e.Id) || _removed.Contains(e.Id)
+                || _fulfilled.Contains(e.Id) || (e.ShortOnly && !RunFormat.Short)) return false;
             switch (e.Origin)
             {
                 case EntryOrigin.Albedo: return false;            // only a circle makes one
+                case EntryOrigin.Union: return false;             // only balance makes one
+                case EntryOrigin.Evolution: return false;         // only a form and its catalyst grow one
                 case EntryOrigin.Base: break;
                 default:
                     if (!_opened.Contains(e.Id)) return false;
@@ -262,12 +509,15 @@ namespace Convergence.Exchange
             }
         }
 
-        /// <summary>Everything of this kind and weight that may be drawn now.</summary>
-        public List<ExchangeEntry> Offerable(ExchangeKind kind, int weight)
+        /// <summary>Everything of this kind and weight that may be drawn now - socket costs only
+        /// when asked for (they pay for an Art form, on its own socket, and nothing else), and only
+        /// of one school when one is named (leaning).</summary>
+        public List<ExchangeEntry> Offerable(ExchangeKind kind, int weight, bool socketCosts = false, School only = School.None)
         {
             var list = new List<ExchangeEntry>();
             foreach (var e in ExchangeCatalog.All)
-                if (e.Kind == kind && e.Weight == weight && Offerable(e)) list.Add(e);
+                if (e.Kind == kind && e.Weight == weight && e.SocketCost == socketCosts
+                    && (only == School.None || e.School == only) && Offerable(e)) list.Add(e);
             return list;
         }
 
@@ -299,27 +549,41 @@ namespace Convergence.Exchange
         /// <summary>Max health points Viriditas has grown since it was made.</summary>
         public float Virid { get; private set; }
 
-        /// <summary>Floors cleared while Senescence is held - each one makes enemies hit harder.</summary>
+        /// <summary>Floors of DEPTH cleared while Senescence is held - each makes enemies hit harder.</summary>
         public int Senescence { get; private set; }
 
         /// <summary>
         /// A floor was cleared: the counters some entries keep move on. Called by the run once per
-        /// cleared floor, before the deal (Withering takes its cut first).
+        /// cleared floor, before the deal (Withering takes its cut first). Each step is per DEPTH:
+        /// a Short Descent floor is two floors deep, so it steps twice as far, or these entries
+        /// would build half as far at the same danger (RunFormat).
         /// </summary>
         public void FloorCleared()
         {
+            int depth = RunFormat.DepthPerFloor;
             int wither = StacksOf("withering");
             if (wither > 0)
             {
                 float cap = AtMax("withering") ? float.PositiveInfinity : T.WitheringCap * 100f;   // Desiccation
-                Withered = Mathf.Min(cap, Withered + T.WitheringPerFloor * 100f * wither);
+                Withered = Mathf.Min(cap, Withered + T.WitheringPerFloor * 100f * wither * depth);
             }
             else Withered = 0f;
 
             if (StacksOf("viriditas") > 0)
-                Virid = Mathf.Min(T.ViriditasCap * 100f, Virid + T.ViriditasPerFloor * 100f);
+                Virid = Mathf.Min(T.ViriditasCap * 100f * Potency("viriditas"), Virid + T.ViriditasPerFloor * 100f * depth);
 
-            if (StacksOf("senescence") > 0) Senescence++;
+            if (StacksOf("senescence") > 0) Senescence += depth;
+
+            // FERMENT: every Nigredo held ferments a floor of depth.
+            foreach (var e in Nigredos()) _ferment[e.Id] = Fermented(e.Id) + depth;
+
+            // TRIBUTE: every few floors cleared give a refusal back (fewer, fermented).
+            if (StacksOf("tribute") > 0
+                && ++_tributeFloors >= Mathf.Max(2, Mathf.RoundToInt(T.TributeFloorsPerRefusal / Potency("tribute"))))
+            {
+                _tributeFloors = 0;
+                GiveBackRefusal();
+            }
             Recompute();
         }
 
@@ -341,6 +605,14 @@ namespace Convergence.Exchange
             Withered = 0f;
             Virid = 0f;
             Senescence = 0;
+            _inscribed.Clear();
+            _removed.Clear();
+            _ferment.Clear();
+            _potency.Clear();
+            _oath.Clear();
+            _fulfilled.Clear();
+            _tributeFloors = 0;
+            LastFulfilled = null;
             Recompute();
         }
 
@@ -369,6 +641,13 @@ namespace Convergence.Exchange
             foreach (var c in _newCombos) s.NewCombos.Add(c.Id);
             s.Opened.AddRange(_opened);
             s.Transmuted.AddRange(_transmuted);
+            foreach (var x in _inscribed) { s.InscribedIds.Add(x.Id); s.InscribedSockets.Add(x.Socket); }
+            s.Removed.AddRange(_removed);
+            foreach (var kv in _ferment) { s.FermentIds.Add(kv.Key); s.FermentFloors.Add(kv.Value); }
+            foreach (var kv in _potency) { s.PotencyIds.Add(kv.Key); s.PotencyValues.Add(kv.Value); }
+            foreach (var kv in _oath) { s.OathIds.Add(kv.Key); s.OathProgress.Add(kv.Value); }
+            s.Fulfilled.AddRange(_fulfilled);
+            s.TributeFloors = _tributeFloors;
             return s;
         }
 
@@ -402,6 +681,18 @@ namespace Convergence.Exchange
             foreach (var id in s.NewCombos) { var c = ExchangeCatalog.Get(id); if (c != null) _newCombos.Add(c); }
             foreach (var id in s.Opened) _opened.Add(id);
             foreach (var id in s.Transmuted) _transmuted.Add(id);
+            if (s.InscribedIds != null)
+                for (int i = 0; i < s.InscribedIds.Count && i < s.InscribedSockets.Count; i++)
+                    if (ExchangeCatalog.Get(s.InscribedIds[i]) != null) _inscribed.Add((s.InscribedIds[i], s.InscribedSockets[i]));
+            if (s.Removed != null) foreach (var id in s.Removed) _removed.Add(id);
+            if (s.FermentIds != null)
+                for (int i = 0; i < s.FermentIds.Count && i < s.FermentFloors.Count; i++) _ferment[s.FermentIds[i]] = s.FermentFloors[i];
+            if (s.PotencyIds != null)
+                for (int i = 0; i < s.PotencyIds.Count && i < s.PotencyValues.Count; i++) _potency[s.PotencyIds[i]] = s.PotencyValues[i];
+            if (s.OathIds != null)
+                for (int i = 0; i < s.OathIds.Count && i < s.OathProgress.Count; i++) _oath[s.OathIds[i]] = s.OathProgress[i];
+            if (s.Fulfilled != null) foreach (var id in s.Fulfilled) _fulfilled.Add(id);
+            _tributeFloors = s.TributeFloors;
             Recompute();
         }
 
@@ -432,6 +723,13 @@ namespace Convergence.Exchange
             c._newCombos.AddRange(_newCombos);
             foreach (var id in _opened) c._opened.Add(id);
             foreach (var id in _transmuted) c._transmuted.Add(id);
+            c._inscribed.AddRange(_inscribed);
+            foreach (var id in _removed) c._removed.Add(id);
+            foreach (var kv in _ferment) c._ferment[kv.Key] = kv.Value;
+            foreach (var kv in _potency) c._potency[kv.Key] = kv.Value;
+            foreach (var kv in _oath) c._oath[kv.Key] = kv.Value;
+            foreach (var id in _fulfilled) c._fulfilled.Add(id);
+            c._tributeFloors = _tributeFloors;
             c.Recompute();
             return c;
         }
@@ -480,6 +778,7 @@ namespace Convergence.Exchange
             // The counters: max health Withering has taken, and Viriditas has grown.
             if (Withered > 0f && StacksOf("withering") > 0) m.Add(StatKind.MaxHp, -Withered);
             if (Virid > 0f && StacksOf("viriditas") > 0) m.Add(StatKind.MaxHp, Virid);
+            m.Potency = _potency;
 
             if (StacksOf("senescence") > 0) m.SenescenceFloors = Senescence;
 

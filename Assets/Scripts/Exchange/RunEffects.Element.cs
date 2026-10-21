@@ -89,8 +89,8 @@ namespace Convergence.Exchange
         /// <summary>Cataclysm: release hits stagger.</summary>
         public bool ReleasesStagger => Has("cataclysm");
 
-        /// <summary>Transfusion: lifesteal drinks from releases, burns and bleeds.</summary>
-        public bool LifestealFromAll => AtMax("bloodletters_pact");
+        /// <summary>Bloodletter's Pact (Transfusion folded in): lifesteal drinks from releases, burns and bleeds.</summary>
+        public bool LifestealFromAll => Has("bloodletters_pact");
 
         /// <summary>A release has fired (not a repeat): refunds, prices, fields, repeats.</summary>
         public void OnReleased(Player.ElementalResource r)
@@ -106,7 +106,17 @@ namespace Convergence.Exchange
                 Pay(hp.Max * T.BackfireFraction * back);
                 if (AtMax("backfire")) _pc.Stun(T.RecoilSeconds);   // Recoil
             }
-            if (Has("rebound") && hp != null) hp.Heal(hp.Max * T.ReboundHeal);
+            // REBOUND (reworked): the release throws you clear of the nearest enemy.
+            if (Has("rebound"))
+            {
+                var near = NearestEnemy(_pc.transform.position, 8f, null);
+                if (near != null)
+                {
+                    Vector2 away = (Vector2)_pc.transform.position - (Vector2)near.transform.position;
+                    float dist = T.ReboundDashDistance * _mods.Potency("rebound");
+                    _pc.Dash(away.sqrMagnitude > 0.01f ? away.normalized : Vector2.down, dist / T.ReboundDashSeconds, T.ReboundDashSeconds);
+                }
+            }
 
             if (Has("residue"))
                 ResidueField.Spawn(_pc.transform.position, T.ResidueRadius * _pc.AreaScaleNow, r.Element,

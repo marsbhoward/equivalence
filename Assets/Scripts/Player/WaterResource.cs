@@ -72,6 +72,9 @@ namespace Convergence.Player
         float _surgeRemaining;
 
         public bool Surging => _surgeRemaining > 0f;
+
+        /// <summary>The surge ends now (Ebb, Low Water's Nigredo: a hit taken ends it).</summary>
+        public void EndSurge() => _surgeRemaining = 0f;
         public float SurgeRemaining => _surgeRemaining;
 
         public override ElementType Element => ElementType.Water;

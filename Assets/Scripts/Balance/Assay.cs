@@ -151,6 +151,10 @@ namespace Convergence.Balance
             /// every element but Earth, which uses <see cref="EarthStillShare"/>.</summary>
             public const float StillAfterSecondShare = 0.35f;
 
+            /// <summary>Share of hits taken that are the first after a change of pace held a second
+            /// (Equipoise's Poise). A guess: a kiting player changes pace often, a planted one rarely.</summary>
+            public const float PaceChangeShare = 0.3f;
+
             /// <summary>Share of a fight spent with the meter completely full (Burning Wick).</summary>
             public const float MeterFullShare = 0.3f;
 
@@ -183,6 +187,22 @@ namespace Convergence.Balance
             /// <summary>Share of the hits taken that come from the body being fought (soaked by Phlegm,
             /// staggered by Melancholy) rather than another.</summary>
             public const float FromTargetShare = 0.5f;
+
+            /// <summary>Arts in the rotation - an Art FORM fires for one of them (Phase 2).</summary>
+            public const float RotationSockets = 3f;
+            /// <summary>Share of a greatsword's basics that strike three or more bodies (Fault Line).</summary>
+            public const float ThreeBodySwingShare = 0.3f;
+
+            /// <summary>Share of greatsword basic swings that strike exactly one enemy (Lone Cut). A guess.</summary>
+            public const float LoneSwingShare = 0.4f;
+
+            /// <summary>Share of the fight the greatsword's target is soaked by Spindrift - it walked in
+            /// through the spray past the reach. A guess.</summary>
+            public const float SpindriftSoakedShare = 0.4f;
+            /// <summary>Seconds between uses of the defensive ability in a fight (Lacerate).</summary>
+            public const float DefenseUseSeconds = 5f;
+            /// <summary>Share of a run an OATH is held before its task fulfils it (Phase 4).</summary>
+            public const float OathHeldShare = 0.5f;
 
             /// <summary>Share of a fight a target spends slowed by Aqua Regia alone (hits at the edge
             /// of reach) - the floor of Inceration's uptime.</summary>
@@ -287,9 +307,18 @@ namespace Convergence.Balance
             /// <summary>Doldrums: Air under half momentum.</summary>
             public const float AirLowMomentumShare = 0.5f;
 
-            /// <summary>Corrosion: armour condition under Rust III with repairs halved - the wear
-            /// penalty it puts outside the floor is (1 - this) x Durability's +50%.</summary>
-            public const float RustedCondition = 0.4f;
+            /// <summary>ARMOUR WEAR (AssayExchange.ArmourCondition, 2026-10-20 - it was never modelled,
+            /// and Rust, Kiln-Fired and Patina were guesses): durability one Chaser-sized blow takes
+            /// from every armour piece - a COPY of GameBootstrap.ArmorWearPerHit (a scene field).</summary>
+            public const float ArmorWearPerHit = 1.4f;
+            /// <summary>The Repair ring's share of a piece's pool - a copy of GameBootstrap.RepairFraction.</summary>
+            public const float RepairRingFraction = 0.45f;
+            /// <summary>Share of floor rewards a player spends on a Repair while armour is worn: the
+            /// restore ring is offered then, against two arts and XP or calx.</summary>
+            public const float RepairRingShare = 0.35f;
+            /// <summary>Share of floors with a Lead spire captured (one boon of seven, a spire on ~1
+            /// eligible floor in 5) - a copy of Tuning.Spire.RepairFraction is what it restores.</summary>
+            public const float LeadSpireShare = 0.03f;
 
             /// <summary>Share of a wave's effective health that is elites (Coagulation).</summary>
             public const float EliteShare = 0.25f;
@@ -638,10 +667,13 @@ namespace Convergence.Balance
                 if (element == null) releaseHit = 0f;
 
                 dps *= Mathf.Max(el.Vulnerability, BoardVulnerability(b, shape));
-                crowd = CrowdDps(b, s, m, el, shape, dps, hitUnit, scale * rel.HitMul, releasesPerSecond);
+                crowd = CrowdDps(b, s, m, el, shape, dps, hitUnit, scale * rel.HitMul, releasesPerSecond)
+                      + LedgerFormsCrowd(n, shape, hitUnit);
                 dps += releaseHit * releasesPerSecond;
                 dps *= BoardOffense(b, shape);
                 dps += BoardDamageOverTime(b, shape);
+                dps *= LedgerVulnerability(n, shape);
+                dps += LedgerDamageOverTime(b, n, shape) + LedgerForms(n, shape, hitUnit);
                 dps += FermentationDps(b, hitUnit, releasesPerSecond);
                 dps += LedgerFieldDps(n, hitUnit);
                 float lost = LedgerTimeLost(n, element, shape, releasesPerSecond) * Judged.Offense(n);
@@ -669,7 +701,12 @@ namespace Convergence.Balance
                          * (1f - el.Dr)
                          * Mathf.Max(0.25f, m.DamageTakenMul)
                          * LedgerMitigation(n, b.Element, shape);
+            // Worn armour, relative to the run without the ledger (whose wear the calibration has
+            // never seen): inside the floor, or outside it under Corrosion.
+            var (wearInside, wearOutside) = ledger ? LedgerWear(s, m, n, floor) : (1f, 1f);
+            inside *= wearInside;
             float incoming = StatCurves.Incoming(inside, m.MitigationFloor)
+                           * wearOutside
                            * m.DamageTakenOutside
                            * LedgerOutside(m, n, b.Element, shape)
                            * (1f - NegatedShare(n, b.Element))
@@ -698,7 +735,6 @@ namespace Convergence.Balance
             if (n("toll") > 0)
                 ehp -= Mathf.Min(0.9f, Tuning.Exchange.TollFraction * n("toll")) * maxHp
                      * (AtMax(n, "toll") ? 1f : 0.75f) * 0.5f / Mathf.Max(0.01f, incoming);
-            if (n("tribute") > 0) ehp += Tuning.Exchange.TributeHeal * maxHp * 0.5f / Mathf.Max(0.01f, incoming);
             if (m.HealCeiling < 1f) ehp *= m.HealCeiling;   // Hollow: fought from the ceiling
             ehp *= Judged.Survival(n);
 
@@ -714,6 +750,7 @@ namespace Convergence.Balance
             // Cibation: lifesteal over the limit becomes a shield - health the next hits spend.
             ehp += BoardShield(b, lifesteal * dealt, maxHp) / Mathf.Max(0.01f, incoming);
             float bleed = LedgerBleed(n, maxHp, hitsPerSecond, releasesPerSecond);
+            if (n("blood_debt") > 0) heal *= 1f - Assume.OathHeldShare;   // an oath: no healing until it is paid
 
             return new Worth
             {
@@ -864,6 +901,21 @@ namespace Convergence.Balance
                 f *= Max(n, "long_chain", 0.98f);                                        // Fraying
                 f *= Per(n, "long_reach", 0.02f);
                 f *= Per(n, "wide_arc", 0.03f);
+                f *= Has(n, "pyre", 1.02f);                                              // burning ground where they fall
+                f *= Has(n, "steam", 1.04f);                                             // a union: burns meeting soaks burst
+                f *= Has(n, "pelican", 1.05f);                                           // heals dealt to the nearest enemy
+                f *= Has(n, "kindling", 1.03f);                                          // burns grow with the run
+                f *= Has(n, "swell", 1.02f);                                             // soaks grow with the floor
+                // The re-cut Nigredos (Phase 4): each a rule on its own mechanic.
+                f *= Max(n, "stubborn_ore", 0.97f);                                      // Barren: the meter empties each floor
+                f *= Max(n, "smother", 0.97f);                                           // Wet Ash: hits put out heat
+                f *= Max(n, "low_water", 0.96f);                                         // Ebb: a hit ends the surge
+                f *= Max(n, "becalmed", 0.96f);                                          // Doldrums: a hit empties momentum
+                f *= Has(n, "clot", 1.03f);                                              // a union: staggers cash bleeds in
+                f *= Has(n, "splinter", 1.03f);
+                f *= Has(n, "heavy_hand", 0.97f);                                        // one art in three locks longer: held in place
+                f *= Has(n, "brittle_script", 1f - 0.03f / Assume.RotationSockets);      // one art in three can't crit
+                f *= Max(n, "aegis_cycle", 1.02f);   // Tin Ward: the breaking ward strikes the crowd
                 // Crowds and fields the single-target model cannot see.
                 f *= Max(n, "dilation", 1.02f);   // Expansion - Dilation's Area is priced (AssayCrowd)
                 f *= Max(n, "reiteration", 1.02f);                                       // Rota
@@ -889,18 +941,30 @@ namespace Convergence.Balance
                 f *= Per(n, "overcommitted", -0.03f);
                 f *= Per(n, "fog", -0.03f) * Max(n, "fog", 0.88f);                        // Murk: telegraphs at half
                 f *= Has(n, "sol_niger", 0.85f);
-                f *= Per(n, "rust", -0.05f);                                             // Corrosion is computed
+                // Rust, Kiln-Fired (and Annealed) and Patina: modelled - AssayExchange.ArmourCondition.
                 f *= Per(n, "short_arm", -0.02f);                                        // closer to the pack
                 f *= Per(n, "wandering_eye", -0.01f);
                 f *= Per(n, "fleetfoot", 0.04f);
                 f *= Per(n, "eagle", 0.02f);
-                f *= Has(n, "kiln_fired", 1.05f);
-                f *= Has(n, "patina", 1.12f);                                            // Rust III's mirror
                 f *= Per(n, "long_reach", 0.02f);
                 f *= Has(n, "lightfoot", 1.04f);
                 f *= Has(n, "retrograde_motion", 1.02f);
                 // Enemies thrown back, staggered or kept off you.
-                f *= Max(n, "aegis_cycle", 1.03f);                                       // Tin Ward
+                f *= Max(n, "wide_arc", 1.03f);                                          // Scything: a crowd staggered
+                // The status layer's staggers and soaks: slowed enemies, slower blows.
+                f *= Has(n, "knell", 1f + 0.06f * Assume.PerfectShare);                  // a perfect art's ring
+                f *= Has(n, "pin_down", 1.02f);                                          // needs a stagger source
+                f *= Has(n, "saturate", 1.02f);                                          // needs two soaks
+                f *= Has(n, "tidewater", 1.03f);                                         // attackers soaked and slowed
+                f *= Has(n, "spindrift", 1.02f);                                         // enemies slowed walking in
+                f *= Has(n, "rebound", 1.04f);                                           // a release throws you clear
+                f *= Has(n, "earthquake", 1.07f);                                        // broken ground that staggers
+                f *= Has(n, "hemorrhage", 1.03f);                                        // the defence's ring staggers
+                f *= Has(n, "vital_spark", 1.05f);                                       // kills heal while you are low
+                f *= Max(n, "encumbered", 0.95f);                                        // Shackled: no defence just after an art
+                // Forms whose worth is slowing or bleeding the crowd (Phase 2).
+                f *= Has(n, "aftershock", 1.04f);                                        // broken ground, one art in three
+                f *= Has(n, "thornfield", 1.02f);
                 f *= Max(n, "heavy_payoff", 1.03f);                                      // Crushing Blow
                 f *= Has(n, "cataclysm", 1.06f);
                 f *= Has(n, "antipathy", 1.08f);

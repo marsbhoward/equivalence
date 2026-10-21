@@ -413,7 +413,9 @@ namespace Convergence.Player
                 }
             }
 
-            if (Core.Controls.GuardTapped && _defenseCooldown <= 0f && !Statue) ActivateDefensiveAbility();
+            if (Core.Controls.GuardTapped && _defenseCooldown <= 0f && !Statue
+                && !(Effects != null && Effects.DefenceShut(Time.time - _lastArtAt)))   // Shackled
+                ActivateDefensiveAbility();
         }
 
         void ActivateDefensiveAbility()
@@ -424,6 +426,7 @@ namespace Convergence.Player
             // cooldown or the dash's distance.
             float window = Board != null ? Board.DefenseWindowMul : 1f;
             _parryWindowRemaining = Tuning.Defense.ParryWindowSeconds * window;
+            Effects?.OnDefenceUsed();   // Lacerate, a Defence form
 
             switch (EquippedDefensiveAbility)
             {
@@ -777,6 +780,17 @@ namespace Convergence.Player
         /// <summary>Which moveset's finisher is up next. Advances after every finisher.</summary>
         public int RotationIndex { get; private set; }
 
+        /// <summary>The rotation socket of the weapon art last dispatched, and a count of arts
+        /// dispatched - an Art FORM fires for its own socket only, once per art (the exchange's
+        /// Phase 2). Set in Dispatch before the art resolves.</summary>
+        public int ArtSocket { get; private set; }
+        public int ArtSerial { get; private set; }
+        float _lastArtAt = -99f;   // Shackled shuts the defensive ability for a moment after an art
+
+        /// <summary>A weapon art's lock: the ledger's (Celerity, Overcommitted) and its socket's own
+        /// (Heavy Hand on the socket a form is inscribed on).</summary>
+        float ArtLockMul => Mods.LockMul * (Effects != null ? Effects.SocketLockMul(ArtSocket) : 1f);
+
         public Moveset ActiveMoveset => Slots[RotationIndex % Slots.Count] ?? MovesetLibrary.Default;
 
         /// <summary>True when the next swing is the finisher rather than a basic.</summary>
@@ -1089,6 +1103,17 @@ namespace Convergence.Player
         bool _lockFreesAfterStrike;
 
         /// <summary>
+        /// THE SETTLE IS THE PLAYER'S (the user's call, 2026-10-21): set where an art's hit is out
+        /// by the time its strike is drawn - ordinary swings, Riposte, the charges, the leap's
+        /// landing, Impale, Cross Cut, the thrown disc arts. Once the strike is drawn and
+        /// Tuning.Finisher.SettleMoveSeconds have passed, MOVING ends the lock and the rig lets go
+        /// of the follow-through (ICharacterRig.ReleaseSettle); the next attack still waits for the
+        /// settle's end. Arts that hold the player until something comes home (the hook, Tether,
+        /// Gyre, Plow, the Black Diamond gathers) never set it, nor does Rooted. See SettleRelease.
+        /// </summary>
+        bool _settleIsFree;
+
+        /// <summary>
         /// HOLD TO AIM, RELEASE TO FIRE (the user's calls, 2026-10-14). A fresh press on a banked
         /// art the hand can aim (AimsArt) does not fire on the press: released inside
         /// Tuning.Combo.ArtAimHoldSeconds it was a tap and the art goes at the auto-target;
@@ -1330,7 +1355,7 @@ namespace Convergence.Player
 
         float RollCritFor(bool isFinisher, Health target, out bool crit)
         {
-            if (isFinisher && Mods.ArtsCantCrit)   // Slag
+            if (isFinisher && (Mods.ArtsCantCrit || (Effects != null && Effects.SocketCantCrit(ArtSocket))))   // Slag, Brittle Script
             {
                 crit = false;
                 return 1f;
@@ -1653,6 +1678,7 @@ namespace Convergence.Player
             Effects?.OnHitLanded(target, info, new Exchange.HitContext
             {
                 IsFinisher = info.IsFinisher, Reach01 = reach01, Thrown = true, First = first,
+                Proc = Weapon == Art.Gear.WeaponClass.Disc ? Tuning.Exchange.ProcDisc : 1f,
             });
             Board?.OnHitLanded(target, info, info.IsFinisher, reach01, first);
             if (info.IsFinisher) return;
@@ -1672,18 +1698,27 @@ namespace Convergence.Player
 
         public void Burn(Health target, float dps, float seconds)
         {
+            Effects?.BeforeStatus(target, burning: true, soaking: false);   // Steam, a union
+            if (Effects != null) dps *= Effects.BurnGrowth;                  // Kindling, grown
             if (Board != null) Board.Burn(target, dps, seconds);
             else if (target != null) StatusEffects.Get(target.gameObject).ApplyBurn(dps, seconds, gameObject);
         }
 
         public void Soak(Health target, float seconds, float vulnerability)
         {
+            // Saturate (the exchange's status layer): a soak landing on a soaked body staggers it.
+            bool already = target != null && Effects != null && Effects.Saturates
+                           && target.GetComponent<StatusEffects>() is { Soaked: true };
+            Effects?.BeforeStatus(target, burning: false, soaking: true);   // Steam, a union
+            if (Effects != null) seconds += Effects.SoakGrowth;                 // Swell, grown
             if (Board != null) Board.Soak(target, seconds, vulnerability);
             else if (target != null) StatusEffects.Get(target.gameObject).ApplySoak(seconds, vulnerability);
+            if (already && !target.IsDead) Stagger(target, Tuning.Exchange.SaturateStagger);
         }
 
         public void Stagger(Health target, float seconds)
         {
+            Effects?.OnStaggering(target);   // Clot, a union
             if (Board != null) Board.Stagger(target, seconds);
             else if (target != null) StatusEffects.Get(target.gameObject).ApplyStagger(seconds);
         }
@@ -1750,10 +1785,28 @@ namespace Convergence.Player
             if (amount > 0f) Health.Heal(amount);
         }
 
+        /// <summary>
+        /// Ends an art's lock in its SETTLE when the player moves (_settleIsFree). Never mid-dash or
+        /// in the air - a lunge's or a hop's travel is part of the move. The attack gate is held to
+        /// where the lock would have ended, so only the feet are freed.
+        /// </summary>
+        void SettleRelease()
+        {
+            if (!_settleIsFree || !AttackLocked || Rig == null) return;
+            if (_dashSeconds > 0f || Airborne || Petrified || Statue) return;
+            if (Core.Controls.Move.sqrMagnitude <= 0.01f) return;
+            if (Rig.SinceStrike < Tuning.Finisher.SettleMoveSeconds) return;
+            _cooldown = Mathf.Max(_cooldown, _lockTimer);
+            _lockTimer = 0f;
+            _settleIsFree = false;
+            Rig.ReleaseSettle();
+        }
+
         /// <summary>Held where you stand: no moving, no turning, no attacking (Recoil, Lapsus).</summary>
         public void Stun(float seconds)
         {
             _lockFreesAfterStrike = false;   // held is held: no turning either
+            _settleIsFree = false;
             _lockTimer = Mathf.Max(_lockTimer, seconds);
             _cooldown = Mathf.Max(_cooldown, seconds);
         }
@@ -1771,6 +1824,7 @@ namespace Convergence.Player
             // Aiming is not mouse-driven: this is heading for iOS, where there is no cursor, and
             // sticky auto-target is what makes a twin-stick arena playable on touch.
             _lockTimer -= Time.deltaTime;
+            SettleRelease();
 
             // A statue does nothing at all - no facing, no swing, no release. Its timers wait for
             // it, so a chain or a cooldown resumes where it was when the stone lets go.
@@ -2632,6 +2686,7 @@ namespace Convergence.Player
             // Only the ordinary swing below frees its facing at the drawn strike; every other
             // path resolves later and holds it for its whole lock.
             _lockFreesAfterStrike = false;
+            _settleIsFree = false;
 
             // A finisher sets off anything Sublimate left in the air - but not the Sublimate that
             // planted it. Checked BEFORE the move resolves, so the detonation lands first and its
@@ -2644,7 +2699,7 @@ namespace Convergence.Player
                 Suspended = null;
                 armed.Detonate();
             }
-            if (isFinisher) LastArtWeight = step.Weight;
+            if (isFinisher) { LastArtWeight = step.Weight; ArtSocket = RotationIndex; ArtSerial++; _lastArtAt = Time.time; }
 
             // The King and Queen art: both discs in a pincer - ahead of the disc paths below.
             if (step.Pincer)
@@ -3056,8 +3111,9 @@ namespace Convergence.Player
             // that merely declines the finisher's own lock has no standing against it, and a
             // player who took Rooted should feel it on everything.
             _lockTimer = (isFinisher && !step.NeverLocks) || Mods.RootedWhileSwinging
-                ? AttackMotions.SwingSeconds(swingWindow) * (isFinisher ? Mods.LockMul : 1f)
+                ? AttackMotions.SwingSeconds(swingWindow) * (isFinisher ? ArtLockMul : 1f)
                 : 0f;
+            _settleIsFree = !step.ThrowsWeapon && !Mods.RootedWhileSwinging;   // its hit is out: the settle is the player's (SettleRelease)
             // The hit resolves on this frame (ResolveArc below), so the facing may follow the
             // target again once the rig has drawn the strike. Not for a thrown blade: it flies
             // along the facing and is recalled along it.
@@ -3095,8 +3151,9 @@ namespace Convergence.Player
             Echoes?.Trail(step.Motion, swingWindow, alt);
 
             _lockTimer = (isFinisher && !step.NeverLocks) || Mods.RootedWhileSwinging
-                ? AttackMotions.SwingSeconds(swingWindow) * (isFinisher ? Mods.LockMul : 1f)
+                ? AttackMotions.SwingSeconds(swingWindow) * (isFinisher ? ArtLockMul : 1f)
                 : 0f;
+            _settleIsFree = !Mods.RootedWhileSwinging;   // its hit is out: the settle is the player's (SettleRelease)
 
             var dir = Facing.sqrMagnitude > 0.0001f ? Facing.normalized : Vector2.right;
             Vector2 start = transform.position;
@@ -3169,8 +3226,9 @@ namespace Convergence.Player
             SmearSwing(swingWindow, isFinisher);
             Echoes?.Trail(step.Motion, swingWindow, alt);
             _lockTimer = (isFinisher && !step.NeverLocks) || Mods.RootedWhileSwinging
-                ? AttackMotions.SwingSeconds(swingWindow) * (isFinisher ? Mods.LockMul : 1f)
+                ? AttackMotions.SwingSeconds(swingWindow) * (isFinisher ? ArtLockMul : 1f)
                 : 0f;
+            _settleIsFree = !Mods.RootedWhileSwinging;   // its hit is out: the settle is the player's (SettleRelease)
             var facing = Facing;
             float wait = Rig != null ? Rig.StrikeDrawnSeconds(step.Motion, swingWindow) : 0f;
             if (wait > 0f) yield return new WaitForSeconds(wait);
@@ -3193,7 +3251,7 @@ namespace Convergence.Player
             Rig?.SetSwingHop(0f);
             Rig?.PlayAttack(step.Motion, swingWindow, alt);
             float release = Rig != null ? Rig.StrikeDrawnSeconds(step.Motion, swingWindow) : 0f;
-            _lockTimer = AttackMotions.SwingSeconds(swingWindow) * Mods.LockMul;
+            _lockTimer = AttackMotions.SwingSeconds(swingWindow) * ArtLockMul;
             SettleStrike();   // the release is the strike
 
             float dmg = (BaseDamage + Mods.BonusDamage) * step.DamageMultiplier;
@@ -3239,7 +3297,7 @@ namespace Convergence.Player
                 Combat.DragToward.Push(hp, rb.position - perp * side, travel);
             }, () => home = true);
 
-            float swing = AttackMotions.SwingSeconds(swingWindow) * Mods.LockMul;
+            float swing = AttackMotions.SwingSeconds(swingWindow) * ArtLockMul;
             float t = 0f;
             while (!home)
             {
@@ -3279,7 +3337,7 @@ namespace Convergence.Player
             float cut = Rig != null ? Rig.StrikeDrawnSeconds(AttackMotion.DiscGyreCut, swingWindow) : 0f;
             float swing = AttackMotions.SwingSeconds(swingWindow);
             float total = lift + Tuning.Gyre.PullSeconds + swing;
-            _lockTimer = total * Mods.LockMul;
+            _lockTimer = total * ArtLockMul;
             if (lift > 0f) yield return new WaitForSeconds(lift);
 
             // The discs leave the raised hands: the rotor.
@@ -3409,7 +3467,7 @@ namespace Convergence.Player
             Rig?.SetSwingHop(0f);
             Rig?.PlayAttack(step.Motion, swingWindow, alt);
             float release = Rig != null ? Rig.StrikeDrawnSeconds(step.Motion, swingWindow) : 0f;
-            _lockTimer = AttackMotions.SwingSeconds(swingWindow) * Mods.LockMul;
+            _lockTimer = AttackMotions.SwingSeconds(swingWindow) * ArtLockMul;
             SettleStrike();   // the cast is the strike
 
             float dmg = (BaseDamage + Mods.BonusDamage) * step.DamageMultiplier;
@@ -3448,7 +3506,7 @@ namespace Convergence.Player
                     Core.Tuning.Finisher.FlinchSeconds, punchesThroughArmour: true),
                 onFinished: () => home = true);
 
-            float swing = AttackMotions.SwingSeconds(swingWindow) * Mods.LockMul;
+            float swing = AttackMotions.SwingSeconds(swingWindow) * ArtLockMul;
             float t = 0f;
             while (!home)
             {
@@ -3496,7 +3554,7 @@ namespace Convergence.Player
                 },
                 onFinished: () => home = true);
 
-            float swing = AttackMotions.SwingSeconds(swingWindow) * Mods.LockMul;
+            float swing = AttackMotions.SwingSeconds(swingWindow) * ArtLockMul;
             float t = 0f;
             while (!home)
             {
@@ -3533,7 +3591,7 @@ namespace Convergence.Player
             SmearSwing(window, isFinisher);
             Echoes?.Trail(step.Motion, window, false);
 
-            _lockTimer = seconds * Mods.LockMul;
+            _lockTimer = seconds * ArtLockMul;
 
             var cut = step.Clone();
             cut.DamageMultiplier = Core.Tuning.Flurry.CutShare;
@@ -3605,7 +3663,8 @@ namespace Convergence.Player
             SettleStrike();   // the release is the strike
 
             // The swing itself still commits, exactly like every other finisher.
-            _lockTimer = AttackMotions.SwingSeconds(swingWindow) * Mods.LockMul;
+            _lockTimer = AttackMotions.SwingSeconds(swingWindow) * ArtLockMul;
+            _settleIsFree = !Mods.RootedWhileSwinging;   // its hit is out: the settle is the player's (SettleRelease)
 
             // The strike itself. No hop: the wind-up already spent the anticipation this move
             // has, and hopping out of a held charge would read as the pose being abandoned.
@@ -4320,7 +4379,7 @@ namespace Convergence.Player
             // swing at this same moment, so the blade and the crescent cannot disagree.
             var line = Facing;
             float swing = AttackMotions.SwingSeconds(swingWindow);
-            _lockTimer = swing * Mods.LockMul;
+            _lockTimer = swing * ArtLockMul;
             _visual?.PlayAttack(step.Motion, swingWindow);
             Rig?.SetSwingHop(0f);
             Rig?.PlayAttack(step.Motion, swingWindow, alt: false);
@@ -4489,7 +4548,7 @@ namespace Convergence.Player
         {
             float coneSpread = Core.Tuning.Quintessence.ConeStaggerSeconds * (QuintessenceElements.Length - 1);
             float hold = coneSpread + Core.Tuning.Quintessence.LingerSeconds;
-            _lockTimer = (Core.Tuning.Quintessence.MergeSeconds + coneSpread) * Mods.LockMul;
+            _lockTimer = (Core.Tuning.Quintessence.MergeSeconds + coneSpread) * ArtLockMul;
 
             Rig?.SetWeaponVisible(false);
             Rig?.SetWeaponVisible(false);
@@ -4547,7 +4606,7 @@ namespace Convergence.Player
             SettleStrike();   // all three figures strike with the result
 
             float swing = AttackMotions.SwingSeconds(swingWindow);
-            _lockTimer = (swing + SeparatioSpread) * Mods.LockMul;
+            _lockTimer = (swing + SeparatioSpread) * ArtLockMul;
 
             // Come apart: the blade goes (reference counted - see SetWeaponVisible), the body
             // goes pale, and a flash marks the moment of separation.
@@ -4769,7 +4828,8 @@ namespace Convergence.Player
 
             // Landing commits like every other finisher, and the recovery starts the moment the
             // feet touch - not when the animation ends. The exposure IS the animation's meaning.
-            _lockTimer = AttackMotions.SwingSeconds(swingWindow) * Mods.LockMul;
+            _lockTimer = AttackMotions.SwingSeconds(swingWindow) * ArtLockMul;
+            _settleIsFree = !Mods.RootedWhileSwinging;   // its hit is out: the settle is the player's (SettleRelease)
             ExposedSeconds = step.ExposedSeconds;
             _exposedMultiplier = Mathf.Max(1f, step.ExposedMultiplier);
 
@@ -4843,7 +4903,8 @@ namespace Convergence.Player
             _visual?.PlayAttack(motion, swingWindow);
             Rig?.SetSwingHop(0f);
             Rig?.PlayAttack(motion, swingWindow, alt: false);
-            _lockTimer = AttackMotions.SwingSeconds(swingWindow) * Mods.LockMul;
+            _lockTimer = AttackMotions.SwingSeconds(swingWindow) * ArtLockMul;
+            _settleIsFree = !Mods.RootedWhileSwinging;   // its hit is out: the settle is the player's (SettleRelease)
             _lockFreesAfterStrike = !Mods.RootedWhileSwinging;
             if (!answer) yield break;
 
@@ -4952,7 +5013,7 @@ namespace Convergence.Player
             if (_sheathHold > 0f) yield return new WaitForSeconds(_sheathHold);
             SettleStrike();
             _lockTimer = (SheathDrawLength(swingWindow) - Core.Tuning.Katana.SheathSeconds - _sheathHold)
-                       * Mods.LockMul;
+                       * ArtLockMul;
 
             // ---- beat 2: two crossing cuts, blade still away ----
             var cut = new AttackStep
@@ -5069,7 +5130,7 @@ namespace Convergence.Player
             }
             SettleStrike();
             _lockTimer = (Core.Tuning.SolveCoagula.DrawSeconds + Core.Tuning.SolveCoagula.RejoinSeconds
-                          + AttackMotions.SwingSeconds(swingWindow)) * Mods.LockMul;
+                          + AttackMotions.SwingSeconds(swingWindow)) * ArtLockMul;
 
             // ---- beat 2: the X, and the lunge it launches ----
             //
@@ -5449,7 +5510,8 @@ namespace Convergence.Player
             _visual?.PlayAttack(step.Motion, swingWindow);
             Rig?.SetSwingHop(0f);
             Rig?.PlayAttack(step.Motion, swingWindow, alt);
-            _lockTimer = AttackMotions.SwingSeconds(swingWindow) * Mods.LockMul;
+            _lockTimer = AttackMotions.SwingSeconds(swingWindow) * ArtLockMul;
+            _settleIsFree = !Mods.RootedWhileSwinging;   // its hit is out: the settle is the player's (SettleRelease)
             SettleStrike();   // the cast is the strike
             float release = Rig != null ? Rig.StrikeDrawnSeconds(step.Motion, swingWindow) : 0f;
 
@@ -5499,6 +5561,7 @@ namespace Convergence.Player
                 disc.Crit = crit;
                 disc.Falloff = CleaveFalloff(disc.Falloff);   // Boomerang adds run Cleave
                 disc.SplashFraction = SplashFraction;
+                Effects?.ArmDisc(disc);   // Lodestar, Snapback
             }
             return disc;
         }
@@ -5589,7 +5652,8 @@ namespace Convergence.Player
             Rig?.SetSwingHop(0f);
             Rig?.PlayAttack(step.Motion, swingWindow, false);
             Combat.WeaponTrail.Play(Rig, AttackMotions.SwingSeconds(swingWindow));
-            _lockTimer = AttackMotions.SwingSeconds(swingWindow) * Mods.LockMul;
+            _lockTimer = AttackMotions.SwingSeconds(swingWindow) * ArtLockMul;
+            _settleIsFree = !Mods.RootedWhileSwinging;   // its hit is out: the settle is the player's (SettleRelease)
             var facing = Facing;
             float wait = Rig != null ? Rig.StrikeDrawnSeconds(step.Motion, swingWindow) : 0f;
             if (wait > 0f) yield return new WaitForSeconds(wait);
@@ -5660,7 +5724,8 @@ namespace Convergence.Player
             Rig?.SetSwingHop(0f);
             Rig?.PlayAttack(step.Motion, swingWindow, false);
             Combat.WeaponTrail.Play(Rig, AttackMotions.SwingSeconds(swingWindow));
-            _lockTimer = AttackMotions.SwingSeconds(swingWindow) * Mods.LockMul;
+            _lockTimer = AttackMotions.SwingSeconds(swingWindow) * ArtLockMul;
+            _settleIsFree = !Mods.RootedWhileSwinging;   // its hit is out: the settle is the player's (SettleRelease)
             var facing = Facing;
             float drawn = Rig != null ? Rig.StrikeDrawnSeconds(step.Motion, swingWindow) : 0f;
             if (drawn > 0f) yield return new WaitForSeconds(drawn);
@@ -5739,7 +5804,8 @@ namespace Convergence.Player
             Rig?.SetSwingHop(Core.Tuning.Scattershot.HopHeight);
             Rig?.PlayAttack(step.Motion, swingWindow, false);
             Combat.WeaponTrail.Play(Rig, AttackMotions.SwingSeconds(swingWindow));
-            _lockTimer = AttackMotions.SwingSeconds(swingWindow) * Mods.LockMul;
+            _lockTimer = AttackMotions.SwingSeconds(swingWindow) * ArtLockMul;
+            _settleIsFree = !Mods.RootedWhileSwinging;   // its hit is out: the settle is the player's (SettleRelease)
             var facing = Facing;
             float release = ScatterReleaseSeconds(step, swingWindow);
             if (release > 0f) yield return new WaitForSeconds(release);
@@ -5877,7 +5943,8 @@ namespace Convergence.Player
             Rig?.SetSwingHop(0f);
             Rig?.PlayAttack(step.Motion, swingWindow, false);
             Combat.WeaponTrail.Play(Rig, AttackMotions.SwingSeconds(swingWindow));
-            _lockTimer = AttackMotions.SwingSeconds(swingWindow) * Mods.LockMul;
+            _lockTimer = AttackMotions.SwingSeconds(swingWindow) * ArtLockMul;
+            _settleIsFree = !Mods.RootedWhileSwinging;   // its hit is out: the settle is the player's (SettleRelease)
             float drawn = Rig != null ? Rig.StrikeDrawnSeconds(step.Motion, swingWindow) : 0f;
             if (drawn > 0f) yield return new WaitForSeconds(drawn);
             SettleStrike();   // the chop is the strike
@@ -5964,7 +6031,8 @@ namespace Convergence.Player
             Rig?.SetSwingHop(0f);
             Rig?.PlayAttack(step.Motion, swingWindow, false);
             Combat.WeaponTrail.Play(Rig, AttackMotions.SwingSeconds(swingWindow));
-            _lockTimer = AttackMotions.SwingSeconds(swingWindow) * Mods.LockMul;
+            _lockTimer = AttackMotions.SwingSeconds(swingWindow) * ArtLockMul;
+            _settleIsFree = !Mods.RootedWhileSwinging;   // its hit is out: the settle is the player's (SettleRelease)
             var facing = Facing;
             float drawn = Rig != null ? Rig.StrikeDrawnSeconds(step.Motion, swingWindow) : 0f;
             if (drawn > 0f) yield return new WaitForSeconds(drawn);
@@ -6008,7 +6076,8 @@ namespace Convergence.Player
             Rig?.SetSwingHop(0f);
             Rig?.PlayAttack(step.Motion, swingWindow, false);
             Combat.WeaponTrail.Play(Rig, AttackMotions.SwingSeconds(swingWindow));
-            _lockTimer = AttackMotions.SwingSeconds(swingWindow) * Mods.LockMul;
+            _lockTimer = AttackMotions.SwingSeconds(swingWindow) * ArtLockMul;
+            _settleIsFree = !Mods.RootedWhileSwinging;   // its hit is out: the settle is the player's (SettleRelease)
             float drawn = Rig != null ? Rig.StrikeDrawnSeconds(step.Motion, swingWindow) : 0f;
             if (drawn > 0f) yield return new WaitForSeconds(drawn);
             SettleStrike();   // the flick is the strike
@@ -6051,7 +6120,8 @@ namespace Convergence.Player
             Rig?.SetSwingHop(0f);
             Rig?.PlayAttack(step.Motion, swingWindow, false);
             Combat.WeaponTrail.Play(Rig, AttackMotions.SwingSeconds(swingWindow));
-            _lockTimer = AttackMotions.SwingSeconds(swingWindow) * Mods.LockMul;
+            _lockTimer = AttackMotions.SwingSeconds(swingWindow) * ArtLockMul;
+            _settleIsFree = !Mods.RootedWhileSwinging;   // its hit is out: the settle is the player's (SettleRelease)
             float drawn = Rig != null ? Rig.StrikeDrawnSeconds(step.Motion, swingWindow) : 0f;
             float combine = drawn * Tuning.Carom.CombineAt;
             if (combine > 0f) yield return new WaitForSeconds(combine);
@@ -6218,6 +6288,8 @@ namespace Convergence.Player
             arrow.PierceFraction = PierceFraction;   // Fletching and Broadhead add run Pierce
             arrow.Knockback = HeavyKnockback(step, isFinisher);
             arrow.BasicsWorth = step.BasicsWorth;
+            bool planted = watch.Moving <= 0.02f;
+            if (!isFinisher) Effects?.ArmArrow(arrow, planted);   // Patient String, Long Ember
             if (step.LobArc > 0f)
                 arrow.Lob(step.LobArc * Vector2.Distance(transform.position, target.transform.position));
             if (step.TwinShot)
@@ -6235,6 +6307,7 @@ namespace Convergence.Player
                 twin.SplashFraction = SplashFraction;
                 twin.PierceFraction = PierceFraction;
                 twin.BasicsWorth = 0;
+                if (!isFinisher) Effects?.ArmArrow(twin, planted);
             }
             loose?.Release(arrow);
         }
@@ -6486,7 +6559,7 @@ namespace Convergence.Player
             Rig?.SetSwingHop(0f);
             Rig?.PlayAttack(step.Motion, swingWindow, false);
             Rig?.HoldDrawn(draw + 0.1f);
-            _lockTimer = draw * Mods.LockMul;   // rooted on the knee through the draw
+            _lockTimer = draw * ArtLockMul;   // rooted on the knee through the draw
             yield return new WaitForSeconds(draw);
             var nockedAt = Rig?.LooseArrow();
             SettleStrike();   // the loose is the strike
@@ -6723,7 +6796,7 @@ namespace Convergence.Player
             // The raw window: the rig takes SwingSeconds of it itself, so the drawing's phases
             // and these waits run on one clock (given anim, it ran 15% fast and loosed falling).
             Rig?.PlayAttack(step.Motion, swingWindow, false);
-            _lockTimer = anim * Mods.LockMul;
+            _lockTimer = anim * ArtLockMul;
 
             // Off the ground: the dash runs from takeoff to touchdown.
             float takeoff = anim * Tuning.Disengage.TakeoffAt;
@@ -6773,7 +6846,7 @@ namespace Convergence.Player
             float anim = AttackMotions.SwingSeconds(swingWindow);
             Rig?.SetSwingHop(0f);
             Rig?.PlayAttack(step.Motion, anim, false);
-            _lockTimer = anim * Mods.LockMul;
+            _lockTimer = anim * ArtLockMul;
             var watch = new DrawWatch();
             yield return WatchDraw(watch, anim);
             var nockedAt = Rig?.LooseArrow();
@@ -6972,6 +7045,7 @@ namespace Convergence.Player
                     IsFinisher = isFinisher,
                     First = !ledgerDesignated && !_arcRepeat,
                     Reach01 = range > 0.01f ? dist / range : 0f,
+                    Proc = 1f,
                 };
                 if (Effects != null) dmg = Effects.ModifyOutgoing(hp, dmg, ctx);
 

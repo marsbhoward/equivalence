@@ -10,6 +10,7 @@ namespace Convergence.Exchange
         // ---------------------------------------------------------------- state
 
         bool _wardReady;
+        bool _hitThisFloor;
         float _wardTimer;
         float _reactiveRemaining, _reactiveCooldown;
         float _ghostRemaining, _ghostCooldown;
@@ -46,9 +47,6 @@ namespace Convergence.Exchange
             }
 
             if (hp == null || hp.IsDead) return;
-
-            // Vital Spark: a slow regeneration, inside the same healing limit lifesteal spends.
-            if (Has("vital_spark")) _pc.HealWithinLimit(hp.Max * T.VitalSparkRegen * dt);
 
             // Second Wind's heal, over its seconds; Phoenix's rise, at once.
             if (_secondWindHealLeft > 0f)
@@ -113,12 +111,13 @@ namespace Convergence.Exchange
                 if (_mods == null) return 1f;
                 float f = 1f;
                 if (LapisReady) f *= T.LapisMul;
+                if (PoiseReady) f *= T.PoiseMul;
                 if (_reactiveRemaining > 0f)
                     f *= 1f - (AtMax("reactive_plate") ? T.ReactivePlateReductionII : T.ReactivePlateReduction);
                 var hp = Hp;
                 float mine = hp != null && hp.Max > 0f ? hp.Current / hp.Max : 1f;
                 if (AtMax("thickened_hide") && mine < T.FortitudeBelow) f *= T.FortitudeMul;
-                if (Has("committed") && _pc != null && _pc.AttackLocked) f *= 1f - T.CommittedTaken;
+                if (Has("committed") && _pc != null && _pc.AttackLocked) f *= 1f - Mathf.Min(0.6f, T.CommittedTaken * _mods.Potency("committed"));
                 if (Has("retrograde_motion") && Has("retrograde") && InputsInverted) f *= T.RetrogradeMotionTakenMul;
                 return f;
             }
@@ -134,24 +133,24 @@ namespace Convergence.Exchange
         {
             get
             {
-                if (_mods == null) return 1f;
-                float f = 1f;
-                if (AtMax("encumbered") && _pc != null && !_pc.DefenseReady) f *= 1f + T.ShackledTaken;
-                var r = Resource;
-                if (r == null) return f;
-                if (AtMax("stubborn_ore") && r.Fill01 < T.BarrenBelow) f *= 1f + T.BarrenTaken;
-                if (AtMax("smother") && r is Player.FireResource fire && fire.Stacks < T.WetAshBelowStacks) f *= 1f + T.WetAshTaken;
-                if (AtMax("low_water") && r is Player.WaterResource water && !water.Surging) f *= 1f + T.EbbTaken;
-                if (AtMax("becalmed") && r is Player.AirResource air && air.Momentum < T.DoldrumsBelow) f *= 1f + T.DoldrumsTaken;
-                return f;
+                // Phase 4 (2026-10-20) re-cut Shackled, Barren, Wet Ash, Ebb and Doldrums from
+                // exposures into rules of their own (OnHitTaken, OnFloorStarted, DefenceShut) - 14
+                // costs ended in "you take more damage while X". None is left here.
+                return 1f;
             }
         }
+
+        /// <summary>SHACKLED (Encumbered III): the defensive ability is shut for a moment after an art.</summary>
+        public bool DefenceShut(float secondsSinceArt) => AtMax("encumbered") && secondsSinceArt < T.ShackledSeconds;
 
         /// <summary>Corrosion: worn armour's penalty lands outside the floor.</summary>
         public bool WearOutsideFloor => AtMax("rust");
 
         /// <summary>Lapis: a second planted halves the next hit.</summary>
         bool LapisReady => AtMax("stonestance") && _stillSeconds >= T.LapisStillSeconds;
+
+        /// <summary>Poise: a change of pace halves the next hit (armed in Tick).</summary>
+        bool PoiseReady => _poiseArmed && AtMax("equipoise");
 
         /// <summary>
         /// Incoming damage after mitigation and before it is subtracted. The ward and the
@@ -174,7 +173,7 @@ namespace Convergence.Exchange
                     if (_pc != null)
                     {
                         Spr.Flash(_pc.transform.position, 1.2f, new Color(0.7f, 0.85f, 1f), 0.3f);
-                        if (AtMax("aegis_cycle")) Push(_pc.transform.position, T.TinWardRadius, T.TinWardKnockback);
+                        if (AtMax("aegis_cycle")) Burst(_pc.transform.position, T.TinWardRadius, T.TinWardHitUnits);
                     }
                     return 0f;
                 }
@@ -186,10 +185,12 @@ namespace Convergence.Exchange
                 }
             }
 
-            // Lapis is spent by the hit it softened (MitigationNow already halved it).
+            // Lapis and Poise are spent by the hit they softened (MitigationNow already halved it).
             if (LapisReady) _stillSeconds = 0f;
+            if (PoiseReady) _poiseArmed = false;
 
             float f = 1f;
+            if (Has("unbloodied")) f *= 1f + T.UnbloodiedTaken;   // an oath, until a floor is cleared unhit
             if (Has("open_stance") && _openStanceHits < T.OpenStanceHits)
             {
                 _openStanceHits++;
@@ -207,6 +208,33 @@ namespace Convergence.Exchange
             OnHitTaken(amount);
             return amount;
         }
+
+        /// <summary>
+        /// An ENEMY's hit landed on the player (Health.Damaged, a price or a hazard never): TIDEWATER
+        /// soaks the attacker, BACKDRAFT burns out a burning one at once. The attacker is the hit's
+        /// source - a body, or a bolt's shooter; a Mortar shell is its own source and counts for neither.
+        /// </summary>
+        public void OnStruckBy(DamageInfo info)
+        {
+            if (_mods == null || _pc == null || info.Source == null) return;
+            var attacker = info.Source.GetComponent<Health>();
+            if (attacker == null || attacker.IsDead || attacker.gameObject == _pc.gameObject) return;
+            if (Has("backdraft"))
+            {
+                var st = attacker.GetComponent<StatusEffects>();
+                float left = st != null && st.Burning ? st.ConsumeBurn() : 0f;
+                if (left > 0f)
+                {
+                    attacker.Take(new DamageInfo(left * T.BackdraftShare, ElementType.Fire, _pc.gameObject));
+                    Spr.Flash(attacker.transform.position, 0.9f, new Color(1f, 0.5f, 0.15f), 0.25f, false);
+                }
+            }
+            if (Has("tidewater") && !attacker.IsDead)
+                _pc.Soak(attacker, T.TidewaterSeconds, T.TidewaterVulnerability);
+        }
+
+        /// <summary>SATURATE: soaking an enemy already soaked staggers it (PlayerController.Soak asks).</summary>
+        public bool Saturates => Has("saturate");
 
         /// <summary>The chest's parry turned a hit (not Riposte's guard): Unshackled staggers the
         /// crowd round you.</summary>
@@ -228,6 +256,10 @@ namespace Convergence.Exchange
         /// <summary>The windows and spills a hit taken sets going.</summary>
         void OnHitTaken(float amount)
         {
+            _hitThisFloor = true;   // Unbloodied
+            // The re-cut Nigredos: each a rule on its own mechanic.
+            if (AtMax("smother") && Resource is Player.FireResource fire) fire.Spill(1f / Player.FireResource.MaxStacks);   // Wet Ash
+            if (AtMax("low_water") && Resource is Player.WaterResource water) water.EndSurge();                              // Ebb
             if (Has("reactive_plate") && _reactiveCooldown <= 0f)
             {
                 _reactiveRemaining = T.ReactivePlateSeconds;
@@ -243,7 +275,7 @@ namespace Convergence.Exchange
             if (AtMax("retrograde")) _contraryRemaining = T.ContrarySeconds;   // Contrary
             if (AtMax("leaky_vessel")) Resource?.Spill(T.CrackedVesselSpill);   // Cracked Vessel
             if (Has("sealed_vessel")) Resource?.Refund(T.SealedVesselGain);
-            if (AtMax("becalmed")) (Resource as Player.AirResource)?.BreakStreak();   // Doldrums
+            if (AtMax("becalmed") && Resource is Player.AirResource air) { air.BreakStreak(); air.Spill(1f); }   // Doldrums
             if (Has("haemophilia") && amount > 0f)
             {
                 _bleedOwed += amount * T.HaemophiliaFraction;
@@ -255,6 +287,7 @@ namespace Convergence.Exchange
 
         public float ModifyHeal(float amount)
         {
+            if (Has("blood_debt")) return 0f;   // an oath: no healing until it is paid
             var m = M;
             amount *= m.HealMul;
             var hp = Hp;
@@ -271,6 +304,13 @@ namespace Convergence.Exchange
             // Hollow: healing cannot carry you past the ceiling.
             if (m.HealCeiling < 1f)
                 amount = Mathf.Min(amount, Mathf.Max(0f, hp.Max * m.HealCeiling - hp.Current));
+
+            // PELICAN (reworked): the heal is also dealt, as damage, to the nearest enemy.
+            if (Has("pelican") && amount > 0f && _pc != null)
+            {
+                var near = NearestEnemy(_pc.transform.position, T.PelicanReach, null);
+                if (near != null) near.Take(new DamageInfo(amount * _mods.Potency("pelican"), ElementType.Water, _pc.gameObject));
+            }
             return amount;
         }
 
@@ -281,9 +321,9 @@ namespace Convergence.Exchange
             _secondWindSpent = true;
             if (Has("phoenix"))
             {
-                // Phoenix: risen, and the blast throws the crowd off you.
+                // Phoenix: risen, and the blast sets the crowd round you burning.
                 _riseTo = T.PhoenixRise;
-                Push(_pc.transform.position, T.PhoenixRadius, T.TinWardKnockback);
+                Ignite(_pc.transform.position, T.PhoenixRadius, T.PhoenixBurnHitUnits, T.PhoenixBurnSeconds);
                 Spr.Flash(_pc.transform.position, T.PhoenixRadius, new Color(1f, 0.55f, 0.2f), 0.5f);
             }
             else _secondWindHealLeft = Hp.Max * T.SecondWindHeal;
@@ -292,6 +332,41 @@ namespace Convergence.Exchange
         }
 
         // ---------------------------------------------------------------- shared
+
+        /// <summary>Tin Ward: every live enemy within <paramref name="radius"/> struck for
+        /// <paramref name="hitUnits"/> of the player's own hits.</summary>
+        void Burst(Vector2 from, float radius, float hitUnits)
+        {
+            if (_pc == null) return;
+            float dmg = hitUnits * _pc.HitUnit;
+            foreach (var hp in EnemiesWithin(from, radius))
+                hp.Take(new DamageInfo(dmg, Element, _pc.gameObject));
+            Spr.Flash(from, radius, new Color(0.7f, 0.85f, 1f, 0.7f), 0.3f);
+        }
+
+        /// <summary>Phoenix: every live enemy within <paramref name="radius"/> set burning for
+        /// <paramref name="hitUnits"/> of the player's hits over <paramref name="seconds"/> -
+        /// through the player's own Burn, so the board's burn rules apply.</summary>
+        void Ignite(Vector2 from, float radius, float hitUnits, float seconds)
+        {
+            if (_pc == null) return;
+            float dps = hitUnits * _pc.HitUnit / seconds;
+            foreach (var hp in EnemiesWithin(from, radius)) _pc.Burn(hp, dps, seconds);
+        }
+
+        static System.Collections.Generic.List<Health> EnemiesWithin(Vector2 from, float radius)
+        {
+            var list = new System.Collections.Generic.List<Health>();
+            Enemies.EnemyRegistry.Prune();
+            foreach (var e in Enemies.EnemyRegistry.All)
+            {
+                if (e == null) continue;
+                var hp = e.GetComponent<Health>();
+                if (hp == null || hp.IsDead) continue;
+                if (((Vector2)e.transform.position - from).sqrMagnitude <= radius * radius) list.Add(hp);
+            }
+            return list;
+        }
 
         /// <summary>Every live enemy within <paramref name="radius"/> thrown away from a point.</summary>
         static void Push(Vector2 from, float radius, float distance)

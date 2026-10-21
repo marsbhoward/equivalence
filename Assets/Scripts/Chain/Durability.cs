@@ -10,7 +10,9 @@ namespace Convergence.Chain
     ///
     /// Durability changes constantly during a fight, so it is mutated in memory and only written
     /// at a run boundary - the same discipline the rest of the chain layer follows. Nothing here
-    /// ever triggers a per-hit transaction.
+    /// ever triggers a per-hit transaction. It lasts ONE RUN: both run checkpoints empty it
+    /// (ProfileRules), since the hub has no way to repair gear. Each floor's first blows wear
+    /// nothing - the PLATING the Armour stat buys (GameBootstrap's wear hook, Tuning.Defense.ArmorPerPlate).
     ///
     /// Two effects, deliberately different:
     ///   ARMOUR  wears when the player is HIT   -> damage taken goes UP

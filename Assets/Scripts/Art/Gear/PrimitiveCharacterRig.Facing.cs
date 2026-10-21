@@ -95,6 +95,25 @@ namespace Convergence.Art.Gear
             }
         }
 
+        public float SinceStrike
+        {
+            get
+            {
+                if (_attackTimer <= 0f || _attackHold > 0f) return 0f;
+                StrikePhases(_motion, _attackLength, out _, out float strikeEnd);
+                return Mathf.Max(0f, (SwingKNow - strikeEnd) * _attackLength);
+            }
+        }
+
+        public void ReleaseSettle()
+        {
+            if (_attackTimer <= 0f || _attackHold > 0f || !PastStrike) return;
+            _attackTimer = 0f;
+            // Past the follow-through hold, so the grip starts back for the carry at once - and
+            // past Sunder's linger, so a planted blade comes out of the ground with the step.
+            _sinceSwing = Mathf.Max(CarryReturnDelay, Core.Tuning.Sunder.PierceLingerSeconds);
+        }
+
         public float StrikeDrawnSeconds(AttackMotion motion, float duration)
         {
             float length = AttackMotions.SwingSeconds(duration);

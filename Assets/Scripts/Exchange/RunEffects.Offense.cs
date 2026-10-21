@@ -17,6 +17,9 @@ namespace Convergence.Exchange
         public bool Thrown;
         /// <summary>This hit IS a repeat: it repeats nothing and counts toward nothing.</summary>
         public bool Repeat;
+        /// <summary>THE PROC WEIGHT: how much of a chance-based on-hit status this hit earns - 1 for a
+        /// swing, an arrow or a thrown blade, Tuning.Exchange.ProcDisc for a thrown disc, 0 for a repeat.</summary>
+        public float Proc;
     }
 
     public partial class RunEffects
@@ -31,9 +34,13 @@ namespace Convergence.Exchange
         bool _repeatNextHit;
         bool _felicityThisSwing, _felicityUsed;
         bool _wakeReady, _wakeThisSwing;
+        bool _afterburnThisSwing;   // Afterburn: this basic follows the defensive ability
+        float _afterburnUntil;
         int _swingChainIndex;
         bool _perfectArt;
         int _arts;
+        /// <summary>The bodies this swing has struck - Scything staggers them all at the third.</summary>
+        readonly System.Collections.Generic.List<Health> _swingStruck = new();
         float _eagleRemaining, _stoopRemaining, _huntRemaining;
 
         void TickOffense(float dt)
@@ -75,7 +82,10 @@ namespace Convergence.Exchange
             _swingChainIndex = _pc != null ? Mathf.Min(_pc.ComboIndex, _pc.BasicsPerChain) : 0;
             _wakeThisSwing = !isFinisher && _wakeReady;
             if (_wakeThisSwing) _wakeReady = false;
+            _afterburnThisSwing = !isFinisher && Time.time < _afterburnUntil;
+            if (_afterburnThisSwing) _afterburnUntil = 0f;
             _felicityThisSwing = Has("felicity") && Random.value < T.FelicityChance;
+            _swingStruck?.Clear();
             _felicityUsed = false;
             if (!isFinisher) _perfectArt = false;
 
@@ -83,6 +93,7 @@ namespace Convergence.Exchange
             bool whiff = fumble > 0 && Random.value < T.FumblerChance * fumble;
             // Iron Rhythm: the swing that passed through makes the next hit repeat.
             if (whiff && Has("iron_rhythm") && Has("fumbler")) _repeatNextHit = true;
+            if (!isFinisher && !whiff) Spindrift();
             return !whiff;
         }
 
@@ -109,7 +120,7 @@ namespace Convergence.Exchange
             float add = 0f;
             if (_stoopRemaining > 0f) add += T.ForcedCritChance;
             // Honed: every hit on a body above half health - the same share however fat it is.
-            if (Has("honed") && target.Max > 0f && target.Current / target.Max > T.HonedAbove) add += T.HonedCrit;
+            if (Has("honed") && target.Max > 0f && target.Current / target.Max > T.HonedAbove) add += T.HonedCrit * _mods.Potency("honed");
             if (Has("cementation"))
             {
                 var mk = LedgerMarks.Peek(target.gameObject);
@@ -163,10 +174,11 @@ namespace Convergence.Exchange
 
             if (AtMax("long_reach") && h.Reach01 >= T.FarStrikeFrom) up += T.FarStrikeDamage;
             if (AtMax("short_arm") && h.Reach01 > T.CrampedFrom) down -= T.CrampedDamage;
-            if (Has("close_quarters") && h.Reach01 <= T.CloseQuartersWithin) up += T.CloseQuartersDamage;
+            if (Has("close_quarters") && h.Reach01 <= T.CloseQuartersWithin) up += T.CloseQuartersDamage * _mods.Potency("close_quarters");
 
             if (_wakeThisSwing && !h.IsFinisher) up += T.WakeDamage;
-            if (Has("deliberate")) up += T.DeliberateDamagePerBasic * _swingChainIndex;
+            if (_afterburnThisSwing && !h.IsFinisher) up += T.AfterburnDamage * Strength("afterburn");
+            if (Has("deliberate")) up += T.DeliberateDamagePerBasic * _swingChainIndex * _mods.Potency("deliberate");
 
             if (Has("damascene"))
             {
@@ -176,19 +188,20 @@ namespace Convergence.Exchange
 
             var hp = Hp;
             float mine = hp != null && hp.Max > 0f ? hp.Current / hp.Max : 1f;
-            if (Has("fury_of_the_frail") && mine < T.FuryBelow) up += T.FuryDamage;
             if (Has("bloodstone") && Has("blood_price"))
                 up += Mathf.Min(T.BloodstoneCap, (1f - mine) / T.BloodstoneMissingPerPoint);
 
             float tens = Mathf.Floor(_floorSeconds / T.SouringEverySeconds);
             int sour = N("souring");
             if (sour > 0) down -= Mathf.Min(T.SouringCap, T.SouringDamage * tens) * sour;
-            if (Has("maturation")) up += Mathf.Min(T.MaturationCap, T.MaturationDamage * tens);
+            if (Has("maturation")) up += Mathf.Min(T.MaturationCap, T.MaturationDamage * tens) * _mods.Potency("maturation");
 
-            if (Has("mountain") && _stillSeconds > 0.25f) up += T.MountainDamage;
+            if (Has("mountain") && _stillSeconds > 0.25f) up += T.MountainDamage * _mods.Potency("mountain");
             if (_trapRemaining > 0f) up += T.TrapBonusDamage;
 
             damage = damage * m.Factor(StatKind.Damage, up, down) + opener;
+            // Dulled Script: the art on its socket deals less (a socket cost, paid for a form).
+            if (h.IsFinisher && _pc != null) damage *= SocketDamageMul(_pc.ArtSocket);
 
             // Green Lion: a weapon art settled PERFECT, in Weapon Art points.
             if (h.IsFinisher && _perfectArt && Has("green_lion"))
@@ -233,6 +246,11 @@ namespace Convergence.Exchange
             if (info.Crit && AtMax("vein_finder") && !h.Repeat)
                 CrowdHits.Splash(target, info.Amount, T.FulminateFraction, info.Element, _pc.gameObject, T.FulminateRadius);
 
+            // The status capstones (2026-10-20 - each used to add only a stat), and the status layer:
+            if (!h.Repeat && !target.IsDead) StatusCapstones(target, info, h);
+            if (!h.Repeat && !target.IsDead) StatusLayer(target, info, h);
+            if (!h.Repeat && !target.IsDead) FormsOnHit(target, info, h);
+
             // Crushing Blow: every weapon art staggers what it hits - its attacks come slower,
             // armoured or not. Not a flinch: armoured flinch is what makes an art Heavy.
             if (h.IsFinisher && AtMax("heavy_payoff") && !target.IsDead)
@@ -266,10 +284,72 @@ namespace Convergence.Exchange
             // Gemini: the repeat is a whole twin of the hit, not half of it.
             if (repeat) Repeat(target, info, Has("gemini") ? 1f : T.ReiterationFraction, AtMax("reiteration"));
 
-            if (_felicityThisSwing && !_felicityUsed && h.First && !target.IsDead)
+            // FELICITY (reworked): one swing in nine throws a crescent along the aim.
+            if (_felicityThisSwing && !_felicityUsed && h.First)
             {
                 _felicityUsed = true;
-                Repeat(target, info, 1f, false);
+                Vector2 from = _pc.transform.position, dir = _pc.Facing.sqrMagnitude > 0.01f ? _pc.Facing.normalized : Vector2.right;
+                float dmg = info.Amount * T.FelicityShare * _mods.Potency("felicity");
+                foreach (var hp in EnemiesInStrip(from, dir, T.FelicityReach, T.FelicityHalfWidth))
+                    if (hp != target) hp.Take(new DamageInfo(dmg, info.Element, _pc.gameObject));
+                Spr.Flash(from + dir * T.FelicityReach * 0.6f, 0.7f, new Color(1f, 0.95f, 0.7f, 0.4f), 0.18f, false);
+            }
+            // FURY OF THE FRAIL (reworked): low on health, basics bleed.
+            if (!h.IsFinisher && Has("fury_of_the_frail") && Hp != null && Hp.Max > 0f && Hp.Current / Hp.Max < T.FuryBelow && !target.IsDead)
+                _pc.Bleed(target, info.Amount * T.FuryBleedShare * _mods.Potency("fury_of_the_frail") / T.FuryBleedSeconds, T.FuryBleedSeconds);
+        }
+
+        /// <summary>
+        /// Scything (Wide Arc II): a SWING that strikes enough bodies staggers every one. Eddy
+        /// (Ricochet II): a thrown disc's bounce - any hit but its first - soaks. Broadhead
+        /// (Fletching II): an arrow bleeds what it strikes. All through the player's own status
+        /// calls, so the board's status rules apply.
+        /// </summary>
+        void StatusCapstones(Health target, DamageInfo info, in HitContext h)
+        {
+            var weapon = _mods.Weapon;
+            // The bodies this swing has struck - Scything and Fault Line count them.
+            if (!h.Thrown && _swingStruck != null && !_swingStruck.Contains(target)) _swingStruck.Add(target);
+            if (!h.Thrown && AtMax("wide_arc") && _swingStruck != null)
+            {
+                if (_swingStruck.Count == T.ScythingBodies)
+                    foreach (var hp in _swingStruck) { if (hp != null && !hp.IsDead) _pc.Stagger(hp, T.ScythingStagger); }
+                else if (_swingStruck.Count > T.ScythingBodies) _pc.Stagger(target, T.ScythingStagger);
+            }
+            if (h.Thrown && !h.First && weapon == WeaponClass.Disc && AtMax("ricochet"))
+                _pc.Soak(target, T.EddySoakSeconds, T.EddySoakVulnerability);
+            if (h.Thrown && weapon == WeaponClass.Bow && AtMax("fletching"))
+                _pc.Bleed(target, info.Amount * T.BroadheadBleedShare / T.BroadheadBleedSeconds, T.BroadheadBleedSeconds);
+        }
+
+        /// <summary>
+        /// The status layer's on-hit entries: TINDER (a basic may set its target burning, by its proc
+        /// weight), SERRATED (the chain's first basic bleeds all it strikes), PIN DOWN (a basic holds
+        /// a staggered body down) and LANCET (a weapon art ends a bleed for half again what it had left).
+        /// </summary>
+        void StatusLayer(Health target, DamageInfo info, in HitContext h)
+        {
+            if (!h.IsFinisher)
+            {
+                if (Has("tinder") && Random.value < T.TinderChance * h.Proc)
+                    _pc.Burn(target, info.Amount * T.TinderBurnShare, T.TinderSeconds);
+                if (Has("serrated") && _swingChainIndex == 0)
+                    _pc.Bleed(target, info.Amount * T.SerratedBleedShare, T.SerratedSeconds);
+                if (Has("pin_down"))
+                {
+                    var st = target.GetComponent<StatusEffects>();
+                    if (st != null && st.Staggered) st.ExtendStagger(T.PinDownSeconds);
+                }
+            }
+            else if (Has("lancet"))
+            {
+                var st = target.GetComponent<StatusEffects>();
+                float left = st != null ? st.ConsumeBleed() : 0f;
+                if (left > 0f && !target.IsDead)
+                {
+                    target.Take(new DamageInfo(left * T.LancetShare, ElementType.Earth, _pc.gameObject));
+                    Spr.Flash(target.transform.position, 0.6f, new Color(0.75f, 0.1f, 0.15f), 0.22f, false);
+                }
             }
         }
 
@@ -314,7 +394,16 @@ namespace Convergence.Exchange
         // ---------------------------------------------------------------- weapon arts
 
         /// <summary>A weapon art's timing bar has settled (StrikeJudge).</summary>
-        public void OnArtSettled(StrikeVerdict verdict) => _perfectArt = verdict == StrikeVerdict.Perfect;
+        public void OnArtSettled(StrikeVerdict verdict)
+        {
+            _perfectArt = verdict == StrikeVerdict.Perfect;
+            // KNELL: a perfect press rings out, staggering everything round you.
+            if (_perfectArt && Has("knell") && _pc != null)
+            {
+                foreach (var hp in EnemiesWithin(_pc.transform.position, T.KnellRadius)) _pc.Stagger(hp, T.KnellStagger);
+                Spr.Flash(_pc.transform.position, T.KnellRadius, new Color(0.75f, 0.7f, 0.95f, 0.5f), 0.3f);
+            }
+        }
 
         /// <summary>Red Lion: the perfect streak survives a GOOD.</summary>
         public bool StreakSurvivesGood => AtMax("green_lion");
@@ -356,6 +445,14 @@ namespace Convergence.Exchange
             }
 
             if (AtMax("rich_vein")) Resource?.Refund(T.MotherLodeRefill * counts);
+            FormsOnKill(h);
+
+            // BLOOD DEBT (an oath): paid in kills, by the body's worth.
+            if (Has("blood_debt")) _mods.AddOathProgress("blood_debt", counts, T.BloodDebtWorth);
+            // VITAL SPARK (reworked): a kill while low heals.
+            var me = Hp;
+            if (Has("vital_spark") && me != null && me.Max > 0f && me.Current / me.Max < T.VitalSparkBelow)
+                _pc.HealWithinLimit(me.Max * T.VitalSparkKillHeal * _mods.Potency("vital_spark"));
 
             int dead = N("dead_weight");
             if (dead > 0)

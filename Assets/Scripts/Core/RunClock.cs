@@ -77,13 +77,18 @@ namespace Convergence.Core
         /// <summary>A boss has arrived: its floor fights at the heat of this moment to the end.</summary>
         public void LockHeat()
         {
-            _lockedHeat = HeatAt(Seconds);
+            _lockedHeat = HeatAt(Seconds + TierShiftSeconds);
             _locked = true;
         }
 
+        /// <summary>SEALED SANDS (a brand, the exchange): seconds of clock the heat is read AHEAD of the
+        /// run clock - a tier, while held. The clock itself (and the service's) is untouched.
+        /// Set by GameBootstrap from the ledger.</summary>
+        public static float TierShiftSeconds;
+
         /// <summary>The heat now - the multiplier on every hit the player takes. 1 outside the Short
         /// Descent.</summary>
-        public float Heat => !RunFormat.Short ? 1f : _locked ? _lockedHeat : HeatAt(Seconds);
+        public float Heat => !RunFormat.Short ? 1f : _locked ? _lockedHeat : HeatAt(Seconds + TierShiftSeconds);
 
         /// <summary>What heat does to one incoming hit: nothing to a hit that ignores it.</summary>
         public static float IncomingScale(Combat.DamageInfo info)
@@ -127,15 +132,17 @@ namespace Convergence.Core
             return Mathf.Pow(Tuning.RunClock.TierStep, minutes / (Tuning.RunClock.TierSeconds / 60f) - 0.5f);
         }
 
-        /// <summary>The tiers' names - the seven operations, the last the user's GATE COLLAPSE.</summary>
+        /// <summary>The tiers' names - alchemical operations, the last the user's GATE COLLAPSE.
+        /// Conjunction and Fermentation were renamed 2026-10-20: the deal's combinations and a
+        /// board rule already use them.</summary>
         public static string TierName(int tier) => tier switch
         {
             0 => "Calcination",
             1 => "Dissolution",
             2 => "Separation",
-            3 => "Conjunction",
-            4 => "Fermentation",
-            5 => "Distillation",
+            3 => "Digestion",
+            4 => "Distillation",
+            5 => "Rectification",
             _ => "Gate Collapse",
         };
     }

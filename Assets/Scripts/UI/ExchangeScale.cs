@@ -24,6 +24,8 @@ namespace Convergence.UI
     ///     capstone glows - gilt-crimson for a Rubedo, black smoke and ash for a Nigredo (a dark
     ///     glow is invisible on a dark card)
     ///   - a Citrinitas lights the beam yellow
+    ///   - each kind of entry is drawn in its own colour (ExchangeInk): a weapon-art form black lit
+    ///     violet, an Albedo white, a Citrinitas yellow, an evolution in the peacock's shifting colours
     ///   - REFUSE is the beam lifted off the fork and laid on the floor: no trade
     ///   - taking the slate freezes the beam, the icons leave, and the empty pans spring level
     /// </summary>
@@ -42,6 +44,34 @@ namespace Convergence.UI
         static readonly Ramp Citrine = new() { Hi = C(0xfff3a6), Lt = C(0xecca4c), Md = C(0xb08f22), Dk = C(0x6a5410), Sh = C(0x3a2e08) };
         static readonly IconRamp BoonInk = new() { Lt = C(0xb4e384), Md = C(0x8cc25b), Dk = C(0x4c772a), Ghost = C(0x33482a), GhostDk = C(0x22301d) };
         static readonly IconRamp CostInk = new() { Lt = C(0xf2916c), Md = C(0xd8633e), Dk = C(0x86341b), Ghost = C(0x4d2a20), GhostDk = C(0x331c15) };
+        // The colour designations (ExchangeInk): a weapon-art form BLACK lit violet, with a faint violet
+        // halo so it holds on the dark card; an Albedo white; a Citrinitas yellow. An evolution (CAUDA
+        // PAVONIS) is drawn texel by texel in the peacock's four colours, shifting - see PavonisAt.
+        static readonly IconRamp WeaponArtInk = new() { Lt = C(0xa070e8), Md = C(0x1d1724), Dk = C(0x0b080e), Ghost = C(0x2a2133), GhostDk = C(0x17121c) };
+        static readonly Color32 WeaponArtHalo = C(0x2c1f42);
+        static readonly IconRamp AlbedoInk = new() { Lt = C(0xffffff), Md = C(0xe2dfd6), Dk = C(0x8a877e), Ghost = C(0x3b3a36), GhostDk = C(0x262522) };
+        static readonly IconRamp CitrineInk = new() { Lt = C(0xf2d55a), Md = C(0xc9a52a), Dk = C(0x6f5a12), Ghost = C(0x4a4020), GhostDk = C(0x2e2814) };
+        static readonly IconRamp[] PavonisInks =
+        {
+            new() { Lt = C(0x7cc0ff), Md = C(0x2f6fd0), Dk = C(0x173a73), Ghost = C(0x1e2a40), GhostDk = C(0x141c2b) },   // blue
+            new() { Lt = C(0x7cf0b4), Md = C(0x2fae6f), Dk = C(0x145a38), Ghost = C(0x1d3a2c), GhostDk = C(0x13261d) },   // green
+            new() { Lt = C(0xf6c878), Md = C(0xc08030), Dk = C(0x5e3d14), Ghost = C(0x3f2f1c), GhostDk = C(0x291f13) },   // bronze
+            new() { Lt = C(0xcfa2ff), Md = C(0x8a55d8), Dk = C(0x3f2470), Ghost = C(0x2e2440), GhostDk = C(0x1e182b) },   // violet
+        };
+
+        static IconRamp InkFor(ExchangeEntry e) => ExchangeInk.KindOf(e) switch
+        {
+            ExchangeInk.Kind.Cost       => CostInk,
+            ExchangeInk.Kind.WeaponArt  => WeaponArtInk,
+            ExchangeInk.Kind.Albedo     => AlbedoInk,
+            ExchangeInk.Kind.Citrinitas => CitrineInk,
+            _                           => BoonInk,
+        };
+
+        /// <summary>The peacock's colour under texel (x, y) at a frame: diagonal bands that drift.</summary>
+        static IconRamp PavonisAt(int x, int y, int frame)
+            => PavonisInks[(((x - y) / 3 + frame / 2) % 4 + 4) % 4];
+
         static readonly Color32[] RubedoGlow = { C(0xffd27a), C(0xffa04a), C(0xe8583a), C(0xffa04a) };
         static readonly Color32 Smoke = C(0x030204), Ash = C(0xbdb2bd), AshDim = C(0x7e7480), Floor = C(0x141218);
 
@@ -206,7 +236,8 @@ namespace Convergence.UI
             }
             else th = Angle(now);
 
-            int frame = !_taken && (_boonCaps || _costCaps) ? Mathf.FloorToInt(now * 6f) : 0;
+            bool shimmer = _boon != null && _boon.Origin == EntryOrigin.Evolution;
+            int frame = !_taken && (_boonCaps || _costCaps || shimmer) ? Mathf.FloorToInt(now * 6f) : 0;
             if (Mathf.Abs(th - _drawnAngle) < 0.0005f && frame == _drawnFrame && _taken == _drawnTaken) return;
             Redraw(th, frame);
         }
@@ -304,16 +335,19 @@ namespace Convergence.UI
                 _iconAt[side] = new Vector2Int(left, top);
                 if (_taken) continue;
 
-                var ink = e.Kind == ExchangeKind.Boon ? BoonInk : CostInk;
+                var ink = InkFor(e);
+                bool pavonis = e.Origin == EntryOrigin.Evolution;
                 int held = side == 0 ? _boonHeld : _costHeld;
-                if (held >= 1) Icon(g, left - 3, top - 2, ink, true);
-                if (held >= 2) Icon(g, left + 3, top - 2, ink, true);
-                if (side == 0 ? _boonCaps : _costCaps)
+                if (held >= 1) Icon(g, left - 3, top - 2, ink, true, pavonis ? frame : -1);
+                if (held >= 2) Icon(g, left + 3, top - 2, ink, true, pavonis ? frame : -1);
+                bool caps = side == 0 ? _boonCaps : _costCaps;
+                if (caps)
                 {
                     if (e.Kind == ExchangeKind.Boon) Glow(g, left, top, RubedoGlow[frame % 4]);
                     else SmokeHalo(g, left, top, frame);
                 }
-                Icon(g, left, top, ink, false);
+                else if (ExchangeInk.KindOf(e) == ExchangeInk.Kind.WeaponArt) Glow(g, left, top, WeaponArtHalo);
+                Icon(g, left, top, ink, false, pavonis ? frame : -1);
             }
 
             // Beam: tapers toward the ends, scrolled crest at the middle, a curl up at each end.
@@ -372,13 +406,16 @@ namespace Convergence.UI
 
         /// <summary>The glyph sitting in the pan: lit along its top edges, shaded on its lower and
         /// right edges, so it reads as an object rather than a flat stamp.</summary>
-        void Icon(bool[,] g, int left, int top, IconRamp ink, bool dim)
+        /// <param name="pavonis">A frame to draw it in the peacock's shifting colours (an evolution),
+        /// or -1 for <paramref name="ink"/>.</param>
+        void Icon(bool[,] g, int left, int top, IconRamp ink, bool dim, int pavonis = -1)
         {
             int n = g.GetLength(0);
             for (int y = 0; y < n; y++)
             for (int x = 0; x < n; x++)
             {
                 if (!g[x, y]) continue;
+                if (pavonis >= 0) ink = PavonisAt(x, y, pavonis);
                 bool shade = !On(g, x, y + 1) || !On(g, x + 1, y);
                 var col = dim ? (shade ? ink.GhostDk : ink.Ghost)
                               : shade ? ink.Dk : !On(g, x, y - 1) ? ink.Lt : ink.Md;
@@ -439,12 +476,20 @@ namespace Convergence.UI
             if (_iconCache.TryGetValue(e.Id, out var cached) && cached != null) return cached;
 
             var g = ExchangeGlyphs.Texels(e, IconTexels);
-            var ink = e.Kind == ExchangeKind.Boon ? BoonInk : CostInk;
+            var ink = InkFor(e);
+            bool pavonis = e.Origin == EntryOrigin.Evolution;
+            bool halo = ExchangeInk.KindOf(e) == ExchangeInk.Kind.WeaponArt;
             var px = new Color32[IconTexels * IconTexels];
             for (int y = 0; y < IconTexels; y++)
             for (int x = 0; x < IconTexels; x++)
             {
-                if (!g[x, y]) { px[(IconTexels - 1 - y) * IconTexels + x] = Clear; continue; }
+                if (!g[x, y])
+                {
+                    bool edge = halo && (On(g, x - 1, y) || On(g, x + 1, y) || On(g, x, y - 1) || On(g, x, y + 1));
+                    px[(IconTexels - 1 - y) * IconTexels + x] = edge ? WeaponArtHalo : Clear;
+                    continue;
+                }
+                if (pavonis) ink = PavonisAt(x, y, 0);
                 bool shade = !On(g, x, y + 1) || !On(g, x + 1, y);
                 px[(IconTexels - 1 - y) * IconTexels + x] = shade ? ink.Dk : !On(g, x, y - 1) ? ink.Lt : ink.Md;
             }

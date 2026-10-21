@@ -36,9 +36,10 @@ namespace Convergence.Art.Gear
         [Tooltip("Percentage points of maximum health.")]
         public float MaxHp;
 
-        [Tooltip("Percentage points added to the size of the ARMOUR durability pool (every " +
-                 "armour-kind item's own MaxDurability). A bigger buffer before wear starts " +
-                 "costing you, not a direct damage reduction - see Resilience for that.")]
+        [Tooltip("ARMOUR: the floor's PLATING - every Tuning.Defense.ArmorPerPlate points absorb one " +
+                 "Chaser-sized blow a floor before the armour wears at all - and the size of the " +
+                 "durability pool (every armour-kind item's own MaxDurability). Not a direct damage " +
+                 "reduction - see Resilience for that.")]
         public float Armor;
 
         [Tooltip("Percentage points that slow how fast the armour pool drains per hit. Protects " +

@@ -88,8 +88,36 @@ namespace Convergence.Exchange
             ExchangeFamily.Leaden      => Weight(x, y),
             ExchangeFamily.Leaking     => (Glyphs.Ring(x, y, 0.70f, 0.13f) && !(y < -0.42f && Mathf.Abs(x) < 0.34f))
                                           || Glyphs.Disc(x, y, 0f, -0.74f, 0.11f),
+            // ---- the humours (the status layer): four plain outlines no other family uses ----
+            ExchangeFamily.Choler      => Polygon(x, y, 6, 0.92f, 0f) && !Polygon(x, y, 6, 0.64f, 0f),     // flat-topped hexagon
+            ExchangeFamily.Phlegm      => Ellipse(x, y, 0.86f, 0.60f) && !Ellipse(x, y, 0.62f, 0.38f),     // wide oval
+            ExchangeFamily.Sanguine    => Vesica(x, y, 0.92f) && !Vesica(x, y, 0.66f),                     // tall lens
+            ExchangeFamily.Melancholy  => Polygon(x, y, 4, 0.92f, 45f) && !Polygon(x, y, 4, 0.66f, 45f),   // square
             _                          => Eye(x, y),
         };
+
+        /// <summary>A filled regular polygon with <paramref name="sides"/>, circumradius r, first vertex at
+        /// <paramref name="startDeg"/>.</summary>
+        static bool Polygon(float x, float y, int sides, float r, float startDeg)
+        {
+            float step = 2f * Mathf.PI / sides, start = startDeg * Mathf.Deg2Rad;
+            float apothem = r * Mathf.Cos(step * 0.5f);
+            for (int i = 0; i < sides; i++)
+            {
+                float a = start + step * (i + 0.5f);   // the edge normal between two vertices
+                if (x * Mathf.Cos(a) + y * Mathf.Sin(a) > apothem) return false;
+            }
+            return true;
+        }
+
+        static bool Ellipse(float x, float y, float rx, float ry) => (x * x) / (rx * rx) + (y * y) / (ry * ry) <= 1f;
+
+        /// <summary>A vertical lens: two circles' overlap, pointed top and bottom.</summary>
+        static bool Vesica(float x, float y, float h)
+        {
+            float r = h * 0.82f, off = r - h * 0.48f;
+            return (x - off) * (x - off) + y * y <= r * r && (x + off) * (x + off) + y * y <= r * r && Mathf.Abs(y) <= h;
+        }
 
         /// <summary>
         /// A blade seen end-on: a tall rhombus outline.

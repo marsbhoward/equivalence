@@ -42,6 +42,40 @@ namespace Convergence.UI
             _pendingMastery = pendingMastery;
         }
 
+        /// <summary>This floor's PLATING - blows left before armour wears, and a floor's whole
+        /// (GameBootstrap.PlatingLeft / PlatingPerFloor).</summary>
+        public void SetPlatingSource(System.Func<float> left, System.Func<float> perFloor)
+        {
+            _platingLeft = left;
+            _platingPerFloor = perFloor;
+        }
+
+        System.Func<float> _platingLeft, _platingPerFloor;
+
+        /// <summary>The OATHS' line (GameBootstrap.OathLine): sworn oaths and their progress, under the
+        /// floor panel. Null hides it.</summary>
+        public void SetOathSource(System.Func<string> line) => _oathLine = line;
+
+        System.Func<string> _oathLine;
+        Text _oath;
+        string _oathShown;
+
+        void TickOath()
+        {
+            string line = _oathLine?.Invoke();
+            if (line == _oathShown) return;
+            _oathShown = line;
+            if (_oath == null && line != null && _root != null)
+            {
+                var rt = UiKit.Rect(_root.transform as RectTransform, "oaths", new Vector2(1f, 1f), new Vector2(1f, 1f),
+                    new Vector2(-760f, -128f), new Vector2(-380f, -96f));
+                _oath = UiKit.Label(rt, "", 18, new Color(0.92f, 0.62f, 0.55f), TextAnchor.MiddleRight);
+            }
+            if (_oath == null) return;
+            _oath.gameObject.SetActive(line != null);
+            if (line != null) UiKit.SetText(_oath, line);
+        }
+
         GameObject _root;
 
         /// <summary>
@@ -359,6 +393,7 @@ namespace Convergence.UI
             TickFlash();
 
             if (_player == null || _player.Resource == null) return;
+            TickOath();
 
             // The crescents. The armour cost is read from the real multiplier rather than
             // reconstructed from the condition, so it can never drift from what Health applies.
@@ -366,7 +401,9 @@ namespace Convergence.UI
             if (hp && _crescents != null)
                 _crescents.Tick(hp.Current, hp.Max,
                     _armorCondition != null ? _armorCondition() : 1f,
-                    _armorDamageMultiplier != null ? _armorDamageMultiplier() : 1f);
+                    _armorDamageMultiplier != null ? _armorDamageMultiplier() : 1f,
+                    _platingLeft != null ? _platingLeft() : 0f,
+                    _platingPerFloor != null ? _platingPerFloor() : 0f);
         }
     }
 }

@@ -22,6 +22,15 @@ namespace Convergence.Combat
         [SerializeField] Player.PlayerController _owner;
         SpriteRenderer _sr;
 
+        /// <summary>A FORM's field draws fainter when its slot is shared (the clutter guards).</summary>
+        public float AlphaMul = 1f;
+        /// <summary>Past the cap on form visuals the field still works but draws nothing.</summary>
+        public bool Hidden;
+
+        /// <summary>EARTHQUAKE (an evolved form): enemies on the field are staggered this long each
+        /// tick, through the owner's own Stagger. 0 for every other field.</summary>
+        public float StaggerSeconds;
+
         public static ResidueField Spawn(Vector2 at, float radius, ElementType element, float seconds,
                                          Player.PlayerController owner)
         {
@@ -45,8 +54,9 @@ namespace Convergence.Combat
             if (_sr == null) _sr = GetComponent<SpriteRenderer>();
             if (_sr == null) return;
             var c = ElementInfo.Tint(_element);
-            c.a = 0.32f * Mathf.Clamp01(_remaining / Mathf.Max(0.01f, _life * 0.35f));
+            c.a = 0.32f * AlphaMul * Mathf.Clamp01(_remaining / Mathf.Max(0.01f, _life * 0.35f));
             _sr.color = c;
+            _sr.enabled = !Hidden;
         }
 
         void Update()
@@ -86,6 +96,14 @@ namespace Convergence.Combat
                         break;
                     case ElementType.Earth:
                         StatusEffects.Get(hp.gameObject).ApplySlow(TickSeconds * 2f, T.ResidueSlow);
+                        // Earthquake: staggered once, then held - a stack a tick would reach the
+                        // deepest slow at once.
+                        if (StaggerSeconds > 0f && _owner != null)
+                        {
+                            var st = StatusEffects.Get(hp.gameObject);
+                            if (st.Staggered) st.ExtendStagger(StaggerSeconds);
+                            else _owner.Stagger(hp, StaggerSeconds);
+                        }
                         break;
                     default:
                         DragToward.Pull(hp, centre, T.ResiduePull * TickSeconds);

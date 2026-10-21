@@ -43,15 +43,30 @@ namespace Convergence.Core
         /// <summary>The run's last floor - its end, and the floor whose box carries the weekly guarantee.</summary>
         public static int FinalFloor => Short ? 50 : 100;
 
-        /// <summary>Depth per floor: how many Classic floors one floor of this format stands for.</summary>
+        /// <summary>Depth per floor ON AVERAGE: how many Classic floors one floor of this format
+        /// stands for over the run. The ledger's per-floor counters step by it (RunModifiers.
+        /// FloorCleared), so a card's "a floor" stays one number; difficulty reads <see cref="Depth"/>,
+        /// which ramps in the Short Descent's opening floors.</summary>
         public static int DepthPerFloor => Short ? 2 : 1;
 
-        /// <summary>The Classic floor whose difficulty and content <paramref name="floor"/> has.</summary>
-        public static int Depth(int floor) => floor * DepthPerFloor;
+        /// <summary>
+        /// The Classic floor whose difficulty and content <paramref name="floor"/> has. Classic: the
+        /// floor. The Short Descent: Classic's own depth for its first floors, climbing to twice the
+        /// floor by Tuning.RunClock.RampCatchUpFloor and twice the floor after (the OPENING RAMP).
+        /// </summary>
+        public static int Depth(int floor)
+        {
+            if (!Short) return floor;
+            int easy = Tuning.RunClock.RampEasyFloors, caught = Tuning.RunClock.RampCatchUpFloor;
+            if (floor <= easy) return floor;
+            if (floor >= caught) return floor * 2;
+            float t = (floor - easy) / (float)(caught - easy);
+            return UnityEngine.Mathf.RoundToInt(easy + t * (caught * 2 - easy));
+        }
 
         /// <summary>The depth reached by the floor BEFORE <paramref name="floor"/> - so a content
         /// threshold crossed between two floors is still met on the floor that crosses it.</summary>
-        public static int DepthBefore(int floor) => (floor - 1) * DepthPerFloor;
+        public static int DepthBefore(int floor) => floor <= 1 ? 0 : Depth(floor - 1);
 
         /// <summary>An avatar's floor - its own boss, and (below the final floor) its own design boxes.</summary>
         public static bool IsAvatarFloor(int floor)

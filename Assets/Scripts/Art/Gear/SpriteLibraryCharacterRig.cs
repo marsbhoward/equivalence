@@ -203,6 +203,8 @@ namespace Convergence.Art.Gear
         public void SetFacingAway(bool away) { }
         public void SetAimViews(bool on) { }
         public bool PastStrike => true;
+        public float SinceStrike => 0f;
+        public void ReleaseSettle() { }
         public float StrikeDrawnSeconds(Combat.AttackMotion motion, float duration) => 0f;
         public float StrikeStartSeconds(Combat.AttackMotion motion, float duration) => 0f;
         public void ThrowFromOffhandNext() { }

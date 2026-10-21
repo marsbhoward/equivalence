@@ -15,11 +15,15 @@ namespace Convergence.Chain
         public static void RunStart(CharacterProfile profile, ElementType element)
         {
             profile.LastElement = element;
+            // Every run starts in whole armour (the user's call, 2026-10-20): the hub has no way to
+            // repair it, so wear carried between runs was a penalty with no answer.
+            profile.Wear?.Entries?.Clear();
         }
 
         public static void RunEnd(CharacterProfile profile, RunSummary summary)
         {
             profile.TotalRuns += 1;
+            profile.Wear?.Entries?.Clear();   // wear is the run's, never the character's
             profile.TotalKills += summary.Kills;
             profile.BestKills = Mathf.Max(profile.BestKills, summary.Kills);
             profile.BestFloor = Mathf.Max(profile.BestFloor, summary.Floors);

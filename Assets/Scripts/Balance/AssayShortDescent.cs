@@ -30,10 +30,11 @@ namespace Convergence.Balance
                 {
                     RunFormat.Current = RunFormatId.Classic;
                     var curve = Run(Make(arch, element, Kit.Max), policy);
-                    foreach (int floor in new[] { 10, 25, 40, 50 })
+                    foreach (int floor in new[] { 5, 10, 25, 40, 50 })
                     {
+                        RunFormat.Current = RunFormatId.ShortDescent;
+                        int depth = RunFormat.Depth(floor);   // the opening ramp, then twice the floor
                         RunFormat.Current = RunFormatId.Classic;
-                        int depth = floor * 2;
                         float ehp = curve.EffectiveHp[depth];
                         float classicHits = ehp / ChaserHit(depth);
 

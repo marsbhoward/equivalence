@@ -89,7 +89,6 @@ namespace Convergence.Balance
             if (n("close_quarters") > 0) all *= Sometimes(Assume.HalfReachShare, D(T.CloseQuartersDamage));
             if (AtMax(n, "short_arm"))
                 all *= Sometimes(1f - Assume.HalfReachShare, m.Factor(StatKind.Damage, 0f, -T.CrampedDamage));
-            if (n("fury_of_the_frail") > 0) all *= Sometimes(Assume.LowHealthShare, D(T.FuryDamage));
             if (n("bloodstone") > 0 && n("blood_price") > 0)
                 all *= D(Mathf.Min(T.BloodstoneCap, Assume.MissingHealth / T.BloodstoneMissingPerPoint));
             if (n("maturation") > 0) all *= D(FloorAverage(t => Mathf.Min(T.MaturationCap, T.MaturationDamage * t)));
@@ -115,6 +114,7 @@ namespace Convergence.Balance
                 basicMul *= scored;
                 artMul *= scored;
             }
+            if (n("dulled_script") > 0) artMul *= 1f - T.DulledScriptDamage / Assume.RotationSockets;
             if (n("deliberate") > 0)
             {
                 basicMul *= D(T.DeliberateDamagePerBasic * (basics - 1) * 0.5f);
@@ -160,7 +160,6 @@ namespace Convergence.Balance
                 float every = Mathf.Max(2, T.ReiterationEvery - (rei - 1));
                 mul *= (1f + 1f / every) / (1f + T.ReiterationFraction / every);
             }
-            if (n("felicity") > 0) mul *= 1f + T.FelicityChance;
             if (n("iron_rhythm") > 0 && n("fumbler") > 0)
                 mul *= 1f + T.FumblerChance * n("fumbler") * T.ReiterationFraction;
             return mul;
@@ -229,7 +228,7 @@ namespace Convergence.Balance
             if (attune > 0) fill += (AtMax(n, "attunement") ? 1f : T.AttunementFill * attune) / Assume.FloorSeconds;
 
             float rate = r.PerSecond * (1f - 0.12f * n("leaky_vessel"))       // the meter fading faster
-                                     * (n("sealed_vessel") > 0 ? 1.05f : 1f)    // and never fading
+                                     * (n("sealed_vessel") > 0 ? 1.03f : 1f)    // and fading half as fast
                                      * (AtMax(n, "low_water") ? 0.75f : 1f);    // Ebb: soaked bodies fill single
             rate = Mathf.Max(0.005f, rate + fill * keep);
             r.PerSecond = rate;
@@ -264,6 +263,8 @@ namespace Convergence.Balance
                 float still = element == ElementType.Earth ? Assume.EarthStillShare : Assume.StillAfterSecondShare;
                 f *= 1f - (1f - T.LapisMul) * still * 0.5f;
             }
+            if (AtMax(n, "equipoise"))   // Poise: the hit after a change of pace deals half
+                f *= 1f - (1f - T.PoiseMul) * Assume.PaceChangeShare;
             if (AtMax(n, "thickened_hide")) f *= 1f - (1f - T.FortitudeMul) * Assume.CriticalHealthShare;
             if (n("committed") > 0) f *= 1f - T.CommittedTaken * c.LockShare;
             if (n("retrograde_motion") > 0 && n("retrograde") > 0)
@@ -292,14 +293,176 @@ namespace Convergence.Balance
             if (trap != null && n(trap) > 0) f *= 1f - Assume.HazardShare;
 
             // The Nigredos' exposures: the cost's own weak moment, damage taken outside the floor.
-            if (AtMax(n, "encumbered")) f *= 1f + T.ShackledTaken * Assume.DefenseRechargeShare;
-            if (AtMax(n, "stubborn_ore") && element != null) f *= 1f + T.BarrenTaken * Assume.MeterUnderHalfShare;
-            if (AtMax(n, "smother")) f *= 1f + T.WetAshTaken * Assume.FireLowHeatShare;
-            if (AtMax(n, "low_water")) f *= 1f + T.EbbTaken * Assume.WaterOffSurgeShare;
-            if (AtMax(n, "becalmed")) f *= 1f + T.DoldrumsTaken * Assume.AirLowMomentumShare;
-            // Corrosion: worn armour's penalty, outside the floor.
-            if (AtMax(n, "rust")) f *= 1f + (1f - Assume.RustedCondition) * Chain.Durability.MaxDamageTakenPenalty;
+            // (Shackled, Barren, Wet Ash, Ebb and Doldrums were re-cut from exposures - Assay.Judged.)
+            if (n("unbloodied") > 0) f *= 1f + T.UnbloodiedTaken * Assume.OathHeldShare;   // an oath
+            if (n("sealed_sands") > 0) f *= Tuning.RunClock.TierStep;                       // a heat tier ahead
             return f;
+        }
+
+        // ------------------------------------------------------------------ the status layer
+
+        /// <summary>
+        /// The status layer's damage (Phase 1, 2026-10-20): Tinder's burns and Serrated's bleeds as
+        /// damage over time on the body being fought, Lancet cashing a bleed in early, Backdraft
+        /// burning out an attacker. A burn or a bleed MERGES BY MAX (StatusEffects), so beside the
+        /// board's own (Choler, Sanguine - bigger, off arts and crits) these add mostly uptime: a
+        /// share, not the whole. Tidewater's soak is a vulnerability while the attacker is the body
+        /// being fought.
+        /// </summary>
+        static float LedgerDamageOverTime(Build b, Func<string, int> n, ChainShape c)
+        {
+            float dot = 0f;
+            float basicsPerSecond = c.Basics / Mathf.Max(0.1f, c.Seconds);
+            float burnDps = 0f;
+            if (n("tinder") > 0)
+            {
+                float uptime = Mathf.Min(1f, T.TinderChance * basicsPerSecond * T.TinderSeconds);
+                burnDps = T.TinderBurnShare * c.BasicHit * uptime * (Owns(b, Progression.Notable.Choler) ? 0.4f : 1f);
+                dot += burnDps;
+            }
+            float bleedDps = 0f;
+            if (n("serrated") > 0)
+            {
+                float uptime = Mathf.Min(1f, T.SerratedSeconds / Mathf.Max(0.1f, c.Seconds));
+                bleedDps = T.SerratedBleedShare * c.BasicHit * uptime * (Owns(b, Progression.Notable.Sanguine) ? 0.5f : 1f);
+                dot += bleedDps;
+            }
+            // Lancet: each art cashes the running bleed in at half again - about half its seconds left.
+            if (n("lancet") > 0)
+            {
+                float running = bleedDps + (Owns(b, Progression.Notable.Sanguine) ? Tuning.Board.SanguineBleedFraction * c.CritHit * c.CritChance : 0f);
+                dot += (T.LancetShare - 1f) * running * Mathf.Min(c.Seconds, T.SerratedSeconds) * 0.5f / Mathf.Max(0.1f, c.Seconds);
+            }
+            // Backdraft: a burning attacker that is the body being fought burns out at once.
+            if (n("backdraft") > 0 && burnDps > 0f)
+                dot += Assume.HitsTakenPerSecond * Assume.FromTargetShare * burnDps * T.TinderSeconds * 0.5f;
+            return dot;
+        }
+
+        /// <summary>Tidewater: the attacker soaked - a vulnerability on the body being fought while it
+        /// is the one hitting you. Riptide: one art in three soaks a strip along the aim.</summary>
+        static float LedgerVulnerability(Func<string, int> n, ChainShape c)
+        {
+            float f = 1f;
+            if (n("tidewater") > 0)
+            {
+                float uptime = Mathf.Min(1f, Assume.HitsTakenPerSecond * T.TidewaterSeconds) * Assume.FromTargetShare;
+                f *= 1f + (T.TidewaterVulnerability - 1f) * uptime;
+            }
+            // Spindrift: the body being fought walked in through the spray - soaked as it arrives.
+            if (n("spindrift") > 0)
+                f *= 1f + (T.SpindriftSoakVulnerability - 1f) * Assume.SpindriftSoakedShare;
+            if (n("riptide") > 0 || n("maelstrom") > 0)
+            {
+                // Maelstrom's pool holds the soak on longer.
+                float seconds = T.RiptideSoakSeconds + (n("maelstrom") > 0 ? T.MaelstromPoolSeconds * 0.5f : 0f);
+                float uptime = Mathf.Min(1f, seconds / Mathf.Max(0.1f, c.Seconds * Assume.RotationSockets));
+                f *= 1f + (T.RiptideVulnerability - 1f) * uptime;
+            }
+            return f;
+        }
+
+        /// <summary>
+        /// The forms' damage on the body being fought (Phase 2): Shockwave's ring and its burn from
+        /// one art in three, Fault Line's crack under a greatsword's crowded swings. A form held
+        /// alone is at full strength - the model builds no rotation, so a shared slot is not seen.
+        /// Dulled Script's art damage is in LedgerOutgoing.
+        /// </summary>
+        static float LedgerForms(Func<string, int> n, ChainShape c, float hitUnit)
+        {
+            float dps = 0f, artsPerSecond = 1f / Mathf.Max(0.1f, c.Seconds * Assume.RotationSockets);
+            if (n("shockwave") > 0)
+                dps += artsPerSecond * hitUnit * (T.ShockwaveHitUnits + T.ShockwaveBurnShare * T.ShockwaveBurnSeconds);
+            if (n("nova") > 0)
+                dps += artsPerSecond * hitUnit * (T.NovaHitUnits + T.NovaBurnShare * T.NovaBurnSeconds);
+            if (n("hemorrhage") > 0)
+                dps += T.HemorrhageBleedHitUnits * hitUnit * T.LacerateSeconds / Assume.DefenseUseSeconds;
+            if (n("fault_line") > 0)
+                dps += c.Basics / Mathf.Max(0.1f, c.Seconds) * Assume.ThreeBodySwingShare * T.FaultLineHitUnits * hitUnit;
+            if (n("lacerate") > 0)
+                dps += T.LacerateBleedHitUnits * hitUnit * T.LacerateSeconds / Assume.DefenseUseSeconds;
+            // Lone Cut: a basic that strikes one enemy bleeds it.
+            if (n("lone_cut") > 0)
+                dps += c.Basics / Mathf.Max(0.1f, c.Seconds) * Assume.LoneSwingShare
+                       * T.LoneCutBleedShare * T.LoneCutBleedSeconds * c.BasicHit;
+            // Afterburn: once a defensive ability, one basic with Damage points and a burn.
+            if (n("afterburn") > 0)
+                dps += (T.AfterburnDamage / 100f + T.AfterburnBurnShare * T.AfterburnBurnSeconds)
+                       * c.BasicHit / Assume.DefenseUseSeconds;
+            // Drawdown gathers the crowd and deals nothing itself - unpriced, as Residue's shapes are.
+            // Fury of the Frail (reworked): low on health, basics bleed.
+            if (n("fury_of_the_frail") > 0)
+                dps += Assume.LowHealthShare * T.FuryBleedShare * c.BasicHit;
+            return dps;
+        }
+
+        /// <summary>The forms' damage on the OTHER bodies round the fight - credited as crowd:
+        /// Shockwave's ring, Fault Line's crack, Lacerate's bleeds.</summary>
+        static float LedgerFormsCrowd(Func<string, int> n, ChainShape c, float hitUnit)
+        {
+            float dps = 0f, artsPerSecond = 1f / Mathf.Max(0.1f, c.Seconds * Assume.RotationSockets);
+            if (n("shockwave") > 0)
+                dps += artsPerSecond * hitUnit * (T.ShockwaveHitUnits + T.ShockwaveBurnShare * T.ShockwaveBurnSeconds)
+                     * Mathf.Max(0f, BodiesWithin(T.ShockwaveRadius) - 1f);
+            if (n("nova") > 0)
+                dps += artsPerSecond * hitUnit * (T.NovaHitUnits + T.NovaBurnShare * T.NovaBurnSeconds)
+                     * Mathf.Max(0f, BodiesWithin(T.NovaRadius) - 1f);
+            if (n("hemorrhage") > 0)
+                dps += T.HemorrhageBleedHitUnits * hitUnit * T.LacerateSeconds / Assume.DefenseUseSeconds
+                     * Mathf.Max(0f, BodiesWithin(T.HemorrhageRadius) - 1f);
+            if (n("fault_line") > 0)
+                dps += c.Basics / Mathf.Max(0.1f, c.Seconds) * Assume.ThreeBodySwingShare * T.FaultLineHitUnits * hitUnit * 2f;
+            if (n("lacerate") > 0)
+                dps += T.LacerateBleedHitUnits * hitUnit * T.LacerateSeconds / Assume.DefenseUseSeconds
+                     * Mathf.Max(0f, BodiesWithin(T.LacerateRadius) - 1f);
+            // Felicity (reworked): one swing in nine throws a crescent through the bodies ahead.
+            if (n("felicity") > 0)
+                dps += c.HitsPerSecond * T.FelicityChance * T.FelicityShare * c.BasicHit
+                     * Mathf.Max(0f, BodiesWithin(T.FelicityReach * 0.5f) - 1f);
+            return dps;
+        }
+
+        // ------------------------------------------------------------------ armour wear
+
+        /// <summary>
+        /// Armour condition while floor <paramref name="floor"/> is fought (the mean of its start and
+        /// end) - whole at the run's
+        /// start (ProfileRules empties wear at both checkpoints). Each floor: the fight's blows wear
+        /// every armour piece (GameBootstrap's Damaged hook - a Chaser-sized blow each, slowed by
+        /// Sturdiness, spread over a pool Armour grows), then the clear mends (Mend) and a share of
+        /// floors repair (the restore ring, a Lead spire), every repair scaled by the ledger's.
+        /// </summary>
+        public static float ArmourCondition(StatPercents s, float wearMul, float repairMul, int floor, float platingLost = 0f)
+        {
+            float pool = StatPercents.Apply(100f, s.Armor);
+            // PLATING absorbs the floor's first blows (Tuning.Defense.ArmorPerPlate), less what Rust
+            // takes; the ledger's wear multiplier acts on the rest.
+            float plating = Mathf.Max(0f, s.Armor / Tuning.Defense.ArmorPerPlate - platingLost);
+            float blows = Mathf.Max(0f, Assume.HitsTakenPerSecond * Assume.FloorSeconds - plating);
+            float wear = blows * Assume.ArmorWearPerHit
+                       * wearMul * StatPercents.ReductionFactor(s.DamageResistance) / Mathf.Max(1f, pool);
+            float repair = (s.Mend / 100f
+                            + Assume.RepairRingShare * Assume.RepairRingFraction * StatPercents.Apply(1f, s.RepairReceived)
+                            + Assume.LeadSpireShare * Tuning.Spire.RepairFraction) * repairMul;
+            float c = 1f;
+            for (int f = 1; f < Mathf.Max(1, floor); f++)
+                c = Mathf.Min(1f, Mathf.Max(0f, c - wear) + repair);
+            return (c + Mathf.Max(0f, c - wear)) * 0.5f;   // the floor is fought from c down
+        }
+
+        /// <summary>
+        /// What the ledger does to worn armour's penalty (+50% damage taken at zero condition), as
+        /// factors against the run without it: Rust takes plating, Corrosion halves the repairs,
+        /// Patina the penalty. Under Corrosion the penalty leaves the inside of
+        /// the mitigation floor for the outside - so (inside, outside).
+        /// </summary>
+        static (float Inside, float Outside) LedgerWear(StatPercents s, Mods m, Func<string, int> n, int floor)
+        {
+            float Penalty(float condition, float share) => 1f + (1f - condition) * Chain.Durability.MaxDamageTakenPenalty * share;
+            float baseline = Penalty(ArmourCondition(s, 1f, 1f, floor), 1f);
+            float with = Penalty(ArmourCondition(s, m.ArmourWearMul, m.RepairMul, floor, m.PlatingLost), m.ArmourWearPenaltyMul);
+            if (AtMax(n, "rust")) return (1f / baseline, with);   // Corrosion: the wear lands outside
+            return (with / baseline, 1f);
         }
 
         /// <summary>What the ledger's hand in the enemy's toughness does to damage: the body's
@@ -357,7 +520,7 @@ namespace Convergence.Balance
         {
             int enc = n("encumbered");
             if (enc <= 0) return 1f;
-            float k = 1f / (1f + T.EncumberedCooldown * enc) * (AtMax(n, "encumbered") ? 0.75f : 1f);
+            float k = 1f / (1f + T.EncumberedCooldown * enc);
             return (1f - Assume.DefenseShare * k) / (1f - Assume.DefenseShare);
         }
 
@@ -367,8 +530,6 @@ namespace Convergence.Balance
         static float LedgerHealWithinLimit(Func<string, int> n, float maxHp, float swingsPerSecond)
         {
             float h = 0f;
-            if (n("vital_spark") > 0) h += maxHp * T.VitalSparkRegen;
-            if (n("pelican") > 0) h += maxHp * T.PelicanHeal * swingsPerSecond;
             return h;
         }
 
@@ -377,7 +538,6 @@ namespace Convergence.Balance
         static float LedgerHeal(Func<string, int> n, float maxHp, float releasesPerSecond)
         {
             float h = 0f;
-            if (n("rebound") > 0) h += maxHp * T.ReboundHeal * releasesPerSecond;
             return h;
         }
 
@@ -396,7 +556,7 @@ namespace Convergence.Balance
         /// <summary>Entries that change the deal or the floor's rewards, not the character - judged
         /// by what they do to the exchange, never by this.</summary>
         static readonly string[] Unpriced =
-            { "caput_mortuum", "indenture", "debt", "prima_materia", "curator", "transmuters_eye", "scrying_glass", "oracle" };
+            { "caput_mortuum", "indenture", "debt", "prima_materia", "curator", "transmuters_eye", "scrying_glass", "oracle", "tribute" };
 
         /// <summary>The four builds an entry is priced on: every archetype, on the entry's element
         /// when it has one, else each on its own (so all four elements are seen).</summary>
