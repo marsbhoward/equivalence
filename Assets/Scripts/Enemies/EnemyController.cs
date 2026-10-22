@@ -16,7 +16,7 @@ namespace Convergence.Enemies
     public enum EnemyKind { Bomb, Chaser, Ranged, Turret, Dasher, Gargoyle, Booster, Bubbles, Mortar }
 
     [RequireComponent(typeof(Rigidbody2D), typeof(Health))]
-    public class EnemyController : MonoBehaviour
+    public partial class EnemyController : MonoBehaviour
     {
         // Central values: Tuning.Enemy. EnemyFactory overwrites MoveSpeed / AttackRange / Damage
         // per spawn (bomb vs elite vs ranged, wave scaling); AttackInterval is used as-is.
@@ -353,6 +353,7 @@ namespace Convergence.Enemies
             // gate belongs inside the handler, where Kind is guaranteed to already be correct.
             _health.Died += OnDied;
             _health.Damaged += ThrowIfChasm;
+            _health.Damaged += WakeOnHurt;   // an unaware body is woken by a hit (the Idle partial)
         }
 
         /// <summary>
@@ -677,6 +678,9 @@ namespace Convergence.Enemies
                 _rb.linearVelocity = Vector2.Lerp(_rb.linearVelocity, Vector2.zero, Mathf.Min(0.35f, grip));
                 return;
             }
+
+            // Unaware: the idle wander near home, or standing startled (the Idle partial).
+            if (_unaware || _startle > 0f) { IdleMove(pos); return; }
 
             var to = (Vector2)_target.position - pos;
             float dist = to.magnitude;
@@ -1323,6 +1327,9 @@ namespace Convergence.Enemies
             TickFlinch();
             if (Flinched) return;
             TickRecover();
+
+            // UNAWARE or startled: nothing is acted on (see the Idle partial).
+            if (TickIdle()) return;
 
             if (Kind == EnemyKind.Ranged) { UpdateRanged(); return; }
             if (Kind == EnemyKind.Bomb) { UpdateBomb(); return; }

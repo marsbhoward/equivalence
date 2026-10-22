@@ -44,6 +44,7 @@ namespace Convergence.Audio
         [Header("Ambience (loops)")]
         public AudioClip BedHub, BedCrypt, BedDeep, BedAbyss, BedThrone, BedBoss, BedForest, BedSky, BedSalt;
         public AudioClip[] Distant, DistantForest, DistantSky, DistantSalt;
+        [Tooltip("An enemy noticing the player")] public AudioClip[] Alert;
 
         static GameSound _loaded;
         static bool _looked;

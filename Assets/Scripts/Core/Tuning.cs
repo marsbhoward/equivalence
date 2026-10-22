@@ -3860,6 +3860,7 @@ namespace Convergence.Core
                 Convergence.Audio.Sound.DistantForest => 0.2f,
                 Convergence.Audio.Sound.DistantSky => 0.2f,
                 Convergence.Audio.Sound.DistantSalt => 0.18f,
+                Convergence.Audio.Sound.Alert => 0.34f,
                 Convergence.Audio.Sound.Swing => 0.22f,
                 Convergence.Audio.Sound.SwingHeavy => 0.32f,
                 Convergence.Audio.Sound.ReleaseFire or Convergence.Audio.Sound.ReleaseWater
@@ -4041,6 +4042,25 @@ namespace Convergence.Core
             public const float CobwebChance = 0.6f, CobwebInset = 0.02f;
             public const float CandleRadius = 1.7f, CandleIntensity = 0.8f;
             public static readonly UnityEngine.Color CandleColor = new(1f, 0.72f, 0.38f);
+        }
+
+        /// <summary>
+        /// Enemies UNAWARE until they notice the player (EnemyController's Idle partial) - the floor's
+        /// first wave only. A gameplay dial as well as atmosphere: an unaware body can be struck first.
+        /// </summary>
+        public static class Idle
+        {
+            public const bool Enabled = true;
+            /// <summary>Notices the player within this with a clear line, or within NoticeClose at all.</summary>
+            public const float NoticeRadius = 5.5f, NoticeClose = 2.2f;
+            /// <summary>Longest a body stays unaware - a floor never stalls on a pack that never looked up.</summary>
+            public const float MaxSecondsMin = 4f, MaxSecondsMax = 7f;
+            /// <summary>A packmate this near wakes too, a beat later.</summary>
+            public const float SpreadRadius = 4f, SpreadDelayMin = 0.15f, SpreadDelayMax = 0.4f;
+            /// <summary>The wake-up beat in which it still does nothing - the "!" is read before the rush.</summary>
+            public const float StartleSeconds = 0.3f, MarkSeconds = 0.9f;
+            /// <summary>The idle wander: a share of its walking speed, within this of where it stood.</summary>
+            public const float WanderSpeed = 0.3f, WanderRadius = 1.6f, PauseMin = 0.8f, PauseMax = 2.4f;
         }
 
         public static class Camera

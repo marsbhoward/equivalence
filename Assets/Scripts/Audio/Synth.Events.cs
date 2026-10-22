@@ -424,6 +424,23 @@ namespace Convergence.Audio
             }
         }
 
+        /// <summary>An enemy noticing the player: a sharp huff and a short rising cry.</summary>
+        public static float[] Alert(int seed)
+        {
+            var n = new Noise(seed);
+            var s = Buffer(0.32f);
+            Hiss(s, seed, 1, 900, 1800, 1.2f, 0.005f, 0.08f, 0.7f);
+            float phase = 0f, f0 = n.Range(220f, 300f);
+            for (int i = 0; i < s.Length; i++)
+            {
+                float t = i / (float)Rate;
+                phase += 2f * Mathf.PI * f0 * (1f + 0.9f * Mathf.Min(1f, t / 0.12f)) / Rate;
+                float saw = 2f * (phase / (2f * Mathf.PI) - Mathf.Floor(phase / (2f * Mathf.PI))) - 1f;
+                s[i] += saw * Env(t - 0.03f, 0.02f, 0.2f) * 0.6f;
+            }
+            return Normalise(s);
+        }
+
         // ------------------------------------------------------------------ helpers
 
         /// <summary>A bubble: a sine whose pitch climbs as it closes.</summary>

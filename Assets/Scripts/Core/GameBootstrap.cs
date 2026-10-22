@@ -3279,7 +3279,10 @@ namespace Convergence.Core
             while (NextSpawnFits())
             {
                 if (token != _runToken || _player == null) { _spawning = false; yield break; }
-                SpawnQueuedEnemy();
+                // The first wave is in the room before the player is noticed (EnemyController's
+                // Idle partial); bodies that trickle in later arrive alert.
+                var first = SpawnQueuedEnemy();
+                if (first != null && Tuning.Idle.Enabled) first.BeginUnaware();
                 // Realtime for the same reason as the wait above, and it would have deadlocked
                 // here next had only that one been fixed.
                 yield return new WaitForSecondsRealtime(0.12f);
@@ -3426,7 +3429,7 @@ namespace Convergence.Core
 
         /// <summary>Dequeues and spawns one PendingSpawn. Caller's job to have already checked
         /// there's room (NextSpawnFits).</summary>
-        void SpawnQueuedEnemy()
+        EnemyController SpawnQueuedEnemy()
         {
             var next = _spawnQueue.Dequeue();
             var e = EnemyFactory.Spawn(next.Position(), next.Kind, _floor, _player.transform, _enemyRoot,
@@ -3435,6 +3438,7 @@ namespace Convergence.Core
             Harden(e);
             HookDeath(e);
             _alive.Add(e);
+            return e;
         }
 
         /// <summary>
