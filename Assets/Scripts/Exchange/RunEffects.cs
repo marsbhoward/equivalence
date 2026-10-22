@@ -78,6 +78,7 @@ namespace Convergence.Exchange
             TickDefense(dt, moving);
             TickElement(dt, meter01);
             TickField(dt);
+            TickAlbedos(dt, meter01);
         }
 
         static void Countdown(ref float t, float dt) { if (t > 0f) t = Mathf.Max(0f, t - dt); }
@@ -101,6 +102,7 @@ namespace Convergence.Exchange
             _hitThisFloor = false;   // Unbloodied
             _soakedDeaths = 0;       // Swell grows a floor at a time
             if (AtMax("stubborn_ore")) Resource?.Spill(1f);   // Barren: the meter empties as a floor starts
+            OnFloorStartedAlbedos();
 
             float start = M.StartMeterFraction;
             if (start > 0f && Resource != null && Resource.Fill01 < start)
@@ -108,7 +110,7 @@ namespace Convergence.Exchange
         }
 
         /// <summary>The floor cleared: the prices it charges and the gifts it gives. Counters on
-        /// the ledger itself (Withering, Viriditas, Senescence) move in RunModifiers.FloorCleared.</summary>
+        /// the ledger itself (Withering, Senescence) move in RunModifiers.FloorCleared.</summary>
         public void OnFloorCleared()
         {
             var hp = Hp;

@@ -546,7 +546,7 @@ namespace Convergence.Exchange
         /// transmuted Withering gives it all back: the cost leaves the ledger, and its loss with it.</summary>
         public float Withered { get; private set; }
 
-        /// <summary>Max health points Viriditas has grown since it was made.</summary>
+        /// <summary>Max health points the old Viriditas grew - kept for saves; it grows nothing now.</summary>
         public float Virid { get; private set; }
 
         /// <summary>Floors of DEPTH cleared while Senescence is held - each makes enemies hit harder.</summary>
@@ -568,9 +568,6 @@ namespace Convergence.Exchange
                 Withered = Mathf.Min(cap, Withered + T.WitheringPerFloor * 100f * wither * depth);
             }
             else Withered = 0f;
-
-            if (StacksOf("viriditas") > 0)
-                Virid = Mathf.Min(T.ViriditasCap * 100f * Potency("viriditas"), Virid + T.ViriditasPerFloor * 100f * depth);
 
             if (StacksOf("senescence") > 0) Senescence += depth;
 
@@ -775,9 +772,8 @@ namespace Convergence.Exchange
             if (plusB != null && plusB != plusA && plusB.Apply != null && !_stacks.ContainsKey(plusB.Id))
                 plusB.Apply(m, 1);
 
-            // The counters: max health Withering has taken, and Viriditas has grown.
+            // The counter: max health Withering has taken.
             if (Withered > 0f && StacksOf("withering") > 0) m.Add(StatKind.MaxHp, -Withered);
-            if (Virid > 0f && StacksOf("viriditas") > 0) m.Add(StatKind.MaxHp, Virid);
             m.Potency = _potency;
 
             if (StacksOf("senescence") > 0) m.SenescenceFloors = Senescence;

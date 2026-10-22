@@ -4,8 +4,8 @@ namespace Convergence.Exchange
 {
     /// <summary>
     /// What the run's ledger remembers about ONE enemy: whether it has been struck yet (First
-    /// Blood, Honed), how many of the player's hits it has taken (Cementation), and how many
-    /// scored hits it still owes (Damascene).
+    /// Blood, Honed), how many of the player's hits it has taken (Cementation), how many
+    /// scored hits it still owes (Damascene), and which art gilded it (Gilding).
     ///
     /// A component on the enemy rather than a Dictionary on the player, for the reason Sulfur's
     /// Seasoning marks are: a dictionary comes back EMPTY after a domain reload while every body it
@@ -17,6 +17,10 @@ namespace Convergence.Exchange
         public bool Struck;
         public int Hits;
         public int ScoredHits;
+
+        /// <summary>Gilding: the art (PlayerController.ArtSerial) that last gilded this body - its
+        /// gild lasts until the next art. -1, never gilded.</summary>
+        public int GildedArt = -1;
 
         public static LedgerMarks Of(GameObject go)
         {

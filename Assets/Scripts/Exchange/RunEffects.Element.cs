@@ -97,6 +97,7 @@ namespace Convergence.Exchange
         {
             if (_mods == null || r == null || _pc == null) return;
             var hp = Hp;
+            _meterSpent = true;   // Sealed Vessel: spent, not lost
 
             if (Has("overflow")) r.Refund(T.OverflowRefund);
 
@@ -145,14 +146,9 @@ namespace Convergence.Exchange
         /// <summary>Fire: whether Fuel still works (Wet Ash stops it).</summary>
         public bool FuelWorks => !AtMax("smother");
 
-        /// <summary>Fire: Damage points one heat stack gives, from its own base - Smother takes,
-        /// Phlogiston doubles.</summary>
+        /// <summary>Fire: Damage points one heat stack gives, from its own base - Smother takes.</summary>
         public float HeatPoints(float basePoints)
-        {
-            float p = basePoints - T.SmotherPoints * N("smother");
-            if (Has("phlogiston")) p *= T.PhlogistonMul;
-            return Mathf.Max(0f, p);
-        }
+            => Mathf.Max(0f, basePoints - T.SmotherPoints * N("smother"));
 
         /// <summary>Water: seconds a surge gains (High Tide).</summary>
         public float SurgeExtraSeconds => T.HighTideSeconds * N("high_tide");
@@ -177,13 +173,9 @@ namespace Convergence.Exchange
         public float MomentumFadeMul => Has("tailwind") ? T.TailwindFadeMul : 1f;
         public float MomentumHoldSeconds => AtMax("tailwind") ? T.TailwindHoldII : 0f;
 
-        /// <summary>Air: the crit floor a hit adds, from its own base - Becalmed takes, Gale doubles.</summary>
+        /// <summary>Air: the crit floor a hit adds, from its own base - Becalmed takes.</summary>
         public float CritPerHit(float basePerHit)
-        {
-            float p = basePerHit - T.BecalmedCritPerHit * N("becalmed");
-            if (Has("gale")) p *= T.GaleMul;
-            return Mathf.Max(0f, p);
-        }
+            => Mathf.Max(0f, basePerHit - T.BecalmedCritPerHit * N("becalmed"));
 
         // ---------------------------------------------------------------- the trap boons
 

@@ -28,7 +28,7 @@ namespace Convergence.Exchange
         static Dictionary<string, ExchangeEntry> _byId;
 
         /// <summary>The run format the catalogue's words were built for: the per-floor entries
-        /// (Withering, Viriditas, Senescence) build per DEPTH, so a Short floor's step is twice
+        /// (Withering, Senescence) build per DEPTH, so a Short floor's step is twice
         /// Classic's and the card says so. A format switch rebuilds the words.</summary>
         static RunFormatId _builtFor;
         static int PerFloor => RunFormat.DepthPerFloor;
@@ -645,11 +645,13 @@ namespace Convergence.Exchange
 
             // ============================================================ ALBEDOS (made only by a circle)
 
-            A("gilding", "Gilding", "dross", Anvil, Cross, $"+{N(T.GildingArt)} Weapon Art.",
-              (m, n) => m.Add(StatKind.FinisherPower, T.GildingArt * m.PotencyOf("gilding")));
+            // Batches 1 and 2 of the transformed Albedos (2026-10-21, the user's picks): each keeps
+            // its cost's trigger or object and turns what it does (RunEffects.Albedos.cs).
+            A("gilding", "Gilding", "dross", Anvil, Cross,
+              $"Arts gild what they strike. Until your next art, your basics on a gilded enemy have +{Pct(T.GildingCrit)} crit chance.",
+              conditional: true);
             A("mollification", "Mollification", "induration", Edge, Drop,
-              $"Enemies have {Pct(T.MollificationHealth)} less health and armour. Not bosses.",
-              (m, n) => m.EnemyHealthMul *= 1f - T.MollificationHealth * m.PotencyOf("mollification"));
+              "Breaking an enemy's armour shatters it: the shards hit those near for one hit.", conditional: true);
             A("honed", "Honed", "dulled", Edge, Bar,
               $"+{Pct(T.HonedCrit)} crit chance on enemies above {Pct(T.HonedAbove)} health.", conditional: true);
             A("deliberate", "Deliberate", "heavy_arms", Edge, Dot2,
@@ -662,63 +664,73 @@ namespace Convergence.Exchange
               $"One swing in nine throws a crescent for {Pct(T.FelicityShare)} of the hit.",
               conditional: true);
             A("committed", "Committed", "overcommitted", Anvil, Dot3,
-              $"Take {Pct(T.CommittedTaken)} less while an art locks you.", conditional: true);
+              $"{Pct(T.CommittedShare)} of every blow taken while an art locks you is added to your next art.",
+              conditional: true);
             A("close_quarters", "Close Quarters", "short_arm", Edge, Stroke,
               $"+{N(T.CloseQuartersDamage)} Damage within half your reach.", conditional: true);
             // Reworked 2026-10-20: it was "+50 Damage below half health" - Bloodstone's twin.
             A("fury_of_the_frail", "Fury of the Frail", "thin_blood", Hide, Drop,
               $"Under {Pct(T.FuryBelow)} health, basics bleed {Pct(T.FuryBleedShare)} of the hit a second for {Sec(T.FuryBleedSeconds)}.",
               conditional: true);
-            A("adamant", "Adamant", "paper_guard", Hide, Bar, $"+{N(T.AdamantResilience)} Resilience.",
-              (m, n) => m.Add(StatKind.Resilience, T.AdamantResilience * m.PotencyOf("adamant")));
+            A("adamant", "Adamant", "paper_guard", Hide, Bar,
+              $"A blow over {Pct(T.AdamantBlowShare)} of your health gives +{N(T.AdamantResilience)} Resilience for {Sec(T.AdamantSeconds)}.",
+              conditional: true);
             // Reworked 2026-10-20: it was a regeneration - one of four "heal on the cost's trigger".
             A("vital_spark", "Vital Spark", "slow_knit", Hide, Ring,
               $"Under {Pct(T.VitalSparkBelow)} health, kills heal {Pct(T.VitalSparkKillHeal)}.",
               conditional: true);
-            A("patina", "Patina", "rust", Hide, Stroke, $"Worn armour costs you {Pct(1f - T.PatinaPenaltyShare)} less.",
-              (m, n) => m.ArmourWearPenaltyMul *= Mathf.Max(0.1f, 1f - (1f - T.PatinaPenaltyShare) * m.PotencyOf("patina")));
+            A("patina", "Patina", "rust", Hide, Stroke, "Each plate that breaks throws a shard at the enemy that broke it.",
+              conditional: true);
             // Reworked 2026-10-20: it was a heal per swing - Blood Price read backwards.
             A("pelican", "Pelican", "blood_price", Hide, Drop,
               "Your healing also hurts the nearest enemy.", conditional: true);
             A("viriditas", "Viriditas", "withering", Hide, Dot3,
-              $"+{Pct(T.ViriditasPerFloor * PerFloor)} max health each floor cleared, to +{Pct(T.ViriditasCap)}.",
-              conditional: true);
+              $"Each floor starts you with a shield of {Pct(T.ViriditasShield)} health.", conditional: true);
             // Reworked 2026-10-20: it was a heal at the clear - Toll read backwards. Now the deal.
             A("tribute", "Tribute", "toll", Ledger, Dot2, $"A refusal back every {T.TributeFloorsPerRefusal} floors.",
               conditional: true);
             A("maturation", "Maturation", "souring", Edge, Stroke,
-              $"+{N(T.MaturationDamage)} Damage every {Sec(T.SouringEverySeconds)} on a floor, to +{N(T.MaturationCap)}.",
+              $"Every {Sec(T.SouringEverySeconds)} on a floor, your next art strips the armour of all it hits.",
               conditional: true);
             // Reworked 2026-10-20: it was a heal on release - Backfire read backwards.
             A("rebound", "Rebound", "backfire", Azoth, Cross, "A release dashes you away from enemies.",
               conditional: true);
+            // Batch 3 of the transformed Albedos (2026-10-21, the user's picks): each keeps its
+            // cost's trigger or object and turns what it does (RunEffects.Albedos.cs).
             A("lightfoot", "Lightfoot", "anchored", Quick, Bar,
-              $"+{N(T.LightfootMove)} Move Speed. Double Graze at full speed.",
-              (m, n) => m.Add(StatKind.MoveSpeed, T.LightfootMove * m.PotencyOf("lightfoot")), conditional: true);
-            A("unshackled", "Unshackled", "encumbered", Quick, Dot3,
-              $"A parry staggers enemies within {N(T.UnshackledRadius)} for {Sec(T.UnshackledStagger)}.",
+              $"Your defensive ability drops an anchor. Press it again within {Sec(T.LightfootAnchorSeconds)} to snap back, cutting what's between.",
               conditional: true);
-            A("concentrate", "Concentrate", "stubborn_ore", Azoth, Dot3, $"+{N(T.ConcentratePower)} Elemental Power.",
-              (m, n) => m.Add(StatKind.ElementalEffectiveness, T.ConcentratePower * m.PotencyOf("concentrate")));
+            A("unshackled", "Unshackled", "encumbered", Quick, Dot3,
+              "Using your defensive ability readies your next art: one basic fewer.", conditional: true);
+            A("concentrate", "Concentrate", "stubborn_ore", Azoth, Dot3,
+              "A release from a full meter has " + (Mathf.Approximately(T.ConcentrateFullRadiusMul, 2f)
+                  ? "double the radius." : $"{Pct(T.ConcentrateFullRadiusMul - 1f)} more radius."),
+              conditional: true);
             A("sealed_vessel", "Sealed Vessel", "leaky_vessel", Azoth, Drop,
-              $"Meter fades half as fast. Hits taken add {Pct(T.SealedVesselGain)}.",
-              (m, n) => m.DecayMul *= Mathf.Max(0.1f, 1f - (1f - T.SealedVesselDecay) * m.PotencyOf("sealed_vessel")), conditional: true);
+              "Meter you lose splashes those near you with your element's status.", conditional: true);
             A("golden_chain", "Golden Chain", "long_chain", Anvil, Dot2,
               $"Every {T.GoldenChainEvery}rd art needs no basics.", conditional: true);
-            A("lucid", "Lucid", "fog", Ledger, Ring, "Enemies winding up on you are outlined.", conditional: true);
-            A("basilisk", "Basilisk", "wandering_eye", Ledger, Dot2, "Auto-target picks the weakest enemy.",
-              (m, n) => m.Targeting = TargetMode.Weakest);
-            A("ossuary", "Ossuary", "dead_weight", Hide, Cross, "Corpses block enemies instead of you.", conditional: true);
+            A("lucid", "Lucid", "fog", Ledger, Ring,
+              $"Wind-ups on you are outlined. Dodge one and its enemy takes {Pct(T.LucidExposed)} more for {Sec(T.LucidExposedSeconds)}.",
+              conditional: true);
+            A("basilisk", "Basilisk", "wandering_eye", Ledger, Dot2,
+              $"Hold one target for {Sec(T.BasiliskHoldSeconds)} and your gaze stones it: slowed {Pct(1f - T.BasiliskSlowMul)}, takes {Pct(T.BasiliskVulnerability)} more.",
+              conditional: true);
+            A("ossuary", "Ossuary", "dead_weight", Hide, Cross,
+              "Your kills leave corpses that burst when an enemy walks into them.", conditional: true);
             A("antipathy", "Antipathy", "retrograde", Quick, Stroke,
               $"Every {Sec(T.AntipathyEvery)}, enemies near you stagger for {Sec(T.AntipathySeconds)}.", conditional: true);
             A("ley_lines", "Ley Lines", "projection", Azoth, Bar,
               $"Every {Sec(T.LeyLinesEvery)}, burning lines cross the nearest enemies.", conditional: true);
-            A("phlogiston", "Phlogiston", "smother", Azoth, Dot1, "Heat stacks give double Damage.", conditional: true);
+            A("phlogiston", "Phlogiston", "smother", Azoth, Dot1, "Heat you lose flares around you, burning those near.",
+              conditional: true);
             A("flood", "Flood", "low_water", Azoth, Dot2, $"Soaked enemies take {Pct(T.FloodVulnerability)} more.",
               conditional: true);
-            A("mountain", "Mountain", "restless", Azoth, Dot3, $"While planted, +{N(T.MountainDamage)} Damage.",
+            A("mountain", "Mountain", "restless", Azoth, Dot3,
+              $"After {Sec(T.RestlessStillSeconds)} still, enemies that strike you are slowed.",
               conditional: true);
-            A("gale", "Gale", "becalmed", Azoth, Stroke, "Crit floor climbs twice as fast.", conditional: true);
+            A("gale", "Gale", "becalmed", Azoth, Stroke, "When your streak ends, a gust throws back those near you.",
+              conditional: true);
 
             // ============================================================ UNIONS (Phase 3)
             // Granted, never drawn: two opposite humours each held three boons deep, level within

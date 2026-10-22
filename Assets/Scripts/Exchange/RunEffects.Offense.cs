@@ -114,10 +114,10 @@ namespace Convergence.Exchange
         /// the ONE pool (StatCurves.Crit) - a player at the cap gets it as crit damage instead.
         /// They once made the hit a crit outright, stepping past the cap every other source obeys.
         /// </summary>
-        public float BonusCritChance(Health target)
+        public float BonusCritChance(Health target, bool isFinisher = false)
         {
             if (_mods == null || target == null) return 0f;
-            float add = 0f;
+            float add = isFinisher ? 0f : GildedCrit(target);   // Gilding: basics on a gilded body
             if (_stoopRemaining > 0f) add += T.ForcedCritChance;
             // Honed: every hit on a body above half health - the same share however fat it is.
             if (Has("honed") && target.Max > 0f && target.Current / target.Max > T.HonedAbove) add += T.HonedCrit * _mods.Potency("honed");
@@ -194,12 +194,11 @@ namespace Convergence.Exchange
             float tens = Mathf.Floor(_floorSeconds / T.SouringEverySeconds);
             int sour = N("souring");
             if (sour > 0) down -= Mathf.Min(T.SouringCap, T.SouringDamage * tens) * sour;
-            if (Has("maturation")) up += Mathf.Min(T.MaturationCap, T.MaturationDamage * tens) * _mods.Potency("maturation");
 
-            if (Has("mountain") && _stillSeconds > 0.25f) up += T.MountainDamage * _mods.Potency("mountain");
             if (_trapRemaining > 0f) up += T.TrapBonusDamage;
 
             damage = damage * m.Factor(StatKind.Damage, up, down) + opener;
+            damage = AlbedosOutgoing(target, damage, h);   // Maturation, Committed
             // Dulled Script: the art on its socket deals less (a socket cost, paid for a form).
             if (h.IsFinisher && _pc != null) damage *= SocketDamageMul(_pc.ArtSocket);
 
@@ -250,6 +249,7 @@ namespace Convergence.Exchange
             if (!h.Repeat && !target.IsDead) StatusCapstones(target, info, h);
             if (!h.Repeat && !target.IsDead) StatusLayer(target, info, h);
             if (!h.Repeat && !target.IsDead) FormsOnHit(target, info, h);
+            if (!h.Repeat) AlbedosOnHitLanded(target, h);   // Gilding, Mollification
 
             // Crushing Blow: every weapon art staggers what it hits - its attacks come slower,
             // armoured or not. Not a flinch: armoured flinch is what makes an art Heavy.
@@ -459,7 +459,7 @@ namespace Convergence.Exchange
                 Corpse.Spawn(at, T.DeadWeightSeconds + dead, _pc.gameObject,
                              AtMax("dead_weight") ? CorpseMode.StopsShots : CorpseMode.BlocksPlayer);
             else if (Has("ossuary"))
-                Corpse.Spawn(at, T.DeadWeightSeconds + 3f, _pc.gameObject, CorpseMode.BlocksEnemies);
+                OssuaryCorpse(at);
         }
 
         // ---------------------------------------------------------------- speed
@@ -468,9 +468,6 @@ namespace Convergence.Exchange
         public float MoveSpeedUp
             => (_eagleRemaining > 0f ? T.EagleMove : 0f)
              + (Has("retrograde_motion") && Has("retrograde") && InputsInverted ? T.RetrogradeMotionMove : 0f);
-
-        /// <summary>Lightfoot: Graze counts double at full speed - a second moving.</summary>
-        public bool GrazeDoubled => Has("lightfoot") && _movingSeconds >= T.WakeAfterSeconds;
 
         /// <summary>Attack Speed points the ledger's conditions take right now (Quicksand).</summary>
         public float AttackSpeedDown => AtMax("restless") && _stillSeconds > 0.25f ? -T.QuicksandSpeed : 0f;

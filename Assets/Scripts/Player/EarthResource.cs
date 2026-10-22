@@ -115,25 +115,27 @@ namespace Convergence.Player
             // Aftershocks scale with how long the meter was held, not a binary max-charge check.
             int aftershocks = Mathf.FloorToInt(charged * ChargeSeconds / AftershockPerSeconds);
             Charge = 0f;
-            StartCoroutine(Quake(charged, aftershocks));
+            StartCoroutine(Quake(charged, aftershocks, ReleaseAreaScale));
         }
 
-        IEnumerator Quake(float charged, int aftershocks)
+        IEnumerator Quake(float charged, int aftershocks, float area)
         {
             _quaking = true;
-            Erupt(charged, 1f);
+            Erupt(charged, 1f, area);
 
             for (int i = 0; i < aftershocks; i++)
             {
                 yield return new WaitForSeconds(0.45f);
-                Erupt(charged, 0.55f - i * 0.08f);
+                Erupt(charged, 0.55f - i * 0.08f, area);
             }
             _quaking = false;
         }
 
-        void Erupt(float charged, float scale)
+        /// <param name="area">Area at the release, Concentrate's reach included - read once, as the
+        /// aftershocks come after the button is let go.</param>
+        void Erupt(float charged, float scale, float area)
         {
-            float radius = Radius * AreaScale * (0.55f + charged * 0.45f) * Mathf.Max(0.4f, scale);
+            float radius = Radius * area * (0.55f + charged * 0.45f) * Mathf.Max(0.4f, scale);
             // In hit units (Tuning.Elements): the quake grows with the player's own hit.
             float damage = (T.ShockHitUnits + charged * T.ShockHitUnitsPerCharge) * HitUnit * scale * Scale;
 
@@ -159,7 +161,7 @@ namespace Convergence.Player
         {
             if (_lastCharged <= 0f || _quaking) return;
             int aftershocks = Mathf.FloorToInt(_lastCharged * ChargeSeconds / AftershockPerSeconds);
-            StartCoroutine(Quake(_lastCharged, aftershocks));
+            StartCoroutine(Quake(_lastCharged, aftershocks, AreaScale));
         }
 
         public override void Spill(float fraction01) => Charge = Mathf.Max(0f, Charge - fraction01);

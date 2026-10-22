@@ -201,6 +201,44 @@ namespace Convergence.Balance
             public const float SpindriftSoakedShare = 0.4f;
             /// <summary>Seconds between uses of the defensive ability in a fight (Lacerate).</summary>
             public const float DefenseUseSeconds = 5f;
+
+            // ---- the transformed Albedos (batch 3, 2026-10-21) - every one a guess ----
+
+            /// <summary>Share of the fight the body being fought spends EXPOSED by Lucid - its wind-up
+            /// dodged in the last three seconds.</summary>
+            public const float LucidExposedShare = 0.3f;
+            /// <summary>Meter lost (faded or spilled, not spent) a second, as a share of a full meter
+            /// (Sealed Vessel).</summary>
+            public const float MeterLostPerSecond = 0.04f;
+            /// <summary>Share of Lightfoot's anchors snapped back to before they lapse.</summary>
+            public const float AnchorSnapShare = 0.5f;
+            /// <summary>Share of a snap's cuts that cross the body being fought.</summary>
+            public const float AnchorCutsTarget = 0.5f;
+            /// <summary>Ossuary's corpses walked into a second.</summary>
+            public const float OssuaryBurstsPerSecond = 0.15f;
+            /// <summary>Share of Earth's and Water's releases fired from a full meter (Concentrate) -
+            /// Fire's and Air's always are.</summary>
+            public const float FullReleaseShare = 0.6f;
+
+            // ---- batches 1 and 2 (2026-10-21) - guesses too ----
+
+            /// <summary>Share of armour Maturation's readied art strips off the body being fought -
+            /// one art in every SouringEverySeconds, met before its armour is gone.</summary>
+            public const float MaturationStripShare = 0.35f;
+            /// <summary>Share of the fight the body being fought is held under the lock past Basilisk's hold.</summary>
+            public const float GazeHeldShare = 0.5f;
+            /// <summary>Plates broken a second, while plating lasts (Patina).</summary>
+            public const float PlatesPerSecond = 0.1f;
+            /// <summary>Fire's heat lost (faded or spilled) a second (Phlogiston).</summary>
+            public const float HeatLostPerSecond = 0.2f;
+            /// <summary>Share of basics that land on a body the last art gilded (Gilding).</summary>
+            public const float GildedBasicShare = 0.7f;
+            /// <summary>Armoured bodies broken a second (Mollification).</summary>
+            public const float ArmourBreaksPerSecond = 0.08f;
+            /// <summary>Share of hits taken while tempered by a heavy blow (Adamant).</summary>
+            public const float TemperedShare = 0.25f;
+            /// <summary>A blow taken, in the player's own hits (Committed's bank).</summary>
+            public const float BlowInHitUnits = 1f;
             /// <summary>Share of a run an OATH is held before its task fulfils it (Phase 4).</summary>
             public const float OathHeldShare = 0.5f;
 
@@ -496,9 +534,8 @@ namespace Convergence.Balance
                     stacks = Mathf.Clamp(stacks + Assume.FireStacksPerGrowth * gainRatePoints, 2f, 5f);
                     if (ledger)
                     {
-                        // Smother takes from every stack, Phlogiston doubles it (RunEffects.HeatPoints).
+                        // Smother takes from every stack (RunEffects.HeatPoints).
                         perStack = Mathf.Max(0f, perStack - Tuning.Exchange.SmotherPoints * n("smother"));
-                        if (n("phlogiston") > 0) perStack *= Tuning.Exchange.PhlogistonMul;
                         stacks += Assume.FireStacksPerGrowth * m.Points(StatKind.ElementGrowth);
                         // Banked Embers: the rebuild after a release starts from the floor, not zero.
                         stacks += 0.3f * n("banked_embers") + (AtMax(n, "banked_embers") ? 0.4f : 0f);
@@ -559,7 +596,6 @@ namespace Convergence.Balance
                         momentum = Mathf.Clamp01(momentum + 0.1f * n("tailwind") - 0.07f * n("leaky_vessel"));
                         if (AtMax(n, "becalmed")) streak = 1.5f;   // Doldrums: a hit taken resets it
                         perStreak = Mathf.Max(0f, perStreak - Tuning.Exchange.BecalmedCritPerHit * n("becalmed"));
-                        if (n("gale") > 0) perStreak *= Tuning.Exchange.GaleMul;
                     }
                     p.DamagePoints = ElementNumbers.AirDamagePoints;
                     p.GustDamagePoints = ElementNumbers.AirGustDamagePoints * gust;
@@ -668,12 +704,14 @@ namespace Convergence.Balance
 
                 dps *= Mathf.Max(el.Vulnerability, BoardVulnerability(b, shape));
                 crowd = CrowdDps(b, s, m, el, shape, dps, hitUnit, scale * rel.HitMul, releasesPerSecond)
-                      + LedgerFormsCrowd(n, shape, hitUnit);
+                      + LedgerFormsCrowd(n, shape, hitUnit) + LedgerAlbedosCrowd(b, n, hitUnit);
+                if (n("concentrate") > 0)
+                    crowd += ConcentrateCrowd(b, s, m, el, hitUnit, scale * rel.HitMul, releasesPerSecond);
                 dps += releaseHit * releasesPerSecond;
                 dps *= BoardOffense(b, shape);
                 dps += BoardDamageOverTime(b, shape);
-                dps *= LedgerVulnerability(n, shape);
-                dps += LedgerDamageOverTime(b, n, shape) + LedgerForms(n, shape, hitUnit);
+                dps *= LedgerVulnerability(b, n, shape);
+                dps += LedgerDamageOverTime(b, n, shape) + LedgerForms(n, shape, hitUnit) + LedgerAlbedos(b, n, shape, hitUnit);
                 dps += FermentationDps(b, hitUnit, releasesPerSecond);
                 dps += LedgerFieldDps(n, hitUnit);
                 float lost = LedgerTimeLost(n, element, shape, releasesPerSecond) * Judged.Offense(n);
@@ -685,13 +723,8 @@ namespace Convergence.Balance
             float moving = b.Element == ElementType.Earth ? 1f - Assume.EarthStillShare : Assume.MovingShare;
 
             // Graze and Brace: the character's, then the run's as factors of their own (as
-            // GameBootstrap's IncomingDamageMultiplier composes them). Lightfoot doubles the
-            // character's Graze at full speed.
-            float graze = StatPercents.ReductionFactor(s.Graze);
-            if (n("lightfoot") > 0)
-                graze = Mathf.Lerp(graze, StatPercents.ReductionFactor(s.Graze * Tuning.Exchange.LightfootGrazeMul),
-                                   Assume.FullSpeedShare);
-            graze *= m.GrazeFactor;
+            // GameBootstrap's IncomingDamageMultiplier composes them).
+            float graze = StatPercents.ReductionFactor(s.Graze) * m.GrazeFactor;
             float brace = StatPercents.ReductionFactor(s.Brace) * m.BraceFactor;
 
             // Stat mitigation - the ledger's conditional reductions included - floored as ONE, as
@@ -947,7 +980,7 @@ namespace Convergence.Balance
                 f *= Per(n, "fleetfoot", 0.04f);
                 f *= Per(n, "eagle", 0.02f);
                 f *= Per(n, "long_reach", 0.02f);
-                f *= Has(n, "lightfoot", 1.04f);
+                f *= Has(n, "lightfoot", 1.03f);                                         // an anchor to snap back to
                 f *= Has(n, "retrograde_motion", 1.02f);
                 // Enemies thrown back, staggered or kept off you.
                 f *= Max(n, "wide_arc", 1.03f);                                          // Scything: a crowd staggered
@@ -968,9 +1001,11 @@ namespace Convergence.Balance
                 f *= Max(n, "heavy_payoff", 1.03f);                                      // Crushing Blow
                 f *= Has(n, "cataclysm", 1.06f);
                 f *= Has(n, "antipathy", 1.08f);
-                f *= Has(n, "unshackled", 1.05f);
-                f *= Has(n, "lucid", 1.10f);
-                f *= Has(n, "ossuary", 1.06f);
+                f *= Has(n, "lucid", 1.10f);                                             // wind-ups outlined
+                f *= Has(n, "mountain", 1.05f);                                          // planted, strikers slowed
+                f *= Has(n, "viriditas", 1.05f);                                         // a shield each floor
+                f *= Has(n, "gale", 1.03f);                                              // a lost streak throws them back
+                f *= Has(n, "basilisk", 1.02f);                                          // the held target slowed
                 f *= Max(n, "tailwind", 1.02f);                                          // Updraft
                 return f;
             }

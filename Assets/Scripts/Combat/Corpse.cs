@@ -14,8 +14,13 @@ namespace Convergence.Combat
         /// weapons and arrows too.</summary>
         StopsShots,
 
-        /// <summary>Ossuary (its Albedo): it blocks ENEMIES instead, cover the player made.</summary>
+        /// <summary>Ossuary as it was: it blocks ENEMIES instead. No longer spawned - kept so the
+        /// enum's order holds.</summary>
         BlocksEnemies,
+
+        /// <summary>Ossuary (Dead Weight's Albedo, transformed 2026-10-21): blocks nobody, and
+        /// BURSTS when an enemy walks into it, striking every enemy round it.</summary>
+        Bursts,
     }
 
     /// <summary>
@@ -30,6 +35,11 @@ namespace Convergence.Combat
         SpriteRenderer _sr;
         [SerializeField] CorpseMode _mode;
         [SerializeField] float _radius;
+
+        // Ossuary's burst, armed by the ledger at the kill.
+        [SerializeField] float _burstRadius, _burstDamage, _armIn;
+        [SerializeField] ElementType _burstElement;
+        [SerializeField] GameObject _burstSource;
 
         /// <summary>Ossuary's corpse: enemies route round it.</summary>
         public bool BlocksEnemies => _mode == CorpseMode.BlocksEnemies;
@@ -50,14 +60,15 @@ namespace Convergence.Combat
 
             c._sr = go.AddComponent<SpriteRenderer>();
             c._sr.sprite = Spr.Circle;
-            c._sr.color = mode == CorpseMode.BlocksEnemies
-                ? new Color(0.78f, 0.74f, 0.62f, 0.8f)      // bone: the player's cover
+            c._sr.color = mode == CorpseMode.BlocksEnemies || mode == CorpseMode.Bursts
+                ? new Color(0.78f, 0.74f, 0.62f, 0.8f)      // bone: the player's
                 : new Color(0.30f, 0.16f, 0.18f, 0.75f);
             c._sr.sortingOrder = SortingOrders.GroundDecal + 1;
             go.transform.localScale = Vector3.one * 0.8f;
 
             var col = go.AddComponent<CircleCollider2D>();
             col.radius = c._radius;
+            col.isTrigger = mode == CorpseMode.Bursts;   // in nobody's way: it waits to be walked into
 
             var rb = go.AddComponent<Rigidbody2D>();
             rb.bodyType = RigidbodyType2D.Static;
@@ -65,7 +76,8 @@ namespace Convergence.Combat
             // Asked of the enemy registry rather than by scanning every Collider2D in the scene.
             // Dead Weight's corpse is in the PLAYER's way only, so a pack does not pile up on its
             // own dead (a movement cost, not a free wall); Ossuary's is the opposite way round.
-            if (mode == CorpseMode.BlocksEnemies)
+            if (mode == CorpseMode.Bursts) { }
+            else if (mode == CorpseMode.BlocksEnemies)
             {
                 var own = player != null ? player.GetComponent<Collider2D>() : null;
                 if (own != null) Physics2D.IgnoreCollision(col, own);
@@ -113,6 +125,44 @@ namespace Convergence.Combat
             return false;
         }
 
+        /// <summary>Ossuary: what the corpse does when an enemy walks into it. It arms a moment
+        /// after it falls, so a body dying in a crowd is seen to land before it bursts.</summary>
+        public void ArmBurst(float radius, float damage, ElementType element, GameObject source)
+        {
+            _burstRadius = radius;
+            _burstDamage = damage;
+            _burstElement = element;
+            _burstSource = source;
+            _armIn = 0.35f;
+        }
+
+        void OnTriggerStay2D(Collider2D other)
+        {
+            if (_mode != CorpseMode.Bursts || _armIn > 0f || _burstDamage <= 0f) return;
+            if (other.GetComponent<Enemies.EnemyController>() == null) return;
+            var hp = other.GetComponent<Health>();
+            if (hp == null || hp.IsDead) return;
+            Burst();
+        }
+
+        void Burst()
+        {
+            Vector2 at = transform.position;
+            Enemies.EnemyRegistry.Prune();
+            var struck = new List<Health>();
+            foreach (var e in Enemies.EnemyRegistry.All)
+            {
+                if (e == null) continue;
+                var hp = e.GetComponent<Health>();
+                if (hp == null || hp.IsDead) continue;
+                if (((Vector2)e.transform.position - at).sqrMagnitude <= _burstRadius * _burstRadius) struck.Add(hp);
+            }
+            foreach (var hp in struck) hp.Take(new DamageInfo(_burstDamage, _burstElement, _burstSource));
+            Spr.Flash(at, _burstRadius, new Color(0.86f, 0.82f, 0.70f, 0.55f), 0.25f);
+            _burstDamage = 0f;
+            Destroy(gameObject);
+        }
+
         void OnDestroy()
         {
             _stoppers?.Remove(this);
@@ -122,6 +172,7 @@ namespace Convergence.Combat
         void Update()
         {
             _life -= Time.deltaTime;
+            if (_armIn > 0f) _armIn -= Time.deltaTime;
             if (_life <= 0f) { Destroy(gameObject); return; }
 
             if (_sr == null) return;

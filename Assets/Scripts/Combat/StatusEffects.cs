@@ -34,6 +34,9 @@ namespace Convergence.Combat
         // CONGEALED (the Congelation Opus): rooted through ApplyPetrify and taking more damage.
         float _congealRemaining, _congealVulnerability = 1f;
 
+        // EXPOSED (Lucid): its attack missed, and it takes more for a moment.
+        float _exposedRemaining, _exposedVulnerability = 1f;
+
         public float MoveMultiplier
         {
             get
@@ -200,7 +203,17 @@ namespace Convergence.Combat
         {
             if (!_health) return;
             _health.Vulnerability = (_soakRemaining > 0f ? _soakVulnerability : 1f)
-                                  * (_congealRemaining > 0f ? _congealVulnerability : 1f);
+                                  * (_congealRemaining > 0f ? _congealVulnerability : 1f)
+                                  * (_exposedRemaining > 0f ? _exposedVulnerability : 1f);
+        }
+
+        /// <summary>EXPOSED (Lucid): an enemy whose wind-up missed takes more for a moment - the
+        /// stronger of two overlapping.</summary>
+        public void ApplyExposed(float duration, float vulnerability)
+        {
+            _exposedVulnerability = Mathf.Max(_exposedRemaining > 0f ? _exposedVulnerability : 1f, vulnerability);
+            _exposedRemaining = Mathf.Max(_exposedRemaining, duration);
+            RefreshVulnerability();
         }
 
         /// <summary>A plain slow: movement times <paramref name="multiplier"/>, the stronger slow
@@ -359,6 +372,12 @@ namespace Convergence.Combat
             {
                 _congealRemaining -= dt;
                 if (_congealRemaining <= 0f) { _congealVulnerability = 1f; RefreshVulnerability(); }
+            }
+
+            if (_exposedRemaining > 0f)
+            {
+                _exposedRemaining -= dt;
+                if (_exposedRemaining <= 0f) { _exposedVulnerability = 1f; RefreshVulnerability(); }
             }
 
             if (_slowRemaining > 0f)

@@ -277,6 +277,7 @@ namespace Convergence.Exchange
         public void OnDefenceUsed()
         {
             if (_mods == null || _pc == null) return;
+            AlbedosOnDefenceUsed();   // Unshackled, Lightfoot
             // AFTERBURN: the next basic inside the window gains Damage and burns (Offense, FormsOnHit).
             if (Has("afterburn")) _afterburnUntil = Time.time + T.AfterburnWindow;
             bool hem = Has("hemorrhage");   // HEMORRHAGE, evolved: wider, deeper, and it staggers

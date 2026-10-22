@@ -1050,12 +1050,20 @@ namespace Convergence.Core
             /// hits over its seconds.</summary>
             public const float PhoenixBurnHitUnits = 3f;
             public const float PhoenixBurnSeconds = 4f;
-            /// <summary>SEALED VESSEL: the meter fades this much as fast. It used to never fade - and every
-            /// element's demand (Fire's heat, Earth's charge, Air's momentum) runs through that fade.</summary>
-            public const float SealedVesselDecay = 0.5f;
-            /// <summary>PATINA: worn armour adds this share of its usual damage taken. It used to add none -
-            /// a boon switching the wear system off.</summary>
-            public const float PatinaPenaltyShare = 0.5f;
+            /// <summary>SEALED VESSEL (transformed 2026-10-21, the user's pick): every SplashEvery of
+            /// meter LOST (faded or spilled, never spent on a release) splashes the element's own
+            /// status on every enemy within the radius - Fire burns, Water soaks, Earth staggers,
+            /// Air bleeds (the humours' elements). It used to make the meter fade half as fast.</summary>
+            public const float SealedVesselSplashEvery = 0.2f;
+            public const float SealedVesselRadius = 2.5f;
+            public const float SealedVesselSeconds = 3f;
+            /// <summary>A burn's or a bleed's damage a second, in the player's own hits.</summary>
+            public const float SealedVesselDotHitUnits = 0.4f;
+            public const float SealedVesselStagger = 1f;
+            /// <summary>PATINA (transformed 2026-10-21, the user's pick): each PLATE a blow breaks throws a
+            /// shard back at the enemy that broke it, in the player's own hits. It used to halve worn
+            /// armour's penalty.</summary>
+            public const float PatinaShardHitUnits = 2f;
 
             // ---------------------------------------------------------------- Anvil
             public const float HeavyPayoffArt = 12f;
@@ -1166,7 +1174,11 @@ namespace Convergence.Core
             public const float FelicityChance = 1f / 9f;
             public const float OvercommittedLock = 0.30f;
             public const float OverextendedTaken = 0.60f;
-            public const float CommittedTaken = 0.40f;
+            /// <summary>COMMITTED (transformed 2026-10-21, the user's pick): this share of every blow taken
+            /// while an art locks you is added to your next art's first hit, banked up to CapHitUnits
+            /// of your own hits. It used to cut the damage taken while locked.</summary>
+            public const float CommittedShare = 0.5f;
+            public const float CommittedCapHitUnits = 5f;
             public const float ShortArmRange = 10f;
             public const float CrampedFrom = 0.5f;
             public const float CrampedDamage = 40f;
@@ -1178,7 +1190,11 @@ namespace Convergence.Core
             /// half of every build's damage its arts deal. Slag (III): arts can't crit. Gilding
             /// (its Albedo): Weapon Art.</summary>
             public const float DrossArt = 12f;
-            public const float GildingArt = 20f;
+            /// <summary>GILDING (transformed 2026-10-21, the user's pick - the whole chain): an art gilds
+            /// what it strikes, and every basic on a gilded body until the next art adds this crit chance,
+            /// into the one pool (past the cap it is crit damage - nothing forces a crit). It used to be
+            /// +20 Weapon Art.</summary>
+            public const float GildingCrit = 0.25f;
 
             // ---------------------------------------------------------------- Brittle
             public const float ThinBloodHp = 11f;
@@ -1193,7 +1209,11 @@ namespace Convergence.Core
             /// <summary>Adamant: run-layer Resilience, inside the mitigation floor. It LOWERED the
             /// floor from 35% to 25% - a boon moving the threshold every mitigation stat is
             /// tuned against, worth -29% damage taken to exactly the build already at it.</summary>
-            public const float AdamantResilience = 15f;
+            /// <summary>ADAMANT (transformed 2026-10-21, the user's pick): a blow taking over BlowShare of
+            /// max health tempers you - this much Resilience for AdamantSeconds, inside the one floor.</summary>
+            public const float AdamantResilience = 30f;
+            public const float AdamantBlowShare = 0.15f;
+            public const float AdamantSeconds = 5f;
             public const float SlowKnitHeal = 0.20f;
             public const float HollowCeiling = 0.60f;
             public const float VitalSparkRegen = 0.01f;
@@ -1213,8 +1233,9 @@ namespace Convergence.Core
             public const float PelicanHeal = 0.006f;
             public const float WitheringPerFloor = 0.02f;
             public const float WitheringCap = 0.35f;
-            public const float ViriditasPerFloor = 0.01f;
-            public const float ViriditasCap = 0.20f;
+            /// <summary>VIRIDITAS (transformed 2026-10-21, the user's pick): each floor starts you with a
+            /// shield of this share of max health, spent before health. It used to grow max health.</summary>
+            public const float ViriditasShield = 0.10f;
             public const float TollFraction = 0.10f;
             public const float TributeHeal = 0.20f;
             /// <summary>Souring, per stack: Damage lost for every SouringEverySeconds on a floor,
@@ -1223,8 +1244,8 @@ namespace Convergence.Core
             public const float SouringEverySeconds = 10f;
             public const float SouringCap = 20f;
             public const float AcetumTaken = 0.05f;
-            public const float MaturationDamage = 6f;
-            public const float MaturationCap = 40f;
+            // MATURATION (transformed 2026-10-21, the user's pick): every SouringEverySeconds on a floor,
+            // the next art strips the armour of everything it hits. No number of its own.
             public const float BackfireFraction = 0.12f;
             public const float RecoilSeconds = 0.6f;
             public const float ReboundHeal = 0.08f;
@@ -1235,7 +1256,11 @@ namespace Convergence.Core
             /// releases, burns and repeats included, which Dulled's Damage points miss.</summary>
             public const float IndurationHealth = 0.12f;
             public const float CoagulationEliteHealth = 0.25f;
-            public const float MollificationHealth = 0.12f;
+            /// <summary>MOLLIFICATION (transformed 2026-10-21, the user's pick): an enemy's armour broken by
+            /// your hit shatters - every OTHER enemy within the radius takes the shards, in your own hits.
+            /// It used to take health and armour off every enemy.</summary>
+            public const float MollificationRadius = 1.8f;
+            public const float MollificationShardHitUnits = 1f;
 
             // ---------------------------------------------------------------- Leaden
             public const float AnchoredMove = 10f;
@@ -1243,8 +1268,14 @@ namespace Convergence.Core
             /// <summary>Mired (Anchored III) also slides you after you stop, as in water - the
             /// slide that was Drag's, a one-stack cost careful players took for free.</summary>
             public const float MiredSlide = 0.6f;
-            public const float LightfootMove = 12f;
-            public const float LightfootGrazeMul = 2f;
+            /// <summary>LIGHTFOOT (transformed 2026-10-21, the user's pick): the defensive ability drops
+            /// an ANCHOR; pressing it again inside AnchorSeconds, while it recharges, snaps the player
+            /// back along the ground, cutting every enemy within CutWidth of the line. Movement only -
+            /// no immunity, no parry window, the cooldown untouched. It used to be +12 Move Speed.</summary>
+            public const float LightfootAnchorSeconds = 4f;
+            public const float LightfootSnapSpeed = 20f;
+            public const float LightfootCutWidth = 0.7f;
+            public const float LightfootCutHitUnits = 2.5f;
             public const float EncumberedCooldown = 0.35f;
 
             // ---------------------------------------------------------------- the Nigredos' exposures
@@ -1266,18 +1297,17 @@ namespace Convergence.Core
             /// <summary>Doldrums (Becalmed III): while under DoldrumsBelow momentum.</summary>
             public const float DoldrumsTaken = 0.15f;
             public const float DoldrumsBelow = 0.5f;
-            /// <summary>Unshackled: a parry staggers every enemy this close, for these seconds. It
-            /// doubled the parry window, which with the board's Sal Ammoniac made 0.6 s of a
-            /// 2.5 s cycle a parry - nothing in the ledger lengthens the window now.</summary>
-            public const float UnshackledRadius = 3f;
-            public const float UnshackledStagger = 2f;
+            // UNSHACKLED (transformed 2026-10-21, the user's pick): using the defensive ability
+            // readies the next art - the chain moves on one basic. No number. It was a parry's
+            // stagger round you - Antipathy's twin.
 
             // ---------------------------------------------------------------- Leaking
             public const float StubbornOreGrowth = 20f;
-            public const float ConcentratePower = 60f;
+            /// <summary>CONCENTRATE (transformed 2026-10-21, the user's pick): a release from a FULL
+            /// meter reaches this much further. It used to be +60 Elemental Power.</summary>
+            public const float ConcentrateFullRadiusMul = 2f;
             public const float LeakyVesselDecay = 0.50f;
             public const float CrackedVesselSpill = 0.15f;
-            public const float SealedVesselGain = 0.08f;
             public const float FrayingComboMul = 0.5f;
             public const int GoldenChainEvery = 3;
 
@@ -1319,15 +1349,43 @@ namespace Convergence.Core
             public const float UpdraftRadius = 3f;
             public const float UpdraftKnockback = 2.5f;
             public const float SmotherPoints = 3.5f;
-            public const float PhlogistonMul = 2f;
+            /// <summary>PHLOGISTON (transformed 2026-10-21, the user's pick): each heat that fades or spills
+            /// flares round you, burning every enemy within the radius. It doubled heat's Damage.</summary>
+            public const float PhlogistonRadius = 2.2f;
+            public const float PhlogistonBurnHitUnits = 0.5f;
+            public const float PhlogistonBurnSeconds = 3f;
             public const float LowWaterSurge = 12f;
             public const float FloodVulnerability = 0.25f;
             public const float RestlessStillSeconds = 2f;
             public const float RestlessTaken = 0.20f;
             public const float QuicksandSpeed = 25f;
-            public const float MountainDamage = 20f;
+            /// <summary>MOUNTAIN (transformed 2026-10-21, the user's pick): after RestlessStillSeconds
+            /// still, an enemy that strikes you is slowed. It used to be +20 Damage planted.</summary>
+            public const float MountainSlowMul = 0.5f;
+            public const float MountainSlowSeconds = 2f;
+            /// <summary>LUCID (transformed 2026-10-21, the user's pick): an outlined enemy whose
+            /// wind-up ends without its attack landing on you inside DodgeWindow is EXPOSED.</summary>
+            public const float LucidDodgeWindow = 0.8f;
+            public const float LucidExposed = 0.25f;
+            public const float LucidExposedSeconds = 3f;
+            /// <summary>OSSUARY (transformed 2026-10-21, the user's pick): kills leave a corpse that
+            /// BURSTS when an enemy walks into it, striking every enemy within the radius. It used
+            /// to block enemies.</summary>
+            public const float OssuaryCorpseSeconds = 8f;
+            public const float OssuaryBurstRadius = 1.4f;
+            public const float OssuaryBurstHitUnits = 3f;
             public const float BecalmedCritPerHit = 0.01f;
-            public const float GaleMul = 2f;
+            /// <summary>GALE (transformed 2026-10-21, the user's pick): a streak of at least MinStreak lost
+            /// to a whiff gusts out, throwing back every enemy within the radius. It doubled the crit
+            /// floor's climb.</summary>
+            public const int GaleMinStreak = 3;
+            public const float GaleRadius = 2.5f;
+            public const float GalePush = 1.6f;
+            /// <summary>BASILISK (transformed 2026-10-21, the user's pick): one target held this long is
+            /// stoned - slowed and taking more - for as long as it stays held.</summary>
+            public const float BasiliskHoldSeconds = 3f;
+            public const float BasiliskSlowMul = 0.5f;
+            public const float BasiliskVulnerability = 0.15f;
 
             // ---------------------------------------------------------------- the weapon classes
             public const float FletchingPierce = 15f;

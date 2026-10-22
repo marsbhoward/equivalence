@@ -416,6 +416,9 @@ namespace Convergence.Player
             if (Core.Controls.GuardTapped && _defenseCooldown <= 0f && !Statue
                 && !(Effects != null && Effects.DefenceShut(Time.time - _lastArtAt)))   // Shackled
                 ActivateDefensiveAbility();
+            // Lightfoot: pressed again while it recharges, the anchor it dropped snaps you back.
+            else if (Core.Controls.GuardTapped && _defenseCooldown > 0f && !Statue)
+                Effects?.OnGuardWhileRecharging();
         }
 
         void ActivateDefensiveAbility()
@@ -508,7 +511,6 @@ namespace Convergence.Player
             ParryTell(attackerPosition);
 
             FireCounterStrike();
-            Effects?.OnParried();   // Unshackled
 
             // The board's Volatilization: a parry hands the ability straight back.
             if (Board != null && Board.RefundsOnParry) _defenseCooldown = 0f;
@@ -1340,9 +1342,9 @@ namespace Convergence.Player
         /// Cementation) - into the one pool, so past the cap it is crit damage - and decides what a
         /// crit is worth (Cold Iron). Returns the multiplier.
         /// </summary>
-        float RollCrit(Health target, out bool crit)
+        float RollCrit(Health target, out bool crit, bool isFinisher = false)
         {
-            float bonus = Effects != null && target != null ? Effects.BonusCritChance(target) : 0f;
+            float bonus = Effects != null && target != null ? Effects.BonusCritChance(target, isFinisher) : 0f;
             var (chance, multiplier) = Art.Gear.StatCurves.Crit(CritChanceSum + bonus, CritMulSum);
             crit = Random.value < chance;
             if (!crit) return 1f;
@@ -1365,7 +1367,7 @@ namespace Convergence.Player
                 crit = true;
                 return CritMultiplierNow;
             }
-            return RollCrit(target, out crit);
+            return RollCrit(target, out crit, isFinisher);
         }
 
         /// <summary>What a crit is worth right now, after the ledger (Cold Iron) - what a repeat
@@ -1636,6 +1638,15 @@ namespace Convergence.Player
         /// </summary>
         public void RefundFinisher() => ComboIndex = Mathf.Max(ComboIndex, BasicsPerChain);
 
+        /// <summary>Unshackled: the chain moves on one basic - never past a banked art - and its
+        /// clock starts again, as a swing's would.</summary>
+        public void AdvanceChain()
+        {
+            if (FinisherNext) return;
+            ComboIndex++;
+            _comboTimer = ComboResetSeconds * Mods.ComboTimeMul;
+        }
+
         // ---- the mastery board, for hits that land away from the swing ----
 
         /// <summary>A thrown hit (a disc, an arrow, the thrown blade) about to land: the ledger's
@@ -1651,6 +1662,13 @@ namespace Convergence.Player
                 {
                     IsFinisher = isFinisher, Reach01 = reach01, Thrown = true, First = first,
                 });
+                // Gilding: a thrown basic rolled its crit at the throw; on a gilded body it gets the
+                // gild's chance again, here, as a crit of its own.
+                if (!isFinisher && !crit)
+                {
+                    float gild = Effects.GildedCrit(target);
+                    if (gild > 0f && Random.value < gild) damage *= CritMultiplierNow;
+                }
                 PierceArmourFor(target);
             }
             return Board != null ? Board.ModifyOutgoing(target, damage, isFinisher, crit) : damage;
@@ -2047,7 +2065,10 @@ namespace Convergence.Player
         /// </summary>
         void DoRelease()
         {
-            Resource.Release();
+            // Concentrate: a release from a FULL meter reaches further - set round this one call.
+            Resource.ReleaseRadiusMul = Effects != null ? Effects.ReleaseRadiusMul(Resource.Fill01) : 1f;
+            try { Resource.Release(); }
+            finally { Resource.ReleaseRadiusMul = 1f; }
             // Repeats (Twin Spark, Wellspring) are the ledger's to fire, a moment later and
             // spending nothing - see RunEffects.OnReleased.
             Effects?.OnReleased(Resource);

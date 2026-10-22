@@ -91,8 +91,9 @@ namespace Convergence.Balance
                 all *= Sometimes(1f - Assume.HalfReachShare, m.Factor(StatKind.Damage, 0f, -T.CrampedDamage));
             if (n("bloodstone") > 0 && n("blood_price") > 0)
                 all *= D(Mathf.Min(T.BloodstoneCap, Assume.MissingHealth / T.BloodstoneMissingPerPoint));
-            if (n("maturation") > 0) all *= D(FloorAverage(t => Mathf.Min(T.MaturationCap, T.MaturationDamage * t)));
-            if (n("mountain") > 0) all *= Sometimes(StillShare(b), D(T.MountainDamage));
+            // Maturation: one art in every few seconds strips the armour off what it hits - that much
+            // less to cut, as First Blood's share is.
+            if (n("maturation") > 0) all /= 1f - Assume.MaturationStripShare * (bodyEhp - bodyHp) / bodyEhp;
             string trap = TrapIdFor(b.Element);
             if (trap != null && AtMax(n, trap)) all *= Sometimes(Assume.TrapUptime, D(T.TrapBonusDamage));
             int ex = n("executioner");
@@ -129,6 +130,8 @@ namespace Convergence.Balance
             // Honed: a body is above half health while its armour lasts and for half its health.
             float chanceAdd = n("honed") > 0
                 ? T.HonedCrit * Mathf.Clamp01((bodyEhp - bodyHp * T.HonedAbove) / bodyEhp) : 0f;
+            // Gilding: the basics after an art, on what it gilded, roll with more crit chance.
+            if (n("gilding") > 0) chanceAdd += T.GildingCrit * Assume.GildedBasicShare * basics / (basics + 1f);
             if (n("cementation") > 0) keep *= 1f - 1f / T.CementationEvery;
             if (AtMax(n, "eagle")) keep *= 1f - firstShare;   // Stoop: the hit after a kill
 
@@ -146,6 +149,9 @@ namespace Convergence.Balance
             if (AtMax(n, "ouroboros"))
                 keep *= 1f - Mathf.Min(1f, killsPerChain * artDamage / Mathf.Max(1e-3f, basicsDamage + artDamage));
             if (n("golden_chain") > 0) keep *= 1f - 1f / T.GoldenChainEvery;
+            // Unshackled: each use of the defensive ability skips one of the chain's basics.
+            if (n("unshackled") > 0)
+                keep *= 1f - Mathf.Min(1f, seconds / Assume.DefenseUseSeconds) / Convergence.Player.PlayerController.BaseBasicsPerChain;
             return 1f - keep;
         }
 
@@ -222,13 +228,11 @@ namespace Convergence.Balance
             float keep = 1f + T.OverflowRefund * Mathf.Min(1, n("overflow"));   // Profile's refund rule
             float fill = 0f;   // meters a second
             if (AtMax(n, "rich_vein")) fill += T.MotherLodeRefill * chainDps / Mathf.Max(1f, ChaserEhp(floor));
-            if (n("sealed_vessel") > 0) fill += T.SealedVesselGain * Assume.HitsTakenPerSecond;
             if (AtMax(n, "leaky_vessel")) fill -= T.CrackedVesselSpill * Assume.HitsTakenPerSecond;
             int attune = n("attunement");
             if (attune > 0) fill += (AtMax(n, "attunement") ? 1f : T.AttunementFill * attune) / Assume.FloorSeconds;
 
             float rate = r.PerSecond * (1f - 0.12f * n("leaky_vessel"))       // the meter fading faster
-                                     * (n("sealed_vessel") > 0 ? 1.03f : 1f)    // and fading half as fast
                                      * (AtMax(n, "low_water") ? 0.75f : 1f);    // Ebb: soaked bodies fill single
             rate = Mathf.Max(0.005f, rate + fill * keep);
             r.PerSecond = rate;
@@ -266,7 +270,9 @@ namespace Convergence.Balance
             if (AtMax(n, "equipoise"))   // Poise: the hit after a change of pace deals half
                 f *= 1f - (1f - T.PoiseMul) * Assume.PaceChangeShare;
             if (AtMax(n, "thickened_hide")) f *= 1f - (1f - T.FortitudeMul) * Assume.CriticalHealthShare;
-            if (n("committed") > 0) f *= 1f - T.CommittedTaken * c.LockShare;
+            // Adamant: a heavy blow tempers you - Resilience for a few seconds.
+            if (n("adamant") > 0)
+                f *= 1f - (1f - StatPercents.ReductionFactor(T.AdamantResilience)) * Assume.TemperedShare;
             if (n("retrograde_motion") > 0 && n("retrograde") > 0)
                 f *= 1f - (1f - T.RetrogradeMotionTakenMul) * InvertedShare(n);
             return f;
@@ -341,9 +347,19 @@ namespace Convergence.Balance
 
         /// <summary>Tidewater: the attacker soaked - a vulnerability on the body being fought while it
         /// is the one hitting you. Riptide: one art in three soaks a strip along the aim.</summary>
-        static float LedgerVulnerability(Func<string, int> n, ChainShape c)
+        static float LedgerVulnerability(Build b, Func<string, int> n, ChainShape c)
         {
             float f = 1f;
+            // Lucid: a body whose wind-up was dodged takes more for a few seconds.
+            if (n("lucid") > 0) f *= 1f + T.LucidExposed * Assume.LucidExposedShare;
+            // Basilisk: the body held under the lock is stoned.
+            if (n("basilisk") > 0) f *= 1f + T.BasiliskVulnerability * Assume.GazeHeldShare;
+            // Sealed Vessel on Water: the lost meter soaks what is round you.
+            if (n("sealed_vessel") > 0 && b.Element == ElementType.Water)
+            {
+                float uptime = Mathf.Min(1f, SealedSplashesPerSecond * T.SealedVesselSeconds);
+                f *= 1f + (Tuning.Elements.Water.SoakVulnerability - 1f) * uptime;
+            }
             if (n("tidewater") > 0)
             {
                 float uptime = Mathf.Min(1f, Assume.HitsTakenPerSecond * T.TidewaterSeconds) * Assume.FromTargetShare;
@@ -393,6 +409,62 @@ namespace Convergence.Balance
             // Fury of the Frail (reworked): low on health, basics bleed.
             if (n("fury_of_the_frail") > 0)
                 dps += Assume.LowHealthShare * T.FuryBleedShare * c.BasicHit;
+            return dps;
+        }
+
+        // ------------------------------------------------------------------ the transformed Albedos
+
+        static float SealedSplashesPerSecond => Assume.MeterLostPerSecond / T.SealedVesselSplashEvery;
+
+        /// <summary>
+        /// Batch 3 of the transformed Albedos on the body being fought: Sealed Vessel's burns and
+        /// bleeds (Fire, Air - Water's soak is a vulnerability, Earth's stagger a survival
+        /// factor, neither here), Lightfoot's cut, Ossuary's bursts. Lucid is a vulnerability,
+        /// Unshackled a refund, Concentrate a crowd term, Mountain a survival factor.
+        /// </summary>
+        static float LedgerAlbedos(Build b, Func<string, int> n, ChainShape c, float hitUnit)
+        {
+            float dps = 0f;
+            // Patina: a shard at the striker for each plate broken - the body being fought, half the time.
+            if (n("patina") > 0)
+                dps += Assume.PlatesPerSecond * T.PatinaShardHitUnits * hitUnit * Assume.FromTargetShare;
+            // Phlogiston: heat lost flares round you, burning what is near.
+            if (n("phlogiston") > 0 && b.Element == ElementType.Fire)
+                dps += Assume.HeatLostPerSecond * T.PhlogistonBurnHitUnits * T.PhlogistonBurnSeconds * hitUnit;
+            // Committed: blows taken in an art's lock, half added to the next art.
+            if (n("committed") > 0)
+                dps += Assume.HitsTakenPerSecond * c.LockShare * T.CommittedShare * Assume.BlowInHitUnits * hitUnit;
+            if (n("sealed_vessel") > 0 && (b.Element == ElementType.Fire || b.Element == ElementType.Air))
+                dps += SealedSplashesPerSecond * T.SealedVesselDotHitUnits * T.SealedVesselSeconds * hitUnit;
+            if (n("lightfoot") > 0)
+                dps += Assume.AnchorSnapShare / Assume.DefenseUseSeconds * Assume.AnchorCutsTarget
+                       * T.LightfootCutHitUnits * hitUnit;
+            if (n("ossuary") > 0)
+                dps += Assume.OssuaryBurstsPerSecond * T.OssuaryBurstHitUnits * hitUnit
+                       * Mathf.Min(1f, BodiesWithin(T.OssuaryBurstRadius));
+            return dps;
+        }
+
+        /// <summary>The same on the OTHER bodies, credited as crowd.</summary>
+        static float LedgerAlbedosCrowd(Build b, Func<string, int> n, float hitUnit)
+        {
+            float dps = 0f;
+            if (n("phlogiston") > 0 && b.Element == ElementType.Fire)
+                dps += Assume.HeatLostPerSecond * T.PhlogistonBurnHitUnits * T.PhlogistonBurnSeconds * hitUnit
+                       * Mathf.Max(0f, BodiesWithin(T.PhlogistonRadius) - 1f);
+            // Mollification: a broken shell's shards on the bodies round it.
+            if (n("mollification") > 0)
+                dps += Assume.ArmourBreaksPerSecond * T.MollificationShardHitUnits * hitUnit
+                       * BodiesWithin(T.MollificationRadius);
+            if (n("sealed_vessel") > 0 && (b.Element == ElementType.Fire || b.Element == ElementType.Air))
+                dps += SealedSplashesPerSecond * T.SealedVesselDotHitUnits * T.SealedVesselSeconds * hitUnit
+                       * Mathf.Max(0f, BodiesWithin(T.SealedVesselRadius) - 1f);
+            if (n("lightfoot") > 0)
+                dps += Assume.AnchorSnapShare / Assume.DefenseUseSeconds * T.LightfootCutHitUnits * hitUnit
+                       * BodiesWithin(T.LightfootCutWidth * 2f);
+            if (n("ossuary") > 0)
+                dps += Assume.OssuaryBurstsPerSecond * T.OssuaryBurstHitUnits * hitUnit
+                       * Mathf.Max(0f, BodiesWithin(T.OssuaryBurstRadius) - 1f);
             return dps;
         }
 
@@ -585,7 +657,7 @@ namespace Convergence.Balance
                 foreach (var part in e.Parts) l.Take(ExchangeCatalog.Get(part));
             for (int i = 0; i < stacks; i++) l.Take(e);
             // Entries that grow by the floor are priced over the horizon a careful player looks ahead.
-            if (e.Id == "withering" || e.Id == "viriditas" || e.Id == "senescence" || e.Id == "desiccation")
+            if (e.Id == "withering" || e.Id == "senescence" || e.Id == "desiccation")
                 for (int f = 0; f < Assume.WitheringHorizon; f++) l.FloorCleared();
             return l;
         }

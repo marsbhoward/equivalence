@@ -2844,8 +2844,7 @@ namespace Convergence.Core
             // finisher's lock counts as standing still.
             //
             // The run layer joins here too: the ledger's Graze and Brace as factors of their own,
-            // Patina (worn armour counts half against you) and Lightfoot (Graze counts double
-            // at full speed).
+            // and Patina (worn armour counts half against you).
             pc.ArmourWearMultiplier = () =>
                 1f + (_profile.Wear.DamageTakenMultiplier(_profile.Gear, pc.Stats.Armor) - 1f)
                      * Modifiers.Current.ArmourWearPenaltyMul;
@@ -2854,7 +2853,7 @@ namespace Convergence.Core
                 var m = Modifiers.Current;
                 // Under Corrosion the wear moves outside the floor (PlayerController.WearOutside).
                 float wear = pc.WearOutsideFloor ? 1f : pc.ArmourWearMultiplier();
-                float graze = pc.Stats.Graze * (pc.Effects != null && pc.Effects.GrazeDoubled ? 2f : 1f);
+                float graze = pc.Stats.Graze;
                 return wear
                        * Art.Gear.StatPercents.ReductionFactor(pc.Stats.Resilience) * m.ResilienceFactor   // Adamant
                        * (pc.IsMoving ? Art.Gear.StatPercents.ReductionFactor(graze) * m.GrazeFactor
@@ -2962,7 +2961,10 @@ namespace Convergence.Core
                                           0f, Tuning.Defense.WearMaxBlows);
                 // PLATING first: the floor's first blows wear nothing (Tuning.Defense.ArmorPerPlate).
                 float soaked = Mathf.Min(_plating, blows);
+                int platesBefore = Mathf.CeilToInt(_plating - 0.001f);
                 _plating -= soaked;
+                int broken = platesBefore - Mathf.CeilToInt(_plating - 0.001f);
+                if (broken > 0) effects.OnPlatesBroken(broken, info);   // Patina
                 blows -= soaked;
                 if (blows <= 0f) return;
                 _profile.Wear.Wear(_profile.Gear, Art.Gear.SlotKind.Armor,

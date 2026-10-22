@@ -119,7 +119,7 @@ namespace Convergence.Balance
         }
 
         static bool Grows(ExchangeEntry e)
-            => e != null && (e.Id == "withering" || e.Id == "viriditas" || e.Id == "senescence");
+            => e != null && (e.Id == "withering" || e.Id == "senescence");
 
         static string PairsReport()
         {

@@ -180,7 +180,7 @@ namespace Convergence.Player
 
         void Cash(int tier, bool repeat = false)
         {
-            float radius = Radius * AreaScale;
+            float radius = Radius * ReleaseAreaScale;
             var hits = Physics2D.OverlapCircleAll(transform.position, radius);
 
             // Tier 3 only: the big hit, as a pool shared between everything caught. Dealt BEFORE the

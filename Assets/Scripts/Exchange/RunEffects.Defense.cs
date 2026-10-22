@@ -100,7 +100,7 @@ namespace Convergence.Exchange
 
         /// <summary>
         /// The ledger's conditional REDUCTIONS right now - Lapis, Reactive Plate, Fortitude,
-        /// Committed, Retrograde Motion. Mitigation like any other, so PlayerController folds it
+        /// Adamant, Retrograde Motion. Mitigation like any other, so PlayerController folds it
         /// INSIDE the one floor (StatCurves.Incoming): they used to land after it, so a build at
         /// the floor could still halve and halve again.
         /// </summary>
@@ -117,7 +117,7 @@ namespace Convergence.Exchange
                 var hp = Hp;
                 float mine = hp != null && hp.Max > 0f ? hp.Current / hp.Max : 1f;
                 if (AtMax("thickened_hide") && mine < T.FortitudeBelow) f *= T.FortitudeMul;
-                if (Has("committed") && _pc != null && _pc.AttackLocked) f *= 1f - Mathf.Min(0.6f, T.CommittedTaken * _mods.Potency("committed"));
+                f *= TemperedNow;   // Adamant
                 if (Has("retrograde_motion") && Has("retrograde") && InputsInverted) f *= T.RetrogradeMotionTakenMul;
                 return f;
             }
@@ -205,6 +205,7 @@ namespace Convergence.Exchange
             if (restless > 0 && _stillSeconds >= T.RestlessStillSeconds) f *= 1f + T.RestlessTaken * restless;
 
             amount *= f;
+            amount = AbsorbShield(amount);   // Viriditas
             OnHitTaken(amount);
             return amount;
         }
@@ -231,32 +232,17 @@ namespace Convergence.Exchange
             }
             if (Has("tidewater") && !attacker.IsDead)
                 _pc.Soak(attacker, T.TidewaterSeconds, T.TidewaterVulnerability);
+            AlbedosOnStruckBy(attacker);   // Mountain, Lucid
         }
 
         /// <summary>SATURATE: soaking an enemy already soaked staggers it (PlayerController.Soak asks).</summary>
         public bool Saturates => Has("saturate");
 
-        /// <summary>The chest's parry turned a hit (not Riposte's guard): Unshackled staggers the
-        /// crowd round you.</summary>
-        public void OnParried()
-        {
-            if (_mods == null || _pc == null || !Has("unshackled")) return;
-            Enemies.EnemyRegistry.Prune();
-            Vector2 at = _pc.transform.position;
-            foreach (var e in Enemies.EnemyRegistry.All)
-            {
-                if (e == null) continue;
-                var hp = e.GetComponent<Health>();
-                if (hp == null || hp.IsDead) continue;
-                if (((Vector2)e.transform.position - at).sqrMagnitude > T.UnshackledRadius * T.UnshackledRadius) continue;
-                _pc.Stagger(hp, T.UnshackledStagger);
-            }
-        }
-
         /// <summary>The windows and spills a hit taken sets going.</summary>
         void OnHitTaken(float amount)
         {
             _hitThisFloor = true;   // Unbloodied
+            AlbedosOnHitTaken(amount);   // Adamant, Committed
             // The re-cut Nigredos: each a rule on its own mechanic.
             if (AtMax("smother") && Resource is Player.FireResource fire) fire.Spill(1f / Player.FireResource.MaxStacks);   // Wet Ash
             if (AtMax("low_water") && Resource is Player.WaterResource water) water.EndSurge();                              // Ebb
@@ -274,7 +260,6 @@ namespace Convergence.Exchange
             }
             if (AtMax("retrograde")) _contraryRemaining = T.ContrarySeconds;   // Contrary
             if (AtMax("leaky_vessel")) Resource?.Spill(T.CrackedVesselSpill);   // Cracked Vessel
-            if (Has("sealed_vessel")) Resource?.Refund(T.SealedVesselGain);
             if (AtMax("becalmed") && Resource is Player.AirResource air) { air.BreakStreak(); air.Spill(1f); }   // Doldrums
             if (Has("haemophilia") && amount > 0f)
             {

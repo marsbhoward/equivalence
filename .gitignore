@@ -65,3 +65,6 @@ web/service/dist/
 # ---- Markdown: design notes and docs stay local ----
 *.md
 *.MD
+
+# Local package list - never commit
+my_packages.txt

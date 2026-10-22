@@ -200,6 +200,7 @@ namespace Convergence.Player
 
             Momentum = Mathf.Max(0f, Momentum - lost);
             HitStreak = 0;
+            if (streak > 0) Ledger?.OnStreakLost(streak);   // Gale
 
             // Nothing worth losing was on the table - stay quiet rather than crying wolf on
             // every stray swing, which is how a cue stops being read at all.
@@ -345,7 +346,7 @@ namespace Convergence.Player
         {
             var origin = (Vector2)transform.position;
             float baseAngle = Random.value * Mathf.PI * 2f;
-            float area = AreaScale;
+            float area = ReleaseAreaScale;
             float spread = VortexSpread * area, radius = VortexRadius * area;
             float hit = HitUnit * Scale;
 

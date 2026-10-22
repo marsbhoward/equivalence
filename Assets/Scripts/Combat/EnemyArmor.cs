@@ -76,6 +76,12 @@ namespace Convergence.Combat
         /// </summary>
         public float ShredNextHit = 1f;
 
+        /// <summary>Mollification's shatter has been paid for this pool - once a body.</summary>
+        public bool Shattered;
+
+        /// <summary>Maturation: the whole pool gone at once (the next hit meets the body).</summary>
+        public void Strip() => Current = 0f;
+
         float Absorb(float amount)
         {
             float shred = Mathf.Max(1f, ShredNextHit);

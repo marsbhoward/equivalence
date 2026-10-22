@@ -60,6 +60,7 @@ namespace Convergence.Player
                 if (_stacks[i] > 0f) continue;
                 if (_stacks.Count <= floor) { _stacks[i] = 0.01f; continue; }
                 _stacks.RemoveAt(i);
+                Ledger?.OnHeatLost(1);   // Phlogiston
             }
 
             if (_igniteRemaining > 0f)
@@ -182,7 +183,7 @@ namespace Convergence.Player
         {
             var origin = (Vector2)transform.position;
             float baseAngle = Random.value * Mathf.PI * 2f;
-            float area = AreaScale;
+            float area = ReleaseAreaScale;
             float spread = T.EruptSpread * area, radius = T.PoolRadius * area;
             float dps = T.PoolHitUnitsPerSecond * HitUnit * Scale;
 
@@ -245,11 +246,14 @@ namespace Convergence.Player
         public override void Spill(float fraction01)
         {
             _spillCarry += MaxStacks * Mathf.Clamp01(fraction01);
+            int lost = 0;
             while (_spillCarry >= 1f && _stacks.Count > 0)
             {
                 _stacks.RemoveAt(0);
                 _spillCarry -= 1f;
+                lost++;
             }
+            if (lost > 0) Ledger?.OnHeatLost(lost);   // Phlogiston
             if (_stacks.Count == 0) _spillCarry = 0f;
         }
 

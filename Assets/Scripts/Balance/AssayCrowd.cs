@@ -87,6 +87,19 @@ namespace Convergence.Balance
             return crowd;
         }
 
+        /// <summary>CONCENTRATE: what a release from a full meter adds on the crowd by reaching
+        /// further - the release's crowd at the wider radius less its crowd at the usual one.</summary>
+        static float ConcentrateCrowd(Build b, StatPercents s, Mods m, ElementProfile el, float hitUnit,
+                                      float releaseScale, float releasesPerSecond)
+        {
+            if (b.Element == null) return 0f;
+            float area = StatPercents.Apply(1f, s.AoeRadius) * m.AreaMul;
+            float full = b.Element == ElementType.Fire || b.Element == ElementType.Air ? 1f : Assume.FullReleaseShare;
+            float more = ReleaseCrowdHitUnits(b.Element, el, area * Tuning.Exchange.ConcentrateFullRadiusMul)
+                       - ReleaseCrowdHitUnits(b.Element, el, area);
+            return Mathf.Max(0f, more) * hitUnit * releaseScale * releasesPerSecond * full;
+        }
+
         /// <summary>What the bodies after the first keep of a swing, summed over
         /// <paramref name="bodies"/> of them (a fraction counts as part of a body), floored as
         /// ResolveArc floors it.</summary>

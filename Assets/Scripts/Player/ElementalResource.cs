@@ -59,6 +59,13 @@ namespace Convergence.Player
         /// <summary>Area (StatKind.AoeRadius) on a release's radii, like every other area attack.</summary>
         protected float AreaScale => Player != null && Player.Stats != null ? Player.AreaScaleNow : 1f;
 
+        /// <summary>Concentrate: set by the player round a release from a FULL meter, 1 otherwise
+        /// (a repeat fires at the ordinary reach).</summary>
+        [System.NonSerialized] public float ReleaseRadiusMul = 1f;
+
+        /// <summary>Area on a release's own radii, with Concentrate's reach.</summary>
+        protected float ReleaseAreaScale => AreaScale * Mathf.Max(1f, ReleaseRadiusMul);
+
         // ---- event hooks ----
         public virtual void OnAttackStarted() { }
         public virtual void OnHitLanded(Health target, DamageInfo info) { }
