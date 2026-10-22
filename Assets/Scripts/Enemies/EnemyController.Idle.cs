@@ -29,6 +29,11 @@ namespace Convergence.Enemies
 
         public bool Unaware => _unaware;
 
+        /// <summary>No body STARTS an attack before this (scaled time) - the floor's entry grace,
+        /// set by GameBootstrap as the first wave arrives. Bodies may still move. Static and plain:
+        /// a reload leaving it at 0 only ends a grace early.</summary>
+        public static float EntryGraceUntil;
+
         /// <summary>Place this body unaware - only as the floor's first wave comes in.</summary>
         public void BeginUnaware()
         {
@@ -44,6 +49,7 @@ namespace Convergence.Enemies
         bool TickIdle()
         {
             if (_startle > 0f) { _startle -= Time.deltaTime; return true; }
+            if (Time.time < EntryGraceUntil) return true;   // the entry grace: nothing is begun yet
             if (!_unaware) return false;
 
             if (_wakeIn >= 0f)

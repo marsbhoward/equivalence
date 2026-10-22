@@ -3281,6 +3281,11 @@ namespace Convergence.Core
                 if (token != _runToken || _player == null) { _spawning = false; yield break; }
                 // The first wave is in the room before the player is noticed (EnemyController's
                 // Idle partial); bodies that trickle in later arrive alert.
+                // The entry grace: nothing starts an attack for a moment after the floor's first
+                // body arrives (EnemyController.EntryGraceUntil) - the player is never hit before
+                // they could have moved.
+                if (EnemyController.EntryGraceUntil < Time.time + 0.01f && _floorSpawns == 0)
+                    EnemyController.EntryGraceUntil = Time.time + Tuning.Enemy.EntryGraceSeconds;
                 var first = SpawnQueuedEnemy();
                 if (first != null && Tuning.Idle.Enabled) first.BeginUnaware();
                 // Realtime for the same reason as the wait above, and it would have deadlocked
@@ -5171,6 +5176,24 @@ namespace Convergence.Core
 
         Vector2 RandomEdgePoint()
         {
+            // THE SAFE ZONE (the user's report: a Brimstone Heart arrived beside the entry and its
+            // fireballs swept the player before they could move). The edge ellipse runs straight
+            // through the arrival point, so a spot within Tuning.Enemy.SafeSpawnRadius of the
+            // player is refused and another drawn; failing that, the farthest one tried.
+            Vector2 best = Vector2.zero; float bestD = -1f;
+            Vector2 at = _player != null ? (Vector2)_player.transform.position : Arena.SouthSpawnPoint;
+            for (int attempt = 0; attempt < 16; attempt++)
+            {
+                var q = EdgePointOnce();
+                float d = Vector2.Distance(q, at);
+                if (d >= Tuning.Enemy.SafeSpawnRadius) return q;
+                if (d > bestD) { bestD = d; best = q; }
+            }
+            return best;
+        }
+
+        Vector2 EdgePointOnce()
+        {
             var angle = UnityEngine.Random.value * Mathf.PI * 2f;
             var p = new Vector2(Mathf.Cos(angle) * (HalfWidth - 1.4f),
                                 Mathf.Sin(angle) * (HalfHeight - 1.4f));
@@ -5193,6 +5216,7 @@ namespace Convergence.Core
         /// </summary>
         Vector2 RandomFloorPoint(float minDistanceFromPlayer)
         {
+            minDistanceFromPlayer = Mathf.Max(minDistanceFromPlayer, Tuning.Enemy.SafeSpawnRadius);   // the safe zone
             for (int attempt = 0; attempt < 8; attempt++)
             {
                 var p = new Vector2(

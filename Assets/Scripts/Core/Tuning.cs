@@ -4974,6 +4974,17 @@ namespace Convergence.Core
             public const float TurretBeamWidth = 0.12f;
 
             /// <summary>
+            /// THE SAFE ZONE (the user's report, 2026-10-22: fireballs swept them on arrival). No
+            /// body spawns within this of the player - the first wave round the entry, and every
+            /// one that trickles in later round wherever they stand. Overrides any smaller per-kind
+            /// minimum below.
+            /// </summary>
+            public const float SafeSpawnRadius = 6f;
+            /// <summary>Seconds after the floor's first body arrives in which nothing STARTS an
+            /// attack (bodies still move) - the player is never hit before they could act.</summary>
+            public const float EntryGraceSeconds = 1.5f;
+
+            /// <summary>
             /// Minimum distance from the player a Turret is allowed to spawn, world units. It can
             /// land anywhere else on the floor, but "anywhere" still excludes appearing already
             /// mid-beam on someone who hasn't moved yet.
