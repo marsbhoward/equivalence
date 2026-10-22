@@ -3233,6 +3233,9 @@ namespace Convergence.Core
                                                 stormAllowed: !IsBossFloor(_floor), circle: circle,
                                                 needsCover: needsCover);
                 _circle = HazardBuilder.LastRing;
+                // Set dressing last, round everything placed - a picture only (Art.Biomes.Decor).
+                Art.Biomes.Decor.Dress(_hazardRoot, (_planner != null ? _planner.SceneSeed(_floor) : _floor) + 101,
+                                       Arena.HalfExtents, _spire != null ? (Vector2?)_spire.transform.position : null);
                 if (_circle != null)
                     _hud?.Flash("a transmutation circle is drawn  -  land or take three blows inside it");
             }

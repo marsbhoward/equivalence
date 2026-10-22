@@ -4034,6 +4034,15 @@ namespace Convergence.Core
             public static readonly UnityEngine.Color FireflyColor = new(1f, 0.95f, 0.55f);
         }
 
+        /// <summary>Set dressing (Art.Biomes.Decor): a picture only, per floor.</summary>
+        public static class Decor
+        {
+            public const int FlatMin = 8, FlatMax = 13, StandingMin = 3, StandingMax = 6;
+            public const float CobwebChance = 0.6f, CobwebInset = 0.02f;
+            public const float CandleRadius = 1.7f, CandleIntensity = 0.8f;
+            public static readonly UnityEngine.Color CandleColor = new(1f, 0.72f, 0.38f);
+        }
+
         public static class Camera
         {
             /// <summary>
