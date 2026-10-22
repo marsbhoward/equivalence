@@ -54,8 +54,8 @@ namespace Convergence.Hazards
             return pit;
         }
 
-        static readonly Color PitFloor = new(0.20f, 0.19f, 0.21f);
-        static readonly Color JackSteel = new(0.74f, 0.75f, 0.80f);
+        static Color PitFloor => Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.SaltFlats) ? new(0.62f, 0.55f, 0.58f) : Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.SkyRuin) ? new(0.44f, 0.42f, 0.39f) : Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.Forest) ? new(0.10f, 0.08f, 0.06f) : new(0.20f, 0.19f, 0.21f);   // the forest's own (Art.Biomes)
+        static Color JackSteel => Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.SaltFlats) ? new(0.97f, 0.88f, 0.90f) : Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.SkyRuin) ? new(0.82f, 0.79f, 0.72f) : Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.Forest) ? new(0.36f, 0.20f, 0.26f) : new(0.74f, 0.75f, 0.80f);   // the forest's own (Art.Biomes)
         static readonly Color JackShadow = new(0f, 0f, 0f, 0.45f);
 
         void Build(Vector2 size)
@@ -64,7 +64,7 @@ namespace Convergence.Hazards
             // bottom of a hole - the recess is what says "sunken", not a different material.
             PitArt.Quad(gameObject, Spr.Square, PitFloor, size, OrderFloor, "floor");
             PitArt.Tiled(gameObject, PitArt.Mottle(Random.Range(1, 9999)),
-                         new Color(0.30f, 0.29f, 0.32f, 0.7f), size, OrderMaterial, "grit");
+                         Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.Forest) ? new Color(0.22f, 0.15f, 0.12f, 0.7f) : new Color(0.30f, 0.29f, 0.32f, 0.7f), size, OrderMaterial, "grit");
 
             BuildRecess(size);
             ScatterJacks(size);
@@ -186,7 +186,7 @@ namespace Convergence.Hazards
 
             PlayerHealth.Take(new DamageInfo(
                 Tuning.Hazards.SpikeDamagePerSecond * Tuning.Hazards.SpikeTickInterval * DamageScale,
-                ElementType.Earth, gameObject));
+                ElementType.Earth, gameObject) { Tick = true });
         }
     }
 }

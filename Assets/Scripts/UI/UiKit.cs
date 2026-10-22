@@ -61,6 +61,20 @@ namespace Convergence.UI
             return rt;
         }
 
+        /// <summary>
+        /// A dark outline round a label that sits over the WORLD (the run's HUD), so it reads on a
+        /// pale floor as on a dark one - the Sky Ruin and the Salt Flats are bright, and white HUD
+        /// text vanished on the salt. Menus over their own panels don't need it.
+        /// </summary>
+        public static T Legible<T>(T label) where T : Text
+        {
+            if (label == null || label.GetComponent<Outline>() != null) return label;
+            var o = label.gameObject.AddComponent<Outline>();
+            o.effectColor = new Color(0.03f, 0.03f, 0.05f, 0.85f);
+            o.effectDistance = new Vector2(1.5f, -1.5f);
+            return label;
+        }
+
         public static Text Label(Transform parent, string text, int size, Color color,
                                  TextAnchor anchor = TextAnchor.UpperLeft)
         {

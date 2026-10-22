@@ -65,10 +65,10 @@ namespace Convergence.Hazards
             return pit;
         }
 
-        static readonly Color WaterDeep = new(0.08f, 0.19f, 0.31f);
-        static readonly Color WaterShallow = new(0.24f, 0.48f, 0.64f);
-        static readonly Color WaterLight = new(0.84f, 0.95f, 1f);
-        static readonly Color RippleColor = new(0.78f, 0.92f, 1f);
+        static Color WaterDeep => Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.SaltFlats) ? new(0.10f, 0.36f, 0.40f) : Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.SkyRuin) ? new(0.30f, 0.46f, 0.68f) : Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.Forest) ? new(0.05f, 0.12f, 0.09f) : new(0.08f, 0.19f, 0.31f);   // the forest's own (Art.Biomes)
+        static Color WaterShallow => Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.SaltFlats) ? new(0.30f, 0.62f, 0.62f) : Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.SkyRuin) ? new(0.52f, 0.68f, 0.86f) : Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.Forest) ? new(0.16f, 0.30f, 0.20f) : new(0.24f, 0.48f, 0.64f);   // the forest's own (Art.Biomes)
+        static Color WaterLight => Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.SaltFlats) ? new(0.95f, 0.97f, 0.97f) : Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.SkyRuin) ? new(0.92f, 0.96f, 1f) : Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.Forest) ? new(0.70f, 0.85f, 0.70f) : new(0.84f, 0.95f, 1f);   // the forest's own (Art.Biomes)
+        static Color RippleColor => Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.Forest) ? new(0.65f, 0.80f, 0.66f) : new(0.78f, 0.92f, 1f);   // the forest's own (Art.Biomes)
 
         void Build(Vector2 size)
         {

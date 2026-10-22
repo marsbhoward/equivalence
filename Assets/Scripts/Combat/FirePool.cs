@@ -104,7 +104,7 @@ namespace Convergence.Combat
                 var hp = col.GetComponent<Health>();
                 if (hp == null || hp.IsDead) continue;
 
-                Player.PlayerController.ReleaseHitFrom(_owner, hp, new DamageInfo(_damagePerTick, ElementType.Fire, _owner));
+                Player.PlayerController.ReleaseHitFrom(_owner, hp, new DamageInfo(_damagePerTick, ElementType.Fire, _owner) { Tick = true });
                 StatusEffects.Get(hp.gameObject).ApplyBurn(_damagePerTick * 0.5f * _burnScale, 1.5f, _owner);
             }
         }

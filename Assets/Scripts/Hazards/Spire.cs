@@ -300,6 +300,10 @@ namespace Convergence.Hazards
             _coreGlow.transform.localPosition = new Vector3(0f, mid, 0f);
             _core = Quad(sink, Spr.Circle, Color.clear, Vector2.one * (w * 0.62f), 9, "core");
             _core.transform.localPosition = new Vector3(0f, mid, 0f);
+            // The core lights the room in its boon's colour as it rises - borrowed from the core
+            // itself, so the light can never disagree with the picture.
+            var coreLight = Convergence.Art.Lighting.Glow.Attach(_core.gameObject, Tuning.Lighting.SpireRadius, Color.white);
+            coreLight.Follow = _core;
 
             DepthSorted.Attach(body, 0f, true, body.GetComponentsInChildren<SpriteRenderer>(true));
 

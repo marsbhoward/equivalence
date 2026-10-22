@@ -2065,6 +2065,9 @@ namespace Convergence.Player
         /// </summary>
         void DoRelease()
         {
+            Convergence.Art.Lighting.Glow.Flash(transform.position, Tuning.Lighting.ReleaseRadius,
+                ElementInfo.Tint(Resource.Element), Tuning.Lighting.ReleaseSeconds);
+            Convergence.Audio.Sfx.Play(Resource.Element switch { ElementType.Fire => Convergence.Audio.Sound.ReleaseFire, ElementType.Water => Convergence.Audio.Sound.ReleaseWater, ElementType.Earth => Convergence.Audio.Sound.ReleaseEarth, _ => Convergence.Audio.Sound.ReleaseAir }, transform.position);
             // Concentrate: a release from a FULL meter reaches further - set round this one call.
             Resource.ReleaseRadiusMul = Effects != null ? Effects.ReleaseRadiusMul(Resource.Fill01) : 1f;
             try { Resource.Release(); }
@@ -2520,6 +2523,7 @@ namespace Convergence.Player
             Effects?.OnArtSettled(_verdict);
 
             if (_barShown) Bar.Settle(_verdict);
+            Convergence.Audio.CombatSounds.Verdict(_verdict, transform.position);
 
             // The strike itself says PERFECT too - in the perfect band's green, over the swing's own flash.
             if (_verdict == StrikeVerdict.Perfect)

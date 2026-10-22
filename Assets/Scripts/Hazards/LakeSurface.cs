@@ -47,12 +47,18 @@ namespace Convergence.Hazards
 
         // The edge is WET stone, darker than the floor - a pale lip round straight sides read as
         // a swimming pool's coping.
-        static readonly Color Lip = new(0.24f, 0.20f, 0.16f),
-                              BankTop = new(0.30f, 0.25f, 0.20f), BankLow = new(0.11f, 0.10f, 0.10f),
-                              Foam = new(0.70f, 0.84f, 0.88f),
-                              Shallow = new(0.17f, 0.40f, 0.47f), Mid = new(0.08f, 0.23f, 0.34f),
-                              Deep = new(0.03f, 0.09f, 0.17f),
-                              RippleColor = new(0.72f, 0.88f, 0.95f);
+        // The FOREST's lake (Art.Biomes) is a dark, still pool: a muddy reed bank, green-black water.
+        static bool Forest => Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.Forest);
+        // The SALT's is a brine sinkhole: a crystal-white rim, the shallows mirroring a pale sky, turquoise deep.
+        static bool Salt => Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.SaltFlats);
+        static Color Lip => Salt ? new(0.92f, 0.90f, 0.88f) : Forest ? new(0.13f, 0.11f, 0.07f) : new(0.24f, 0.20f, 0.16f);
+        static Color BankTop => Salt ? new(0.82f, 0.74f, 0.80f) : Forest ? new(0.17f, 0.21f, 0.10f) : new(0.30f, 0.25f, 0.20f);
+        static Color BankLow => Salt ? new(0.46f, 0.40f, 0.52f) : Forest ? new(0.05f, 0.08f, 0.05f) : new(0.11f, 0.10f, 0.10f);
+        static Color Foam => Salt ? new(1f, 1f, 1f) : Forest ? new(0.58f, 0.70f, 0.56f) : new(0.70f, 0.84f, 0.88f);
+        static Color Shallow => Salt ? new(0.64f, 0.70f, 0.84f) : Forest ? new(0.12f, 0.27f, 0.21f) : new(0.17f, 0.40f, 0.47f);
+        static Color Mid => Salt ? new(0.16f, 0.50f, 0.54f) : Forest ? new(0.05f, 0.16f, 0.14f) : new(0.08f, 0.23f, 0.34f);
+        static Color Deep => Salt ? new(0.06f, 0.26f, 0.32f) : Forest ? new(0.02f, 0.065f, 0.06f) : new(0.03f, 0.09f, 0.17f);
+        static Color RippleColor => Salt ? new(0.96f, 0.96f, 1f) : Forest ? new(0.58f, 0.76f, 0.64f) : new(0.72f, 0.88f, 0.95f);
 
         // Serialized and not readonly - a domain reload would otherwise leave rings frozen
         // mid-spread (WaterPit's note).

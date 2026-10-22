@@ -82,6 +82,8 @@ namespace Convergence.Bosses
         IEnumerator EruptRoutine(int sector, float telegraph, Transform player)
         {
             var sr = _slices[sector];
+            // The answer TOLLS the note the call sang on this slice - the replay, heard.
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Toll, sector, ArenaSectors.Station(sector));
             float t = 0f;
             while (t < telegraph)
             {
@@ -92,6 +94,7 @@ namespace Convergence.Bosses
             }
 
             if (sr != null) sr.color = new Color(Fire.r, Fire.g, Fire.b, 0.72f);
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Erupt, ArenaSectors.Station(sector));
 
             // Tested here and only here - see the class header on why this is one hit rather than
             // one per frame.

@@ -58,14 +58,15 @@ namespace Convergence.Hazards
                 ColumnSize.Medium => GameArt.I.ColumnMedium,
                 _ => GameArt.I.ColumnLarge,
             };
-            if (art != null && art.HasArt)
+            bool authored = art != null && art.HasArt;
+            if (authored)
             {
                 Color tint = cracked ? CrackedBase : PermanentBase;
                 ArtBinder.AttachVisual(go, art, Spr.Circle, tint, diameter, 5);
             }
             else
             {
-                BuildStoneVisual(go, diameter, cracked);
+                column.BuildStanding(pos, size, cracked);
             }
 
             var col = go.AddComponent<CircleCollider2D>();
@@ -79,14 +80,17 @@ namespace Convergence.Hazards
                 health.Configure(hp > 0f ? hp : HpFor(size));
                 health.Immovable = true;
                 health.Died += column.OnBroken;
+                health.Damaged += info => { if (!info.Tick && column != null) Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Chip, column.transform.position); };
                 column._health = health;
             }
             // Non-cracked: no Health at all, so nothing anywhere can ever apply damage to it -
             // this is what makes "a field between two non-cracked columns can't be destroyed"
             // free rather than a separate rule ForceField has to enforce itself.
 
-            var renderers = go.GetComponentsInChildren<SpriteRenderer>(true);
-            DepthSorted.Attach(go, 0f, true, renderers);   // Fixed=true: a column never moves
+            // Fixed=true: a column never moves. The ground shadow is not depth sorted - it stays
+            // on the decal layer, under every body that walks past.
+            var renderers = authored ? go.GetComponentsInChildren<SpriteRenderer>(true) : new[] { column._art };
+            DepthSorted.Attach(go, 0f, true, renderers);
 
             return column;
         }
@@ -109,93 +113,131 @@ namespace Convergence.Hazards
         {
             if (_broken) return;
             _broken = true;
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Rubble, transform.position);
             // Enemies route round it until told otherwise - the nav grid ignores a Broken column
             // from this frame, before Destroy has actually removed the collider.
             Enemies.NavField.MarkDirty();
-            Spr.Flash(transform.position, RadiusFor(Size) * 1.4f,
+            Spr.Flash(transform.position + Vector3.up * (_height * 0.5f), RadiusFor(Size) * 1.4f,
                       new Color(0.75f, 0.7f, 0.62f), 0.3f);
             Destroy(gameObject);
         }
 
-        // ---- procedural stone visual ----
-        //
-        // Composed from existing Spr primitives layered and tinted, the same technique every
-        // other placeholder in this project uses (Forge, the sigil door) rather than one baked
-        // multi-tone texture - Spr sprites are white-plus-alpha by convention, tinted per layer.
+        // ---- the standing picture (ColumnArt) ----
+
+        /// <summary>
+        /// The floor's look seed (FloorPlanner.SceneSeed, set in GameBootstrap.DressArena): each
+        /// column's style and damage are hashed from it and the column's position, so a restart
+        /// meets the same columns and drawing one takes nothing from UnityEngine.Random - the
+        /// rolls that lay out the rest of the room are untouched by how a column looks.
+        /// </summary>
+        public static int LookSeed;
 
         static readonly Color PermanentBase = new(0.42f, 0.44f, 0.52f);
         static readonly Color CrackedBase = new(0.66f, 0.52f, 0.4f);
-        static readonly Color CrackDark = new(0.05f, 0.04f, 0.05f);
 
-        static void BuildStoneVisual(GameObject go, float diameter, bool cracked)
+        [SerializeField] SpriteRenderer _art;
+        [SerializeField] ColumnStyle _style;
+        [SerializeField] float _height, _shaftHalf;
+        float _alpha = 1f;
+
+        public ColumnStyle Style => _style;
+
+        /// <summary>How tall the column is DRAWN, in world units (0 for authored art, which says
+        /// nothing about its height) - a force field's curtain stands no taller than its anchors.</summary>
+        public float DrawnHeight => _height;
+
+        void BuildStanding(Vector2 pos, ColumnSize size, bool cracked)
         {
-            var baseTint = cracked ? CrackedBase : PermanentBase;
+            uint h = Hash(LookSeed, Mathf.RoundToInt(pos.x * 100f), Mathf.RoundToInt(pos.y * 100f), (int)size);
+            _style = (h & 0xffff) / 65536f < Tuning.Hazards.ColumnTallChance ? ColumnStyle.Tall : ColumnStyle.Broken;
+            _height = ColumnArt.HeightOf(_style, size, cracked);
+            _shaftHalf = ColumnArt.ShaftHalfWidth(_style, RadiusFor(size));
 
-            // The lit top of the drum, a shadowed seam most of the way in (reads as a stacked
-            // stone drum rather than a flat disc), and a bright hairline bevel near the true edge.
-            Layer(go, Spr.Circle, baseTint, diameter, 5);
-            Layer(go, Spr.Ring, Darken(baseTint, 0.55f), diameter * 0.72f, 6, alpha: 0.6f);
-            Layer(go, Spr.ThinRing, Lighten(baseTint, 0.5f), diameter * 0.95f, 7, alpha: 0.85f);
+            // "visual" FIRST: Health flashes body sprites under a child of that name and tints the
+            // first renderer it finds - which must be the column, not its shadow.
+            var visual = new GameObject("visual");
+            visual.transform.SetParent(transform, false);
+            _art = visual.AddComponent<SpriteRenderer>();
+            _art.sprite = ColumnArt.For(_style, size, cracked, (int)(h >> 16));
+            _art.sortingOrder = 5;
 
-            if (!cracked) return;
+            // The contact shadow, as under a wall block: what sets it ON the ground.
+            float r = RadiusFor(size);
+            var shadow = new GameObject("shadow");
+            shadow.transform.SetParent(transform, false);
+            shadow.transform.localScale = new Vector3(r * 2.16f, r * 2.24f * ColumnArt.Squash, 1f);
+            var ss = shadow.AddComponent<SpriteRenderer>();
+            ss.sprite = Spr.Circle;
+            ss.color = new Color(0f, 0f, 0f, 0.32f);
+            ss.sortingOrder = SortingOrders.GroundDecal;
+        }
 
-            // Cracked has to read as CRUMBLING, not just a different tint: fissures cutting
-            // across the face, a couple of bites out of the rim, and a few chips fallen just
-            // outside the footprint. Randomised per spawn so a floor's cracked columns don't all
-            // wear identical damage.
-            int crackCount = Random.Range(2, 4);
-            for (int i = 0; i < crackCount; i++)
+        static uint Hash(int a, int b, int c, int d)
+        {
+            unchecked
             {
-                float angle = Random.Range(0f, 360f);
-                float len = diameter * Random.Range(0.55f, 0.85f);
-                float startOffset = diameter * Random.Range(0.05f, 0.15f);
-                var rad = angle * Mathf.Deg2Rad;
-
-                var crack = Layer(go, Spr.Capsule, CrackDark, new Vector2(diameter * 0.05f, len), 8, alpha: 0.6f);
-                crack.transform.localPosition = new Vector3(startOffset * Mathf.Cos(rad), startOffset * Mathf.Sin(rad), 0f);
-                crack.transform.localRotation = Quaternion.Euler(0f, 0f, angle);
-            }
-
-            int biteCount = Random.Range(1, 3);
-            for (int i = 0; i < biteCount; i++)
-            {
-                float angle = Random.Range(0f, 360f) * Mathf.Deg2Rad;
-                float r = diameter * 0.5f;
-                var bite = Layer(go, Spr.Circle, CrackDark, Vector2.one * (diameter * Random.Range(0.22f, 0.32f)), 9, alpha: 0.8f);
-                bite.transform.localPosition = new Vector3(r * Mathf.Cos(angle), r * Mathf.Sin(angle), 0f);
-            }
-
-            int rubbleCount = Random.Range(2, 4);
-            var rubbleTint = Darken(baseTint, 0.7f);
-            for (int i = 0; i < rubbleCount; i++)
-            {
-                float angle = Random.Range(0f, 360f) * Mathf.Deg2Rad;
-                float r = diameter * Random.Range(0.55f, 0.75f);
-                var rubble = Layer(go, Spr.Circle, rubbleTint, Vector2.one * (diameter * Random.Range(0.08f, 0.14f)), 4);
-                rubble.transform.localPosition = new Vector3(r * Mathf.Cos(angle), r * Mathf.Sin(angle), 0f);
+                uint x = (uint)a * 0x9E3779B1u ^ (uint)b * 0x85EBCA77u ^ (uint)c * 0xC2B2AE3Du ^ (uint)d * 0x27D4EB2Fu;
+                x ^= x >> 15; x *= 0x2C1B3C6Du; x ^= x >> 12; x *= 0x297A2D39u; x ^= x >> 15;
+                return x;
             }
         }
 
-        static GameObject Layer(GameObject parent, Sprite sprite, Color color, float uniformSize,
-                                int sortingOrder, float? alpha = null)
-            => Layer(parent, sprite, color, Vector2.one * uniformSize, sortingOrder, alpha);
+        // ---- seeing the player through it ----
+        //
+        // A column now stands up off the floor, so it covers whatever is behind it. While the
+        // player's body is behind the drawn shaft it goes see-through (Tuning.Hazards.ColumnBehind*),
+        // the usual answer in a 3/4 view; enemies are not looked for.
 
-        static GameObject Layer(GameObject parent, Sprite sprite, Color color, Vector2 size,
-                                int sortingOrder, float? alpha = null)
+        static Player.PlayerController _player;
+        static DepthSorted _playerDepth;
+        static float _lookAgainAt;
+        static int _bodyFrame = -1;
+        static Bounds _body;
+        static bool _hasBody;
+
+        static bool PlayerBody(out Bounds body, out float sortY)
         {
-            var go = new GameObject("layer");
-            go.transform.SetParent(parent.transform, false);
-            var sr = go.AddComponent<SpriteRenderer>();
-            sr.sprite = sprite;
-            var c = color;
-            if (alpha.HasValue) c.a = alpha.Value;
-            sr.color = c;
-            sr.sortingOrder = sortingOrder;
-            go.transform.localScale = new Vector3(size.x, size.y, 1f);
-            return go;
+            body = default; sortY = 0f;
+            if (_player == null && Time.unscaledTime >= _lookAgainAt)
+            {
+                _lookAgainAt = Time.unscaledTime + 1f;
+                _player = FindAnyObjectByType<Player.PlayerController>();
+                _playerDepth = _player != null ? _player.GetComponent<DepthSorted>() : null;
+            }
+            if (_player == null) return false;
+
+            if (_bodyFrame != Time.frameCount)
+            {
+                // Once a frame for every column: the union of the body's drawn sprites.
+                _bodyFrame = Time.frameCount;
+                _hasBody = false;
+                foreach (var sr in _player.GetComponentsInChildren<SpriteRenderer>())
+                {
+                    if (!sr.enabled || sr.sprite == null) continue;
+                    if (_hasBody) _body.Encapsulate(sr.bounds); else { _body = sr.bounds; _hasBody = true; }
+                }
+            }
+            body = _body;
+            var t = _player.transform.position;
+            sortY = t.y + (_playerDepth != null ? _playerDepth.FootOffset - _playerDepth.Bias : 0f);
+            return _hasBody;
         }
 
-        static Color Darken(Color c, float t) => Color.Lerp(c, Color.black, t);
-        static Color Lighten(Color c, float t) => Color.Lerp(c, Color.white, t);
+        void LateUpdate()
+        {
+            if (_art == null) return;
+            bool behind = false;
+            if (PlayerBody(out var body, out float sortY) && sortY > transform.position.y)
+            {
+                float x = transform.position.x, top = _art.bounds.max.y;
+                behind = body.max.x > x - _shaftHalf && body.min.x < x + _shaftHalf && body.min.y < top
+                         && body.max.y > transform.position.y;
+            }
+            float target = behind ? Tuning.Hazards.ColumnBehindAlpha : 1f;
+            _alpha = Mathf.MoveTowards(_alpha, target, Time.unscaledDeltaTime / Tuning.Hazards.ColumnFadeSeconds);
+            // Written whenever it differs: a hit flash lerps the colour back to opaque.
+            var c = _art.color;
+            if (c.a != _alpha) { c.a = _alpha; _art.color = c; }
+        }
     }
 }

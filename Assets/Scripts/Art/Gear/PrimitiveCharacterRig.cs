@@ -5548,6 +5548,9 @@ namespace Convergence.Art.Gear
             _alt = alt;
             _attackLength = AttackMotions.SwingSeconds(duration);
             _attackTimer = _attackLength;
+            if (MakesSound)
+                Convergence.Audio.Sfx.Play(_attackLength >= Convergence.Core.Tuning.Audio.HeavySwingSeconds
+                    ? Convergence.Audio.Sound.SwingHeavy : Convergence.Audio.Sound.Swing, transform.position);
             // A draw holds at full until the arrow leaves (LooseArrow), never past a backstop.
             _awaitLoose = IsBowDraw(motion);
             _flipLooseK = -1f;

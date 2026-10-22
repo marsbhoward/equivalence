@@ -87,6 +87,13 @@ namespace Convergence.Combat
         /// </summary>
         public bool IgnoresHeat;
 
+        /// <summary>
+        /// A damage-over-time TICK (a burn, a bleed, a fire pit, a tornado, the spire's lines)
+        /// rather than a blow. Read only by the sounds (Audio.CombatSounds): a body burning would
+        /// otherwise thud twice a second. Changes nothing about the damage.
+        /// </summary>
+        public bool Tick;
+
         public DamageInfo(float amount, ElementType element, GameObject source)
         {
             Amount = amount; Element = element; Source = source; Crit = false; Knockback = Vector2.zero;
@@ -99,6 +106,7 @@ namespace Convergence.Combat
             SparesMark = false;
             Price = false;
             IgnoresHeat = false;
+            Tick = false;
         }
     }
 }

@@ -150,6 +150,8 @@ namespace Convergence.Bosses
             {
                 TeleportTo(ArenaSectors.Station(sector));
                 _hazards.Mark(sector, Cold, 0.30f);      // a faint print of where it stood
+                // It SINGS the slice's note - the answer tolls the same one (Audio.Synth.SliceNote).
+                Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Sing, sector, transform.position);
 
                 yield return new WaitForSeconds(aim);
                 if (token != Token) yield break;
@@ -222,6 +224,7 @@ namespace Convergence.Bosses
         void Blast()
         {
             if (Target == null) return;
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Zap, transform.position);
             var origin = (Vector2)transform.position;
             var dir = ((Vector2)Target.position - origin).normalized;
             if (dir.sqrMagnitude < 0.0001f) dir = Vector2.right;

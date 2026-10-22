@@ -162,6 +162,7 @@ namespace Convergence.Rifts
             // is what makes the boundary read as torn rather than as a cut-out.
             r._rim = Quad(go.transform, "rim", Width, Height, Spr.TearRim,
                           new Color(1f, 1f, 1f, 0.95f), ViewOrder + 2);
+            Convergence.Art.Lighting.Glow.Attach(go, Tuning.Lighting.RiftRadius, Tuning.Lighting.RiftColor, Tuning.Lighting.RiftIntensity, 0.1f);
 
             // Shards: slivers of the same light thrown clear of the tear, drifting. Without them
             // the rip is a static shape - these are what say it is still happening.

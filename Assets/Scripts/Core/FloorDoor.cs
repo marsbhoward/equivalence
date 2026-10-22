@@ -127,6 +127,7 @@ namespace Convergence.Core
         /// the door can be walked through. Ignored on a sealed door.</summary>
         public void Open()
         {
+            if (Shut && _openT < 0f && !_sealed) Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.DoorOpen, transform.position);
             if (!Shut || _openT >= 0f || _sealed) return;
             _openT = 0f;
             Spr.Flash(transform.position + Vector3.up * Height * 0.5f, 1.8f, new Color(0.75f, 0.9f, 1f), 0.4f);

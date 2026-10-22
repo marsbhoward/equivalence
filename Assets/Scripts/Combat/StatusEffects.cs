@@ -329,7 +329,7 @@ namespace Convergence.Combat
                 if (_burnTick >= 0.5f && _health)
                 {
                     _burnTick = 0f;
-                    _health.Take(new DamageInfo(_burnDps * 0.5f, ElementType.Fire, _burnSource));
+                    _health.Take(new DamageInfo(_burnDps * 0.5f, ElementType.Fire, _burnSource) { Tick = true });
                 }
                 if (_burnRemaining <= 0f) _burnDps = 0f;
             }
@@ -343,7 +343,7 @@ namespace Convergence.Combat
                 if (_wBurnTick >= 0.5f && _health)
                 {
                     _wBurnTick = 0f;
-                    _health.Take(new DamageInfo(_wBurnDps * 0.5f, ElementType.Fire, _wBurnSource));
+                    _health.Take(new DamageInfo(_wBurnDps * 0.5f, ElementType.Fire, _wBurnSource) { Tick = true });
                 }
                 if (_wBurnRemaining <= 0f) _wBurnDps = 0f;
             }
@@ -357,7 +357,7 @@ namespace Convergence.Combat
                     _bleedTick = 0f;
                     // Earth rather than the dealer's element: a bleed is the wound, not the thing
                     // that made it, and tagging it Fire would feed fire's own reactions.
-                    _health.Take(new DamageInfo(_bleedDps * _bleedStacks * 0.5f, ElementType.Earth, _bleedSource));
+                    _health.Take(new DamageInfo(_bleedDps * _bleedStacks * 0.5f, ElementType.Earth, _bleedSource) { Tick = true });
                 }
                 if (_bleedRemaining <= 0f) { _bleedDps = 0f; _bleedStacks = 1; }
             }

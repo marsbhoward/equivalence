@@ -77,11 +77,11 @@ namespace Convergence.Hazards
 
         // The body is a mid grey, not white: the arena floors are light stone, and a white
         // haze over them has no edge. The streaks are the white.
-        static readonly Color Air = new(0.66f, 0.69f, 0.76f);
-        static readonly Color Streak = new(0.97f, 0.98f, 1f);
+        static Color Air => Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.SaltFlats) ? new(0.86f, 0.80f, 0.82f) : Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.Forest) ? new(0.27f, 0.38f, 0.20f) : new(0.66f, 0.69f, 0.76f);   // the forest's is a whirl of leaves
+        static Color Streak => Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.SaltFlats) ? new(1f, 1f, 1f) : Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.Forest) ? new(0.62f, 0.72f, 0.36f) : new(0.97f, 0.98f, 1f);   // the forest's is a whirl of leaves
         // Lifted grit, paler and greyer than the floor - a tan dust was the floor's own colour
         // and vanished against it.
-        static readonly Color Dust = new(0.86f, 0.85f, 0.82f);
+        static Color Dust => Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.SaltFlats) ? new(0.95f, 0.92f, 0.90f) : Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.Forest) ? new(0.42f, 0.31f, 0.17f) : new(0.86f, 0.85f, 0.82f);   // the forest's is a whirl of leaves
         static readonly Color RimColor = new(0.86f, 0.92f, 1f);
 
         // A scratch list for the physics query, shared by every funnel. Not readonly, null-guarded.
@@ -280,7 +280,7 @@ namespace Convergence.Hazards
             _tick = 0f;
             if (PlayerImmune != null && PlayerImmune()) return;   // Sylph
             _playerHealth.Take(new DamageInfo(_damagePerSecond * Tuning.Tornado.TickInterval,
-                                              ElementType.Air, gameObject));
+                                              ElementType.Air, gameObject) { Tick = true });
         }
 
         // ---- movement ----

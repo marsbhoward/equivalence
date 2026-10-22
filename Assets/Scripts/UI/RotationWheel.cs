@@ -121,12 +121,14 @@ namespace Convergence.UI
             float top = (OuterR + 8f) * UnitsPerTexel;
             var nameRt = UiKit.Rect(rt, "name", mid, mid, new Vector2(-100, top), new Vector2(100, top + 28));
             w._name = UiKit.Label(nameRt, "", 20, NameRest, TextAnchor.MiddleCenter);
+            UiKit.Legible(w._name);
             Shadowed(w._name);
 
             // Beside the pips, level with the gap between their two groups.
             float side = -(OuterR + 4f) * UnitsPerTexel;
             var streakRt = UiKit.Rect(rt, "streak", mid, mid, new Vector2(side - 160, -12), new Vector2(side, 12));
             w._streak = UiKit.Label(streakRt, "", 15, T.PipLit, TextAnchor.MiddleRight);
+            UiKit.Legible(w._streak);
             Shadowed(w._streak);
 
             return w;

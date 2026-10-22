@@ -165,7 +165,7 @@ namespace Convergence.Hazards
             if (_playerDps > 0f && _player != null && _playerHealth != null && !_playerHealth.IsDead)
             {
                 if (Touches(_player.position, _halfWidth + BodyAllowance))
-                    _playerHealth.Take(new DamageInfo(_playerDps * seconds, ElementType.Fire, gameObject));
+                    _playerHealth.Take(new DamageInfo(_playerDps * seconds, ElementType.Fire, gameObject) { Tick = true });
             }
 
             if (_enemyDps > 0f)
@@ -181,7 +181,7 @@ namespace Convergence.Hazards
                 }
                 foreach (var hp in hits)
                     if (hp != null && !hp.IsDead)
-                        hp.Take(new DamageInfo(_enemyDps * seconds, ElementType.Fire, _owner));
+                        hp.Take(new DamageInfo(_enemyDps * seconds, ElementType.Fire, _owner) { Tick = true });
             }
         }
 

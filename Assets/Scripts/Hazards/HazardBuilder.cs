@@ -15,14 +15,15 @@ namespace Convergence.Hazards
         /// Builds the floor's room. <paramref name="spireAllowed"/> is the caller's say on whether
         /// this floor may roll a spire at all (never a boss floor); <paramref name="hurt"/> and
         /// <paramref name="worn"/> weight which boon it rolls. <paramref name="stormAllowed"/> is
-        /// the same say for a tornado storm. Returns the spire, or null.
+        /// the same say for a tornado storm. <paramref name="needsCover"/>: the floor may field a
+        /// Turret, so it is owed at least one column. Returns the spire, or null.
         /// </summary>
         /// <summary>The transmutation circle the last <see cref="Populate"/> drew, or null.</summary>
         public static TransmutationRing LastRing { get; private set; }
 
         public static Spire Populate(int floor, Vector2 halfExtents, Transform player, Transform parent,
                                      bool spireAllowed = false, bool hurt = false, bool worn = false,
-                                     bool stormAllowed = false, bool circle = false)
+                                     bool stormAllowed = false, bool circle = false, bool needsCover = false)
         {
             LastRing = null;
             var playerPos = player != null ? (Vector2)player.position : Vector2.zero;
@@ -112,6 +113,20 @@ namespace Convergence.Hazards
                     var pos = PopLast(grid);
                     columns.Add(Column.Spawn(pos, ColumnSize.Small, RollCracked(), parent));
                 }
+            }
+
+            // ---- Cover, owed: a floor that may field a Turret always has a column to break its
+            // beam's line (the user's call, 2026-10-21) - a room with no cover from it was a
+            // punishment with no answer. Only when the rolls above placed none (the floor's
+            // column roll failed, or the lattice had no room), so every other floor is built
+            // exactly as before. Cracked as often as any column: breaking it is the player's call.
+            if (needsCover && columns.Count == 0)
+            {
+                var grid = BuildColumnGrid(halfExtents, playerPos, pits, spire, LastRing);
+                if (grid.Count > 0)
+                    columns.Add(Column.Spawn(grid[Random.Range(0, grid.Count)], ColumnSize.Medium, RollCracked(), parent));
+                else
+                    Debug.LogWarning("[Hazards] a turret floor found no lattice point for its column");
             }
 
             // ---- Force fields: between NEIGHBOURING columns, each eligible pair rolling alone ----

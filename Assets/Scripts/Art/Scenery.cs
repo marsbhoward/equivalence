@@ -167,6 +167,7 @@ namespace Convergence.Art
             if (DevForceLight.HasValue) { t.Light = DevForceLight.Value; windows = true; DevForceLight = null; }
             if (DevForceWindows) { windows = true; DevForceWindows = false; }
             t.WindowPairs = windows && t.Light != Daylight.None ? pairs : 0;
+            if (!Biomes.Biome.HasWindows) t.WindowPairs = 0;   // a forest has a canopy, not a wall
             return t;
         }
 
@@ -195,7 +196,9 @@ namespace Convergence.Art
             if (art.FloorSprite == null && floor != null && floor.TryGetComponent<SpriteRenderer>(out var fsr))
             {
                 var size = fsr.size;
-                fsr.sprite = FloorTile(theme.Floor, theme.Stone, theme.Accent, theme.Mix);
+                fsr.sprite = Biomes.Biome.Is(Biomes.BiomeKind.Forest) ? Biomes.ForestArt.Ground()
+                           : Biomes.Biome.Is(Biomes.BiomeKind.SaltFlats) ? Biomes.SaltArt.Ground()
+                           : FloorTile(theme.Floor, theme.Stone, theme.Accent, theme.Mix);
                 fsr.size = size;
             }
 
@@ -260,8 +263,12 @@ namespace Convergence.Art
 
             public void Build()
             {
+                if (Biomes.Biome.Is(Biomes.BiomeKind.Forest)) { BuildForest(); return; }
+                if (Biomes.Biome.Is(Biomes.BiomeKind.SkyRuin)) { BuildSky(); return; }
+                if (Biomes.Biome.Is(Biomes.BiomeKind.SaltFlats)) { BuildSalt(); return; }
                 var windows = Lit ? PlaceWindows() : new List<Window>();
                 if (_drawWalls) BuildBoundary(windows);
+                if (_drawWalls) BuildSconces(windows);
                 if (!Lit) return;
 
                 // The time of day over floor and walls - never over a body (it sorts under them).
@@ -600,6 +607,124 @@ namespace Convergence.Art
                 return c;
             }
 
+            /// <summary>
+            /// The Drowned Forest's boundary (Art.Biomes.ForestArt): the tower's geometry - the
+            /// same tops, face and beyond - drawn as canopy and tree line. No windows and no
+            /// sconces; the light comes down through gaps in the canopy instead, a few pale pools
+            /// on the floor placed from the floor's seed.
+            /// </summary>
+            void BuildForest()
+            {
+                float band = Tuning.Scenery.TopBand, far = _capTop + _m;
+                var deep = Biomes.ForestArt.Canopy(true);
+                var edge = Biomes.ForestArt.Canopy(false);
+                Tiled("beyond.n", deep, new Vector2(-_w - _m, _capTop), new Vector2(_w + _m, far), -9);
+                Tiled("beyond.s", deep, new Vector2(-_w - _m, -_h - _m), new Vector2(_w + _m, -_h - band), -9);
+                Tiled("beyond.w", deep, new Vector2(-_w - _m, -_h - _m), new Vector2(-_w - band, far), -9);
+                Tiled("beyond.e", deep, new Vector2(_w + band, -_h - _m), new Vector2(_w + _m, far), -9);
+                Tiled("top.s", edge, new Vector2(-_w - band, -_h - band), new Vector2(_w + band, -_h), -8);
+                Tiled("top.w", edge, new Vector2(-_w - band, -_h - band), new Vector2(-_w, _capTop), -8);
+                Tiled("top.e", edge, new Vector2(_w, -_h - band), new Vector2(_w + band, _capTop), -8);
+                Tiled("cap.n", edge, new Vector2(-_w - band, _faceTop), new Vector2(_w + band, _capTop), -8);
+
+                var face = Biomes.ForestArt.Face(_faceW, _faceH, _t.Seed);
+                Renderer("face", Make(face, _faceW, _faceH, new Vector2(0.5f, 0f)), new Vector3(0f, _h, 0f), -8);
+
+                Quad("shadow.n", Spr.Square, new Vector2(0f, _h - 0.12f), new Vector2(_w * 2f, 0.24f), new Color(0f, 0f, 0f, 0.35f), -7);
+                Quad("shadow.w", Spr.Square, new Vector2(-_w + 0.1f, 0f), new Vector2(0.2f, _h * 2f), new Color(0f, 0f, 0f, 0.25f), -7);
+                Quad("shadow.e", Spr.Square, new Vector2(_w - 0.1f, 0f), new Vector2(0.2f, _h * 2f), new Color(0f, 0f, 0f, 0.25f), -7);
+                Quad("shadow.s", Spr.Square, new Vector2(0f, -_h + 0.1f), new Vector2(_w * 2f, 0.2f), new Color(0f, 0f, 0f, 0.25f), -7);
+
+                // Light through the canopy: pale pools on the floor, from the floor's own seed.
+                var rng = new System.Random(_t.Seed * 17 + 3);
+                int shafts = Tuning.Biomes.ForestShaftsMin + rng.Next(Tuning.Biomes.ForestShaftsMax - Tuning.Biomes.ForestShaftsMin + 1);
+                for (int i = 0; i < shafts; i++)
+                {
+                    var at = new Vector2((float)(rng.NextDouble() * 2 - 1) * (_w - 2f), (float)(rng.NextDouble() * 2 - 1) * (_h - 1.5f));
+                    var go = new GameObject("canopy.gap");
+                    go.transform.SetParent(_root, false);
+                    go.transform.localPosition = at;
+                    float r = Mathf.Lerp(Tuning.Biomes.ForestShaftRadiusMin, Tuning.Biomes.ForestShaftRadiusMax, (float)rng.NextDouble());
+                    Convergence.Art.Lighting.Glow.Attach(go, r, Tuning.Biomes.ForestShaftColor, Tuning.Biomes.ForestShaftIntensity, 0.06f);
+                }
+                Biomes.Fireflies.Spawn(_root, new Vector2(_w, _h), Tuning.Biomes.FireflyCount, _t.Seed * 13 + 5);
+            }
+
+            /// <summary>
+            /// The Sky Ruin's boundary (Art.Biomes.SkyArt): the same tops, face and beyond, drawn as
+            /// a pale parapet with the open sky past it and a north wall of arches.
+            /// </summary>
+            void BuildSky()
+            {
+                float band = Tuning.Scenery.TopBand, far = _capTop + _m;
+                var sky = Biomes.SkyArt.Sky();
+                var top = Biomes.SkyArt.Parapet();
+                Tiled("beyond.n", sky, new Vector2(-_w - _m, _capTop), new Vector2(_w + _m, far), -9);
+                Tiled("beyond.s", sky, new Vector2(-_w - _m, -_h - _m), new Vector2(_w + _m, -_h - band), -9);
+                Tiled("beyond.w", sky, new Vector2(-_w - _m, -_h - _m), new Vector2(-_w - band, far), -9);
+                Tiled("beyond.e", sky, new Vector2(_w + band, -_h - _m), new Vector2(_w + _m, far), -9);
+                Tiled("top.s", top, new Vector2(-_w - band, -_h - band), new Vector2(_w + band, -_h), -8);
+                Tiled("top.w", top, new Vector2(-_w - band, -_h - band), new Vector2(-_w, _capTop), -8);
+                Tiled("top.e", top, new Vector2(_w, -_h - band), new Vector2(_w + band, _capTop), -8);
+                Tiled("cap.n", top, new Vector2(-_w - band, _faceTop), new Vector2(_w + band, _capTop), -8);
+                var face = Biomes.SkyArt.Face(_faceW, _faceH, _t.Seed);
+                Renderer("face", Make(face, _faceW, _faceH, new Vector2(0.5f, 0f)), new Vector3(0f, _h, 0f), -8);
+                Quad("shadow.n", Spr.Square, new Vector2(0f, _h - 0.1f), new Vector2(_w * 2f, 0.2f), new Color(0f, 0f, 0f, 0.2f), -7);
+                Quad("shadow.w", Spr.Square, new Vector2(-_w + 0.06f, 0f), new Vector2(0.12f, _h * 2f), new Color(0f, 0f, 0f, 0.15f), -7);
+                Quad("shadow.e", Spr.Square, new Vector2(_w - 0.06f, 0f), new Vector2(0.12f, _h * 2f), new Color(0f, 0f, 0f, 0.15f), -7);
+            }
+
+            /// <summary>
+            /// The Salt Flats' boundary (Art.Biomes.SaltArt): white salt tops, a pale haze beyond,
+            /// a cliff of pink and cream strata for the north face.
+            /// </summary>
+            void BuildSalt()
+            {
+                float band = Tuning.Scenery.TopBand, far = _capTop + _m;
+                var haze = Biomes.SaltArt.Haze();
+                var top = Biomes.SaltArt.Top();
+                Tiled("beyond.n", haze, new Vector2(-_w - _m, _capTop), new Vector2(_w + _m, far), -9);
+                Tiled("beyond.s", haze, new Vector2(-_w - _m, -_h - _m), new Vector2(_w + _m, -_h - band), -9);
+                Tiled("beyond.w", haze, new Vector2(-_w - _m, -_h - _m), new Vector2(-_w - band, far), -9);
+                Tiled("beyond.e", haze, new Vector2(_w + band, -_h - _m), new Vector2(_w + _m, far), -9);
+                Tiled("top.s", top, new Vector2(-_w - band, -_h - band), new Vector2(_w + band, -_h), -8);
+                Tiled("top.w", top, new Vector2(-_w - band, -_h - band), new Vector2(-_w, _capTop), -8);
+                Tiled("top.e", top, new Vector2(_w, -_h - band), new Vector2(_w + band, _capTop), -8);
+                Tiled("cap.n", top, new Vector2(-_w - band, _faceTop), new Vector2(_w + band, _capTop), -8);
+                var face = Biomes.SaltArt.Face(_faceW, _faceH, _t.Seed);
+                Renderer("face", Make(face, _faceW, _faceH, new Vector2(0.5f, 0f)), new Vector3(0f, _h, 0f), -8);
+                var shade = new Color(0.35f, 0.25f, 0.32f, 0.25f);
+                Quad("shadow.n", Spr.Square, new Vector2(0f, _h - 0.1f), new Vector2(_w * 2f, 0.2f), shade, -7);
+                Quad("shadow.w", Spr.Square, new Vector2(-_w + 0.06f, 0f), new Vector2(0.12f, _h * 2f), shade, -7);
+                Quad("shadow.e", Spr.Square, new Vector2(_w - 0.06f, 0f), new Vector2(0.12f, _h * 2f), shade, -7);
+            }
+
+            /// <summary>
+            /// Iron sconces along the north face, each a small flickering flame and a light
+            /// (Art.Lighting) - kept clear of the door and of every window. Drawn texel by texel at
+            /// the walls' density; the flame's frames are made once and shared.
+            /// </summary>
+            void BuildSconces(List<Window> windows)
+            {
+                float y = _h + _faceH / Ppu * Convergence.Core.Tuning.Lighting.SconceHeightOnFace;
+                foreach (float sx in Convergence.Core.Tuning.Lighting.SconceXs)
+                foreach (float x in new[] { -sx, sx })
+                {
+                    if (Mathf.Abs(x) < Convergence.Core.Tuning.Lighting.SconceDoorClearance) continue;
+                    bool blocked = false;
+                    foreach (var w in windows)
+                        if (Mathf.Abs(x - w.X) < w.Wt * 0.5f / Ppu + 0.6f) blocked = true;
+                    if (blocked) continue;
+
+                    var bracket = Renderer("sconce", SconceArt.Bracket, new Vector3(x, y, 0f), -6);
+                    var flame = Renderer("flame", SconceArt.Frames[0], new Vector3(x, y + SconceArt.FlameRise, 0f), -5);
+                    flame.gameObject.AddComponent<SconceArt.Flicker>();
+                    Convergence.Art.Lighting.Glow.Attach(flame.gameObject,
+                        Convergence.Core.Tuning.Lighting.SconceRadius, Convergence.Core.Tuning.Lighting.SconceColor,
+                        Convergence.Core.Tuning.Lighting.SconceIntensity, Convergence.Core.Tuning.Lighting.SconceFlicker);
+                }
+            }
+
             /// <summary>Where the window's light lands on the floor: the opening projected down and
             /// out along the sun, bars and all - the top of the window lands farthest out.</summary>
             void BuildPatch(Window w)
@@ -627,7 +752,11 @@ namespace Convergence.Art
                     px[(H - 1 - y) * W + x] = c;
                 }
                 var spr = Make(px, W, H, new Vector2(0f, 1f));
-                Renderer("patch", spr, new Vector3(x0, _h - dmin, 0f), -6);
+                var patch = Renderer("patch", spr, new Vector3(x0, _h - dmin, 0f), -6);
+                // The patch lights the room round it in the hour's colour (Art.Lighting).
+                var g = Convergence.Art.Lighting.Glow.Attach(patch.gameObject, 1f, _sky.Light,
+                                                             Convergence.Core.Tuning.Lighting.WindowIntensity);
+                g.RadiusFromBounds = Convergence.Core.Tuning.Lighting.WindowRadiusFromPatch;
             }
 
             /// <summary>The beam through the air between the window and its patch - only when the

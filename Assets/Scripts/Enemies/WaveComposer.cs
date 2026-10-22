@@ -33,6 +33,13 @@ namespace Convergence.Enemies
         /// <summary>In spawn order. The floor's guaranteed elite, if any, is last.</summary>
         public readonly List<WaveSpawn> Spawns = new();
 
+        /// <summary>Whether any body of this kind is in the wave.</summary>
+        public bool Fields(EnemyKind kind)
+        {
+            foreach (var s in Spawns) if (s.Kind == kind) return true;
+            return false;
+        }
+
         public int Elites => Spawns.Count(s => s.Elite);
 
         /// <summary>"7 Chaser · 3 Mortar (1 elite) · 2 Turret" - what a preview boon shows.</summary>

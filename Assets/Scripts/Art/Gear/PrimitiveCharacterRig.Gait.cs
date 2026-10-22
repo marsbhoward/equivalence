@@ -183,6 +183,11 @@ namespace Convergence.Art.Gear
         // Plain floats, so a domain reload restores all of them.
         float _gaitWeight;   // 0..1, eased: how big the walk is
         float _strideRate;   // radians of _stride per second, SIGNED - negative backpedals
+        int _footBin;        // which half of the cycle the stride is in - a change is a footfall
+
+        /// <summary>This rig is heard - its footfalls and its swings (the player in the arena and
+        /// the hub avatar; a preview, an echo or the couch never makes a sound).</summary>
+        public bool MakesSound;
         float _strideScale = 1f;   // the stride's share of speed (WalkCadenceExponent), eased
         float _walkLean;      // degrees, eased; the steady lean, kept apart from the lean spring
 
@@ -234,6 +239,17 @@ namespace Convergence.Art.Gear
 
             // Wrapped, so the phase never loses precision over a long session.
             _stride = Mathf.Repeat(_stride + _strideRate * dt, Mathf.PI * 2f);
+
+            // A FOOTFALL each time a foot lands: the front at phase 0, the back at half a cycle
+            // (PoseLegs), so every crossing of a half-cycle boundary, either way round - a
+            // backpedal lands too. Silent while the walk is only a shuffle.
+            int footBin = _stride < Mathf.PI ? 0 : 1;
+            if (footBin != _footBin)
+            {
+                _footBin = footBin;
+                if (MakesSound && _gaitWeight >= Convergence.Core.Tuning.Audio.FootstepGaitWeight)
+                    Convergence.Audio.CombatSounds.Footstep(Body != null ? Body.position : (Vector2)transform.position);
+            }
 
             // The lean still reads the character's own top speed: it is how hard they push, not ground.
             float reference = Player != null ? Mathf.Max(0.1f, Player.MoveSpeed)

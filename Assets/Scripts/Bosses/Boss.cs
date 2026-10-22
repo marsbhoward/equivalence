@@ -83,6 +83,8 @@ namespace Convergence.Bosses
             hp.Immune = true;             // untouchable until the first window
             DamageNumbers.Attach(hp);
             Hitstop.Attach(hp);
+            Convergence.Audio.CombatSounds.AttachEnemy(hp);
+            hp.Died += h => Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.BossDeath, h != null ? (Vector2?)h.transform.position : null);
             CameraKick.Attach(hp);
             FinisherHits.Attach(hp);
             b.Health = hp;
@@ -105,6 +107,7 @@ namespace Convergence.Bosses
             if (Enraged || Health == null) return;
             if (Health.Current > Health.Max * at) return;
             Enraged = true;
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Enrage, transform.position);
         }
 
         // ------------------------------------------------------------------ the window
@@ -119,6 +122,7 @@ namespace Convergence.Bosses
             float floor = Health.Current - Health.Max * Tuning.Boss.WindowCap;
             Health.Floor = floor > 0f ? floor : 0f;
             Health.Immune = false;
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Vulnerable, transform.position);
             if (BodyCollider != null) BodyCollider.enabled = true;
         }
 
@@ -133,6 +137,7 @@ namespace Convergence.Bosses
         /// </summary>
         protected void CloseWindow()
         {
+            if (Health != null && !Health.IsDead) Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Seal, transform.position);
             Health.Immune = true;
             Health.Floor = 0f;
             if (BodyCollider != null) BodyCollider.enabled = false;
@@ -143,6 +148,7 @@ namespace Convergence.Bosses
         protected void TeleportTo(Vector2 to)
         {
             var at = Arena.Clamp(to, 0.8f);
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Blink, at);
             transform.position = at;
 
             // Rigidbody2D: the transform write does not reach the physics world until the next

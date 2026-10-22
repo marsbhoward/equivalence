@@ -187,7 +187,8 @@ namespace Convergence.Hazards
                 go.transform.position = new Vector3(c.x + cell.x * 0.5f, c.y, 0f);
                 go.transform.localScale = new Vector3(cell.x, cell.y, 1f);
                 var sr = go.AddComponent<SpriteRenderer>();
-                sr.sprite = ChasmArt.Cell(Neighbours(x, y, Void), (x * 5 + y * 3) & 3);
+                sr.sprite = Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.SkyRuin) ? Art.Biomes.SkyArt.ChasmCell(Neighbours(x, y, Void), x, y)
+                                                 : ChasmArt.Cell(Neighbours(x, y, Void), (x * 5 + y * 3) & 3);
                 // The pit band: a chasm REPLACES the floor like a pit does, and everything that
                 // stands draws over it.
                 sr.sortingOrder = SortingOrders.PitBase;
@@ -211,7 +212,7 @@ namespace Convergence.Hazards
             go.transform.SetParent(parent, false);
             go.transform.position = new Vector3(corner.x + cell.x * 0.5f, corner.y, 0f);
             var sr = go.AddComponent<SpriteRenderer>();
-            sr.sprite = WallArt.Block(open, cracked, (x * 7 + y * 13) & 3);
+            sr.sprite = WallArt.Block(open, cracked, (x * 7 + y * 13) & 3, x, y);
             sr.sortingOrder = 0;
             // The sprite is one world unit square; a non-square cell (an arena resized off 24x14)
             // stretches it rather than leaving gaps.
@@ -287,12 +288,14 @@ namespace Convergence.Hazards
             health.Configure(Tuning.Rooms.CrackedHpPerCell * cells.Count);
             health.Immovable = true;
             health.Died += _ => wall.Break();
+            health.Damaged += info => { if (!info.Tick && wall != null) Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Chip, wall.transform.position); };
         }
 
         public void Break()
         {
             if (_broken) return;
             _broken = true;
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Rubble, transform.position);
             if (_room != null) _room.Open(_cells);
             foreach (var box in GetComponents<BoxCollider2D>()) box.enabled = false;
             foreach (Transform child in transform)
@@ -312,7 +315,7 @@ namespace Convergence.Hazards
     /// Sides facing open floor get an outline; sides against more wall get none, so a run of
     /// blocks reads as one wall rather than a row of tiles.
     /// </summary>
-    static class WallArt
+    static partial class WallArt
     {
         const int N = 75;
         static readonly Dictionary<int, Sprite> _cache = new();
@@ -320,18 +323,27 @@ namespace Convergence.Hazards
         // The OUTER walls' dark stone (0.21, 0.17, 0.13), lifted a step on top so the block's
         // face still reads under it: the same material inside the room as round it. A first pass
         // at the brick floor's own mid value read as a raised rug, not a wall.
-        static readonly Color Top = new(0.27f, 0.22f, 0.17f), TopLight = new(0.31f, 0.26f, 0.20f),
-                              Seam = new(0.20f, 0.16f, 0.12f), Rim = new(0.44f, 0.37f, 0.29f),
-                              Face = new(0.15f, 0.12f, 0.09f), FaceSeam = new(0.09f, 0.07f, 0.05f),
-                              Line = new(0.06f, 0.05f, 0.04f);
+        static bool SkyRuin => Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.SkyRuin);
+        static bool SaltFlats => Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.SaltFlats);
+        // The Sky Ruin builds in pale stone (Art.Biomes.SkyArt); the cracked rule holds there too.
+        static Color Top => SaltFlats ? new(0.86f, 0.82f, 0.81f) : SkyRuin ? new(0.70f, 0.67f, 0.61f) : new(0.27f, 0.22f, 0.17f);
+        static Color TopLight => SaltFlats ? new(0.93f, 0.90f, 0.89f) : SkyRuin ? new(0.78f, 0.75f, 0.69f) : new(0.31f, 0.26f, 0.20f);
+        static Color Seam => SaltFlats ? new(0.66f, 0.58f, 0.61f) : SkyRuin ? new(0.50f, 0.47f, 0.42f) : new(0.20f, 0.16f, 0.12f);
+        static Color Rim => SaltFlats ? new(0.99f, 0.98f, 0.97f) : SkyRuin ? new(0.86f, 0.84f, 0.78f) : new(0.44f, 0.37f, 0.29f);
+        static Color Face => SaltFlats ? new(0.68f, 0.60f, 0.63f) : SkyRuin ? new(0.50f, 0.48f, 0.43f) : new(0.15f, 0.12f, 0.09f);
+        static Color FaceSeam => SaltFlats ? new(0.52f, 0.45f, 0.49f) : SkyRuin ? new(0.36f, 0.34f, 0.30f) : new(0.09f, 0.07f, 0.05f);
+        static Color Line => SaltFlats ? new(0.32f, 0.26f, 0.30f) : SkyRuin ? new(0.22f, 0.21f, 0.19f) : new(0.06f, 0.05f, 0.04f);
         // Cracked stone is LIGHTER and warmer - a breakable segment must read as different from
         // across the room, and lighter is also "weaker" at a glance.
-        static readonly Color CrackTop = new(0.46f, 0.37f, 0.28f), CrackTopLight = new(0.53f, 0.43f, 0.32f),
-                              CrackFace = new(0.28f, 0.22f, 0.16f), Crack = new(0.08f, 0.06f, 0.05f);
+        static Color CrackTop => SaltFlats ? new(0.95f, 0.85f, 0.76f) : SkyRuin ? new(0.86f, 0.76f, 0.60f) : new(0.46f, 0.37f, 0.28f);
+        static Color CrackTopLight => SaltFlats ? new(0.99f, 0.92f, 0.84f) : SkyRuin ? new(0.92f, 0.83f, 0.68f) : new(0.53f, 0.43f, 0.32f);
+        static Color CrackFace => SaltFlats ? new(0.80f, 0.66f, 0.58f) : SkyRuin ? new(0.66f, 0.56f, 0.42f) : new(0.28f, 0.22f, 0.16f);
+        static Color Crack => SaltFlats ? new(0.48f, 0.34f, 0.32f) : SkyRuin ? new(0.30f, 0.24f, 0.18f) : new(0.08f, 0.06f, 0.05f);
 
-        public static Sprite Block(int open, bool cracked, int variant)
+        public static Sprite Block(int open, bool cracked, int variant, int cellX = 0, int cellY = 0)
         {
-            int key = open | (cracked ? 16 : 0) | (variant << 5);
+            if (Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.Forest)) return Thicket(open, cracked, variant, cellX, cellY);
+            int key = open | (cracked ? 16 : 0) | (variant << 5) | (SkyRuin ? 1 << 8 : 0) | (SaltFlats ? 1 << 10 : 0);
             if (_cache.TryGetValue(key, out var s) && s != null) return s;
 
             bool north = (open & 1) != 0, south = (open & 2) != 0, west = (open & 4) != 0, east = (open & 8) != 0;

@@ -25,7 +25,7 @@ namespace Convergence.Hazards
     /// rectangle. Seeded per floor (FloorPlanner.ShapeSeed), with System.Random so a preview
     /// does not move UnityEngine.Random's state.
     /// </summary>
-    public sealed class RoomShape
+    public sealed partial class RoomShape
     {
         public const int Cols = 24, Rows = 14;
 
@@ -282,7 +282,8 @@ namespace Convergence.Hazards
             return _catalogue.TryGetValue(name, out var v) ? v[variant & 3] : null;
         }
 
-        /// <summary>One-shot: the next shaped-eligible floor takes this shape ("open" for none).</summary>
+        /// <summary>One-shot: the next shaped-eligible floor takes this shape ("open" for none,
+        /// "composed" for a composed room).</summary>
         public static string DevForceNext;
 
         /// <summary>One-shot: the next floor with chasms draws them as a lake (true) or a drop
@@ -302,6 +303,11 @@ namespace Convergence.Hazards
             {
                 string forced = DevForceNext;
                 DevForceNext = null;
+                if (forced == "composed")
+                {
+                    var c = Compose(seed);
+                    return c == null ? null : Styled(c, new System.Random(seed + 1));
+                }
                 if (_catalogue.TryGetValue(forced, out var fv))
                     return Styled(fv[new System.Random(seed).Next(4)], new System.Random(seed + 1));
                 return null;
@@ -309,8 +315,15 @@ namespace Convergence.Hazards
 
             string name = Draw(floor, seed);
             if (name == null) return null;
-            string previous = Draw(floor - 1, previousSeed);
             var rng = new System.Random(unchecked(seed * 31 + 7));
+            // A COMPOSED room (RoomShape.Compose) - hundreds of them, so no repeat rule is needed;
+            // none validating leaves the floor open.
+            if (name == ComposedKey)
+            {
+                var composed = Compose(seed);
+                return composed == null ? null : Styled(composed, rng);
+            }
+            string previous = Draw(floor - 1, previousSeed);
             if (name == previous && _names.Count > 1)
             {
                 int i = _names.IndexOf(name);
@@ -325,16 +338,22 @@ namespace Convergence.Hazards
         {
             if (!shape.HasChasm) return shape;
             bool lake = rng.NextDouble() < Tuning.Chasm.LakeChance;
+            if (Art.Biomes.Biome.ForcesLake) lake = true;   // a forest's chasms are its lake
+            if (Art.Biomes.Biome.ForcesDrop) lake = false;  // a sky ruin's fall into the sky
             if (DevForceLake is bool forced) { lake = forced; DevForceLake = null; }
             return shape.AsLake(lake);
         }
 
-        /// <summary>The raw draw for a floor: a name, or null for open.</summary>
+        /// <summary>What <see cref="Draw"/> returns for a composed room - not a catalogue name.</summary>
+        const string ComposedKey = "\u0001composed";
+
+        /// <summary>The raw draw for a floor: a name, <see cref="ComposedKey"/>, or null for open.</summary>
         static string Draw(int floor, int seed)
         {
             if (Core.RunFormat.Depth(floor) < Tuning.Rooms.FromFloor || _names.Count == 0) return null;
             var rng = new System.Random(seed);
             if (rng.NextDouble() >= Tuning.Rooms.ShapedChance) return null;
+            if (rng.NextDouble() < Tuning.Rooms.ComposedShare) return ComposedKey;
             return _names[rng.Next(_names.Count)];
         }
 

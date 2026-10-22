@@ -582,6 +582,7 @@ namespace Convergence.Enemies
 
         void PopBubble()
         {
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Pop, transform.position);
             BubbleCharges = 0;
 
             var hp = GetComponent<Health>();
@@ -1196,7 +1197,7 @@ namespace Convergence.Enemies
             if (_pitTick < Tuning.Steering.PitEnemyTickInterval) return;
             _pitTick = 0f;
             _health.Take(new DamageInfo(_health.Max * perSecond * Tuning.Steering.PitEnemyTickInterval,
-                                        element, pit.gameObject));
+                                        element, pit.gameObject) { Tick = true });
         }
 
         // ---------------------------------------------------------------- stuck
@@ -1378,11 +1379,13 @@ namespace Convergence.Enemies
 
         void BeginChaserTelegraph()
         {
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Growl, transform.position);
             _telegraphTimer = Tuning.Enemy.ChaserTelegraphDuration;
         }
 
         void SwingChaser()
         {
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Swipe, transform.position);
             CancelTelegraph();
             _cooldown = AttackInterval;
             SwungAt = Time.time;
@@ -1465,6 +1468,7 @@ namespace Convergence.Enemies
 
         void BeginTelegraph()
         {
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Charge, transform.position);
             // Frozen once, here, and never touched again until it fires - the whole point of the
             // window is that the player is dodging a KNOWN line, not a re-aiming turret.
             // Aimed FROM the muzzle - the gland's sting, over the Stinger's back - so the line,
@@ -1519,6 +1523,7 @@ namespace Convergence.Enemies
 
         void Fire()
         {
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Zap, transform.position);
             FiredAt = Time.time;
             BeginRecover(Tuning.Enemy.RangedKiteSeconds);
             CancelTelegraph();
@@ -1724,6 +1729,7 @@ namespace Convergence.Enemies
 
         void LobShell()
         {
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Lob, transform.position);
             _cooldown = AttackInterval;
 
             // Aimed HERE, at the moment this shell leaves, and never again - in a barrage each
@@ -1740,6 +1746,7 @@ namespace Convergence.Enemies
 
         void BeginFlame()
         {
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Flame, transform.position);
             _mortarAction = MortarAction.Flame;
             _flameTimer = Tuning.Enemy.MortarFlameSeconds;
             _flameTick = 0f;
@@ -1912,12 +1919,14 @@ namespace Convergence.Enemies
 
         void BeginBombTelegraph()
         {
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Hissing, transform.position);
             _bombArming = true;
             _telegraphTimer = TelegraphDuration;
         }
 
         void BeginBombSweep()
         {
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Flame, transform.position);
             CancelTelegraph();
             _bombAim = ((Vector2)_target.position - (Vector2)transform.position).normalized;
             if (_bombAim.sqrMagnitude < 0.01f) _bombAim = Vector2.left;
@@ -1984,6 +1993,7 @@ namespace Convergence.Enemies
         /// </summary>
         void Explode()
         {
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Explosion, transform.position);
             CancelTelegraph();
             _health.Kill();
         }
@@ -2166,6 +2176,7 @@ namespace Convergence.Enemies
         /// <summary>Aimed once, at the moment it leaves - the Mortar's rule (see LobShell).</summary>
         void LobMire()
         {
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Lob, transform.position);
             var at = Arena.Clamp(_target.position, 0.3f);
             // The storm's own (the user's call): a ball of static that lands as charged ground,
             // in the look's accent - the slow, its radius, its fuse and its parry unchanged.
@@ -2203,6 +2214,7 @@ namespace Convergence.Enemies
 
         void BeginBeam()
         {
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Crackle, transform.position);
             // The beam is lightning from the eye (LightningArc) - the picture only; the damage and
             // the line of sight below are measured from the body's centre, as they always were.
             _beamArc = LightningArc.Create("turret.beam");
@@ -2321,6 +2333,7 @@ namespace Convergence.Enemies
 
         void BeginDasherTelegraph()
         {
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Snarl, transform.position);
             // Frozen HERE, at the start of the tell, not when the charge fires - the player gets
             // the whole window watching a committed, known point, the same rule Ranged's own aim
             // lives by. A charge that kept re-aiming through the tell would just be a slower bolt.
@@ -2334,6 +2347,7 @@ namespace Convergence.Enemies
 
         void BeginDash(DasherPhase dash)
         {
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.SwingHeavy, transform.position);
             _dasherPhase = dash;
             _dasherPhaseTimer = Tuning.Enemy.DasherDashMaxSeconds;
             _dasherBit = false;
@@ -2453,6 +2467,7 @@ namespace Convergence.Enemies
 
         void BeginGargoyleTelegraph()
         {
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Grind, transform.position);
             // No glow drawn round it: the Watcher's own face is the tell (GargoyleVisual - its eyes
             // kindle and its cracks fill with light; the user's pick over a drawn line of sight).
             // An elite's slam edge is cracked into the floor beside it (GargoyleCracks).
@@ -2461,6 +2476,7 @@ namespace Convergence.Enemies
 
         void ResolveGargoyleAttack()
         {
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Slam, transform.position);
             CancelTelegraph();
             GargoyleStruckAt = Time.time;
 
@@ -2601,6 +2617,7 @@ namespace Convergence.Enemies
         /// <summary>The breath is out: the roar lands on every ally still in it, at once.</summary>
         void ResolveBooster()
         {
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Roar, transform.position);
             CancelTelegraph();
             var a = Roar(_boosterCandidate);
             var b = Roar(_boosterCandidate2);
@@ -2713,6 +2730,7 @@ namespace Convergence.Enemies
         /// <summary>The blow: the bubble round the ally, and round itself too for an elite.</summary>
         void ResolveBubbles()
         {
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Bubbling, transform.position);
             CancelTelegraph();
 
             // ELITE: a two-wall bubble (see Tuning.Enemy's own note) - the same shield, more of it.

@@ -92,11 +92,13 @@ namespace Convergence.UI
             float x0 = (ArmOut + 5f) * U;
             var hpRt = UiKit.Rect(rt, "hp", mid, mid, new Vector2(x0, -6), new Vector2(x0 + 320, 44));
             h._hpText = UiKit.Label(hpRt, "", 36, HpColour, TextAnchor.LowerLeft);
+            UiKit.Legible(h._hpText);
             h._hpText.supportRichText = true;
             Shadowed(h._hpText);
 
             var armRt = UiKit.Rect(rt, "armour", mid, mid, new Vector2(x0, -32), new Vector2(x0 + 520, -6));
             h._armourText = UiKit.Label(armRt, "", 16, new Color(0.70f, 0.77f, 0.87f), TextAnchor.UpperLeft);
+            UiKit.Legible(h._armourText);
             Shadowed(h._armourText);
 
             return h;

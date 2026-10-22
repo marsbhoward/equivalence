@@ -70,6 +70,7 @@ namespace Convergence.UI
                 var rt = UiKit.Rect(_root.transform as RectTransform, "oaths", new Vector2(1f, 1f), new Vector2(1f, 1f),
                     new Vector2(-760f, -128f), new Vector2(-380f, -96f));
                 _oath = UiKit.Label(rt, "", 18, new Color(0.92f, 0.62f, 0.55f), TextAnchor.MiddleRight);
+                UiKit.Legible(_oath);
             }
             if (_oath == null) return;
             _oath.gameObject.SetActive(line != null);
@@ -134,19 +135,20 @@ namespace Convergence.UI
             var right = UiKit.Rect(canvas, "wave", new Vector2(1, 1), new Vector2(1, 1),
                 new Vector2(-768, -80), new Vector2(-380, -26));
             _waveText = UiKit.Label(right, "", 24, new Color(0.8f, 0.83f, 0.9f), TextAnchor.UpperRight);
+            UiKit.Legible(_waveText);
 
             // The gear-condition text block that used to sit bottom-right is gone: armour is now
             // the bar above health, and weapon wear is switched off entirely (see Durability).
 
             var controls = UiKit.Rect(canvas, "controls", new Vector2(0.5f, 0), new Vector2(0.5f, 0),
                 new Vector2(-420, 10), new Vector2(420, 36));
-            UiKit.Hint(controls,
+            UiKit.Legible(UiKit.Hint(controls,
                 "WASD move    -    LMB / SPACE attack    -    RMB / E element ability    -    [Q] guard    -    [C] loadout    -    ESC pause / leave",
                 "stick to move    -    ATTACK    -    ABILITY    -    GUARD    -    GEAR for your loadout    -    MENU to leave the run",
                 15, new Color(0.45f, 0.48f, 0.56f), TextAnchor.LowerCenter,
                 UI.GamepadGlyphs.Move + " move    -    " + UI.GamepadGlyphs.Attack + " attack    -    "
                 + UI.GamepadGlyphs.Release + " element ability    -    " + UI.GamepadGlyphs.Guard + " guard    -    "
-                + UI.GamepadGlyphs.Interact + " use    -    " + UI.GamepadGlyphs.Menu + " menu    -    " + UI.GamepadGlyphs.Inventory + " loot");
+                + UI.GamepadGlyphs.Interact + " use    -    " + UI.GamepadGlyphs.Menu + " menu    -    " + UI.GamepadGlyphs.Inventory + " loot"));
         }
 
         /// <summary>
@@ -198,6 +200,7 @@ namespace Convergence.UI
             var lblRt = UiKit.Rect(_bossRoot, "lbl", new Vector2(0, 0), new Vector2(1, 1),
                 new Vector2(0, 20), new Vector2(0, 0));
             _bossLabel = UiKit.Label(lblRt, "", 20, new Color(0.9f, 0.92f, 0.96f), TextAnchor.MiddleCenter);
+            UiKit.Legible(_bossLabel);
         }
 
         /// <summary>
@@ -214,6 +217,7 @@ namespace Convergence.UI
                     new Vector2(0.5f, 0f), new Vector2(0.5f, 0f),
                     new Vector2(-320f, 168f), new Vector2(320f, 216f));
                 _flashLabel = UiKit.Label(rt, "", 26, new Color(0.80f, 0.72f, 1f), TextAnchor.MiddleCenter);
+                UiKit.Legible(_flashLabel);
             }
             _flashLabel.gameObject.SetActive(true);
             _flashLabel.text = text;
@@ -298,6 +302,7 @@ namespace Convergence.UI
                     new Vector2(0.5f, 0f), new Vector2(0.5f, 0f),
                     new Vector2(-360f, 96f), new Vector2(360f, 148f));
                 _riftTimer = UiKit.Label(rt, "", 26, new Color(0.80f, 0.72f, 1f), TextAnchor.MiddleCenter);
+                UiKit.Legible(_riftTimer);
             }
             if (!_riftTimer.gameObject.activeSelf) _riftTimer.gameObject.SetActive(true);
             bool urgent = seconds < Core.Tuning.CollapsingRift.UrgentSeconds;
@@ -328,6 +333,7 @@ namespace Convergence.UI
                     new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
                     new Vector2(-200f, -322f), new Vector2(200f, -236f));
                 _countdown = UiKit.Label(rt, "", 64, new Color(0.95f, 0.85f, 0.60f), TextAnchor.MiddleCenter);
+                UiKit.Legible(_countdown);
             }
             if (!_countdown.gameObject.activeSelf) _countdown.gameObject.SetActive(true);
             int s = Mathf.CeilToInt(seconds);

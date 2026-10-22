@@ -71,7 +71,7 @@ namespace Convergence.Combat
                 var hp = e.GetComponent<Health>();
                 if (hp == null || hp.IsDead) continue;
                 StatusEffects.Get(hp.gameObject).ApplySlow(TickInterval + 0.15f, _slow);
-                if (_damagePerTick > 0f) hp.Take(new DamageInfo(_damagePerTick, ElementType.Earth, _owner));
+                if (_damagePerTick > 0f) hp.Take(new DamageInfo(_damagePerTick, ElementType.Earth, _owner) { Tick = true });
             }
         }
     }

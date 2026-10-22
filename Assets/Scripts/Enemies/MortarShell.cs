@@ -49,6 +49,7 @@ namespace Convergence.Enemies
         /// begins in the air where the parry caught it, not back on the ground.</summary>
         float _startHeight;
         bool _landed, _deflected;
+        bool _wasLit;   // the fuse's last blink state - each new blink ticks
 
         /// <summary>In the air and still the enemy's - what the orbiting discs stop (DiscOrbit).</summary>
         public bool Hostile => !_landed && !_deflected && _shell != null;
@@ -206,6 +207,11 @@ namespace Convergence.Enemies
 
             if (_clock >= FuseSeconds) { Explode(); return; }
 
+            // The fuse COUNTS out loud too - a tick per blink, so 1, 2, 3 reads off screen.
+            bool blink = LitAt(_clock);
+            if (blink && !_wasLit) Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.FuseTick, transform.position);
+            _wasLit = blink;
+
             if (_magma != null)
             {
                 bool on = LitAt(_clock);
@@ -293,6 +299,7 @@ namespace Convergence.Enemies
 
         void Explode()
         {
+            Convergence.Audio.Sfx.Play(_mire ? Convergence.Audio.Sound.Pop : Convergence.Audio.Sound.Explosion, transform.position);
             // The mire's fuse ends in ground, not a blast - and asks no parry: there is no hit to
             // negate, and asking would spend a window the player may want for something else.
             if (_mire)

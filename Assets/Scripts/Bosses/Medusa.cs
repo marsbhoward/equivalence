@@ -199,6 +199,7 @@ namespace Convergence.Bosses
                 {
                     // Faster as it goes, so how long is left reads at a glance.
                     cue = Mathf.Lerp(0.28f, 0.09f, t / warn);
+                    Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Chip, col.transform.position, 0.6f);
                     Spr.Pulse(col.transform, PillarRing.PillarRadius * 2.4f,
                               new Color(Warn.r, Warn.g, Warn.b, 0.55f), 0.22f, true, 0.25f);
                 }
@@ -244,6 +245,7 @@ namespace Convergence.Bosses
         IEnumerator PushPull(int token, bool pull)
         {
             _pushing = true;
+            Convergence.Audio.Sfx.Play(pull ? Convergence.Audio.Sound.Pull : Convergence.Audio.Sound.Push, transform.position);
             var tint = pull ? new Color(0.70f, 0.45f, 1f) : new Color(0.55f, 1f, 0.60f);
             var wave = Quad(transform, pull ? "pull" : "push", 1f, tint, SortingOrders.Fx - 2, Spr.ThinRing);
 
@@ -311,11 +313,19 @@ namespace Convergence.Bosses
             _shade.Invalidate();
             _hairSpin = 60f;
 
-            float t = 0f;
+            float t = 0f, rattle = 0f;
             while (t < tell)
             {
                 t += Time.deltaTime;
                 float k = Mathf.Clamp01(t / tell);
+
+                // Her hair RATTLES, faster as the gaze fills - the clock, heard off screen too.
+                rattle -= Time.deltaTime;
+                if (rattle <= 0f)
+                {
+                    rattle = Mathf.Lerp(0.55f, 0.12f, k);
+                    Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Rattle, transform.position, Mathf.Lerp(0.5f, 1f, k));
+                }
 
                 // Repaints only if a pillar broke since the last paint - the player can break
                 // their own cover mid-telegraph, and the picture must say so the frame it happens.
@@ -334,6 +344,7 @@ namespace Convergence.Bosses
 
             // She LOOKS - held for GazeHoldSeconds, so a dash's i-frames cannot step through it.
             Spr.Flash(transform.position, 2.6f, EyeLit, 0.4f);
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.GazeLook, transform.position);
             if (_eye != null) _eye.color = Color.white;
             bool caught = false;
             float g = 0f;
@@ -379,6 +390,7 @@ namespace Convergence.Bosses
             float skin = Tuning.Medusa.StoneSkinBase * FloorDifficulty.AttackInterval(Floor)
                        / Mathf.Max(1f, FloorDifficulty.Damage(Floor));
             StatusEffects.Get(Target.gameObject).ApplyStone(window + 2f, skin);
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Petrify, Target.position);
             Spr.Flash(Target.position, 1.3f, StoneDust, 0.5f);
             return true;
         }
@@ -516,6 +528,7 @@ namespace Convergence.Bosses
             if (go != null) Destroy(go);
 
             Spr.Flash(at, radius * 1.1f, StoneDust, 0.35f);
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Rubble, at);
 
             // One test, at impact - the Cantor's eruption rule: standing in it costs one hit, not
             // a hit per frame. A mechanic hit, a share of max health, mitigated through Take.

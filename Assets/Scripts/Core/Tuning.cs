@@ -3816,6 +3816,224 @@ namespace Convergence.Core
         }
 
         /// <summary>Framing. See also GameBootstrap's FloorMargin note about the pan room outside the walls.</summary>
+        /// <summary>
+        /// Sound (Audio/). Every sound is normalised where it is made, so its loudness is set
+        /// HERE and nowhere else. Placeholders are synthesised (Audio.Synth); a recording in
+        /// Resources/GameSound replaces one.
+        /// </summary>
+        public static class Audio
+        {
+            public const float DefaultMaster = 0.8f;
+            /// <summary>Voices for one-shots; with all busy the oldest is cut.</summary>
+            public const int Voices = 24;
+
+            /// <summary>World units either side of the camera that pan fully to one ear, and how far
+            /// "fully" is - never all the way, or a sound at the edge leaves one ear empty.</summary>
+            public const float PanWidth = 8f, PanAmount = 0.55f;
+
+            /// <summary>Past FalloffFrom units from the camera a sound fades over FalloffOver, down to
+            /// FalloffFloor - off screen is quieter, never silent (a tell out of sight still warns).</summary>
+            public const float FalloffFrom = 7f, FalloffOver = 10f, FalloffFloor = 0.35f;
+
+            /// <summary>A swing at least this long (seconds) whooshes heavy.</summary>
+            public const float HeavySwingSeconds = 0.6f;
+
+            public static float Loudness(Convergence.Audio.Sound s) => s switch
+            {
+                Convergence.Audio.Sound.StepStone => 0.16f,
+                Convergence.Audio.Sound.StepSand => 0.20f,
+                Convergence.Audio.Sound.StepWater => 0.26f,
+                Convergence.Audio.Sound.StepAsh => 0.20f,
+                Convergence.Audio.Sound.StepMetal => 0.18f,
+                Convergence.Audio.Sound.HitBasic => 0.42f,
+                Convergence.Audio.Sound.HitLight => 0.55f,
+                Convergence.Audio.Sound.HitMedium => 0.65f,
+                Convergence.Audio.Sound.HitHeavy => 0.80f,
+                Convergence.Audio.Sound.Crit => 0.30f,
+                Convergence.Audio.Sound.PlayerHurt => 0.60f,
+                Convergence.Audio.Sound.EnemyDeath => 0.45f,
+                Convergence.Audio.Sound.PlayerDeath => 0.80f,
+                Convergence.Audio.Sound.Perfect => 0.55f,
+                Convergence.Audio.Sound.Good => 0.35f,
+                Convergence.Audio.Sound.Miss => 0.30f,
+                Convergence.Audio.Sound.Distant => 0.22f,
+                Convergence.Audio.Sound.DistantForest => 0.2f,
+                Convergence.Audio.Sound.DistantSky => 0.2f,
+                Convergence.Audio.Sound.DistantSalt => 0.18f,
+                Convergence.Audio.Sound.Swing => 0.22f,
+                Convergence.Audio.Sound.SwingHeavy => 0.32f,
+                Convergence.Audio.Sound.ReleaseFire or Convergence.Audio.Sound.ReleaseWater
+                    or Convergence.Audio.Sound.ReleaseEarth or Convergence.Audio.Sound.ReleaseAir => 0.70f,
+                // Tells sit a little under the hits: heard, never louder than the fight itself.
+                Convergence.Audio.Sound.Growl => 0.38f,
+                Convergence.Audio.Sound.Snarl => 0.36f,
+                Convergence.Audio.Sound.Charge => 0.24f,
+                Convergence.Audio.Sound.Zap => 0.30f,
+                Convergence.Audio.Sound.Lob => 0.40f,
+                Convergence.Audio.Sound.Explosion => 0.70f,
+                Convergence.Audio.Sound.Hissing => 0.28f,
+                Convergence.Audio.Sound.Crackle => 0.30f,
+                Convergence.Audio.Sound.Grind => 0.40f,
+                Convergence.Audio.Sound.Slam => 0.70f,
+                Convergence.Audio.Sound.Roar => 0.50f,
+                Convergence.Audio.Sound.Bubbling => 0.34f,
+                Convergence.Audio.Sound.Pop => 0.40f,
+                Convergence.Audio.Sound.FuseTick => 0.22f,
+                Convergence.Audio.Sound.Flame => 0.45f,
+                Convergence.Audio.Sound.Swipe => 0.26f,
+                Convergence.Audio.Sound.FloorClear => 0.55f,
+                Convergence.Audio.Sound.DoorOpen => 0.45f,
+                Convergence.Audio.Sound.Sing => 0.50f,
+                Convergence.Audio.Sound.Toll => 0.45f,
+                Convergence.Audio.Sound.Erupt => 0.50f,
+                Convergence.Audio.Sound.Blink => 0.25f,
+                Convergence.Audio.Sound.Enrage => 0.60f,
+                Convergence.Audio.Sound.Vulnerable => 0.50f,
+                Convergence.Audio.Sound.Seal => 0.40f,
+                Convergence.Audio.Sound.BossDeath => 0.85f,
+                Convergence.Audio.Sound.Rattle => 0.30f,
+                Convergence.Audio.Sound.GazeLook => 0.65f,
+                Convergence.Audio.Sound.Petrify => 0.60f,
+                Convergence.Audio.Sound.Push or Convergence.Audio.Sound.Pull => 0.55f,
+                Convergence.Audio.Sound.Chip => 0.35f,
+                Convergence.Audio.Sound.Rubble => 0.60f,
+                _ => 0.5f,
+            };
+
+            /// <summary>The least time between two plays of one sound - a volley landing on five
+            /// bodies in one frame is one hit, and a crowd's deaths don't stack into a roar.</summary>
+            public static float Spacing(Convergence.Audio.Sound s) => s switch
+            {
+                Convergence.Audio.Sound.HitBasic or Convergence.Audio.Sound.HitLight
+                    or Convergence.Audio.Sound.HitMedium or Convergence.Audio.Sound.HitHeavy => 0.04f,
+                Convergence.Audio.Sound.Crit => 0.06f,
+                Convergence.Audio.Sound.EnemyDeath => 0.07f,
+                Convergence.Audio.Sound.PlayerHurt => 0.12f,
+                // A pack winding up together is one growl, not six.
+                Convergence.Audio.Sound.Growl or Convergence.Audio.Sound.Snarl => 0.25f,
+                Convergence.Audio.Sound.Charge or Convergence.Audio.Sound.Crackle => 0.2f,
+                Convergence.Audio.Sound.Swipe or Convergence.Audio.Sound.Zap => 0.06f,
+                Convergence.Audio.Sound.Explosion => 0.12f,
+                Convergence.Audio.Sound.Swing or Convergence.Audio.Sound.SwingHeavy => 0.05f,
+                // The enraged answer tolls a slice and its opposite on one beat - two notes, a chord.
+                Convergence.Audio.Sound.Toll or Convergence.Audio.Sound.Erupt => 0f,
+                Convergence.Audio.Sound.Rubble => 0.15f,
+                Convergence.Audio.Sound.Chip => 0.05f,
+                _ => 0.03f,
+            };
+
+            /// <summary>Random pitch either side of 1 - the same clip twice in a row is what makes
+            /// a game sound mechanical.</summary>
+            public static float PitchJitter(Convergence.Audio.Sound s) => s switch
+            {
+                Convergence.Audio.Sound.Perfect or Convergence.Audio.Sound.Good
+                    or Convergence.Audio.Sound.PlayerDeath or Convergence.Audio.Sound.FloorClear
+                    or Convergence.Audio.Sound.FuseTick or Convergence.Audio.Sound.Sing
+                    or Convergence.Audio.Sound.Toll or Convergence.Audio.Sound.Enrage
+                    or Convergence.Audio.Sound.BossDeath => 0f,   // the Cantor's notes are a TUNE
+                Convergence.Audio.Sound.Distant => 0.15f,
+                _ => 0.07f,
+            };
+
+            /// <summary>Each room tone's level (before the player's Ambience dial).</summary>
+            public static float BedLoudness(Convergence.Audio.Bed b) => b switch
+            {
+                Convergence.Audio.Bed.Hub => 0.20f,
+                Convergence.Audio.Bed.Crypt => 0.30f,
+                Convergence.Audio.Bed.Deep => 0.32f,
+                Convergence.Audio.Bed.Abyss => 0.34f,
+                Convergence.Audio.Bed.Throne => 0.36f,
+                Convergence.Audio.Bed.Forest => 0.32f,
+                Convergence.Audio.Bed.Sky => 0.30f,
+                Convergence.Audio.Bed.Salt => 0.26f,
+                _ => 0f,
+            };
+            public const float BossPulseLoudness = 0.30f;
+            /// <summary>Seconds a bed takes to fade in (and the old one out) when the place changes.</summary>
+            public const float BedFadeSeconds = 2.5f;
+
+            /// <summary>The far-off drips, stones and chains: the first a few seconds into a floor,
+            /// then one every Min..Max seconds.</summary>
+            public const float DistantFirstSeconds = 5f, DistantMinSeconds = 9f, DistantMaxSeconds = 22f;
+
+            /// <summary>Footfalls only once the walk has this much of its weight - the shuffle of
+            /// a stop or a turn on the spot is silent.</summary>
+            public const float FootstepGaitWeight = 0.45f;
+        }
+
+        /// <summary>
+        /// The room's darkness and its lights (Art/Lighting). The darkness is an overlay under the
+        /// readout band, so telegraphs, flashes and the strike bar are never darkened.
+        /// </summary>
+        public static class Lighting
+        {
+            /// <summary>How often the darkness is recomputed (it is cheap, but not free on WebGL).</summary>
+            public const float UpdatesPerSecond = 20f;
+            /// <summary>Steps in a light's falloff (dithered between) - a pool with rings, not a gradient.</summary>
+            public const int Bands = 5;
+            /// <summary>Share of a light's radius at full strength before it starts to fall off.</summary>
+            public const float CoreFraction = 0.3f;
+            /// <summary>The light's own colour laid over a fully lit texel - a warm cast, not a wash.</summary>
+            public const float LitTintAlpha = 0f;
+            /// <summary>Dither between the bands. Off: the checkerboard lands on bodies as well as
+            /// the floor, and a character under it reads as see-through (the user's report).</summary>
+            public const bool Dither = false;
+
+            /// <summary>Darkness where no light reaches, by Classic depth (the four ambience bands).
+            /// A boss floor is a little darker. Windows let the day in (<see cref="WindowFloorDarkness"/>).</summary>
+            public static float DarknessFor(int depth, bool boss)
+                => (depth <= 25 ? 0.40f : depth <= 50 ? 0.48f : depth <= 75 ? 0.55f : 0.60f) + (boss ? 0.05f : 0f);
+            public const float WindowFloorDarkness = 0.7f;
+            public static readonly UnityEngine.Color ShadeColor = new(0.02f, 0.03f, 0.07f);
+
+            public const float FirePitReach = 1.8f, FireEmberIntensity = 0.35f;
+            public static readonly UnityEngine.Color FireColor = new(1f, 0.55f, 0.22f);
+
+            public const float SpireRadius = 2.8f;
+            public const float RiftRadius = 3.6f, RiftIntensity = 0.85f;
+            public static readonly UnityEngine.Color RiftColor = new(0.75f, 0.85f, 1f);
+
+            public const float ReleaseRadius = 4.5f, ReleaseSeconds = 0.7f;
+
+            /// <summary>A window's patch lights out to this multiple of its own size.</summary>
+            public const float WindowRadiusFromPatch = 1.6f, WindowIntensity = 0.9f;
+
+            /// <summary>Sconces on the north face, mirrored either side of the door at these x.</summary>
+            public static readonly float[] SconceXs = { 4.5f, 9.5f };
+            public const float SconceDoorClearance = 2.5f, SconceHeightOnFace = 0.45f;
+            public const float SconceRadius = 3.2f, SconceIntensity = 0.85f, SconceFlicker = 0.18f, SconceFps = 7f;
+            public static readonly UnityEngine.Color SconceColor = new(1f, 0.66f, 0.32f);
+        }
+
+        /// <summary>Biomes (Art/Biomes): visual only, chosen in stretches apart from the bosses.</summary>
+        public static class Biomes
+        {
+            /// <summary>Floors of the Tower a run always opens with, then stretches of each place.</summary>
+            public const int FirstStretchMin = 3, FirstStretchMax = 5;
+            public const int StretchMin = 3, StretchMax = 7;
+
+            /// <summary>The forest is a little darker than the tower at the same depth, its shadow green.</summary>
+            public const float ForestDarker = 0.08f;
+            public static readonly UnityEngine.Color ForestShade = new(0.015f, 0.045f, 0.035f);
+
+            /// <summary>Gaps in the canopy: pale pools of daylight on the forest floor.</summary>
+            public const int ForestShaftsMin = 3, ForestShaftsMax = 6;
+            public const float ForestShaftRadiusMin = 1.4f, ForestShaftRadiusMax = 2.6f, ForestShaftIntensity = 0.85f;
+            public static readonly UnityEngine.Color ForestShaftColor = new(0.95f, 1f, 0.78f);
+
+            /// <summary>The Sky Ruin is open to the sky: its darkness a share of the tower's at that depth.</summary>
+            public const float SkyDarkness = 0.35f;
+            public static readonly UnityEngine.Color SkyShade = new(0.06f, 0.08f, 0.16f);
+
+            /// <summary>The Salt Flats glare: a quarter of the tower's darkness, its shadow rose.</summary>
+            public const float SaltDarkness = 0.25f;
+            public static readonly UnityEngine.Color SaltShade = new(0.16f, 0.09f, 0.14f);
+
+            public const int FireflyCount = 14;
+            public const float FireflyRadius = 0.9f, FireflyIntensity = 0.75f;
+            public static readonly UnityEngine.Color FireflyColor = new(1f, 0.95f, 0.55f);
+        }
+
         public static class Camera
         {
             /// <summary>
@@ -5282,6 +5500,22 @@ namespace Convergence.Core
             /// <summary>The visible south face of a wall block, as a fraction of its cell - the
             /// part of the block that reads as HEIGHT from the 3/4 camera.</summary>
             public const float FaceFraction = 0.42f;
+
+            // ---- composed rooms (Hazards/RoomShape.Compose.cs) ----
+
+            /// <summary>Of the SHAPED floors, the share that are composed (a boundary and stamps)
+            /// rather than one of the ten authored shapes.</summary>
+            public const float ComposedShare = 0.6f;
+            /// <summary>Compositions tried per floor before it falls back to the open room.</summary>
+            public const int ComposeTries = 12;
+            /// <summary>A composed room's chance of a generated chasm, and how many of those are the
+            /// large kind (the user's call: more chasms, and more large ones).</summary>
+            public const float ComposedChasmChance = 0.8f, LargeChasmShare = 0.5f;
+            /// <summary>Stamps laid per composed room (each may bring its mirrored twin).</summary>
+            public const int StampsMin = 2, StampsMax = 4;
+            /// <summary>Chance a stamp is laid with its east-west twin - symmetry is most of what
+            /// makes a composed room read as designed.</summary>
+            public const float MirroredPairChance = 0.55f;
         }
 
         /// <summary>Chasms (`~` in a room shape): void nothing stands on. See EnemyController.TickChasm
@@ -5390,6 +5624,27 @@ namespace Convergence.Core
             public const float ColumnCrackedChance = 0.6f;
 
             /// <summary>
+            /// How a column is drawn (Hazards.ColumnArt, the user's call 2026-10-21): each rolls TALL
+            /// (a whole fluted drum) at this chance, else BROKEN (snapped off near the player's height).
+            /// Picture only - the footprint and every rule are the same either way.
+            /// </summary>
+            public const float ColumnTallChance = 0.5f;
+
+            /// <summary>Drawn height of a tall column at each size, in world units (the player is ~1.2).</summary>
+            public const float ColumnTallSmall = 1.6f, ColumnTallMedium = 1.95f, ColumnTallLarge = 2.3f;
+
+            /// <summary>Drawn height of a broken column at each size; a cracked one is this much of it.</summary>
+            public const float ColumnBrokenSmall = 0.95f, ColumnBrokenMedium = 1.15f, ColumnBrokenLarge = 1.35f;
+            public const float ColumnBrokenCrackedHeight = 0.68f;
+
+            /// <summary>
+            /// A standing column covers what is behind it: while the player's body is behind its
+            /// shaft it fades to this alpha, over this many (unscaled) seconds each way.
+            /// </summary>
+            public const float ColumnBehindAlpha = 0.55f;
+            public const float ColumnFadeSeconds = 0.15f;
+
+            /// <summary>
             /// Columns snap to a lattice at this spacing rather than landing freely - a room reads
             /// as built rather than scattered, and it removes the need for a separate clearance
             /// check between two columns entirely (any two distinct points are already this far
@@ -5431,6 +5686,20 @@ namespace Convergence.Core
             public const float ForceFieldFlipInterval = 5f;
 
             public const float ForceFieldWidth = 0.3f;
+
+            /// <summary>
+            /// The field's CURTAIN (Hazards.ForceField, the user's call 2026-10-21): it stands this
+            /// share of the shorter anchor's drawn height (or the fallback beside authored column
+            /// art, which has none). Picture only - the barrier is the collider on the ground.
+            /// </summary>
+            public const float ForceFieldCurtainShare = 0.88f;
+            public const float ForceFieldCurtainFallback = 1f;
+
+            /// <summary>The curtain's shimmer: redraws a second, the sweeping band's speed (texels a
+            /// second), and how fast the flickering lines drift through it (texels a second).</summary>
+            public const float ForceFieldShimmerFps = 15f;
+            public const float ForceFieldSweepSpeed = 30f;
+            public const float ForceFieldLineDrift = 3f;
 
             // ---- Floor pits: shared geometry ----
             //

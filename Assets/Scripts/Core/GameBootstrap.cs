@@ -1449,9 +1449,18 @@ namespace Convergence.Core
         {
             if (_arenaRoot == null) return;
             int seed = _planner != null ? _planner.SceneSeed(floor) : floor * 7919 + 1;
+            // The BIOME first - everything built on this floor asks it (Art.Biomes.Biome).
+            Art.Biomes.Biome.Set(Art.Biomes.Biome.For(_planner != null ? _planner.Seed : 0, floor));
+            // The room tone follows the place; a boss floor lays a heartbeat over it.
+            Convergence.Audio.Ambience.Set(Art.Biomes.Biome.Bed(floor), IsBossFloor(floor));
+            Hazards.Column.LookSeed = seed;   // which columns stand whole and which are broken
             var theme = Art.Scenery.Roll(floor, seed);
             Art.Scenery.Dress(_arenaRoot, theme, new Vector2(HalfWidth, HalfHeight), FloorMargin);
-            Debug.Log($"[Floor] scenery {theme}");
+            // The room's darkness: by depth today, by biome later. Windows let the day in.
+            float dark = Art.Biomes.Biome.Darkness(Core.RunFormat.Depth(floor), IsBossFloor(floor));
+            if (theme.Light != Art.Scenery.Daylight.None && theme.WindowPairs > 0) dark *= Tuning.Lighting.WindowFloorDarkness;
+            Convergence.Art.Lighting.LightField.SetPlace(dark, Art.Biomes.Biome.Shade);
+            Debug.Log($"[Floor] {Art.Biomes.Biome.Current} | scenery {theme}");
         }
 
         /// <summary>Repeats one floor tile across the arena - the usual shape for authored 2D art.</summary>
@@ -1527,6 +1536,8 @@ namespace Convergence.Core
         async System.Threading.Tasks.Task ShowHubAsync()
         {
             _state = State.Hub;
+            Convergence.Audio.Ambience.Set(Convergence.Audio.Bed.Hub);
+            Convergence.Art.Lighting.LightField.SetPlace(0f, Color.black);   // the hub is lit as it always was
 
             // The roster is read before the room is built, because the couch is part of the room
             // and rebuilding it afterwards would pop characters into existence a frame late.
@@ -1777,6 +1788,7 @@ namespace Convergence.Core
                 var rt = UiKit.Rect(_canvas.transform, "DevFormat", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
                     new Vector2(-420, -54), new Vector2(420, -14));
                 _devFormatLabel = UiKit.Label(rt, "", 20, new Color(0.95f, 0.82f, 0.45f), TextAnchor.MiddleCenter);
+                UiKit.Legible(_devFormatLabel);
             }
             _devFormatLabel.gameObject.SetActive(true);
             _devFormatLabel.text = RunFormat.Short
@@ -2610,6 +2622,7 @@ namespace Convergence.Core
                          : element == ElementType.Earth ? Tuning.Player.HpEarth
                          : Tuning.Player.HpFireWater;
             var hp = go.AddComponent<Health>();
+            Convergence.Audio.CombatSounds.AttachPlayer(hp);
 
             // The stat block is built HERE, before Health, because max health needs it and the
             // controller does not exist yet. Gear and the grid, summed into percentage points over
@@ -2656,6 +2669,7 @@ namespace Convergence.Core
             // vector is zero on almost every hit the player actually takes. A source that has
             // already been destroyed, or a hazard that is nowhere in particular, leaves it zero
             // and the rig simply does not move.
+            if (rig is Art.Gear.PrimitiveCharacterRig steps) steps.MakesSound = true;
             if (rig is Art.Gear.PrimitiveCharacterRig primitive)
                 hp.Damaged += info =>
                 {
@@ -3201,6 +3215,12 @@ namespace Convergence.Core
             // the mask. Never on a boss floor: every boss is built round the open rectangle.
             Hazards.RoomWalls.Apply(IsBossFloor(_floor) ? null : _planner?.ShapeFor(_floor), _hazardRoot);
 
+            // The wave is decided BEFORE the room (its own seeded System.Random, so this is the
+            // same wave it always was): a floor that fields a Turret - or a Red Rift, whose guard
+            // may be one - is owed a column to hide behind.
+            var wave = IsBossFloor(_floor) ? null : ComposeWave(_floor);
+            bool needsCover = wave != null && (_plan.Rift == Rifts.RiftKind.Red || wave.Fields(EnemyKind.Turret));
+
             if (_hazardRoot != null && !ownRoom)
             {
                 bool hurt = _player.Health.Current < _player.Health.Max - 0.5f;
@@ -3210,7 +3230,8 @@ namespace Convergence.Core
                 bool circle = CircleDue();
                 _spire = HazardBuilder.Populate(_floor, Arena.HalfExtents, _player.transform, _hazardRoot,
                                                 spireAllowed: !IsBossFloor(_floor), hurt, worn,
-                                                stormAllowed: !IsBossFloor(_floor), circle: circle);
+                                                stormAllowed: !IsBossFloor(_floor), circle: circle,
+                                                needsCover: needsCover);
                 _circle = HazardBuilder.LastRing;
                 if (_circle != null)
                     _hud?.Flash("a transmutation circle is drawn  -  land or take three blows inside it");
@@ -3233,7 +3254,6 @@ namespace Convergence.Core
             // how much killing it takes is the pool's. It replaced a count with each kind
             // subtracted from it in turn, which starved every kind introduced late - floors from
             // about 35 down were thirteen Ranged and a Chaser.
-            var wave = ComposeWave(_floor);
             Debug.Log($"[Floor] {Enemies.FloorDifficulty.Describe(_floor)} | pool {wave.Pool:0} ehp, " +
                       $"{wave.Spawns.Count} bodies: {wave.Roster()}");
 
@@ -3462,6 +3482,7 @@ namespace Convergence.Core
         /// </summary>
         void OfferFloorReward()
         {
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.FloorClear);
             _rewardTaken = true;
             // The run clock stops at the clear - the menus after it are off it (Core.RunClock).
             Clock.CloseAttempt();

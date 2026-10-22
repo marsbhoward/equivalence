@@ -120,10 +120,12 @@ namespace Convergence.UI
             float top = (RimR + 4f) * UnitsPerTexel;
             var nameRt = UiKit.Rect(rt, "name", mid, mid, new Vector2(-80, top), new Vector2(80, top + 28));
             s._name = UiKit.Label(nameRt, "", 22, Unlit, TextAnchor.MiddleCenter);
+            UiKit.Legible(s._name);
             Shadowed(s._name);
 
             var tagRt = UiKit.Rect(rt, "tag", mid, mid, new Vector2(-80, top + 28), new Vector2(80, top + 50));
             s._tag = UiKit.Label(tagRt, "", 16, new Color(0.78f, 0.8f, 0.86f), TextAnchor.MiddleCenter);
+            UiKit.Legible(s._tag);
             Shadowed(s._tag);
 
             // At the seal's foot, over the bottom of its rim. Nothing on touch: the overlay's own

@@ -1688,6 +1688,7 @@ namespace Convergence.Hub
             _avatarGo.transform.localPosition = new Vector3(0f, (FloorTop + FloorBottom) * 0.5f - 0.4f, 0f);
 
             _rig = CharacterRigFactory.Build(_avatarGo, profile.LastElement, SortingOrders.Character);
+            if (_rig is PrimitiveCharacterRig steps) steps.MakesSound = true;
             // Drawn at the arena's size (see Tuning.Player.ArenaVisualScale), at the same camera
             // zoom, so the character is one size everywhere it is played - at 1.0 it read small
             // beside the room's own furniture.

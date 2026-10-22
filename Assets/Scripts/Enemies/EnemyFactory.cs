@@ -60,6 +60,7 @@ namespace Convergence.Enemies
             hp.Immovable = !Tuning.Enemy.TakesKnockback;
             DamageNumbers.Attach(hp);
             Hitstop.Attach(hp);
+            Convergence.Audio.CombatSounds.AttachEnemy(hp);
             CameraKick.Attach(hp);
             FinisherHits.Attach(hp);
 

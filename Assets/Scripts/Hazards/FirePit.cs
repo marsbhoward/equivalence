@@ -64,8 +64,13 @@ namespace Convergence.Hazards
             var pit = go.AddComponent<FirePit>();
             pit.Init(rect, player);
             pit.Build(rect.size);
+            // It lights the room by its own heat (set each frame in Update).
+            pit._glow = Convergence.Art.Lighting.Glow.Attach(go, Mathf.Max(rect.width, rect.height) * 0.5f + Tuning.Lighting.FirePitReach,
+                                                       Tuning.Lighting.FireColor, 0f, 0.2f);
             return pit;
         }
+
+        Convergence.Art.Lighting.Glow _glow;
 
         void Build(Vector2 size)
         {
@@ -185,7 +190,7 @@ namespace Convergence.Hazards
 
         static readonly Color CoalsCold = new(0.34f, 0.11f, 0.06f);
         static readonly Color CoalsHot = new(1f, 0.62f, 0.18f);
-        static readonly Color AshTint = new(0.46f, 0.44f, 0.45f);
+        static Color AshTint => Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.Forest) ? new(0.36f, 0.30f, 0.24f) : new(0.46f, 0.44f, 0.45f);   // the forest's own (Art.Biomes)
         static readonly Color FlameTint = new(1f, 0.55f, 0.16f);
 
         /// <summary>
@@ -259,6 +264,7 @@ namespace Convergence.Hazards
 
             float heat = Heat01();
             Paint(heat);
+            if (_glow != null) _glow.Intensity = Mathf.Lerp(Tuning.Lighting.FireEmberIntensity, 1f, Burn);
 
             if (!PlayerAlive) return;
             // Reset, same as Turret's beam on LOS loss - and under ash too, so a part-charged tick
@@ -273,7 +279,7 @@ namespace Convergence.Hazards
             if (dps <= 0f) return;
             // Salamander: fire does not burn its own.
             if (FloorPits.PlayerImmune != null && FloorPits.PlayerImmune(PitKind.Fire)) return;
-            PlayerHealth.Take(new DamageInfo(dps * Tuning.Hazards.FireTickInterval, ElementType.Fire, gameObject));
+            PlayerHealth.Take(new DamageInfo(dps * Tuning.Hazards.FireTickInterval, ElementType.Fire, gameObject) { Tick = true });
         }
 
         void Paint(float heat)
