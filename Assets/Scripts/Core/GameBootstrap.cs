@@ -1460,6 +1460,7 @@ namespace Convergence.Core
             float dark = Art.Biomes.Biome.Darkness(Core.RunFormat.Depth(floor), IsBossFloor(floor));
             if (theme.Light != Art.Scenery.Daylight.None && theme.WindowPairs > 0) dark *= Tuning.Lighting.WindowFloorDarkness;
             Convergence.Art.Lighting.LightField.SetPlace(dark, Art.Biomes.Biome.Shade);
+            Combat.FightMarks.Begin(new Vector2(HalfWidth, HalfHeight));   // the last floor's marks are gone
             Debug.Log($"[Floor] {Art.Biomes.Biome.Current} | scenery {theme}");
         }
 
@@ -1538,6 +1539,7 @@ namespace Convergence.Core
             _state = State.Hub;
             Convergence.Audio.Ambience.Set(Convergence.Audio.Bed.Hub);
             Convergence.Art.Lighting.LightField.SetPlace(0f, Color.black);   // the hub is lit as it always was
+            Combat.FightMarks.Hide();
 
             // The roster is read before the room is built, because the couch is part of the room
             // and rebuilding it afterwards would pop characters into existence a frame late.
@@ -5056,6 +5058,14 @@ namespace Convergence.Core
                         Combat.Disintegration.At(h.transform, h.LastDamage);
                     else
                         Spr.Flash(h.transform.position, 0.9f, new Color(1f, 0.9f, 0.7f), 0.3f);
+                    // What it leaves on the floor - not for a body that came apart into light.
+                    if (!h.LastDamage.Disintegrates || !ReactiveWeaponDrawn())
+                    {
+                        var src = h.LastDamage.Source;
+                        Vector2 away = h.LastDamage.Knockback.sqrMagnitude > 1e-4f ? h.LastDamage.Knockback
+                                     : src != null ? (Vector2)(h.transform.position - src.transform.position) : Vector2.zero;
+                        Combat.FightMarks.Death(h.transform.position, enemy.Kind, away, enemy.Elite);
+                    }
                 }
 
                 _spireKilled += cost;

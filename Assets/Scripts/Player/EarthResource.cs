@@ -153,6 +153,7 @@ namespace Convergence.Player
             }
 
             Spr.Flash(transform.position, radius, ElementInfo.Tint(ElementType.Earth), 0.45f);
+            if (scale >= 1f) FightMarks.Crack(transform.position, radius * 0.6f);   // the quake, not its aftershocks
         }
 
         /// <summary>The quake once more, spending nothing (Twin Spark, Wellspring): the charge the

@@ -309,6 +309,7 @@ namespace Convergence.Enemies
                 return;
             }
 
+            Combat.FightMarks.Scorch(transform.position, Tuning.Enemy.MortarBlastRadius);
             if (_deflected) ExplodeOnEnemies();
             else if (_target != null)
             {

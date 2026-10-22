@@ -2029,6 +2029,7 @@ namespace Convergence.Enemies
             }
 
             Spr.Flash(transform.position, AttackRange, BombArt.Blast, 0.35f);
+            FightMarks.Scorch(transform.position, AttackRange);
             // The shell comes apart (the user's call): its plates fly loose.
             ShellBurst.Spawn(transform.position, BombArt.Plate(EnemyLooks.Of(Kind)), transform.parent);
 
@@ -2486,6 +2487,7 @@ namespace Convergence.Enemies
             Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Slam, transform.position);
             CancelTelegraph();
             GargoyleStruckAt = Time.time;
+            FightMarks.Crack(transform.position, Elite ? 1.2f : 0.8f);
 
             if (Elite)
             {

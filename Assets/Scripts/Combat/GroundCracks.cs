@@ -25,6 +25,7 @@ namespace Convergence.Combat
             go.transform.position = new Vector3(Mathf.Round(at.x * Ppu) / Ppu, Mathf.Round(at.y * Ppu) / Ppu, 0f);
             var c = go.AddComponent<GroundCracks>();
             c.Draw(Mathf.RoundToInt(at.x * 97f) * 31 + Mathf.RoundToInt(at.y * 89f));
+            FightMarks.Crack(at, 0.45f);   // a smaller scar stays after these fade
             return c;
         }
 

@@ -61,6 +61,7 @@ namespace Convergence.Enemies
             DamageNumbers.Attach(hp);
             Hitstop.Attach(hp);
             Convergence.Audio.CombatSounds.AttachEnemy(hp);
+            FightMarks.AttachEnemy(hp, kind);   // a heavy blow spatters
             CameraKick.Attach(hp);
             FinisherHits.Attach(hp);
 

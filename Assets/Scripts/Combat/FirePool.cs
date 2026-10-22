@@ -46,6 +46,7 @@ namespace Convergence.Combat
             if (parent != null) go.transform.SetParent(parent, false);
             go.transform.position = pos;
 
+            FightMarks.Scorch(pos, radius);   // the ground it burns stays burnt
             var pool = go.AddComponent<FirePool>();
             pool._radius = Mathf.Max(0.1f, radius);
             pool._tickInterval = 0.35f;

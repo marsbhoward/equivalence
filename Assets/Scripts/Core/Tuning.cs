@@ -4044,6 +4044,43 @@ namespace Convergence.Core
             public static readonly UnityEngine.Color CandleColor = new(1f, 0.72f, 0.38f);
         }
 
+        /// <summary>Marks the fight leaves (Combat.FightMarks): scorch, ichor, cracks, chips - kept
+        /// until the floor ends. A picture only.</summary>
+        public static class FightMarks
+        {
+            /// <summary>No texel of marks goes past this - the floor always shows through.</summary>
+            public const float MaxAlpha = 0.9f;
+            /// <summary>Marks lie on the ground: their height against their width.</summary>
+            public const float GroundSquash = 0.7f;
+            /// <summary>A scorch against the blast's own radius, and its largest.</summary>
+            public const float ScorchScale = 0.8f, ScorchMaxRadius = 2.2f;
+            public const float CrackMaxSize = 1.6f;
+            /// <summary>A death's pool and a heavy blow's spatter, world units; drops flung from each.</summary>
+            public const float PoolRadius = 0.34f, SpatterRadius = 0.12f;
+            public const int DeathDrops = 9, SpatterDrops = 5;
+            /// <summary>A Watcher's stone chips.</summary>
+            public const float ChipCount = 10f, ChipSpread = 0.45f;
+
+            public static readonly UnityEngine.Color SootCore = new(0.06f, 0.05f, 0.05f, 0.86f);
+            public static readonly UnityEngine.Color SootMid = new(0.11f, 0.08f, 0.06f, 0.68f);
+            public static readonly UnityEngine.Color SootEdge = new(0.15f, 0.11f, 0.08f, 0.45f);
+            public static readonly UnityEngine.Color Ash = new(0.50f, 0.47f, 0.43f, 0.55f);
+            public static readonly UnityEngine.Color CrackDark = new(0.13f, 0.11f, 0.09f, 0.85f);
+            public static readonly UnityEngine.Color CrackLip = new(1f, 0.94f, 0.84f, 0.25f);
+            public static readonly UnityEngine.Color Chip = new(0.34f, 0.32f, 0.30f, 1f);
+            public static readonly UnityEngine.Color ChipLit = new(0.52f, 0.50f, 0.47f, 1f);
+            public static readonly UnityEngine.Color ChipShadow = new(0.08f, 0.07f, 0.06f, 0.6f);
+
+            // Ichor by kind - creatures, none of it red.
+            public static readonly UnityEngine.Color IchorBrute = new(0.20f, 0.17f, 0.11f, 0.88f);     // grave tar
+            public static readonly UnityEngine.Color IchorStinger = new(0.42f, 0.20f, 0.05f, 0.88f);   // cinder
+            public static readonly UnityEngine.Color IchorEye = new(0.22f, 0.24f, 0.36f, 0.88f);       // storm slate
+            public static readonly UnityEngine.Color IchorHound = new(0.14f, 0.16f, 0.19f, 0.88f);     // grey-black
+            public static readonly UnityEngine.Color IchorLion = new(0.22f, 0.40f, 0.10f, 0.88f);      // green
+            public static readonly UnityEngine.Color IchorBell = new(0.12f, 0.26f, 0.30f, 0.88f);      // brine
+            public static readonly UnityEngine.Color IchorSalamander = new(0.50f, 0.27f, 0.04f, 0.88f); // amber
+        }
+
         /// <summary>
         /// Enemies UNAWARE until they notice the player (EnemyController's Idle partial) - the floor's
         /// first wave only. A gameplay dial as well as atmosphere: an unaware body can be struck first.
