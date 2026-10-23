@@ -4056,6 +4056,30 @@ namespace Convergence.Core
         /// Strength 0 at <see cref="StartShare"/> of the run's final floor, 1 on the final floor.
         /// A picture only.
         /// </summary>
+        /// <summary>Background life (Art.Biomes.Wildlife) - a picture only, nothing here touches play.</summary>
+        public static class Wildlife
+        {
+            public const bool Enabled = true;
+            /// <summary>Nothing runs out until the floor has been open this long.</summary>
+            public const float FirstAfter = 2.5f;
+            /// <summary>No runner starts or passes this close to the player; one this close bolts.</summary>
+            public const float SpawnClearance = 3f, FleeRadius = 2.2f;
+
+            public const int Rats = 2;
+            public const float RatSpeed = 2.6f, RatBolt = 2.4f, RatWallInset = 0.35f;
+            public static readonly UnityEngine.Vector2 RatGap = new(5f, 14f), BatGap = new(16f, 34f), LizardGap = new(8f, 18f), FishGap = new(6f, 15f);
+            public const float BatSpeed = 4.5f, LizardSpeed = 3.2f;
+            public const float FishJumpHeight = 0.45f, FishJumpLength = 0.7f, FishJumpSeconds = 0.55f;
+
+            public const int DustMotes = 18, Leaves = 9, Moths = 6, Birds = 4, Feathers = 4, SaltStreaks = 7, Glints = 8;
+            /// <summary>A moth only circles a light at least this wide (a fire pit, the spire - not a firefly).</summary>
+            public const float MothLampRadius = 1.5f;
+            public const float SaltStreakAlpha = 0.4f;
+            /// <summary>How high the birds wheel over their shadows, and where the shadow falls (the light is up and left).</summary>
+            public const float BirdHeight = 2.4f, BirdShadowAlpha = 0.3f;
+            public static readonly UnityEngine.Vector2 BirdShadowOffset = new(0.5f, -0.4f);
+        }
+
         public static class Nigredo
         {
             public const float StartShare = 0.75f;
@@ -4493,6 +4517,10 @@ namespace Convergence.Core
 
             /// <summary>World units walked per frame of the Chaser's four-frame walk, so its feet
             /// keep pace with its real speed (0.3 at 1.47 u/s is ~0.2 s a frame).</summary>
+            /// <summary>Seconds per standing pose of the walkers' idle breath (0, 1, 2, 1), and the
+            /// Gale Hound's pant - quicker.</summary>
+            public const float IdleBreathSeconds = 0.32f;
+            public const float IdlePantSeconds = 0.14f;
             public const float ChaserStrideFrameUnits = 0.3f;
 
             /// <summary>
@@ -4517,10 +4545,6 @@ namespace Convergence.Core
 
             /// <summary>Bolts in an elite Ranged's volley, and the total spread across them.</summary>
             public const int VolleyBolts = 3;
-            /// <summary>Seconds per standing pose of the walkers' idle breath (0, 1, 2, 1), and the
-            /// Gale Hound's pant - quicker.</summary>
-            public const float IdleBreathSeconds = 0.32f;
-            public const float IdlePantSeconds = 0.14f;
             public const float VolleySpreadDegrees = 26f;
 
             /// <summary>Delayed shards an elite Bomb leaves where it stood.</summary>

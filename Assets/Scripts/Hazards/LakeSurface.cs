@@ -453,6 +453,17 @@ namespace Convergence.Hazards
             _ripples[i] = r;
         }
 
+        /// <summary>Something small broke the surface at <paramref name="p"/> (a fish - the
+        /// Wildlife): rings only, no burst, as big as the water allows up to <paramref name="size"/>.</summary>
+        public static void RippleAt(Vector2 p, float size)
+        {
+            var lake = At(p);
+            if (lake == null) return;
+            float room = Room(p, size);
+            lake.Emit(p, room * 0.6f, 0.6f, 0f);
+            lake.Emit(p, room, 0.45f, 0.14f);
+        }
+
         /// <summary>
         /// Something went into the water at <paramref name="p"/>: a white burst and rings
         /// spreading from it, each kept as big as the water around it allows (asked of Arena, the

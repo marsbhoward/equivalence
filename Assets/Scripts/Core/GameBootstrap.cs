@@ -1468,6 +1468,7 @@ namespace Convergence.Core
             Convergence.Art.Lighting.LightField.SetPlace(Art.Biomes.Nigredo.Darkness(dark), Art.Biomes.Nigredo.Shade(Art.Biomes.Biome.Shade));
             Art.Biomes.Nigredo.Dress(_arenaRoot, new Vector2(HalfWidth, HalfHeight), seed);
             Art.Biomes.Arrival.Gate(_arenaRoot, new Vector2(HalfWidth, HalfHeight), seed);   // the way the player came in
+            Art.Biomes.Wildlife.Dress(_arenaRoot, new Vector2(HalfWidth, HalfHeight), seed + 59);   // what lives here
             Combat.FightMarks.Begin(new Vector2(HalfWidth, HalfHeight));   // the last floor's marks are gone
             Debug.Log($"[Floor] {Art.Biomes.Biome.Current} | scenery {theme}");
         }
