@@ -4,7 +4,7 @@ using UnityEngine;
 namespace Convergence.Enemies
 {
     /// <summary>The Mortar's frames, in the order <see cref="MortarArt.For"/> returns them.</summary>
-    public enum MortarFrame { Walk0, Walk1, Walk2, Walk3, Plant0, Plant1, Lob, Ready, Breath0, Breath1, Rest, Jolt }
+    public enum MortarFrame { Walk0, Walk1, Walk2, Walk3, Plant0, Plant1, Lob, Ready, Breath0, Breath1, Rest, Jolt, Idle0, Idle1, Idle2 }
 
     /// <summary>
     /// The Mortar as the SALAMANDER (the user's sign-off, 2026-10-19, from the mock-up at
@@ -112,6 +112,11 @@ namespace Convergence.Enemies
             new() { Rear = -0.1f, HeadRot = 2, Jaw = 38, Heat = 3, Eye = 3, Gill = 0.8f, Flare = 2, Bob = -0.3f, Tail = 1 },
             new() { Heat = 0, Eye = 1, Jaw = 10, HeadRot = -8, Bob = -0.2f },
             new() { Rear = 0.2f, HeadRot = 25, Jaw = 20, Heat = 0, Eye = 0, Chips = true, Seed = 2, Tail = 2 },
+            // Idle0-2: at rest (0, 1, 2, 1) - the tail sweeping slowly, the head bobbing, the
+            // throat dark. Nothing reared, no gills flared, no heat (its tells).
+            new() { HeadRot = -4, Tail = -0.8f },
+            new() { HeadRot = -2.5f, Tail = 0f, Bob = 0.15f },
+            new() { HeadRot = -1, Tail = 0.8f, Bob = 0.3f },
         };
 
         // ---------------------------------------------------------------- cache

@@ -21,6 +21,8 @@ namespace Convergence.Enemies
         protected override Color[] Reserved => ChaserArt.Reserved;
         protected override Sprite[] Build(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome) => ChaserArt.For(look, elite, biome);
 
+        static ChaserFrame Breathing(int k) => k == 0 ? ChaserFrame.Idle : k == 1 ? ChaserFrame.Idle1 : ChaserFrame.Idle2;
+
         void LateUpdate()
         {
             if (_enemy == null || _sr == null) return;
@@ -46,7 +48,8 @@ namespace Convergence.Enemies
                 else
                 {
                     int step = Stride(Tuning.Enemy.ChaserStrideFrameUnits, 4);
-                    frame = step < 0 ? ChaserFrame.Idle : (ChaserFrame)((int)ChaserFrame.Walk0 + step);
+                    frame = step >= 0 ? (ChaserFrame)((int)ChaserFrame.Walk0 + step)
+                        : Breathing(Breath(Tuning.Enemy.IdleBreathSeconds));
                 }
             }
 

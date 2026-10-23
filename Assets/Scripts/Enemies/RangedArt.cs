@@ -4,7 +4,7 @@ using UnityEngine;
 namespace Convergence.Enemies
 {
     /// <summary>The Ranged's frames, in the order <see cref="RangedArt.For"/> returns them.</summary>
-    public enum RangedFrame { Walk0, Walk1, Walk2, Walk3, Idle, Aim, Locked, LockedVolley, Fire, Kite0, Kite1 }
+    public enum RangedFrame { Walk0, Walk1, Walk2, Walk3, Idle, Aim, Locked, LockedVolley, Fire, Kite0, Kite1, Idle1, Idle2 }
 
     /// <summary>
     /// The Ranged as a CINDER STINGER (the user's sign-off, 2026-10-18, from the mock-up at
@@ -105,6 +105,10 @@ namespace Convergence.Enemies
             P(a0: 92, curl: -12, rear: 0.4f, bx: -1, swell: 1.3f, ember: 0, eye: 3, burst: true, ax: 1.4f, bxg: -1),
             P(a0: 122, curl: -12, bx: -0.5f, by: 0.4f, swell: 1.6f, ember: 1, eye: 2, ax: -1.8f, bxg: 1.2f, byg: 1.3f),
             P(a0: 124, curl: -12, bx: -0.5f, swell: 1.6f, ember: 1, eye: 2, ax: 1.2f, ay: 1.3f, bxg: -1.8f),
+            // Idle1, Idle2: the tail weaving over its back while it stands (Idle, 1, 2, 1) - never
+            // as far as the aim's curl, and the ember never brightens (the tell).
+            P(a0: 111, curl: -16.5f, by: 0.3f),
+            P(a0: 113, curl: -18, by: 0.5f, swell: 1.95f),
         };
 
         // ---------------------------------------------------------------- cache

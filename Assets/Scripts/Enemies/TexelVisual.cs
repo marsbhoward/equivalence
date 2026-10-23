@@ -91,6 +91,15 @@ namespace Convergence.Enemies
 
         protected void Rest() => _hasLast = false;
 
+        /// <summary>Which of three standing poses to show (0, 1, 2, 1 - a breath), each body on its
+        /// own phase so a pack never breathes as one.</summary>
+        protected int Breath(float secondsPerPose)
+        {
+            float phase = (Mathf.Abs(GetEntityId().GetHashCode()) % 997) * 0.013f;
+            int k = Mathf.FloorToInt(Time.time / secondsPerPose + phase * 4f) & 3;
+            return k == 3 ? 1 : k;
+        }
+
         /// <summary>Turns toward the target, with a dead zone so a target straight above or below
         /// does not flip it every frame.</summary>
         protected void Face()

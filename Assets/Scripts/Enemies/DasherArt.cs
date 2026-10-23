@@ -7,7 +7,7 @@ namespace Convergence.Enemies
     public enum DasherFrame
     {
         Run0, Run1, Run2, Run3, Idle, Tell, Dash0, Dash1, Braced,
-        Rush0, Rush1, Bite, Spent0, Spent1, Leap, Land, Reel0, Reel1,
+        Rush0, Rush1, Bite, Spent0, Spent1, Leap, Land, Reel0, Reel1, Idle1, Idle2,
     }
 
     /// <summary>
@@ -130,6 +130,10 @@ namespace Convergence.Enemies
                     Fn = V(35.5f, 1), Ff = V(27, 1), Hn = V(23, 1), Hf = V(13, 1), Wind = 0.35f, WindLen = -4, TailLift = -2, Fx = Fx.Daze, Seed = 1 },
             new() { Hip = V(18, 11.2f), Sh = V(31, 9.4f), Tilt = -4, Neck = V(0.5f, -3.5f), HeadRot = -18, Jaw = 6, Glow = 0, Ear = V(0.5f, -1.5f), // Reel1
                     Fn = V(35.5f, 1), Ff = V(27, 1), Hn = V(23, 1), Hf = V(13, 1), Wind = 0.3f, WindLen = -4, TailLift = -2, Phase = 40, Fx = Fx.Daze, Seed = 2 },
+            // Idle1, Idle2: panting where it stands (Idle, 1, 2, 1) - the chest heaving, the jaw
+            // working, the wind off it stirring. Never the tell's crouch or the head dropped.
+            new() { Sh = V(31, 12.8f), Jaw = 7, Phase = 20, TailLift = 0.5f },
+            new() { Hip = V(18, 12.2f), Sh = V(31, 13.1f), Jaw = 13, Phase = 40, TailLift = 1 },
         };
 
         // ---------------------------------------------------------------- cache

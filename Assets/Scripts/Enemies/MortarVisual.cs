@@ -67,7 +67,8 @@ namespace Convergence.Enemies
             {
                 int step = Stride(StrideFrameUnits, 4);
                 walked = true;
-                frame = step < 0 ? MortarFrame.Walk0 : (MortarFrame)((int)MortarFrame.Walk0 + step);
+                frame = step >= 0 ? (MortarFrame)((int)MortarFrame.Walk0 + step)
+                    : Breath(Tuning.Enemy.IdleBreathSeconds) switch { 0 => MortarFrame.Idle0, 1 => MortarFrame.Idle1, _ => MortarFrame.Idle2 };
                 // fleeing: it runs the way it is going; otherwise it keeps its eyes on you
                 var target = _enemy.Target;
                 Vector2 v = _rb != null ? _rb.linearVelocity : Vector2.zero;

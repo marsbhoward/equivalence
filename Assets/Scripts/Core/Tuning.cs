@@ -4517,6 +4517,10 @@ namespace Convergence.Core
 
             /// <summary>Bolts in an elite Ranged's volley, and the total spread across them.</summary>
             public const int VolleyBolts = 3;
+            /// <summary>Seconds per standing pose of the walkers' idle breath (0, 1, 2, 1), and the
+            /// Gale Hound's pant - quicker.</summary>
+            public const float IdleBreathSeconds = 0.32f;
+            public const float IdlePantSeconds = 0.14f;
             public const float VolleySpreadDegrees = 26f;
 
             /// <summary>Delayed shards an elite Bomb leaves where it stood.</summary>

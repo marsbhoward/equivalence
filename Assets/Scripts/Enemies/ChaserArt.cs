@@ -5,7 +5,7 @@ using UnityEngine;
 namespace Convergence.Enemies
 {
     /// <summary>The Chaser's frames, in the order <see cref="ChaserArt.For"/> returns them.</summary>
-    public enum ChaserFrame { Walk0, Walk1, Walk2, Walk3, Idle, Raise, Cocked, Strike, Recover, StillLit, Riposte }
+    public enum ChaserFrame { Walk0, Walk1, Walk2, Walk3, Idle, Raise, Cocked, Strike, Recover, StillLit, Riposte, Idle1, Idle2 }
 
     /// <summary>
     /// The Chaser as a GRAVE BRUTE (the user's sign-off, 2026-10-18, from the mock-up at
@@ -119,6 +119,10 @@ namespace Convergence.Enemies
             P(bx: 2, by: -1.5f, hx: 1, hy: -1.2f, u: -22, f: -80, fu: -60, ff: -20, footNx: 28.5f, footFx: 14, glow: 3, eye: 3),
             P(bx: 1.5f, hx: 0.5f, hy: 0.5f, u: 30, f: 58, fu: -50, ff: -10, footNx: 28, footFx: 14,
               glow: 2, eye: 3, smear: (int)ChaserFrame.StillLit),
+            // Idle1, Idle2: the breath it takes standing (Idle, 1, 2, 1) - the chest rising and the
+            // head with it, the arms hanging a touch looser. Feet planted; nothing raised (the tell).
+            P(by: 0.5f, hy: 0.3f, u: -51, fu: -74),
+            P(by: 1f, hy: 0.7f, u: -50, f: -16, fu: -72, ff: -43),
         };
 
         // ---------------------------------------------------------------- cache

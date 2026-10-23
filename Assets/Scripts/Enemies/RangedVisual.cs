@@ -53,7 +53,8 @@ namespace Convergence.Enemies
             {
                 Face();
                 int step = Stride(Tuning.Enemy.RangedStrideFrameUnits, 4);
-                frame = step < 0 ? RangedFrame.Idle : (RangedFrame)((int)RangedFrame.Walk0 + step);
+                frame = step >= 0 ? (RangedFrame)((int)RangedFrame.Walk0 + step)
+                    : Breath(Tuning.Enemy.IdleBreathSeconds) switch { 0 => RangedFrame.Idle, 1 => RangedFrame.Idle1, _ => RangedFrame.Idle2 };
             }
             Show((int)frame);
         }

@@ -96,7 +96,8 @@ namespace Convergence.Enemies
                 {
                     Face();
                     int step = Stride(Tuning.Enemy.DasherStrideFrameUnits, 4);
-                    frame = step < 0 ? DasherFrame.Idle : (DasherFrame)((int)DasherFrame.Run0 + step);
+                    frame = step >= 0 ? (DasherFrame)((int)DasherFrame.Run0 + step)
+                        : Breath(Tuning.Enemy.IdlePantSeconds) switch { 0 => DasherFrame.Idle, 1 => DasherFrame.Idle1, _ => DasherFrame.Idle2 };
                     break;
                 }
             }
