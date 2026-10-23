@@ -4421,9 +4421,10 @@ namespace Convergence.Core
             /// It had none - it simply dealt damage the frame its cooldown expired - which made it
             /// the other enemy with nothing to interrupt. Short, because a chaser that telegraphs
             /// slowly stops being pressure; long enough that the swing is a thing that happens
-            /// rather than a state change.
+            /// rather than a state change. Raised 0.35 -> 0.42 with the reach (the user's call,
+            /// 2026-10-22): a longer swing needs a longer read.
             /// </summary>
-            public const float ChaserTelegraphDuration = 0.35f;
+            public const float ChaserTelegraphDuration = 0.42f;
 
             /// <summary>
             /// The beat after a Chaser swings - AND after a flinched one does not.
@@ -4664,8 +4665,9 @@ namespace Convergence.Core
             /// place, so its cycle is timed, not paced by distance.</summary>
             public const float BombDriftFrameSeconds = 0.13f;
 
-            /// <summary>How close an elite must be to land its hit, world units.</summary>
-            public const float ChaserAttackRange = 1.5f;
+            /// <summary>How close a Chaser must be to start its swing and to land it, world units.
+            /// 1.5 -> 1.75 (the user's call, 2026-10-22).</summary>
+            public const float ChaserAttackRange = 1.75f;
 
             /// <summary>Seconds between an enemy's attacks. Shared by bombs and elites.</summary>
             public const float AttackInterval = 1.3f;

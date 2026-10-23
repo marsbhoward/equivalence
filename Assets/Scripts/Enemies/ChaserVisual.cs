@@ -34,7 +34,7 @@ namespace Convergence.Enemies
             bool swinging = true;
             float tele = _enemy.TelegraphRemaining;
             if (tele > 0f)
-                frame = tele <= Tuning.Enemy.ChaserTelegraphDuration * Tuning.Enemy.ChaserCockedShare
+                frame = tele <= _enemy.TelegraphDuration * Tuning.Enemy.ChaserCockedShare
                     ? ChaserFrame.Cocked : ChaserFrame.Raise;
             else if (now - _enemy.SwungAt < strike) frame = ChaserFrame.Strike;
             else if (riposteShown) frame = ChaserFrame.Riposte;

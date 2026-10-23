@@ -1387,7 +1387,8 @@ namespace Convergence.Enemies
         void BeginChaserTelegraph()
         {
             Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Growl, transform.position);
-            _telegraphTimer = Tuning.Enemy.ChaserTelegraphDuration;
+            // The floor-scaled wind-up (EnemyFactory, FloorDifficulty.Telegraph), as every kind's.
+            _telegraphTimer = TelegraphDuration;
         }
 
         void SwingChaser()
