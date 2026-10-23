@@ -29,7 +29,6 @@ namespace Convergence.Puzzles
         public Look Current => _look;
         public Color Tint => _tint;
 
-        static readonly Color Stone = new(0.17f, 0.17f, 0.21f);
         static readonly Color DeadGrey = new(0.26f, 0.26f, 0.29f);
         static readonly Color WrongRed = new(1f, 0.25f, 0.2f);
 
@@ -46,8 +45,14 @@ namespace Convergence.Puzzles
             p._radius = radius;
 
             p._glow = Quad(go.transform, "glow", radius * 4.4f, Spr.Glow, Order);
-            p._base = Quad(go.transform, "base", radius * 2f, Spr.Circle, Order + 1);
-            p._rim = Quad(go.transform, "rim", radius * 2.1f, Spr.ThinRing, Order + 2);
+            // The stone and its light's channel in the place's material (PlateArt) - drawn at their
+            // own size, so scale 1.
+            var place = Art.Biomes.Biome.Current;
+            p._base = Quad(go.transform, "base", 1f, PlateArt.Face(place, radius), Order + 1);
+            p._rim = Quad(go.transform, "rim", 1f, PlateArt.Channel(place, radius), Order + 2);
+            // A lit stone lights the room round it, borrowing the glow's colour and strength.
+            var light = Art.Lighting.Glow.Attach(p._glow.gameObject, radius * 3.2f, Color.white);
+            light.Follow = p._glow;
             if (glyph != null) p._glyph = Quad(go.transform, "glyph", radius * 1.15f, glyph, Order + 3);
 
             // Pips on a small ring, the first at the top - a count reads at a glance where a
@@ -56,7 +61,7 @@ namespace Convergence.Puzzles
             {
                 float a = Mathf.PI * 0.5f - i * Mathf.PI * 2f / pips;
                 float r = pips == 1 ? 0f : radius * 0.42f;
-                var pip = Quad(go.transform, $"pip{i}", radius * 0.26f, Spr.Circle, Order + 3);
+                var pip = Quad(go.transform, $"pip{i}", 1f, PlateArt.Dot(radius * 0.26f), Order + 3);
                 pip.transform.localPosition = new Vector3(Mathf.Cos(a) * r, Mathf.Sin(a) * r, 0f);
                 p._pips.Add(pip);
             }
@@ -92,17 +97,17 @@ namespace Convergence.Puzzles
             {
                 case Look.Lit:
                     rim = _tint; mark = Color.Lerp(_tint, Color.white, 0.35f);
-                    face = Color.Lerp(Stone, _tint, 0.28f); glow = 0.5f; break;
+                    face = Color.Lerp(Color.white, _tint, 0.3f); glow = 0.5f; break;
                 case Look.Dead:
                     rim = DeadGrey; mark = new Color(DeadGrey.r, DeadGrey.g, DeadGrey.b, 0.5f);
-                    face = Stone * 0.8f; glow = 0f; break;
+                    face = new Color(0.72f, 0.72f, 0.74f); glow = 0f; break;
                 case Look.Wrong:
                     rim = WrongRed; mark = WrongRed;
-                    face = Color.Lerp(Stone, WrongRed, 0.25f); glow = 0.45f; break;
+                    face = Color.Lerp(Color.white, WrongRed, 0.3f); glow = 0.45f; break;
                 default:
                     rim = new Color(_tint.r * 0.55f, _tint.g * 0.55f, _tint.b * 0.55f, 0.85f);
                     mark = new Color(_tint.r, _tint.g, _tint.b, 0.55f);
-                    face = Stone; glow = 0f; break;
+                    face = Color.white; glow = 0f; break;
             }
             face.a = 1f;
             var g = look == Look.Wrong ? WrongRed : _tint;

@@ -205,7 +205,6 @@ namespace Convergence.Hazards
         const int OrderRing = SortingOrders.PitBase + 6;
 
         static readonly Color Stone = new(0.24f, 0.25f, 0.31f);
-        static readonly Color StoneLit = new(0.36f, 0.37f, 0.45f);
         static readonly Color LineCore = new(1f, 0.92f, 0.85f);
         static readonly Color LineEdge = new(1f, 0.25f, 0.18f);
         static readonly Color DomeTint = new(0.75f, 0.88f, 1f);
@@ -272,21 +271,13 @@ namespace Convergence.Hazards
             sink.transform.SetParent(body.transform, false);
             _sinkRoot = sink.transform;
 
-            var shaft = Quad(sink, Spr.Square, Stone, new Vector2(w, h), 5, "shaft");
-            shaft.transform.localPosition = new Vector3(0f, h * 0.5f, 0f);
-            // Lit face down the left: the same top-left key light the pits' near wall assumes.
-            var lit = Quad(sink, Spr.Square, StoneLit, new Vector2(w * 0.32f, h), 6, "lit");
-            lit.transform.localPosition = new Vector3(-w * 0.34f, h * 0.5f, 0f);
-            // The capstone: a diamond (a square turned 45) sitting on the shaft's top edge.
-            var cap = Quad(sink, Spr.Square, StoneLit, Vector2.one * (w * 0.72f), 6, "cap");
-            cap.transform.localPosition = new Vector3(0f, h, 0f);
-            cap.transform.localRotation = Quaternion.Euler(0f, 0f, 45f);
-            var plinth = Quad(sink, Spr.Square, Color.Lerp(Stone, Color.black, 0.2f),
-                              new Vector2(w * 1.35f, w * 0.35f), 6, "plinth");
-            plinth.transform.localPosition = new Vector3(0f, w * 0.17f, 0f);
+            // The stone itself, in the place's material (ColumnArt.SpireStone): its groove and the
+            // socket the core sits in are cut in the picture, the light below is laid over them.
+            var stone = Quad(sink, Hazards.ColumnArt.SpireStone(Art.Biomes.Biome.Current), Color.white, Vector2.one, 5, "stone");
+            stone.transform.localPosition = Vector3.zero;
 
             float mid = h * 0.5f;
-            float chanW = w * 0.14f;
+            float chanW = Hazards.ColumnArt.SpireGrooveWidth;
             // The grooves run the shaft's full length always, in the boon's colour sunk into the
             // stone - the spire reads as its boon from across the room, before it is touched.
             float grooveLen = h * 0.5f - 0.12f;
@@ -298,7 +289,7 @@ namespace Convergence.Hazards
             _channelDown = Quad(sink, Spr.Square, Color.clear, new Vector2(chanW, 0.01f), 7, "channel.down");
             _coreGlow = Quad(sink, Spr.Glow, Color.clear, Vector2.one * (w * 2.2f), 8, "core.glow");
             _coreGlow.transform.localPosition = new Vector3(0f, mid, 0f);
-            _core = Quad(sink, Spr.Circle, Color.clear, Vector2.one * (w * 0.62f), 9, "core");
+            _core = Quad(sink, Hazards.ColumnArt.SpireCore, Color.clear, Vector2.one, 9, "core");
             _core.transform.localPosition = new Vector3(0f, mid, 0f);
             // The core lights the room in its boon's colour as it rises - borrowed from the core
             // itself, so the light can never disagree with the picture.
@@ -315,7 +306,8 @@ namespace Convergence.Hazards
             var maskGo = new GameObject("ground-line");
             maskGo.transform.SetParent(body.transform, false);
             maskGo.transform.localScale = new Vector3(w * 4f, sinkDepth * 2f, 1f);
-            maskGo.transform.localPosition = new Vector3(0f, sinkDepth, 0f);
+            // A little below the foot, so roots and crystals lying on the ground in front still show.
+            maskGo.transform.localPosition = new Vector3(0f, sinkDepth - MaskBelowFoot, 0f);
             var mask = maskGo.AddComponent<SpriteMask>();
             mask.sprite = Spr.Square;
 
@@ -335,8 +327,9 @@ namespace Convergence.Hazards
         }
 
         /// <summary>How far the shaft travels to be wholly under the floor - its height plus the
-        /// capstone's point above it.</summary>
-        static float SinkDepth => Tuning.Spire.BodyHeight + Tuning.Spire.BodyRadius * 1.5f * 0.6f;
+        /// tallest point above it (the salt\n        /// crystal's tip, the sky ruin's floating pyramidion) and what lies on the ground in front.</summary>
+        static float SinkDepth => Tuning.Spire.BodyHeight + 0.6f + MaskBelowFoot;
+        const float MaskBelowFoot = 0.12f;
 
         void BuildLines()
         {
