@@ -66,6 +66,11 @@ namespace Convergence.Enemies
         /// <summary>The bolt's orange (EnemyProjectile, the ground line) - the gland's fire.</summary>
         static readonly Color[] Ember = TexelRig.Hex("#4a2210", "#d0601e", "#ff8c26", "#ffe2b0");
 
+        /// <summary>Colours the biome weathering never touches - the glows and tells (CreatureWeathering).</summary>
+        internal static Color[] Reserved => _reserved ??= Concat(Violet, Ember, TexelRig.Hex("#3a1a0c", "#7a3414", "#b8561c", "#e58a3a"));
+        static Color[] _reserved;
+        static Color[] Concat(params Color[][] parts) { var l = new System.Collections.Generic.List<Color>(); foreach (var p in parts) l.AddRange(p); return l.ToArray(); }
+
         // ---------------------------------------------------------------- poses
 
         struct Pose
@@ -107,14 +112,18 @@ namespace Convergence.Enemies
         static readonly Dictionary<int, Sprite[]> _cache = new();
 
         /// <summary>Every frame of one look and tier, indexed by <see cref="RangedFrame"/>.</summary>
-        public static Sprite[] For(EnemyLook look, bool elite)
+        public static Sprite[] For(EnemyLook look, bool elite) => For(look, elite, Art.Biomes.BiomeKind.Tower);
+
+        /// <summary>The same, wearing the place's accent (CreatureAccents) - weathered after by
+        /// CreatureWeathering.</summary>
+        public static Sprite[] For(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome)
         {
-            int key = (look == EnemyLook.Automaton ? 1 : 0) | (elite ? 2 : 0);
+            int key = (look == EnemyLook.Automaton ? 1 : 0) | (elite ? 2 : 0) | ((int)biome << 2);
             if (_cache.TryGetValue(key, out var hit) && hit != null && hit.Length > 0 && hit[0] != null) return hit;
 
             var mat = look == EnemyLook.Automaton ? Ironbound : Chitin;
             var frames = new Sprite[Poses.Length];
-            for (int i = 0; i < frames.Length; i++) frames[i] = Render(i, mat, elite);
+            for (int i = 0; i < frames.Length; i++) frames[i] = Render(i, mat, elite, biome);
             _cache[key] = frames;
             return frames;
         }
@@ -190,6 +199,12 @@ namespace Convergence.Enemies
             Add(9f, Slot.Leg, TexelRig.Taper(Pt(gland, aim, gr * 0.7f), tip, 0.55f, 0.12f), sep: true);
             if (p.Halo) fx.Halos.Add((gland, gr * 1.9f));
             if (p.Burst) fx.Burst = (tip, 3.2f, aim);
+            // THE PLACE'S ACCENT on the thorax's top - under the curled tail, which draws over it
+            {
+                var th = new Vector2(16.4f + bx, 6.1f + by + p.Rear * 0.4f);
+                CreatureAccents.Shelves(rig, 3.5f, th + new Vector2(-1.4f, 2.5f), th + new Vector2(1.6f, 2.3f), 2.1f);
+                if (CreatureAccents.Sky) CreatureAccents.Feathers(rig, 3.5f, th + new Vector2(-0.6f, 2.2f), 3, 4.2f, 1f);
+            }
             return rig;
         }
 
@@ -232,7 +247,14 @@ namespace Convergence.Enemies
 
         // ---------------------------------------------------------------- raster
 
-        static Sprite Render(int frame, Mat mat, bool elite)
+        static Sprite Render(int frame, Mat mat, bool elite, Art.Biomes.BiomeKind biome)
+        {
+            CreatureAccents.Biome = biome; CreatureAccents.Frame = frame;
+            try { return RenderIn(frame, mat, elite, biome); }
+            finally { CreatureAccents.Biome = Art.Biomes.BiomeKind.Tower; }
+        }
+
+        static Sprite RenderIn(int frame, Mat mat, bool elite, Art.Biomes.BiomeKind biome)
         {
             var p = Poses[frame];
             float scale = elite ? EliteScale : 1f;
@@ -241,6 +263,8 @@ namespace Convergence.Enemies
             var rig = Build(p, mat, elite, fx);
 
             string name = $"enemy.ranged.{(mat.Iron ? "iron" : "chitin")}{(elite ? ".elite" : "")}.{(RangedFrame)frame}";
+
+            if (biome != Art.Biomes.BiomeKind.Tower) name += "." + biome;
             return TexelRig.Rasterise(name, rig, w, h, scale, mat.Out,
                 (in TexelRig.Cell c, int x, int y, int s) => ColourOf(c, x, y, mat, s),
                 new Vector2(PivotX, PivotY), (px, cw, ch, sc, filled) => Light(px, cw, ch, sc, filled, fx));

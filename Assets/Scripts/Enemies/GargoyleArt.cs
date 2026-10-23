@@ -71,6 +71,10 @@ namespace Convergence.Enemies
         /// <summary>The Gargoyle's stone-violet, dim to hot - the root's own colour.</summary>
         public static readonly Color[] Accent = TexelRig.Hex("#2a1d4a", "#5a3fa0", "#9e73f2", "#e2d4ff");
 
+        /// <summary>Colours the biome weathering never touches - the glows and tells (CreatureWeathering).</summary>
+        internal static Color[] Reserved => _reserved ??= Accent;
+        static Color[] _reserved;
+
         // cracks in each part's own frame, so they ride the body
         static readonly Vector2[][] TorsoCracks =
         {
@@ -128,14 +132,18 @@ namespace Convergence.Enemies
         static readonly Dictionary<int, Sprite[]> _cache = new();
 
         /// <summary>Every frame of one look and tier, indexed by <see cref="GargoyleFrame"/>.</summary>
-        public static Sprite[] For(EnemyLook look, bool elite)
+        public static Sprite[] For(EnemyLook look, bool elite) => For(look, elite, Art.Biomes.BiomeKind.Tower);
+
+        /// <summary>The same, wearing the place's accent (CreatureAccents) - weathered after by
+        /// CreatureWeathering.</summary>
+        public static Sprite[] For(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome)
         {
-            int key = (look == EnemyLook.Automaton ? 1 : 0) | (elite ? 2 : 0);
+            int key = (look == EnemyLook.Automaton ? 1 : 0) | (elite ? 2 : 0) | ((int)biome << 2);
             if (_cache.TryGetValue(key, out var hit) && hit != null && hit.Length > 0 && hit[0] != null) return hit;
 
             var mat = look == EnemyLook.Automaton ? Ironbound : Weathered;
             var frames = new Sprite[Poses.Length];
-            for (int i = 0; i < frames.Length; i++) frames[i] = Render(i, mat, elite);
+            for (int i = 0; i < frames.Length; i++) frames[i] = Render(i, mat, elite, biome);
             _cache[key] = frames;
             return frames;
         }
@@ -261,12 +269,32 @@ namespace Convergence.Enemies
             if (p.Halo) fx.Add((Fx.Halo, eye));
             if (p.Chips) fx.Add((Fx.Chips, Hd(0, 2)));
             if (p.Flare) fx.Add((Fx.Flare, eye));
+            // THE PLACE'S ACCENT on the plinth (the elite has none - it wears the weathering alone)
+            if (p.Plinth && !p.Fly)
+            {
+                if (CreatureAccents.Forest)
+                    CreatureAccents.Strands(rig, 0.35f, CreatureAccents.Kind.Moss,
+                        new[] { new Vector2(15.5f, 9.4f), new Vector2(19.5f, 9.2f), new Vector2(32.5f, 9.2f), new Vector2(36.8f, 9.4f) }, 5f, 0.95f);
+                if (CreatureAccents.Salt) CreatureAccents.Shelves(rig, 0.35f, new Vector2(14.6f, 12.1f), new Vector2(37.4f, 12f), 2.6f);
+                if (CreatureAccents.Sky)
+                {
+                    CreatureAccents.Ivy(rig, 0.35f, new Vector2(15.4f, 0.2f), new Vector2(17.6f, 10.4f), 1.1f);
+                    CreatureAccents.Ivy(rig, 0.35f, new Vector2(36.6f, 0.2f), new Vector2(34.2f, 9.8f), 1.1f);
+                }
+            }
             return rig;
         }
 
         // ---------------------------------------------------------------- raster
 
-        static Sprite Render(int frame, Mat mat, bool elite)
+        static Sprite Render(int frame, Mat mat, bool elite, Art.Biomes.BiomeKind biome)
+        {
+            CreatureAccents.Biome = biome; CreatureAccents.Frame = frame;
+            try { return RenderIn(frame, mat, elite, biome); }
+            finally { CreatureAccents.Biome = Art.Biomes.BiomeKind.Tower; }
+        }
+
+        static Sprite RenderIn(int frame, Mat mat, bool elite, Art.Biomes.BiomeKind biome)
         {
             var p = elite ? Grounded(Poses[frame]) : Poses[frame];
             float scale = (elite ? EliteScale : 1f) * RigScale;
@@ -275,6 +303,8 @@ namespace Convergence.Enemies
             var rig = Build(p, elite, fx);
 
             string name = $"enemy.gargoyle.{(mat.Iron ? "iron" : "weathered")}{(elite ? ".elite" : "")}.{(GargoyleFrame)frame}";
+
+            if (biome != Art.Biomes.BiomeKind.Tower) name += "." + biome;
             return TexelRig.Rasterise(name, rig, w, h, scale, mat.Out,
                 (in TexelRig.Cell c, int x, int y, int s) => ColourOf(c, x, y, s, mat, p),
                 new Vector2(PivotX, PivotY), (px, cw, ch, sc, filled) => Light(px, cw, ch, sc, filled, fx, p, mat));

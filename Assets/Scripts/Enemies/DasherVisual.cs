@@ -36,6 +36,8 @@ namespace Convergence.Enemies
         }
 
         protected override Sprite[] Build(EnemyLook look, bool elite) => DasherArt.For(look, elite);
+        protected override Color[] Reserved => DasherArt.Reserved;
+        protected override Sprite[] Build(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome) => DasherArt.For(look, elite, biome);
 
         float Scale => _elite ? 1.2f : 1f;
 

@@ -19,6 +19,8 @@ namespace Convergence.Enemies
         [SerializeField] protected EnemyLook _look;
         [SerializeField] protected bool _elite;
         [SerializeField] protected bool _faceLeft;
+        /// <summary>The place it was spawned in - its weathering and accents (CreatureWeathering).</summary>
+        [SerializeField] protected Art.Biomes.BiomeKind _biome;
         [SerializeField] float _stride;
 
         Sprite[] _frames;
@@ -40,6 +42,7 @@ namespace Convergence.Enemies
             v._sr = sr;
             v._look = look;
             v._elite = elite;
+            v._biome = Art.Biomes.Biome.Current;
             sr.color = Color.white;                        // the art bakes its own colour
             visual.transform.localScale = Vector3.one;     // and its own size
             v.Show(first);
@@ -49,9 +52,16 @@ namespace Convergence.Enemies
         /// <summary>Every frame of this look and tier, in the kind's frame order.</summary>
         protected abstract Sprite[] Build(EnemyLook look, bool elite);
 
+        /// <summary>The frames with this place's ACCENTS built into the rig - a kind that has them
+        /// overrides this; the weathering is laid over whatever comes back.</summary>
+        protected virtual Sprite[] Build(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome) => Build(look, elite);
+
+        /// <summary>The kind's tells and glows - never weathered (its Art's <c>Reserved</c>).</summary>
+        protected virtual Color[] Reserved => null;
+
         Sprite[] Frames => _frames != null && _frames.Length > 0 && _frames[0] != null
             ? _frames
-            : _frames = Build(_look, _elite);
+            : _frames = CreatureWeathering.For(Build(_look, _elite, _biome), _biome, Reserved);
 
         /// <summary>
         /// Advances the walk by the distance moved since the last call and returns which of

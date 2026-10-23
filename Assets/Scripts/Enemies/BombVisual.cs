@@ -18,6 +18,8 @@ namespace Convergence.Enemies
             => Attach<BombVisual>(visual, enemy, look, elite, (int)BombFrame.Idle);
 
         protected override Sprite[] Build(EnemyLook look, bool elite) => BombArt.For(look, elite);
+        protected override Color[] Reserved => BombArt.Reserved;
+        protected override Sprite[] Build(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome) => BombArt.For(look, elite, biome);
 
         void LateUpdate()
         {

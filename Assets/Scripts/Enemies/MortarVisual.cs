@@ -26,6 +26,8 @@ namespace Convergence.Enemies
         }
 
         protected override Sprite[] Build(EnemyLook look, bool elite) => MortarArt.For(look, elite);
+        protected override Color[] Reserved => MortarArt.Reserved;
+        protected override Sprite[] Build(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome) => MortarArt.For(look, elite, biome);
 
         static int Cycle(float seconds, int frames) => Mathf.FloorToInt(Time.time / seconds) % frames;
 

@@ -71,6 +71,10 @@ namespace Convergence.Enemies
         /// <summary>Magma, dim to hot - crimson, not the Stinger's orange.</summary>
         public static readonly Color[] Accent = TexelRig.Hex("#3a0a08", "#9a1c10", "#ff4a1c", "#ffd27a");
 
+        /// <summary>Colours the biome weathering never touches - the glows and tells (CreatureWeathering).</summary>
+        internal static Color[] Reserved => _reserved ??= Accent;
+        static Color[] _reserved;
+
         // cracks (Ironbound: the piping), each in its part's own frame
         static readonly Vector2[][] TorsoVeins =
         {
@@ -115,14 +119,18 @@ namespace Convergence.Enemies
         static readonly Dictionary<int, Sprite[]> _cache = new();
 
         /// <summary>Every frame of one look and tier, indexed by <see cref="MortarFrame"/>.</summary>
-        public static Sprite[] For(EnemyLook look, bool elite)
+        public static Sprite[] For(EnemyLook look, bool elite) => For(look, elite, Art.Biomes.BiomeKind.Tower);
+
+        /// <summary>The same, wearing the place's accent (CreatureAccents) - weathered after by
+        /// CreatureWeathering.</summary>
+        public static Sprite[] For(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome)
         {
-            int key = (look == EnemyLook.Automaton ? 1 : 0) | (elite ? 2 : 0);
+            int key = (look == EnemyLook.Automaton ? 1 : 0) | (elite ? 2 : 0) | ((int)biome << 2);
             if (_cache.TryGetValue(key, out var hit) && hit != null && hit.Length > 0 && hit[0] != null) return hit;
 
             var mat = look == EnemyLook.Automaton ? Ironbound : Basalt;
             var frames = new Sprite[Poses.Length];
-            for (int i = 0; i < frames.Length; i++) frames[i] = Render(i, mat, elite);
+            for (int i = 0; i < frames.Length; i++) frames[i] = Render(i, mat, elite, biome);
             _cache[key] = frames;
             return frames;
         }
@@ -244,12 +252,25 @@ namespace Convergence.Enemies
 
             if (p.Flare > 0) fx?.Add(new Fx { Kind = FxKind.Flare, C = Hd(5.6f, -0.8f), Dir = ha - p.Jaw * 0.35f, N = p.Flare });
             if (p.Chips) fx?.Add(new Fx { Kind = FxKind.Chips, C = Hd(-1, 2) });
+            // THE PLACE'S ACCENT along the spine (fungus or salt), or streamers off the shoulders
+            {
+                var dirB = (fs - hip).normalized;
+                CreatureAccents.Shelves(r_, 2.15f, mid + nrm * 3.3f - dirB * 2.2f, mid + nrm * 3.2f + dirB * 1.6f, 1.7f);
+                if (CreatureAccents.Sky) CreatureAccents.Ribbons(r_, 2.12f, mid + nrm * 3f + dirB * 2.5f, -1f, 2, 1.5f, 0.85f);
+            }
             return Hd(5.6f, -0.8f);
         }
 
         // ---------------------------------------------------------------- raster
 
-        static Sprite Render(int frame, Mat mat, bool elite)
+        static Sprite Render(int frame, Mat mat, bool elite, Art.Biomes.BiomeKind biome)
+        {
+            CreatureAccents.Biome = biome; CreatureAccents.Frame = frame;
+            try { return RenderIn(frame, mat, elite, biome); }
+            finally { CreatureAccents.Biome = Art.Biomes.BiomeKind.Tower; }
+        }
+
+        static Sprite RenderIn(int frame, Mat mat, bool elite, Art.Biomes.BiomeKind biome)
         {
             var p = Poses[frame];
             float scale = (elite ? EliteScale : 1f) * RigScale;
@@ -258,6 +279,8 @@ namespace Convergence.Enemies
             Build(p, mat.Iron, elite, out var rig, fx);
 
             string name = $"enemy.mortar.{(mat.Iron ? "iron" : "basalt")}{(elite ? ".elite" : "")}.{(MortarFrame)frame}";
+
+            if (biome != Art.Biomes.BiomeKind.Tower) name += "." + biome;
             return TexelRig.Rasterise(name, rig, w, h, scale, mat.Out,
                 (in TexelRig.Cell c, int x, int y, int s) => ColourOf(c, x, y, s, mat, p),
                 new Vector2(PivotX, PivotY), (px, cw, ch, sc, filled) => Light(px, cw, ch, sc, filled, fx, p, mat));

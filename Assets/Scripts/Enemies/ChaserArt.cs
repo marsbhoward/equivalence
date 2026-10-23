@@ -47,7 +47,7 @@ namespace Convergence.Enemies
 
         // ---------------------------------------------------------------- palettes
 
-        enum Slot { Skin, Bone, Cloth, Acc }
+        enum Slot { Skin, Bone, Cloth, Acc, Biome }
 
         sealed class Mat
         {
@@ -77,6 +77,10 @@ namespace Convergence.Enemies
         /// <summary>The Chaser's magenta (its old placeholder tint), dim to hot - the eye, the
         /// blade's vein, the smear.</summary>
         static readonly Color[] Acc = Hex("#4c1d2f", "#9a3358", "#f2598c", "#ffc6da");
+
+        /// <summary>Colours the biome weathering never touches - the glows and tells (CreatureWeathering).</summary>
+        internal static Color[] Reserved => _reserved ??= Acc;
+        static Color[] _reserved;
 
         static Color[] Hex(params string[] hex) => TexelRig.Hex(hex);
 
@@ -122,21 +126,27 @@ namespace Convergence.Enemies
         static readonly Dictionary<int, Sprite[]> _cache = new();
 
         /// <summary>Every frame of one look and tier, indexed by <see cref="ChaserFrame"/>.</summary>
-        public static Sprite[] For(EnemyLook look, bool elite)
+        public static Sprite[] For(EnemyLook look, bool elite) => For(look, elite, Art.Biomes.BiomeKind.Tower);
+
+        /// <summary>The same, with the place's ACCENT built into the rig (CreatureWeathering lays
+        /// the rest over it): a bracket fungus on the hump's back flank in the forest, a shelf of
+        /// salt cubes there on the flats, two torn streamers off the hump in the sky ruin. Parts
+        /// of the rig, so the body's own pose carries them and the arm and cleaver draw over them.</summary>
+        public static Sprite[] For(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome)
         {
-            int key = (look == EnemyLook.Automaton ? 1 : 0) | (elite ? 2 : 0);
+            int key = (look == EnemyLook.Automaton ? 1 : 0) | (elite ? 2 : 0) | ((int)biome << 2);
             if (_cache.TryGetValue(key, out var hit) && hit != null && hit.Length > 0 && hit[0] != null) return hit;
 
             var mat = look == EnemyLook.Automaton ? Ironbound : Rotten;
             var frames = new Sprite[Poses.Length];
-            for (int i = 0; i < frames.Length; i++) frames[i] = Render(i, mat, elite);
+            for (int i = 0; i < frames.Length; i++) frames[i] = Render(i, mat, elite, biome);
             _cache[key] = frames;
             return frames;
         }
 
         // ---------------------------------------------------------------- the rig
 
-        enum Decor { None, Hump, Chest, Belly, Cloth, Head, Jaw, Bevor, Limb, Blade }
+        enum Decor { None, Hump, Chest, Belly, Cloth, Head, Jaw, Bevor, Limb, Blade, Fungus, SaltShelf, Streamer }
 
         static Vector2 Pt(Vector2 p, float a, float l) => TexelRig.Pt(p, a, l);
         static float Rad(float d) => TexelRig.Rad(d);
@@ -168,7 +178,7 @@ namespace Convergence.Enemies
             wr = Pt(el, f, 6f);
         }
 
-        static TexelRig.Rig Build(in Pose p, Mat mat, bool elite)
+        static TexelRig.Rig Build(in Pose p, Mat mat, bool elite, Art.Biomes.BiomeKind biome, int frame)
         {
             var rig = new TexelRig.Rig();
             void Add(float order, Slot slot, TexelRig.Shape test, bool far = false, bool sep = false,
@@ -208,6 +218,33 @@ namespace Convergence.Enemies
             {
                 var b0 = new Vector2(humpX + Mathf.Cos(Rad(a)) * humpRx * 0.8f, humpY + Mathf.Sin(Rad(a)) * humpRy * 0.8f);
                 Add(7f, Slot.Bone, Taper(b0, Pt(b0, a + 8f, elite ? 4.8f : 3.3f), 1.25f, 0.2f));
+            }
+
+            // THE PLACE'S ACCENT, on the hump's back flank (below the spines, which stand at
+            // 105-160 degrees) or trailing off its top - placed off the hump, so it rides the pose.
+            if (biome == Art.Biomes.BiomeKind.Forest || biome == Art.Biomes.BiomeKind.SaltFlats)
+            {
+                var d = biome == Art.Biomes.BiomeKind.Forest ? Decor.Fungus : Decor.SaltShelf;
+                Add(7.5f, Slot.Biome, Ellipse(humpX - humpRx - 1.1f, humpY + 1.2f, 3.1f, 1.45f), decor: d);
+                Add(7.5f, Slot.Biome, Ellipse(humpX - humpRx - 0.4f, humpY - 2.3f, 2.3f, 1.15f), decor: d);
+            }
+            else if (biome == Art.Biomes.BiomeKind.SkyRuin)
+            {
+                // Behind the hump (order 2.5), so it grows from under it; the wind's phase moves
+                // with the walk's frames and holds through the attack's.
+                float ph = frame < 4 ? frame * 1.57f : frame * 0.9f;
+                var root = new Vector2(humpX - humpRx * 0.85f, humpY + humpRy * 0.45f);
+                for (int r = 0; r < 2; r++)
+                {
+                    int segs = r == 0 ? 4 : 3;
+                    var prev = root + new Vector2(0f, r * -2.2f);
+                    for (int k = 1; k <= segs; k++)
+                    {
+                        var next = root + new Vector2(-k * 1.9f, r * -2.2f + Mathf.Sin(k * 0.9f + ph + r * 1.7f) * 1.0f - k * 0.3f);
+                        Add(2.5f, Slot.Biome, Taper(prev, next, 1.35f - k * 0.12f, 1.25f - k * 0.16f), decor: Decor.Streamer);
+                        prev = next;
+                    }
+                }
             }
 
             // the head, sunk low and forward
@@ -262,13 +299,13 @@ namespace Convergence.Enemies
 
         // ---------------------------------------------------------------- raster
 
-        static Sprite Render(int frame, Mat mat, bool elite)
+        static Sprite Render(int frame, Mat mat, bool elite, Art.Biomes.BiomeKind biome)
         {
             var p = Poses[frame];
             float scale = RigScale * (elite ? EliteScale : 1f);
             int w = Mathf.RoundToInt(W * scale), h = Mathf.RoundToInt(H * scale);
             w += w & 1; // an even width mirrors onto a texel boundary
-            var rig = Build(p, mat, elite);
+            var rig = Build(p, mat, elite, biome, frame);
 
             TexelRig.Overlay smear = null;
             if (p.Smear >= 0)
@@ -292,7 +329,7 @@ namespace Convergence.Enemies
                 };
             }
 
-            string name = $"enemy.chaser.{(mat.Iron ? "iron" : "rotten")}{(elite ? ".elite" : "")}.{(ChaserFrame)frame}";
+            string name = $"enemy.chaser.{(mat.Iron ? "iron" : "rotten")}{(elite ? ".elite" : "")}{(biome != Art.Biomes.BiomeKind.Tower ? "." + biome : "")}.{(ChaserFrame)frame}";
             return TexelRig.Rasterise(name, rig, w, h, scale, mat.Out,
                 (in TexelRig.Cell c, int x, int y, int s) => ColourOf(c, x, y, mat, p, elite, s),
                 new Vector2(PivotX, PivotY), smear);
@@ -303,6 +340,18 @@ namespace Convergence.Enemies
             var part = c.Part;
             var hit = c.Hit;
             if (part.Slot == (int)Slot.Acc) return Acc[part.Level];
+            if (part.Slot == (int)Slot.Biome)
+                switch ((Decor)part.Decor)
+                {
+                    case Decor.Fungus:   // a bracket: lit cap on top, the gills dark beneath
+                        return hit.Ny > 0.35f ? CreatureWeathering.Fungus[3] : hit.Ny > -0.1f ? CreatureWeathering.Fungus[2]
+                             : hit.Ny > -0.55f ? CreatureWeathering.Fungus[1] : CreatureWeathering.Fungus[0];
+                    case Decor.SaltShelf:   // cubes: tops alternating, a pink face, shadow under
+                        return hit.Ny > 0.2f ? CreatureWeathering.SaltCubes[(x >> 1) % 2 == 0 ? 3 : 2]
+                             : hit.Ny > -0.5f ? CreatureWeathering.SaltCubes[1] : CreatureWeathering.SaltCubes[0];
+                    default:                // torn cloth, shaded with the light
+                        return CreatureWeathering.Streamer[s];
+                }
             var ramp = (Slot)part.Slot switch { Slot.Bone => mat.Bone, Slot.Cloth => mat.Cloth, _ => mat.Skin };
 
             bool iron = mat.Iron;

@@ -218,7 +218,10 @@ namespace Convergence.Enemies
                 // A limb's border against what it covers reads as a separate shape, not a bulge.
                 if (c.Part.Sep && (Below(x + 1, y, c.Part) || Below(x - 1, y, c.Part) || Below(x, y + 1, c.Part) || Below(x, y - 1, c.Part)))
                     s = 0;
-                px32[y * w + x] = colour(c, x, y, s, At) ?? Color.clear;
+                // A biome accent (CreatureAccents) is coloured there, whatever kind the rig is.
+                px32[y * w + x] = c.Part.Slot == CreatureAccents.Slot
+                    ? CreatureAccents.Colour((CreatureAccents.Kind)c.Part.Level, c.Hit, x, y, s)
+                    : colour(c, x, y, s, At) ?? Color.clear;
             }
 
             overlay?.Invoke(px32, w, h, scale, (x, y) => At(x, y) != null || Edged(x, y));

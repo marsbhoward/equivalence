@@ -33,6 +33,8 @@ namespace Convergence.Enemies
         }
 
         protected override Sprite[] Build(EnemyLook look, bool elite) => TurretArt.For(look, elite);
+        protected override Color[] Reserved => TurretArt.Reserved;
+        protected override Sprite[] Build(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome) => TurretArt.For(look, elite, biome);
 
         Sprite[] Pupils => _pupils != null && _pupils.Length > 0 && _pupils[0] != null
             ? _pupils

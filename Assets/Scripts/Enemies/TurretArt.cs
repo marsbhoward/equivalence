@@ -46,6 +46,11 @@ namespace Convergence.Enemies
         /// <summary>The Turret's own cyan: the eye, the runes, the lightning.</summary>
         static readonly Color[] Cyan = TexelRig.Hex("#123a44", "#2a8a9c", "#4dd9f2", "#d6f8ff");
         static readonly Color[] Yellow = TexelRig.Hex("#4a3a0c", "#a8841e", "#ffd84a", "#fff6c4");
+
+        /// <summary>Colours the biome weathering never touches - the glows and tells (CreatureWeathering).</summary>
+        internal static Color[] Reserved => _reserved ??= Concat(Cyan, Yellow);
+        static Color[] _reserved;
+        static Color[] Concat(params Color[][] parts) { var l = new System.Collections.Generic.List<Color>(); foreach (var p in parts) l.AddRange(p); return l.ToArray(); }
         static readonly Color PupilDark = TexelRig.Hex("#08121a")[0];
         static readonly Color Smoke = new(0.42f, 0.45f, 0.52f, 140f / 255f);
 
@@ -111,13 +116,17 @@ namespace Convergence.Enemies
         static readonly Dictionary<int, Sprite[]> _frames = new(), _pupils = new();
 
         /// <summary>Every frame of one look and tier, indexed by <see cref="TurretFrame"/>.</summary>
-        public static Sprite[] For(EnemyLook look, bool elite)
+        public static Sprite[] For(EnemyLook look, bool elite) => For(look, elite, Art.Biomes.BiomeKind.Tower);
+
+        /// <summary>The same, wearing the place's accent (CreatureAccents) - weathered after by
+        /// CreatureWeathering.</summary>
+        public static Sprite[] For(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome)
         {
-            int key = (look == EnemyLook.Automaton ? 1 : 0) | (elite ? 2 : 0);
+            int key = (look == EnemyLook.Automaton ? 1 : 0) | (elite ? 2 : 0) | ((int)biome << 2);
             if (_frames.TryGetValue(key, out var hit) && hit != null && hit.Length > 0 && hit[0] != null) return hit;
             var mat = look == EnemyLook.Automaton ? Ironbound : Stone;
             var frames = new Sprite[Poses.Length];
-            for (int i = 0; i < frames.Length; i++) frames[i] = Render(i, mat, elite);
+            for (int i = 0; i < frames.Length; i++) frames[i] = Render(i, mat, elite, biome);
             _frames[key] = frames;
             return frames;
         }
@@ -222,12 +231,26 @@ namespace Convergence.Enemies
             for (int i = 0; i < p.Arcs; i++) fx.Arcs.Add((new Vector2(17f, oy), r + 0.4f, p.Seed + i));
             if (p.Halo) fx.Halo = (new Vector2(17f, oy), r + 3.2f);
             for (int i = 0; i < p.Smoke; i++) fx.Smoke.Add(new Vector2(17f - 3f + Hash(i, p.Seed) * 6f, oy + r + 1f + i * 2.4f));
+            // THE PLACE'S ACCENT on the plinth, which never moves
+            if (CreatureAccents.Forest)
+                CreatureAccents.Strands(rig, 1.6f, CreatureAccents.Kind.Moss,
+                    new[] { new Vector2(11.6f, 6.3f), new Vector2(13.9f, 5.9f), new Vector2(20.4f, 5.9f), new Vector2(22.6f, 6.3f) }, 4.2f, 0.85f);
+            if (CreatureAccents.Salt) CreatureAccents.Shelves(rig, 1.6f, new Vector2(11.4f, 8.4f), new Vector2(22.6f, 8.2f), 2.4f);
+            if (CreatureAccents.Sky)
+                CreatureAccents.Puffs(rig, 1.7f, new[] { new Vector2(8.6f, 1.2f), new Vector2(25.2f, 1.6f), new Vector2(12.4f, 0.4f) }, 1.9f);
             return rig;
         }
 
         // ---------------------------------------------------------------- raster
 
-        static Sprite Render(int frame, Mat mat, bool elite)
+        static Sprite Render(int frame, Mat mat, bool elite, Art.Biomes.BiomeKind biome)
+        {
+            CreatureAccents.Biome = biome; CreatureAccents.Frame = frame;
+            try { return RenderIn(frame, mat, elite, biome); }
+            finally { CreatureAccents.Biome = Art.Biomes.BiomeKind.Tower; }
+        }
+
+        static Sprite RenderIn(int frame, Mat mat, bool elite, Art.Biomes.BiomeKind biome)
         {
             var p = Poses[frame];
             float scale = elite ? EliteScale : 1f;
@@ -235,6 +258,7 @@ namespace Convergence.Enemies
             var fx = new Lights();
             var rig = Build(p, fx);
             string name = $"enemy.turret.{(mat.Iron ? "iron" : "stone")}{(elite ? ".elite" : "")}.{(TurretFrame)frame}";
+            if (biome != Art.Biomes.BiomeKind.Tower) name += "." + biome;
             return TexelRig.Rasterise(name, rig, w, h, scale, mat.Out,
                 (in TexelRig.Cell c, int x, int y, int s, System.Func<int, int, TexelRig.Part> at) => ColourOf(c, x, y, s, mat, p),
                 new Vector2(PivotX, PivotY), (px, cw, ch, sc, filled) => Light(px, cw, ch, sc, filled, fx, mat),

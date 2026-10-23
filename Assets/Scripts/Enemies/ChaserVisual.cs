@@ -18,6 +18,8 @@ namespace Convergence.Enemies
             => Attach<ChaserVisual>(visual, enemy, look, elite, (int)ChaserFrame.Idle);
 
         protected override Sprite[] Build(EnemyLook look, bool elite) => ChaserArt.For(look, elite);
+        protected override Color[] Reserved => ChaserArt.Reserved;
+        protected override Sprite[] Build(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome) => ChaserArt.For(look, elite, biome);
 
         void LateUpdate()
         {

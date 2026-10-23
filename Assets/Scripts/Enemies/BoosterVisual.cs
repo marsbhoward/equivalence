@@ -23,6 +23,8 @@ namespace Convergence.Enemies
             => Attach<BoosterVisual>(visual, enemy, look, elite, (int)BoosterFrame.Idle0);
 
         protected override Sprite[] Build(EnemyLook look, bool elite) => BoosterArt.For(look, elite);
+        protected override Color[] Reserved => BoosterArt.Reserved;
+        protected override Sprite[] Build(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome) => BoosterArt.For(look, elite, biome);
 
         static int Cycle(float seconds, int frames) => Mathf.FloorToInt(Time.time / seconds) % frames;
 

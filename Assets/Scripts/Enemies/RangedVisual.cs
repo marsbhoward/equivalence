@@ -19,6 +19,8 @@ namespace Convergence.Enemies
             => Attach<RangedVisual>(visual, enemy, look, elite, (int)RangedFrame.Idle);
 
         protected override Sprite[] Build(EnemyLook look, bool elite) => RangedArt.For(look, elite);
+        protected override Color[] Reserved => RangedArt.Reserved;
+        protected override Sprite[] Build(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome) => RangedArt.For(look, elite, biome);
 
         void LateUpdate()
         {

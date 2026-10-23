@@ -31,6 +31,8 @@ namespace Convergence.Enemies
         }
 
         protected override Sprite[] Build(EnemyLook look, bool elite) => GargoyleArt.For(look, elite);
+        protected override Color[] Reserved => GargoyleArt.Reserved;
+        protected override Sprite[] Build(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome) => GargoyleArt.For(look, elite, biome);
 
         static int Cycle(float seconds, int frames) => Mathf.FloorToInt(Time.time / seconds) % frames;
 

@@ -74,6 +74,11 @@ namespace Convergence.Enemies
         /// <summary>The Dasher's own acid green, dim to hot - the gale in it.</summary>
         static readonly Color[] Acc = TexelRig.Hex("#2c3a0c", "#6f9a1c", "#bff240", "#f2ffc4");
 
+        /// <summary>Colours the biome weathering never touches - the glows and tells (CreatureWeathering).</summary>
+        internal static Color[] Reserved => _reserved ??= Concat(Acc, TexelRig.Hex("#e8f7d0"));
+        static Color[] _reserved;
+        static Color[] Concat(params Color[][] parts) { var l = new System.Collections.Generic.List<Color>(); foreach (var p in parts) l.AddRange(p); return l.ToArray(); }
+
         /// <summary>The gale's colours, for the pieces drawn beside the body (the tells' pointer,
         /// the floor trail): [0] the wind's pale, [1] the accent, [2] its hottest.</summary>
         public static Color[] WindRamp => new[] { Carrion.Wind, Acc[2], Acc[3] };
@@ -132,14 +137,18 @@ namespace Convergence.Enemies
         static readonly Dictionary<int, Sprite[]> _cache = new();
 
         /// <summary>Every frame of one look and tier, indexed by <see cref="DasherFrame"/>.</summary>
-        public static Sprite[] For(EnemyLook look, bool elite)
+        public static Sprite[] For(EnemyLook look, bool elite) => For(look, elite, Art.Biomes.BiomeKind.Tower);
+
+        /// <summary>The same, wearing the place's accent (CreatureAccents) - weathered after by
+        /// CreatureWeathering.</summary>
+        public static Sprite[] For(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome)
         {
-            int key = (look == EnemyLook.Automaton ? 1 : 0) | (elite ? 2 : 0);
+            int key = (look == EnemyLook.Automaton ? 1 : 0) | (elite ? 2 : 0) | ((int)biome << 2);
             if (_cache.TryGetValue(key, out var hit) && hit != null && hit.Length > 0 && hit[0] != null) return hit;
 
             var mat = look == EnemyLook.Automaton ? Ironbound : Carrion;
             var frames = new Sprite[Poses.Length];
-            for (int i = 0; i < frames.Length; i++) frames[i] = Render(i, mat, elite);
+            for (int i = 0; i < frames.Length; i++) frames[i] = Render(i, mat, elite, biome);
             _cache[key] = frames;
             return frames;
         }
@@ -244,12 +253,27 @@ namespace Convergence.Enemies
             // near legs over the body
             FrontLeg(3f, false, new Vector2(sh.x, sh.y - 2f), p.Fn);
             HindLeg(3.1f, false, new Vector2(hip.x, hip.y - 1f), p.Hn);
+            // THE PLACE'S ACCENT on the back (leaves caught, a salt crust) or streaming off it
+            {
+                var back = Vector2.Lerp(sh, hip, 0.5f) + new Vector2(0f, 3.4f);
+                if (CreatureAccents.Forest)
+                    CreatureAccents.Leaves(rig, 2.45f, new[] { back + new Vector2(-1.6f, 0.2f), back + new Vector2(1.2f, 0.5f), back + new Vector2(-3.8f, -0.3f), new Vector2(hip.x + 0.6f, hip.y + 3.2f) }, 1.35f);
+                if (CreatureAccents.Salt) CreatureAccents.Shelves(rig, 2.45f, back + new Vector2(-1.4f, 0.7f), back + new Vector2(1.9f, 0.5f), 2.6f);
+                if (CreatureAccents.Sky) CreatureAccents.Ribbons(rig, 2.45f, new Vector2(sh.x - 1.5f, sh.y + 3.4f), -1f, 2, 2.3f, 1.35f);
+            }
             return rig;
         }
 
         // ---------------------------------------------------------------- raster
 
-        static Sprite Render(int frame, Mat mat, bool elite)
+        static Sprite Render(int frame, Mat mat, bool elite, Art.Biomes.BiomeKind biome)
+        {
+            CreatureAccents.Biome = biome; CreatureAccents.Frame = frame;
+            try { return RenderIn(frame, mat, elite, biome); }
+            finally { CreatureAccents.Biome = Art.Biomes.BiomeKind.Tower; }
+        }
+
+        static Sprite RenderIn(int frame, Mat mat, bool elite, Art.Biomes.BiomeKind biome)
         {
             var p = Poses[frame];
             float scale = elite ? EliteScale : 1f;
@@ -257,6 +281,8 @@ namespace Convergence.Enemies
             var rig = Build(p, mat, elite);
 
             string name = $"enemy.dasher.{(mat.Iron ? "iron" : "carrion")}{(elite ? ".elite" : "")}.{(DasherFrame)frame}";
+
+            if (biome != Art.Biomes.BiomeKind.Tower) name += "." + biome;
             return TexelRig.Rasterise(name, rig, w, h, scale, mat.Out,
                 (in TexelRig.Cell c, int x, int y, int s, System.Func<int, int, TexelRig.Part> at) => ColourOf(c, x, y, s, mat, p, at),
                 new Vector2(PivotX, PivotY), (px, cw, ch, sc, filled) => Light(px, cw, ch, sc, filled, p, mat),

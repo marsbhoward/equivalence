@@ -21,6 +21,8 @@ namespace Convergence.Enemies
             => Attach<BubblesVisual>(visual, enemy, look, elite, (int)BubblesFrame.Idle0);
 
         protected override Sprite[] Build(EnemyLook look, bool elite) => BubblesArt.For(look, elite);
+        protected override Color[] Reserved => BubblesArt.Reserved;
+        protected override Sprite[] Build(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome) => BubblesArt.For(look, elite, biome);
 
         static int Cycle(float seconds, int frames) => Mathf.FloorToInt(Time.time / seconds) % frames;
 
