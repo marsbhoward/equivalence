@@ -260,9 +260,11 @@ namespace Convergence.Hazards
             wall._room = room;
             wall._cells = cells;
 
-            // ONE collider over the run's bounds: melee adds a candidate per collider it overlaps,
-            // so a collider per cell would let one swing hit the same wall several times. Every
-            // authored run is a rectangle; a ragged one warns and still gets its bounds.
+            // ONE collider: melee adds a candidate per collider it overlaps, so a collider per cell
+            // would let one swing hit the same wall several times. A rectangle is a box over the
+            // run; a ragged run (the "rubble" stamp's Z) is ONE polygon collider with a path per
+            // row segment - its bounds would also cover whatever lies in the gaps, open floor
+            // included, as an invisible wall.
             int x0 = int.MaxValue, y0 = int.MaxValue, x1 = int.MinValue, y1 = int.MinValue;
             foreach (var c in cells)
             {
@@ -271,8 +273,7 @@ namespace Convergence.Hazards
                 RoomWalls.Block(go.transform, c.x, c.y, cell, corner(c.x, c.y),
                                 RoomWalls.Neighbours(c.x, c.y, solid), cracked: true);
             }
-            if ((x1 - x0 + 1) * (y1 - y0 + 1) != cells.Count)
-                Debug.LogWarning($"[RoomWalls] a cracked run of {cells.Count} cells is not a rectangle");
+            bool rectangle = (x1 - x0 + 1) * (y1 - y0 + 1) == cells.Count;
 
             // The Health's own position is what melee measures sight to (HazardQuery.Query from the
             // swing's origin) - the run's middle, so a swing at either end still finds it.
@@ -281,8 +282,25 @@ namespace Convergence.Hazards
             var centre = lo + size * 0.5f;
             foreach (Transform child in go.transform) child.position -= (Vector3)centre;
             go.transform.position = centre;
-            var box = go.AddComponent<BoxCollider2D>();
-            box.size = size;
+            if (rectangle) go.AddComponent<BoxCollider2D>().size = size;
+            else
+            {
+                var poly = go.AddComponent<PolygonCollider2D>();
+                var paths = new List<Vector2[]>();
+                var has = new HashSet<Vector2Int>(cells);
+                for (int y = y0; y <= y1; y++)
+                for (int x = x0; x <= x1; x++)
+                {
+                    if (!has.Contains(new Vector2Int(x, y)) || has.Contains(new Vector2Int(x - 1, y))) continue;
+                    int end = x;
+                    while (has.Contains(new Vector2Int(end + 1, y))) end++;
+                    var a = corner(x, y) - centre;
+                    var b = a + new Vector2((end - x + 1) * cell.x, cell.y);
+                    paths.Add(new[] { a, new Vector2(b.x, a.y), b, new Vector2(a.x, b.y) });
+                }
+                poly.pathCount = paths.Count;
+                for (int i = 0; i < paths.Count; i++) poly.SetPath(i, paths[i]);
+            }
 
             var health = go.AddComponent<Health>();
             health.Configure(Tuning.Rooms.CrackedHpPerCell * cells.Count);
@@ -297,7 +315,7 @@ namespace Convergence.Hazards
             _broken = true;
             Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Rubble, transform.position);
             if (_room != null) _room.Open(_cells);
-            foreach (var box in GetComponents<BoxCollider2D>()) box.enabled = false;
+            foreach (var col in GetComponents<Collider2D>()) col.enabled = false;
             foreach (Transform child in transform)
                 Spr.Flash(child.position + Vector3.up * 0.5f, 0.9f, new Color(0.75f, 0.66f, 0.55f), 0.3f);
             Destroy(gameObject);
