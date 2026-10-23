@@ -3861,6 +3861,8 @@ namespace Convergence.Core
                 Convergence.Audio.Sound.DistantSky => 0.2f,
                 Convergence.Audio.Sound.DistantSalt => 0.18f,
                 Convergence.Audio.Sound.Alert => 0.34f,
+                Convergence.Audio.Sound.Arrive => 0.42f,
+                Convergence.Audio.Sound.ArriveNigredo => 0.5f,
                 Convergence.Audio.Sound.Swing => 0.22f,
                 Convergence.Audio.Sound.SwingHeavy => 0.32f,
                 Convergence.Audio.Sound.ReleaseFire or Convergence.Audio.Sound.ReleaseWater
@@ -3950,6 +3952,8 @@ namespace Convergence.Core
                 _ => 0f,
             };
             public const float BossPulseLoudness = 0.30f;
+            /// <summary>Arriving on a floor, the room tone rises in from silence over this long.</summary>
+            public const float ArrivalSwellSeconds = 2.4f;
             /// <summary>The Nigredo's roar at full strength (scaled down with it).</summary>
             public const float NigredoLoudness = 0.32f;
             /// <summary>Seconds a bed takes to fade in (and the old one out) when the place changes.</summary>

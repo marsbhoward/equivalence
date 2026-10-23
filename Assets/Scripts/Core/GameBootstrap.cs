@@ -1467,6 +1467,7 @@ namespace Convergence.Core
             Convergence.Audio.Ambience.SetNigredo(Art.Biomes.Nigredo.Strength);
             Convergence.Art.Lighting.LightField.SetPlace(Art.Biomes.Nigredo.Darkness(dark), Art.Biomes.Nigredo.Shade(Art.Biomes.Biome.Shade));
             Art.Biomes.Nigredo.Dress(_arenaRoot, new Vector2(HalfWidth, HalfHeight), seed);
+            Art.Biomes.Arrival.Gate(_arenaRoot, new Vector2(HalfWidth, HalfHeight), seed);   // the way the player came in
             Combat.FightMarks.Begin(new Vector2(HalfWidth, HalfHeight));   // the last floor's marks are gone
             Debug.Log($"[Floor] {Art.Biomes.Biome.Current} | scenery {theme}");
         }
@@ -2462,6 +2463,7 @@ namespace Convergence.Core
             if (staked != null)
                 _hud.Flash($"{staked.DisplayName} staked  -  clear floor {_profile.StakeGateFloor}, then extract");
 
+            ArrivalBeat();
             await RunAsTask(_fade.FadeIn(DoorFadeSeconds));
             _state = State.Playing;
         }
@@ -4182,6 +4184,23 @@ namespace Convergence.Core
         /// </summary>
         const float DoorFadeSeconds = 0.45f;
 
+        /// <summary>
+        /// ARRIVAL (Art.Biomes.Arrival): as a floor's screen opens - the place's sting, the room
+        /// tone swelling in from silence, dust at the feet; the Nigredo's boom and cinders over
+        /// them near the top. Never holds the player. Called just before each fade-in onto a floor.
+        /// </summary>
+        void ArrivalBeat()
+        {
+            if (_player == null) return;
+            Vector2 at = _player.transform.position;
+            var biome = Art.Biomes.Biome.Current;
+            float nig = Art.Biomes.Nigredo.Strength;
+            Convergence.Audio.Ambience.Swell();
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Arrive, (int)biome, at);
+            if (nig > 0f) Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.ArriveNigredo, at, 0.5f + 0.5f * nig);
+            Art.Biomes.Arrival.Dust(at + new Vector2(0f, -0.5f), biome, nig > 0f, _floor * 7919 + 13);
+        }
+
         IEnumerator FloorTransition()
         {
             // Held for the whole transition so enemies/physics can't simulate behind the black
@@ -4221,6 +4240,7 @@ namespace Convergence.Core
                 }
 
                 yield return NextFloor();
+                ArrivalBeat();
                 yield return _fade.FadeIn(DoorFadeSeconds);
             }
             finally
@@ -4950,6 +4970,7 @@ namespace Convergence.Core
 
                 _spawning = true;
                 yield return BuildFight(_runToken);
+                ArrivalBeat();
                 yield return _fade.FadeIn(DoorFadeSeconds);
             }
             finally
@@ -6238,6 +6259,7 @@ namespace Convergence.Core
             try
             {
                 yield return build;
+                ArrivalBeat();
                 yield return _fade.FadeIn(DoorFadeSeconds);
             }
             finally

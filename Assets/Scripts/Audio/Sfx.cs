@@ -18,6 +18,7 @@ namespace Convergence.Audio
         FloorClear, DoorOpen, DistantForest, DistantSky, DistantSalt, Alert,
         Sing, Toll, Erupt, Blink, Enrage, Vulnerable, Seal, BossDeath,
         Rattle, GazeLook, Petrify, Push, Pull, Chip, Rubble,
+        Arrive, ArriveNigredo,
     }
 
     public enum Bed { None, Hub, Crypt, Deep, Abyss, Throne, Boss, Forest, Sky, Salt, Nigredo }
@@ -122,7 +123,7 @@ namespace Convergence.Audio
                 Sound.Crit => many(g.Crit), Sound.PlayerHurt => many(g.PlayerHurt),
                 Sound.EnemyDeath => many(g.EnemyDeath), Sound.PlayerDeath => one(g.PlayerDeath),
                 Sound.Perfect => one(g.Perfect), Sound.Good => one(g.Good), Sound.Miss => one(g.Miss),
-                Sound.Distant => many(g.Distant), Sound.DistantForest => many(g.DistantForest), Sound.DistantSky => many(g.DistantSky), Sound.DistantSalt => many(g.DistantSalt), Sound.Alert => many(g.Alert),
+                Sound.Distant => many(g.Distant), Sound.DistantForest => many(g.DistantForest), Sound.DistantSky => many(g.DistantSky), Sound.DistantSalt => many(g.DistantSalt), Sound.Alert => many(g.Alert), Sound.Arrive => many(g.Arrive), Sound.ArriveNigredo => one(g.ArriveNigredo),
                 Sound.Swing => many(g.Swing), Sound.SwingHeavy => many(g.SwingHeavy),
                 Sound.ReleaseFire => one(g.ReleaseFire), Sound.ReleaseWater => one(g.ReleaseWater),
                 Sound.ReleaseEarth => one(g.ReleaseEarth), Sound.ReleaseAir => one(g.ReleaseAir),
@@ -153,6 +154,8 @@ namespace Convergence.Audio
                 Sound.Enrage or Sound.Vulnerable or Sound.Seal or Sound.BossDeath or Sound.GazeLook
                     or Sound.Petrify or Sound.Push or Sound.Pull => 1,
                 Sound.Rubble or Sound.Erupt or Sound.Blink => 3,
+                Sound.Arrive => 4,   // one per place: Tower, Forest, Sky, Salt
+                Sound.ArriveNigredo => 1,
                 Sound.Distant => 8,
                 Sound.DistantForest => 6,
                 Sound.DistantSky => 6,
@@ -225,6 +228,8 @@ namespace Convergence.Audio
                     Sound.Pull => Synth.Rush(true, seed),
                     Sound.Chip => Synth.Chip(seed),
                     Sound.Rubble => Synth.Rubble(seed),
+                    Sound.Arrive => Synth.Arrive(i, seed),
+                    Sound.ArriveNigredo => Synth.Arrive(4, seed),
                     _ => new float[Synth.Rate / 10],
                 };
                 set[i] = Synth.Clip($"{s}_{i}", data);

@@ -45,6 +45,8 @@ namespace Convergence.Audio
         public AudioClip BedHub, BedCrypt, BedDeep, BedAbyss, BedThrone, BedBoss, BedForest, BedSky, BedSalt, BedNigredo;
         public AudioClip[] Distant, DistantForest, DistantSky, DistantSalt;
         [Tooltip("An enemy noticing the player")] public AudioClip[] Alert;
+        [Tooltip("Arriving on a floor, one per place: Tower, Forest, Sky Ruin, Salt Flats")] public AudioClip[] Arrive;
+        [Tooltip("Arriving near the top - over the place's own")] public AudioClip ArriveNigredo;
 
         static GameSound _loaded;
         static bool _looked;

@@ -441,6 +441,78 @@ namespace Convergence.Audio
             return Normalise(s);
         }
 
+        /// <summary>
+        /// The ARRIVAL sting, as the screen opens on a floor (by place - Art.Biomes.BiomeKind's
+        /// order, then the Nigredo's, which plays over the place's): 0 a door's thud behind you in
+        /// the Tower, 1 birds scattering in the forest, 2 a gust over the sky ruin, 3 a rising ring
+        /// on the salt, 4 a low boom near the top.
+        /// </summary>
+        public static float[] Arrive(int place, int seed)
+        {
+            var n = new Noise(seed);
+            switch (place)
+            {
+                case 1:   // birds scattering: chirps going up and away, and wings
+                {
+                    var s = Buffer(1.3f);
+                    for (int b = 0; b < 6; b++)
+                    {
+                        float at = n.Range(0f, 0.6f), f0 = n.Range(2200f, 3600f), ph = 0f;
+                        for (int i = (int)(at * Rate); i < s.Length; i++)
+                        {
+                            float t = i / (float)Rate - at;
+                            if (t > 0.12f) break;
+                            ph += 2f * Mathf.PI * f0 * (1f + 0.5f * t / 0.12f) / Rate;
+                            s[i] += Mathf.Sin(ph) * Env(t, 0.005f, 0.09f) * 0.35f;
+                        }
+                    }
+                    var wing = Buffer(1.3f);
+                    Hiss(wing, seed, 1, 1600, 2600, 1.2f, 0.05f, 0.8f, 0.9f);
+                    for (int i = 0; i < s.Length; i++)
+                        s[i] += wing[i] * (0.55f + 0.45f * Mathf.Sin(2f * Mathf.PI * 17f * i / Rate));
+                    return Normalise(s);
+                }
+                case 2:   // a gust: wind rising and falling away
+                {
+                    var s = Buffer(1.4f);
+                    Hiss(s, seed, 1, 400, 1400, 0.9f, 0.4f, 0.9f, 1f);
+                    Hiss(s, seed + 1, 0, 300, 160, 0.7f, 0.3f, 0.8f, 0.5f);
+                    return Normalise(s);
+                }
+                case 3:   // a ring rising out of the still, like a finger round a glass
+                {
+                    var s = Buffer(1.8f);
+                    float[] f = { 1568f, 2093f, 2637f };
+                    for (int k = 0; k < f.Length; k++)
+                    {
+                        float ph = 0f;
+                        for (int i = 0; i < s.Length; i++)
+                        {
+                            float t = i / (float)Rate;
+                            ph += 2f * Mathf.PI * f[k] * (1f + 0.003f * Mathf.Sin(t * 30f + k)) / Rate;
+                            s[i] += Mathf.Sin(ph) * Env(t, 0.45f + k * 0.1f, 1.1f) * (0.4f - k * 0.1f);
+                        }
+                    }
+                    return Normalise(s, 0.7f);
+                }
+                case 4:   // the Nigredo: a low boom and the furnace answering
+                {
+                    var s = Buffer(2f);
+                    Thump(s, 70f, 28f, 0.3f, 1.2f, 1f);
+                    Hiss(s, seed, 0, 140, 60, 0.8f, 0.05f, 1.6f, 0.6f);
+                    return Normalise(s);
+                }
+                default:  // the Tower: a heavy door closing behind, stone settling
+                {
+                    var s = Buffer(1.1f);
+                    Thump(s, 95f, 45f, 0.05f, 0.35f, 1f);
+                    Hiss(s, seed, 0, 320, 120, 0.8f, 0.01f, 0.45f, 0.5f);
+                    Hiss(s, seed + 2, 1, 900, 600, 1.4f, 0.12f, 0.35f, 0.18f, 0.08f);   // grit falling
+                    return Normalise(s);
+                }
+            }
+        }
+
         // ------------------------------------------------------------------ helpers
 
         /// <summary>A bubble: a sine whose pitch climbs as it closes.</summary>
