@@ -134,7 +134,7 @@ namespace Convergence.Enemies
         /// of the rig, so the body's own pose carries them and the arm and cleaver draw over them.</summary>
         public static Sprite[] For(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome)
         {
-            int key = (look == EnemyLook.Automaton ? 1 : 0) | (elite ? 2 : 0) | ((int)biome << 2);
+            int key = (look == EnemyLook.Automaton ? 1 : 0) | (elite ? 2 : 0) | ((int)biome << 2) | (Art.Biomes.Nigredo.Shards << 5);
             if (_cache.TryGetValue(key, out var hit) && hit != null && hit.Length > 0 && hit[0] != null) return hit;
 
             var mat = look == EnemyLook.Automaton ? Ironbound : Rotten;
@@ -228,7 +228,9 @@ namespace Convergence.Enemies
                 Add(7.5f, Slot.Biome, Ellipse(humpX - humpRx - 1.1f, humpY + 1.2f, 3.1f, 1.45f), decor: d);
                 Add(7.5f, Slot.Biome, Ellipse(humpX - humpRx - 0.4f, humpY - 2.3f, 2.3f, 1.15f), decor: d);
             }
-            else if (biome == Art.Biomes.BiomeKind.SkyRuin)
+            // the Nigredo's shards of the Stone, out of the hump's crown
+            CreatureAccents.StoneShards(rig, 7.6f, new Vector2(humpX - 1.2f, humpY + humpRy - 0.8f), 0.8f);
+            if (biome == Art.Biomes.BiomeKind.SkyRuin)
             {
                 // Behind the hump (order 2.5), so it grows from under it; the wind's phase moves
                 // with the walk's frames and holds through the attack's.
@@ -305,7 +307,9 @@ namespace Convergence.Enemies
             float scale = RigScale * (elite ? EliteScale : 1f);
             int w = Mathf.RoundToInt(W * scale), h = Mathf.RoundToInt(H * scale);
             w += w & 1; // an even width mirrors onto a texel boundary
+            CreatureAccents.Shards = Art.Biomes.Nigredo.Shards;
             var rig = Build(p, mat, elite, biome, frame);
+            CreatureAccents.Shards = 0;
 
             TexelRig.Overlay smear = null;
             if (p.Smear >= 0)

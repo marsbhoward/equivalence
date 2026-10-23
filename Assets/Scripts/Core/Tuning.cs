@@ -3950,6 +3950,8 @@ namespace Convergence.Core
                 _ => 0f,
             };
             public const float BossPulseLoudness = 0.30f;
+            /// <summary>The Nigredo's roar at full strength (scaled down with it).</summary>
+            public const float NigredoLoudness = 0.32f;
             /// <summary>Seconds a bed takes to fade in (and the old one out) when the place changes.</summary>
             public const float BedFadeSeconds = 2.5f;
 
@@ -4042,6 +4044,45 @@ namespace Convergence.Core
             public const float CobwebChance = 0.6f, CobwebInset = 0.02f;
             public const float CandleRadius = 1.7f, CandleIntensity = 0.8f;
             public static readonly UnityEngine.Color CandleColor = new(1f, 0.72f, 0.38f);
+        }
+
+        /// <summary>
+        /// The NIGREDO (Art.Biomes.Nigredo): the last quarter of a run, laid over whatever biome it
+        /// is in - the loop's seams showing near the top, where the work was already finished.
+        /// Strength 0 at <see cref="StartShare"/> of the run's final floor, 1 on the final floor.
+        /// A picture only.
+        /// </summary>
+        public static class Nigredo
+        {
+            public const float StartShare = 0.75f;
+            /// <summary>The room's darkness climbs to this (from at least Start), drawn toward Shade.
+            /// The overlay blends in LINEAR colour, so these read lighter than they sound: 0.80 is
+            /// about half the visible brightness gone, 0.93 about seven tenths (the approved mock-up
+            /// blended plainly, and looked that dark at 0.72-0.90).</summary>
+            public const float DarknessStart = 0.80f, DarknessMax = 0.93f;
+            public static readonly UnityEngine.Color Shade = new(0.04f, 0.0f, 0.012f);
+            /// <summary>Tears in the north boundary: count, and the largest's width in texels.</summary>
+            public const int TearsMin = 1, TearsMax = 5;
+            public const float TearLightRadius = 1.6f, TearLightIntensity = 0.55f;
+            public static readonly UnityEngine.Color TearLight = new(0.75f, 0.85f, 1f);
+            /// <summary>The Stone's red behind the largest tear: radius and strength, weakest to strongest.</summary>
+            public const float StoneRadiusMin = 1.4f, StoneRadiusMax = 4.4f, StoneIntensityMin = 0.45f, StoneIntensityMax = 0.95f;
+            public static readonly UnityEngine.Color StoneColor = new(0.80f, 0.10f, 0.12f);
+            /// <summary>Crystal clusters standing in the room, each a light.</summary>
+            public const int CrystalsMin = 1, CrystalsMax = 5;
+            public const float CrystalRadius = 1.3f, CrystalIntensity = 0.55f, CrystalPulse = 0.06f, CrystalPulseSeconds = 3.2f;
+            public static readonly UnityEngine.Color CrystalColor = new(0.86f, 0.16f, 0.19f);
+            /// <summary>Cinders: rising behind the bodies, falling like snow in front. Counts at full strength.</summary>
+            public const int BackCinders = 90, FrontFlakes = 32;
+            /// <summary>How much of their colour the red lights cast over their pools (Glow.Wash) -
+            /// enough to read as red light, short of a haze.</summary>
+            public const float StoneWash = 0.22f, CrystalWash = 0.18f, TearWash = 0f;   // the tears clear the dark; a blue wash read as fog
+            /// <summary>A creature's own crystals wash it less: its colours carry its tells.</summary>
+            public const float CreatureWash = 0.09f;
+            /// <summary>A creature carrying the Stone's shards is a light: radius and strength by the
+            /// shards' size (1-3) - the pack coming out of the dark as red lights.</summary>
+            public static readonly float[] CreatureLightRadius = { 0f, 0.8f, 1.0f, 1.2f };
+            public static readonly float[] CreatureLightIntensity = { 0f, 0.4f, 0.48f, 0.56f };
         }
 
         /// <summary>Marks the fight leaves (Combat.FightMarks): scorch, ichor, cracks, chips - kept

@@ -20,7 +20,7 @@ namespace Convergence.Audio
         Rattle, GazeLook, Petrify, Push, Pull, Chip, Rubble,
     }
 
-    public enum Bed { None, Hub, Crypt, Deep, Abyss, Throne, Boss, Forest, Sky, Salt }
+    public enum Bed { None, Hub, Crypt, Deep, Abyss, Throne, Boss, Forest, Sky, Salt, Nigredo }
 
     /// <summary>
     /// The player's three volume dials, kept in PlayerPrefs. Master goes straight onto the

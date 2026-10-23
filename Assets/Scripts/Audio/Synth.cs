@@ -459,6 +459,18 @@ namespace Convergence.Audio
                         Wind(s, 81, 300, 700, 0.9f, 0.55f, 0.03f);
                         Drone(s, new[] { 2093f, 2637f, 3136f }, new[] { 0.010f, 0.007f, 0.005f }, 0.03f);
                     });
+                case Audio.Bed.Nigredo:   // laid OVER the floor's bed near the top: a furnace roar, a slow swelling throb
+                    return Loop(12.8f, 2f, s =>
+                    {
+                        Wind(s, 91, 40, 150, 0.9f, 1.2f, 0.06f);    // the roar: low, heavy
+                        Wind(s, 92, 150, 420, 1.1f, 0.35f, 0.11f);  // its rough upper edge
+                        // four swells a loop, 3.2 s apart - the crystals' own pace
+                        for (int i = 0; i < s.Length; i++)
+                        {
+                            float t = i / (float)Rate, u = (t % 3.2f) / 3.2f, env = Mathf.Sin(Mathf.PI * u);
+                            s[i] += Mathf.Sin(2f * Mathf.PI * 33f * t) * env * env * 0.22f;
+                        }
+                    });
                 case Audio.Bed.Boss:   // laid OVER the floor's bed on a boss floor: a slow heartbeat
                     return Loop(2.4f, 0.05f, s =>
                     {

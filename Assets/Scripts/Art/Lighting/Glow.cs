@@ -27,6 +27,10 @@ namespace Convergence.Art.Lighting
         public float RadiusFromBounds;
         /// <summary>Share of the radius at full strength; negative uses Tuning.Lighting.CoreFraction.</summary>
         public float Core = -1f;
+        /// <summary>0..1 - this light's colour cast over its WHOLE pool, even where fully lit (most
+        /// lights clear the dark to no tint - a tint everywhere read as haze). Only lights whose
+        /// colour is the point use it: the Nigredo's reds.</summary>
+        public float Wash;
         /// <summary>Offset from the transform, world units (the player's light sits on the body, not the feet).</summary>
         public Vector2 Offset;
 

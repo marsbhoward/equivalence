@@ -122,7 +122,7 @@ namespace Convergence.Enemies
         /// CreatureWeathering.</summary>
         public static Sprite[] For(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome)
         {
-            int key = (look == EnemyLook.Automaton ? 1 : 0) | (elite ? 2 : 0) | ((int)biome << 2);
+            int key = (look == EnemyLook.Automaton ? 1 : 0) | (elite ? 2 : 0) | ((int)biome << 2) | (Art.Biomes.Nigredo.Shards << 5);
             if (_frames.TryGetValue(key, out var hit) && hit != null && hit.Length > 0 && hit[0] != null) return hit;
             var mat = look == EnemyLook.Automaton ? Ironbound : Stone;
             var frames = new Sprite[Poses.Length];
@@ -236,6 +236,7 @@ namespace Convergence.Enemies
                 CreatureAccents.Strands(rig, 1.6f, CreatureAccents.Kind.Moss,
                     new[] { new Vector2(11.6f, 6.3f), new Vector2(13.9f, 5.9f), new Vector2(20.4f, 5.9f), new Vector2(22.6f, 6.3f) }, 4.2f, 0.85f);
             if (CreatureAccents.Salt) CreatureAccents.Shelves(rig, 1.6f, new Vector2(11.4f, 8.4f), new Vector2(22.6f, 8.2f), 2.4f);
+            CreatureAccents.StoneShards(rig, 1.65f, new Vector2(12.2f, 8.2f), 1f);
             if (CreatureAccents.Sky)
                 CreatureAccents.Puffs(rig, 1.7f, new[] { new Vector2(8.6f, 1.2f), new Vector2(25.2f, 1.6f), new Vector2(12.4f, 0.4f) }, 1.9f);
             return rig;
@@ -245,9 +246,9 @@ namespace Convergence.Enemies
 
         static Sprite Render(int frame, Mat mat, bool elite, Art.Biomes.BiomeKind biome)
         {
-            CreatureAccents.Biome = biome; CreatureAccents.Frame = frame;
+            CreatureAccents.Biome = biome; CreatureAccents.Frame = frame; CreatureAccents.Shards = Art.Biomes.Nigredo.Shards;
             try { return RenderIn(frame, mat, elite, biome); }
-            finally { CreatureAccents.Biome = Art.Biomes.BiomeKind.Tower; }
+            finally { CreatureAccents.Biome = Art.Biomes.BiomeKind.Tower; CreatureAccents.Shards = 0; }
         }
 
         static Sprite RenderIn(int frame, Mat mat, bool elite, Art.Biomes.BiomeKind biome)

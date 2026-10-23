@@ -139,7 +139,7 @@ namespace Convergence.Enemies
         /// CreatureWeathering.</summary>
         public static Sprite[] For(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome)
         {
-            int key = (look == EnemyLook.Automaton ? 1 : 0) | (elite ? 2 : 0) | ((int)biome << 2);
+            int key = (look == EnemyLook.Automaton ? 1 : 0) | (elite ? 2 : 0) | ((int)biome << 2) | (Art.Biomes.Nigredo.Shards << 5);
             if (_cache.TryGetValue(key, out var hit) && hit != null && hit.Length > 0 && hit[0] != null) return hit;
 
             var mat = look == EnemyLook.Automaton ? Ironbound : Slag;
@@ -214,6 +214,7 @@ namespace Convergence.Enemies
                 fx.Sparks.Add(new Vector2(cx - 3f + Hash(i, p.Seed) * 6f, cy + r + 3f + Hash(p.Seed, i) * 6f * p.Flare));
             // THE PLACE'S ACCENT on the shell's lower flanks (the flames own the top)
             CreatureAccents.Shelves(rig, 5.5f, new Vector2(cx - r * 0.7f, cy - r * 0.4f), new Vector2(cx + r * 0.55f, cy - r * 0.65f), 3.2f);
+            CreatureAccents.StoneShards(rig, 5.6f, new Vector2(cx - r * 0.95f, cy - r * 0.1f), 1f);
             if (CreatureAccents.Sky)
                 CreatureAccents.Puffs(rig, 5.5f, new[] { new Vector2(cx - r - 2.2f, cy - r * 0.9f), new Vector2(cx + r + 1.8f, cy - r * 0.6f), new Vector2(cx + 0.5f, cy - r - 2.6f) }, 1.9f);
             return rig;
@@ -223,9 +224,9 @@ namespace Convergence.Enemies
 
         static Sprite Render(int frame, Mat mat, bool elite, Art.Biomes.BiomeKind biome)
         {
-            CreatureAccents.Biome = biome; CreatureAccents.Frame = frame;
+            CreatureAccents.Biome = biome; CreatureAccents.Frame = frame; CreatureAccents.Shards = Art.Biomes.Nigredo.Shards;
             try { return RenderIn(frame, mat, elite, biome); }
-            finally { CreatureAccents.Biome = Art.Biomes.BiomeKind.Tower; }
+            finally { CreatureAccents.Biome = Art.Biomes.BiomeKind.Tower; CreatureAccents.Shards = 0; }
         }
 
         static Sprite RenderIn(int frame, Mat mat, bool elite, Art.Biomes.BiomeKind biome)

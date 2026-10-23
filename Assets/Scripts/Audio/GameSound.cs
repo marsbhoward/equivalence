@@ -42,7 +42,7 @@ namespace Convergence.Audio
         public AudioClip[] Chip, Rubble;
 
         [Header("Ambience (loops)")]
-        public AudioClip BedHub, BedCrypt, BedDeep, BedAbyss, BedThrone, BedBoss, BedForest, BedSky, BedSalt;
+        public AudioClip BedHub, BedCrypt, BedDeep, BedAbyss, BedThrone, BedBoss, BedForest, BedSky, BedSalt, BedNigredo;
         public AudioClip[] Distant, DistantForest, DistantSky, DistantSalt;
         [Tooltip("An enemy noticing the player")] public AudioClip[] Alert;
 

@@ -31,6 +31,7 @@ namespace Convergence.Art.Lighting
         Color32[] _px;
         float[] _light;
         Color[] _tint;
+        float[] _wash;
         int _w, _h;
         float _next;
 
@@ -87,13 +88,14 @@ namespace Convergence.Art.Lighting
             transform.position = new Vector3(x0, y0, 0f);
 
             System.Array.Clear(_light, 0, _light.Length);
+            System.Array.Clear(_wash, 0, _wash.Length);
             var all = Glow.All;
             for (int i = all.Count - 1; i >= 0; i--)
             {
                 var g = all[i];
                 if (g == null) { all.RemoveAt(i); continue; }
                 if (!g.isActiveAndEnabled || !g.Sample(out var at, out float r, out float s, out var col)) continue;
-                Cast(at - new Vector2(x0, y0), r, s, col, g.Core >= 0f ? g.Core : Tuning.Lighting.CoreFraction);
+                Cast(at - new Vector2(x0, y0), r, s, col, g.Core >= 0f ? g.Core : Tuning.Lighting.CoreFraction, g.Wash);
             }
 
             float dark = _darkness, warm = Tuning.Lighting.LitTintAlpha;
@@ -111,8 +113,11 @@ namespace Convergence.Art.Lighting
                 // The light's own colour only near the core of the pool: blended in sooner, the
                 // half-lit rings were a coloured haze over the walls rather than light on them.
                 float k = q * q * q * q;
-                Color col = k > 0f ? Color.Lerp(_shade, _tint[i], k) : _shade;
-                float a = Mathf.Lerp(dark, warm, q);
+                // A WASHED light (Glow.Wash - the Nigredo's reds) casts its colour over the whole
+                // pool, a modest alpha even where fully lit; every other light clears to no tint.
+                float wash = _wash[i];
+                Color col = wash > 0f ? Color.Lerp(_shade, _tint[i], q) : k > 0f ? Color.Lerp(_shade, _tint[i], k) : _shade;
+                float a = Mathf.Lerp(dark, Mathf.Max(warm, wash), q);
                 _px[i] = new Color32((byte)(col.r * 255f), (byte)(col.g * 255f), (byte)(col.b * 255f), (byte)(a * 255f));
             }
             _tex.SetPixels32(_px);
@@ -122,7 +127,7 @@ namespace Convergence.Art.Lighting
         /// <summary>One light's pool, in view-local world units. The strongest light at a texel
         /// wins (max, not sum - two torches side by side do not burn a white hole) and lends it
         /// its colour.</summary>
-        void Cast(Vector2 at, float radius, float strength, Color col, float core)
+        void Cast(Vector2 at, float radius, float strength, Color col, float core, float wash)
         {
             int cx = Mathf.FloorToInt(at.x * Ppu), cy = Mathf.FloorToInt(at.y * Ppu);
             int rr = Mathf.CeilToInt(radius * Ppu);
@@ -138,13 +143,13 @@ namespace Convergence.Art.Lighting
                 float f = dd <= core ? 1f : 1f - Mathf.SmoothStep(0f, 1f, (dd - core) / (1f - core));
                 float v = f * strength;
                 int i = y * _w + x;
-                if (v > _light[i]) { _light[i] = v; _tint[i] = col; }
+                if (v > _light[i]) { _light[i] = v; _tint[i] = col; _wash[i] = wash; }
             }
         }
 
         void Ensure(int w, int h)
         {
-            if (_tex != null && w == _w && h == _h && _px != null && _light != null) return;
+            if (_tex != null && w == _w && h == _h && _px != null && _light != null && _wash != null) return;
             if (_sr.sprite != null) Destroy(_sr.sprite);
             if (_tex != null) Destroy(_tex);
             _w = w; _h = h;
@@ -152,6 +157,7 @@ namespace Convergence.Art.Lighting
             _px = new Color32[w * h];
             _light = new float[w * h];
             _tint = new Color[w * h];
+            _wash = new float[w * h];
             _sr.sprite = Sprite.Create(_tex, new Rect(0, 0, w, h), Vector2.zero, Ppu);
         }
 

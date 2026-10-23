@@ -46,6 +46,9 @@ namespace Convergence.Core
 
         /// <summary>DEV: use the phone's closer arena zoom on any device - to see it in the Editor.</summary>
         public static bool DevPhoneZoom;
+        /// <summary>DEV: the next players built are immune (set from eval before DevStartRun, for
+        /// looking at deep floors). Static, so entering Play mode resets it.</summary>
+        public static bool DevImmune;
 
         /// <summary>
         /// The ARENA's zoom: <see cref="CameraSize"/>, brought in by Tuning.Camera.PhoneZoom on a
@@ -1459,7 +1462,11 @@ namespace Convergence.Core
             // The room's darkness: by depth today, by biome later. Windows let the day in.
             float dark = Art.Biomes.Biome.Darkness(Core.RunFormat.Depth(floor), IsBossFloor(floor));
             if (theme.Light != Art.Scenery.Daylight.None && theme.WindowPairs > 0) dark *= Tuning.Lighting.WindowFloorDarkness;
-            Convergence.Art.Lighting.LightField.SetPlace(dark, Art.Biomes.Biome.Shade);
+            // The NIGREDO over the last quarter, whatever the biome: darker, the boundary torn.
+            Art.Biomes.Nigredo.Set(floor);
+            Convergence.Audio.Ambience.SetNigredo(Art.Biomes.Nigredo.Strength);
+            Convergence.Art.Lighting.LightField.SetPlace(Art.Biomes.Nigredo.Darkness(dark), Art.Biomes.Nigredo.Shade(Art.Biomes.Biome.Shade));
+            Art.Biomes.Nigredo.Dress(_arenaRoot, new Vector2(HalfWidth, HalfHeight), seed);
             Combat.FightMarks.Begin(new Vector2(HalfWidth, HalfHeight));   // the last floor's marks are gone
             Debug.Log($"[Floor] {Art.Biomes.Biome.Current} | scenery {theme}");
         }
@@ -1540,6 +1547,8 @@ namespace Convergence.Core
             Convergence.Audio.Ambience.Set(Convergence.Audio.Bed.Hub);
             Convergence.Art.Lighting.LightField.SetPlace(0f, Color.black);   // the hub is lit as it always was
             Combat.FightMarks.Hide();
+            Art.Biomes.Nigredo.Clear();
+            Convergence.Audio.Ambience.SetNigredo(0f);
 
             // The roster is read before the room is built, because the couch is part of the room
             // and rebuilding it afterwards would pop characters into existence a frame late.
@@ -2625,6 +2634,7 @@ namespace Convergence.Core
                          : Tuning.Player.HpFireWater;
             var hp = go.AddComponent<Health>();
             Convergence.Audio.CombatSounds.AttachPlayer(hp);
+            if (DevImmune) hp.Immune = true;   // DEV: a test harness walks deep floors without dying
 
             // The stat block is built HERE, before Health, because max health needs it and the
             // controller does not exist yet. Gear and the grid, summed into percentage points over
@@ -3236,6 +3246,7 @@ namespace Convergence.Core
                                                 needsCover: needsCover);
                 _circle = HazardBuilder.LastRing;
                 // Set dressing last, round everything placed - a picture only (Art.Biomes.Decor).
+                Art.Biomes.Nigredo.PlaceCrystals(_arenaRoot, _planner != null ? _planner.SceneSeed(_floor) : _floor);
                 Art.Biomes.Decor.Dress(_hazardRoot, (_planner != null ? _planner.SceneSeed(_floor) : _floor) + 101,
                                        Arena.HalfExtents, _spire != null ? (Vector2?)_spire.transform.position : null);
                 if (_circle != null)

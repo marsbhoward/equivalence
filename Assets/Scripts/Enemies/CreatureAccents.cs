@@ -23,10 +23,12 @@ namespace Convergence.Enemies
         /// <summary>The rig slot the rasteriser colours from here, whatever kind the rig is.</summary>
         public const int Slot = 1000;
 
-        public enum Kind { None, Fungus, SaltCubes, Streamer, Moss, Cloud, Weed, Leaf, Ivy, Feather }
+        public enum Kind { None, Fungus, SaltCubes, Streamer, Moss, Cloud, Weed, Leaf, Ivy, Feather, Crystal }
 
         public static BiomeKind Biome = BiomeKind.Tower;
         public static int Frame;
+        /// <summary>The Nigredo's crystals on the creature: 0 none, 1-3 larger (Art.Biomes.Nigredo.Shards).</summary>
+        public static int Shards;
 
         static readonly Color[] FungusRamp = CreatureWeathering.Fungus;
         static readonly Color[] SaltRamp = CreatureWeathering.SaltCubes;
@@ -37,13 +39,15 @@ namespace Convergence.Enemies
         static readonly Color[] LeafRamp = TexelRig.Hex("#3a2a10", "#6a4a1a", "#9a6e26", "#c49a3a");
         static readonly Color[] IvyRamp = TexelRig.Hex("#1c3014", "#2e4c1c", "#467026", "#6a9634");
         static readonly Color[] FeatherRamp = TexelRig.Hex("#8a8a90", "#b4b4ba", "#dcdce0", "#f4f4f6");
+        /// <summary>Shards of the Stone: dark side, faces, lit edge, the hot core.</summary>
+        static readonly Color[] CrystalRamp = TexelRig.Hex("#600c18", "#9e1828", "#d6333c", "#ff9690");
 
         static Color[][] _all;
 
         /// <summary>Is this one of the accent colours (left alone by the weathering)?</summary>
         public static bool IsAccent(Color c)
         {
-            _all ??= new[] { FungusRamp, SaltRamp, StreamerRamp, MossRamp, CloudRamp, WeedRamp, LeafRamp, IvyRamp, FeatherRamp };
+            _all ??= new[] { FungusRamp, SaltRamp, StreamerRamp, MossRamp, CloudRamp, WeedRamp, LeafRamp, IvyRamp, FeatherRamp, CrystalRamp };
             foreach (var ramp in _all)
                 foreach (var k in ramp)
                     if (Mathf.Abs(k.r - c.r) + Mathf.Abs(k.g - c.g) + Mathf.Abs(k.b - c.b) < 0.04f) return true;
@@ -66,6 +70,7 @@ namespace Convergence.Enemies
                 case Kind.Leaf: return TexelRig.Hash(x >> 1, y >> 1) < 0.5f ? LeafRamp[Mathf.Max(1, shade)] : IvyRamp[Mathf.Max(1, shade)];
                 case Kind.Ivy: return IvyRamp[shade];
                 case Kind.Feather: return FeatherRamp[Mathf.Min(3, shade + 1)];
+                case Kind.Crystal: return CrystalRamp[Mathf.Min(3, shade)];
             }
             return Color.magenta;
         }
@@ -151,6 +156,25 @@ namespace Convergence.Enemies
             {
                 var q = from + d * (k / 4.6f) + n * (k % 2 == 0 ? 1f : -1f) * width * 0.9f;
                 Add(rig, order + 0.01f, Kind.Ivy, TexelRig.Ellipse(q.x, q.y, width * 0.9f, width * 0.6f, k * 40f));
+            }
+        }
+
+        /// <summary>The NIGREDO's shards of the Stone, grown out of the body at <paramref name="at"/>:
+        /// two to four deep red points fanned up and back, larger each step of
+        /// <see cref="Shards"/>. Nothing below the Nigredo. <paramref name="unit"/> scales them to the
+        /// kind's rig units. The light they give is the creature's Glow (TexelVisual).</summary>
+        public static void StoneShards(TexelRig.Rig rig, float order, Vector2 at, float unit)
+        {
+            if (Shards <= 0) return;
+            int n = Shards + 1;
+            float len = (2.4f + Shards * 0.9f) * unit, w = (0.75f + Shards * 0.18f) * unit;
+            for (int i = 0; i < n; i++)
+            {
+                // fanned well apart, so each reads as its own crystal and not one red cone
+                float a = TexelRig.Rad(100f + (i - (n - 1) * 0.5f) * 34f);
+                float l = len * (i == n / 2 ? 1f : 0.68f);
+                var root = at + new Vector2((i - (n - 1) * 0.5f) * w * 2.1f, -Mathf.Abs(i - (n - 1) * 0.5f) * w * 0.4f);
+                Add(rig, order + i * 0.001f, Kind.Crystal, TexelRig.Taper(root, root + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * l, w, w * 0.15f));
             }
         }
 

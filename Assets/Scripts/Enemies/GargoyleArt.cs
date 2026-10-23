@@ -138,7 +138,7 @@ namespace Convergence.Enemies
         /// CreatureWeathering.</summary>
         public static Sprite[] For(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome)
         {
-            int key = (look == EnemyLook.Automaton ? 1 : 0) | (elite ? 2 : 0) | ((int)biome << 2);
+            int key = (look == EnemyLook.Automaton ? 1 : 0) | (elite ? 2 : 0) | ((int)biome << 2) | (Art.Biomes.Nigredo.Shards << 5);
             if (_cache.TryGetValue(key, out var hit) && hit != null && hit.Length > 0 && hit[0] != null) return hit;
 
             var mat = look == EnemyLook.Automaton ? Ironbound : Weathered;
@@ -269,6 +269,7 @@ namespace Convergence.Enemies
             if (p.Halo) fx.Add((Fx.Halo, eye));
             if (p.Chips) fx.Add((Fx.Chips, Hd(0, 2)));
             if (p.Flare) fx.Add((Fx.Flare, eye));
+            CreatureAccents.StoneShards(rig, 1.46f, S + new Vector2(-4f, 1f), 0.9f);   // the Nigredo's, on the shoulders
             // THE PLACE'S ACCENT on the plinth (the elite has none - it wears the weathering alone)
             if (p.Plinth && !p.Fly)
             {
@@ -289,9 +290,9 @@ namespace Convergence.Enemies
 
         static Sprite Render(int frame, Mat mat, bool elite, Art.Biomes.BiomeKind biome)
         {
-            CreatureAccents.Biome = biome; CreatureAccents.Frame = frame;
+            CreatureAccents.Biome = biome; CreatureAccents.Frame = frame; CreatureAccents.Shards = Art.Biomes.Nigredo.Shards;
             try { return RenderIn(frame, mat, elite, biome); }
-            finally { CreatureAccents.Biome = Art.Biomes.BiomeKind.Tower; }
+            finally { CreatureAccents.Biome = Art.Biomes.BiomeKind.Tower; CreatureAccents.Shards = 0; }
         }
 
         static Sprite RenderIn(int frame, Mat mat, bool elite, Art.Biomes.BiomeKind biome)

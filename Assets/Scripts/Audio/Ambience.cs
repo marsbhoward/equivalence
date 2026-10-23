@@ -17,7 +17,8 @@ namespace Convergence.Audio
     public class Ambience : MonoBehaviour
     {
         // Plain enum/float fields survive a domain reload; the sources are re-found by GetComponents.
-        [SerializeField] AudioSource _a, _b, _boss;
+        [SerializeField] AudioSource _a, _b, _boss, _nig;
+        [SerializeField] float _nigredo;
         [SerializeField] bool _aLive = true;
         [SerializeField] Bed _bed;
         [SerializeField] bool _bossOn;
@@ -53,6 +54,24 @@ namespace Convergence.Audio
             if (_a == null) _a = host.NewSource(true);
             if (_b == null) _b = host.NewSource(true);
             if (_boss == null) _boss = host.NewSource(true);
+            if (_nig == null) _nig = host.NewSource(true);
+        }
+
+        /// <summary>The Nigredo's roar under the room tone, at its strength (0 off) - Art.Biomes.Nigredo.</summary>
+        public static void SetNigredo(float strength)
+        {
+            var host = AudioHost.Get();
+            if (host == null) return;
+            var amb = host.GetComponent<Ambience>();
+            if (amb == null) amb = host.gameObject.AddComponent<Ambience>();
+            amb.Ensure();
+            amb._nigredo = Mathf.Clamp01(strength);
+            if (amb._nigredo > 0f && !amb._nig.isPlaying)
+            {
+                amb._nig.clip = Clip(Bed.Nigredo);
+                amb._nig.volume = 0f;
+                amb._nig.Play();
+            }
         }
 
         void Change(Bed bed, bool boss)
@@ -91,7 +110,7 @@ namespace Convergence.Audio
             AudioClip rec = g == null ? null : bed switch
             {
                 Bed.Hub => g.BedHub, Bed.Crypt => g.BedCrypt, Bed.Deep => g.BedDeep,
-                Bed.Abyss => g.BedAbyss, Bed.Throne => g.BedThrone, Bed.Boss => g.BedBoss, Bed.Forest => g.BedForest, Bed.Sky => g.BedSky, Bed.Salt => g.BedSalt, _ => null,
+                Bed.Abyss => g.BedAbyss, Bed.Throne => g.BedThrone, Bed.Boss => g.BedBoss, Bed.Forest => g.BedForest, Bed.Sky => g.BedSky, Bed.Salt => g.BedSalt, Bed.Nigredo => g.BedNigredo, _ => null,
             };
             c = rec != null ? rec : Synth.Clip($"Bed_{bed}", Synth.Bed(bed));
             _beds[bed] = c;
@@ -101,6 +120,12 @@ namespace Convergence.Audio
         void Update()
         {
             if (_a == null || _b == null || _boss == null) return;
+            if (_nig != null)
+            {
+                float nigLevel = _nigredo * Tuning.Audio.NigredoLoudness * Volume.Ambience;
+                _nig.volume = Mathf.MoveTowards(_nig.volume, nigLevel, Time.unscaledDeltaTime * 0.12f);
+                if (_nigredo <= 0f && _nig.isPlaying && _nig.volume <= 0.0001f) _nig.Stop();
+            }
             float dt = Time.unscaledDeltaTime;
             float step = dt / Mathf.Max(0.01f, Tuning.Audio.BedFadeSeconds);
             float level = Tuning.Audio.BedLoudness(_bed) * Volume.Ambience;

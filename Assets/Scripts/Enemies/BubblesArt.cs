@@ -114,7 +114,7 @@ namespace Convergence.Enemies
         /// CreatureWeathering.</summary>
         public static Sprite[] For(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome)
         {
-            int key = (look == EnemyLook.Automaton ? 1 : 0) | (elite ? 2 : 0) | ((int)biome << 2);
+            int key = (look == EnemyLook.Automaton ? 1 : 0) | (elite ? 2 : 0) | ((int)biome << 2) | (Art.Biomes.Nigredo.Shards << 5);
             if (_cache.TryGetValue(key, out var hit) && hit != null && hit.Length > 0 && hit[0] != null) return hit;
 
             var mat = look == EnemyLook.Automaton ? Ironbound : Drowned;
@@ -235,6 +235,7 @@ namespace Convergence.Enemies
                 CreatureAccents.Strands(r_, 3.2f, CreatureAccents.Kind.Weed,
                     new[] { L(-rx * 0.55f, -0.8f), L(-rx * 0.05f, -1f), L(rx * 0.5f, -0.8f) }, 10f, 1.15f);
             if (CreatureAccents.Salt) CreatureAccents.Shelves(r_, 4.2f, L(-rx * 0.78f, 1.2f), L(rx * 0.72f, 1f), 3.3f);
+            CreatureAccents.StoneShards(r_, 4.25f, L(-rx * 0.25f, ry * 0.85f), 0.9f);
             if (CreatureAccents.Sky)
                 CreatureAccents.Puffs(r_, 4.2f, new[] { L(-rx - 1.4f, 1.5f), L(rx + 1.2f, -0.5f), L(rx * 0.2f, ry + 1.2f) }, 2f);
             return L(0, -3.4f);
@@ -244,9 +245,9 @@ namespace Convergence.Enemies
 
         static Sprite Render(int frame, Mat mat, bool elite, Art.Biomes.BiomeKind biome)
         {
-            CreatureAccents.Biome = biome; CreatureAccents.Frame = frame;
+            CreatureAccents.Biome = biome; CreatureAccents.Frame = frame; CreatureAccents.Shards = Art.Biomes.Nigredo.Shards;
             try { return RenderIn(frame, mat, elite, biome); }
-            finally { CreatureAccents.Biome = Art.Biomes.BiomeKind.Tower; }
+            finally { CreatureAccents.Biome = Art.Biomes.BiomeKind.Tower; CreatureAccents.Shards = 0; }
         }
 
         static Sprite RenderIn(int frame, Mat mat, bool elite, Art.Biomes.BiomeKind biome)

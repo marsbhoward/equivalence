@@ -43,6 +43,15 @@ namespace Convergence.Enemies
             v._look = look;
             v._elite = elite;
             v._biome = Art.Biomes.Biome.Current;
+            // The Nigredo's shards on it give light - steady, never a flash, so never a tell.
+            int shards = Art.Biomes.Nigredo.Shards;
+            if (shards > 0)
+            {
+                var g = Art.Lighting.Glow.Attach(visual, Core.Tuning.Nigredo.CreatureLightRadius[shards],
+                                                 Core.Tuning.Nigredo.CrystalColor, Core.Tuning.Nigredo.CreatureLightIntensity[shards]);
+                g.Offset = new Vector2(0f, 0.45f);
+                g.Wash = Core.Tuning.Nigredo.CreatureWash;
+            }
             sr.color = Color.white;                        // the art bakes its own colour
             visual.transform.localScale = Vector3.one;     // and its own size
             v.Show(first);
