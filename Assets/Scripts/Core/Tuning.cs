@@ -1663,6 +1663,14 @@ namespace Convergence.Core
             /// begins to build, a few seconds before the first spawn.</summary>
             public const float WalkInSeconds = 3f;
             public const float TierSeconds = 600f;
+
+            /// <summary>
+            /// THE SHORT DESCENT's flat LIFESTEAL for every class (the user's call, 2026-10-25): its
+            /// reward rings come every second floor, so half the Heal cards are gone - 1% of every hit
+            /// dealt comes back as health instead. Joins the one lifesteal pool, under its cap and its
+            /// per-second limit (Tuning.Stats.LifestealCap / LifestealHealPerSecond). Short only.
+            /// </summary>
+            public const float ShortLifesteal = 0.01f;
             public const int Tiers = 6;
             public const float TierStep = 1.07f;
             public const float CollapseAtSeconds = 3600f;

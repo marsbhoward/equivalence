@@ -1699,6 +1699,9 @@ namespace Convergence.Player
                 Proc = Weapon == Art.Gear.WeaponClass.Disc ? Tuning.Exchange.ProcDisc : 1f,
             });
             Board?.OnHitLanded(target, info, info.IsFinisher, reach01, first);
+            // The Short Descent's flat lifesteal reaches thrown hits too - every class, discs and
+            // bows included. Only that share: invested lifesteal stays the swing's, as it was priced.
+            Drain(info.Amount, baseOnly: true);
             if (info.IsFinisher) return;
             for (int i = 0; i < basicsWorth; i++)
             {
@@ -5254,13 +5257,17 @@ namespace Convergence.Player
         /// build would be pure noise, and the flash is what tells an invested player it is
         /// working.
         /// </summary>
-        void Drain(float dealt)
+        void Drain(float dealt, bool baseOnly = false)
         {
-            if (LifestealFraction == null || Health == null || Health.IsDead) return;
+            if (Health == null || Health.IsDead) return;
 
             // Every lifesteal source is one pool under one cap (Art.Gear.StatCurves.Lifesteal) -
-            // the board, the ledger and the element (Air's Gust) alike.
-            float frac = Art.Gear.StatCurves.Lifesteal(LifestealFraction() + (Resource?.LifestealBonus ?? 0f));
+            // the board, the ledger and the element (Air's Gust) alike - and the SHORT DESCENT's
+            // flat share for every class (Tuning.RunClock.ShortLifesteal), which stands in for the
+            // healing its halved rings no longer offer.
+            float invested = baseOnly ? 0f : (LifestealFraction?.Invoke() ?? 0f) + (Resource?.LifestealBonus ?? 0f);
+            float baseShare = Core.RunFormat.Short ? Tuning.RunClock.ShortLifesteal : 0f;
+            float frac = Art.Gear.StatCurves.Lifesteal(invested + baseShare);
             if (frac <= 0f || dealt <= 0f) return;
 
             // Nothing to gain at full health, and no cue for it either: a flash that fires on
@@ -5289,7 +5296,9 @@ namespace Convergence.Player
             if (heal <= 0f) return;
 
             Health.Heal(heal);
-            Spr.Flash(transform.position, 0.6f, new Color(0.55f, 1f, 0.6f), 0.16f);
+            // The cue is for an INVESTED build: the Short Descent's flat share alone heals silently,
+            // or every hit of every run would flash.
+            if (invested > 0f) Spr.Flash(transform.position, 0.6f, new Color(0.55f, 1f, 0.6f), 0.16f);
         }
 
         /// <summary>Lifesteal still allowed this second, and when it was last topped up.</summary>
