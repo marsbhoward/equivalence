@@ -119,6 +119,18 @@ namespace Convergence.Combat
             BeginReturn(c, c.Pos);
         }
 
+        /// <summary>A second arrow off the same string (a twin nock): drawn as one of the Hive's own,
+        /// when the Hive is in the hand - not peeled off a limb (one arrow a shot leaves the picture).</summary>
+        public void Dress(ThrownArrow shot)
+        {
+            var bow = Bow;
+            if (shot == null || bow == null || !Gear.DemoGear.HiveFrameState(bow.sprite, out _, out _)) return;
+            var sr = shot.GetComponent<SpriteRenderer>();
+            if (sr != null) { sr.sprite = Gear.DemoGear.HiveArrowSprite; sr.color = Color.white; }
+            float s = Mathf.Abs(bow.transform.lossyScale.y) * Gear.DemoGear.HiveNockScale;
+            shot.transform.localScale = new Vector3(s, s, 1f);
+        }
+
         /// <summary>Everything home at once, the bow whole - before the swarm takes the bow apart.</summary>
         public void Cancel()
         {

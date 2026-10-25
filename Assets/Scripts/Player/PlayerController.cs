@@ -6333,6 +6333,7 @@ namespace Convergence.Player
                 twin.PierceFraction = PierceFraction;
                 twin.BasicsWorth = 0;
                 if (!isFinisher) Effects?.ArmArrow(twin, planted);
+                loose?.Dress(twin);   // the Hive's second arrow is one of its own too
             }
             loose?.Release(arrow);
         }

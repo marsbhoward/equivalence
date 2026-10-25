@@ -807,18 +807,20 @@ namespace Convergence.Combat
             IsDefault = true,
             Class = Art.Gear.WeaponClass.Bow,
             FinisherGlyph = Glyph.Spike,
-            FinisherDescription = "Draws and looses a single heavier arrow.",
+            FinisherDescription = "From one knee, draws and looses a single heavier arrow.",
+            // From the KNEEL (2026-10-23): a shot worth both basics, then the roll down onto one
+            // knee (by the stick, else away from the target) - the art drawn steady from there.
             Basics = new[]
             {
-                new AttackStep { Name = "Shot", DamageMultiplier = 1f, IntervalMultiplier = 1f, Motion = AttackMotion.Draw },
-                new AttackStep { Name = "Shot", DamageMultiplier = 1f, IntervalMultiplier = 1f, Motion = AttackMotion.Draw },
-                new AttackStep { Name = "Shot", DamageMultiplier = 1f, IntervalMultiplier = 1f, Motion = AttackMotion.Draw },
+                new AttackStep { Name = "Shot", DamageMultiplier = 2f, IntervalMultiplier = 1f, Motion = AttackMotion.Draw, BasicsWorth = 2 },
+                new AttackStep { Name = "Roll", DamageMultiplier = 0f, IntervalMultiplier = 1f, Motion = AttackMotion.BowKneelRoll, KneelRoll = true },
+                new AttackStep { Name = "Shot", DamageMultiplier = 2f, IntervalMultiplier = 1f, Motion = AttackMotion.Draw, BasicsWorth = 2 },
             },
             Finisher = new AttackStep
             {
                 Name = "Broadhead", DamageMultiplier = 5f, IntervalMultiplier = 1.5f,
                 Weight = FinisherWeight.Medium,
-                Motion = AttackMotion.Draw,
+                Motion = AttackMotion.KneelDraw,
             },
         };
 
@@ -1949,11 +1951,13 @@ namespace Convergence.Combat
                 // reasoning as Conflagration and the rest above.
                 SignatureOnly = true,
                 Flavor = "What is let go comes back, and what comes back is fixed.",
-                // Two basics, as every chain has.
+                // From the RECOIL (2026-10-23): a shot worth both basics, then the hop back - the
+                // weight on the back foot is the wind-up the bow is hurled from.
                 Basics = new[]
                 {
-                    new AttackStep { Name = "Shot", DamageMultiplier = 1f, IntervalMultiplier = 1f, Motion = AttackMotion.Draw },
-                    new AttackStep { Name = "Shot", DamageMultiplier = 1f, IntervalMultiplier = 1f, Motion = AttackMotion.Draw },
+                    new AttackStep { Name = "Shot", DamageMultiplier = 2f, IntervalMultiplier = 1f, Motion = AttackMotion.Draw, BasicsWorth = 2 },
+                    new AttackStep { Name = "Recoil", DamageMultiplier = 0f, IntervalMultiplier = 1f, Motion = AttackMotion.BowRecoilHop, RecoilHop = true },
+                    new AttackStep { Name = "Shot", DamageMultiplier = 2f, IntervalMultiplier = 1f, Motion = AttackMotion.Draw, BasicsWorth = 2 },
                 },
                 Finisher = new AttackStep
                 {
@@ -1979,10 +1983,12 @@ namespace Convergence.Combat
                 // reasoning as Conflagration and the rest above.
                 SignatureOnly = true,
                 Flavor = "Every arrow knows its way home.",
-                // Two basics, as every chain has.
+                // From the TWIN NOCK (2026-10-23): a shot, then two arrows at once - the bow held
+                // ready, and the art a plain draw from there that lets every arrow go.
                 Basics = new[]
                 {
                     new AttackStep { Name = "Shot", DamageMultiplier = 1f, IntervalMultiplier = 1f, Motion = AttackMotion.Draw },
+                    new AttackStep { Name = "Twin", DamageMultiplier = 1f, IntervalMultiplier = 1f, Motion = AttackMotion.TwinDraw, TwinShot = true },
                     new AttackStep { Name = "Shot", DamageMultiplier = 1f, IntervalMultiplier = 1f, Motion = AttackMotion.Draw },
                 },
                 Finisher = new AttackStep
@@ -1998,16 +2004,19 @@ namespace Convergence.Combat
             },
             new Moveset
             {
-                FinisherDescription = "Draws the bow while the Crow, the Swan and the Peacock appear as bows of light in a V either side of you, drawing with you. All four loose together: the crow's arrow flies straight through everything in its line, the swan's splits on your target into arrows at the enemies nearest it, the peacock's bursts into eyes that mark your target and those around it, and the Phoenix's arrow lands last.",
+                FinisherDescription = "Brings the raised bow down and draws while the Crow, the Swan and the Peacock appear as bows of light in a V either side of you, drawing with you. All four loose together: the crow's arrow flies straight through everything in its line, the swan's splits on your target into arrows at the enemies nearest it, the peacock's bursts into eyes that mark your target and those around it, and the Phoenix's arrow lands last.",
                 Id = Art.Gear.DemoGear.PhoenixArtId, FinisherGlyph = Glyph.Formation,
                 DisplayName = "The Four Birds", Class = Art.Gear.WeaponClass.Bow,
 
                 // The Phoenix's, through the Golden Cage - a Black Diamond ceiling privilege.
                 SignatureOnly = true,
                 Flavor = "The Work complete, the birds fly as one.",
+                // From the HIGH (2026-10-23): a level shot, then a lob - the bow held raised to the
+                // sky while the birds gather, and drawn down from there onto the target.
                 Basics = new[]
                 {
                     new AttackStep { Name = "Shot", DamageMultiplier = 1f, IntervalMultiplier = 1f, Motion = AttackMotion.Draw },
+                    new AttackStep { Name = "Lob", DamageMultiplier = 1f, IntervalMultiplier = 1f, Motion = AttackMotion.LobDraw, LobArc = Core.Tuning.Bow.LobArc },
                     new AttackStep { Name = "Shot", DamageMultiplier = 1f, IntervalMultiplier = 1f, Motion = AttackMotion.Draw },
                 },
                 Finisher = new AttackStep
@@ -2015,7 +2024,7 @@ namespace Convergence.Combat
                     // HEAVY (the user's call, 2026-10-17): the target takes exactly one (Tuning.Formation's
                     // shares); the Phoenix's arrow displaces and flinches through armour.
                     Name = "The Four Birds", DamageMultiplier = 6.5f, IntervalMultiplier = 2.5f,
-                    Weight = FinisherWeight.Heavy, Motion = AttackMotion.Draw,
+                    Weight = FinisherWeight.Heavy, Motion = AttackMotion.HighDraw,
                     Knockback = 6f, ChainFalloff = 0.85f,
                     Formation = true,
                 },
