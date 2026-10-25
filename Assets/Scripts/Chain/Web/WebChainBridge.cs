@@ -34,6 +34,8 @@ namespace Convergence.Chain.Web
         public string tier = "";
         /// <summary>How many boxes one open takes (1-10), as text like every other field.</summary>
         public string count = "";
+        /// <summary>A dye withdrawal or deposit: the swatch id (Art.Gear.DyeCatalog).</summary>
+        public string swatch = "";
     }
 
     [Serializable]

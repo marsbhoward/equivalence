@@ -194,6 +194,7 @@ namespace Convergence.Art.Gear
         public void SetWeaponSprite(UnityEngine.Sprite sprite) { }
 
         public void SetShowcasePose(bool on) { }
+        public void HoldPose(PoseDef pose) { }
 
         /// <summary>No-op: an authored rig faces where its animator says it does.</summary>
         public void SetFacing(Vector2 aim) { }

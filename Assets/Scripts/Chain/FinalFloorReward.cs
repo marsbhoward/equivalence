@@ -28,6 +28,13 @@ namespace Convergence.Chain
         public bool Guaranteed;
         /// <summary>The week it was decided in (<see cref="WeekOf"/>).</summary>
         public int Week;
+        /// <summary>A RARE dye a later clear paid INSTEAD of its Gold (Count 0), or empty - already
+        /// the character's (CharacterItems).</summary>
+        public string Dye;
+        /// <summary>A portrait pose (every final clear is an avatar kill), or empty - already the character's.</summary>
+        public string Pose;
+        /// <summary>Gold boxes the pose roll paid instead, the character owning every pose.</summary>
+        public int PoseGold;
 
         /// <summary>1970-01-04, the first Sunday after the epoch: week 0 began here.</summary>
         static readonly DateTime FirstSunday = new(1970, 1, 4, 0, 0, 0, DateTimeKind.Utc);
@@ -57,6 +64,9 @@ namespace Convergence.Chain
                 return new FinalFloorReward { Tier = LootTier.BlackDiamond, Count = 1, Week = week };
             if (r < black + diamond)
                 return new FinalFloorReward { Tier = LootTier.Diamond, Count = 1, Week = week };
+            // A rare dye INSTEAD of the Gold (Tuning.Cosmetics.FinalLaterRareDyeChance).
+            if (r < black + diamond + Tuning.Cosmetics.FinalLaterRareDyeChance)
+                return new FinalFloorReward { Tier = LootTier.Gold, Count = 0, Week = week, Dye = CosmeticRolls.RareDye(rng) };
             return new FinalFloorReward
             {
                 Tier = LootTier.Gold,

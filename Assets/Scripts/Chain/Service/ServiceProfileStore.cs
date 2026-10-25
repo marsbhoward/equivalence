@@ -80,6 +80,9 @@ namespace Convergence.Chain.Service
             profile ??= CharacterProfile.NewDefault(profileId);
             profile.ProfileId = profileId;   // the key wins over whatever the save claims
             Debug.Log($"[Service] loaded {profileId} (runs={profile.TotalRuns}, best={profile.BestKills})");
+            // What the database holds for the character is the SERVICE's, never the save's: the
+            // save's copy is replaced (empty for a character the service has no items for yet).
+            if (!_unreadable.Contains(profileId) && r.Ok) await ItemsAsync(profile);
             return profile;
         }
 
@@ -146,7 +149,7 @@ namespace Convergence.Chain.Service
         }
 
         [Serializable]
-        class FinalReply { public string tier; public int count; public bool guaranteed; public int week; }
+        class FinalReply { public string tier; public int count; public bool guaranteed; public int week; public string dye; public string pose; public int poseGold; }
 
         /// <summary>Floor 100's box, decided by the service (routes/finalFloor.ts) - the run must be
         /// this character's latest run start. Null when there is no answer; the caller asks again
@@ -165,12 +168,20 @@ namespace Convergence.Chain.Service
             FinalReply reply = null;
             try { reply = JsonUtility.FromJson<FinalReply>(r.Body); }
             catch (Exception e) { Debug.LogWarning($"[Service] floor 100's box unreadable: {e.Message}"); }
-            if (reply == null || !Enum.TryParse(reply.tier, out Art.Gear.LootTier tier) || reply.count < 1) return null;
-            return new FinalFloorReward { Tier = tier, Count = reply.count, Guaranteed = reply.guaranteed, Week = reply.week };
+            if (reply == null) return null;
+            // 'Dye': a later clear that paid a rare dye INSTEAD of its Gold - no boxes.
+            bool dye = reply.tier == "Dye" && !string.IsNullOrEmpty(reply.dye);
+            Art.Gear.LootTier tier = Art.Gear.LootTier.Gold;
+            if (!dye && (!Enum.TryParse(reply.tier, out tier) || reply.count < 1)) return null;
+            return new FinalFloorReward
+            {
+                Tier = tier, Count = dye ? 0 : reply.count, Guaranteed = reply.guaranteed, Week = reply.week,
+                Dye = reply.dye, Pose = reply.pose, PoseGold = Math.Max(0, reply.poseGold),
+            };
         }
 
         [Serializable]
-        class AvatarReply { public int floor; public int diamond; public int blackDiamond; }
+        class AvatarReply { public int floor; public int diamond; public int blackDiamond; public string dye; public string pose; public int poseGold; }
 
         /// <summary>An avatar's boxes, decided by the service (routes/avatarBox.ts) - the run must be
         /// this character's latest run start, its snapshots on that floor. Null when there is no
@@ -190,7 +201,139 @@ namespace Convergence.Chain.Service
             try { reply = JsonUtility.FromJson<AvatarReply>(r.Body); }
             catch (Exception e) { Debug.LogWarning($"[Service] floor {floor}'s avatar boxes unreadable: {e.Message}"); }
             if (reply == null || reply.floor != floor) return null;
-            return new AvatarBoxes { Floor = floor, Diamond = Math.Max(0, reply.diamond), BlackDiamond = Math.Max(0, reply.blackDiamond) };
+            return new AvatarBoxes
+            {
+                Floor = floor, Diamond = Math.Max(0, reply.diamond), BlackDiamond = Math.Max(0, reply.blackDiamond),
+                Dye = reply.dye, Pose = reply.pose, PoseGold = Math.Max(0, reply.poseGold),
+            };
+        }
+
+        [Serializable] class MilestoneReply { public bool none; public int floor; public string milestone; public int diamond; public string dye; }
+
+        /// <summary>A milestone, decided by the service (routes/items.ts): the run must be this
+        /// character's latest, its snapshots on that floor. Null for none, passed, or no answer.</summary>
+        public async Task<MilestoneReward?> MilestoneAsync(CharacterProfile profile, string runId, int floor)
+        {
+            _unreadable ??= new HashSet<string>();
+            if (_unreadable.Contains(profile.ProfileId)) return null;
+            string body = $"{{\"profileId\":{ServiceClient.Quote(profile.ProfileId)},\"runId\":{ServiceClient.Quote(runId)},\"floor\":{floor}}}";
+            var r = await Ask(t => ServiceClient.Post("/saves/milestone", body, t));
+            if (!r.Ok)
+            {
+                Debug.LogWarning($"[Service] floor {floor}'s milestone: {r}");
+                return null;
+            }
+            MilestoneReply reply = null;
+            try { reply = JsonUtility.FromJson<MilestoneReply>(r.Body); }
+            catch (Exception e) { Debug.LogWarning($"[Service] floor {floor}'s milestone unreadable: {e.Message}"); }
+            if (reply == null || reply.none || string.IsNullOrEmpty(reply.milestone)) return null;
+            return new MilestoneReward { Floor = floor, Milestone = reply.milestone, Diamond = Math.Max(0, reply.diamond), Dye = reply.dye };
+        }
+
+        // The service's shape (routes/items.ts) - lower-case, converted to CharacterItems.
+        [Serializable] class DyeRow { public string swatch; public int count; }
+        [Serializable] class DyedRow { public string piece; public List<string> swatches = new(); }
+        [Serializable]
+        class ItemsReply
+        {
+            public List<DyeRow> dyes = new();
+            public int charges;
+            public List<DyedRow> dyed = new();
+            public List<string> poses = new();
+            public List<string> milestones = new();
+            public int heldDiamond;
+            public string error;
+        }
+
+        static CharacterItems ToItems(ItemsReply r)
+        {
+            var items = new CharacterItems { Charges = r.charges, Poses = r.poses ?? new(), Milestones = r.milestones ?? new(), HeldDiamond = Math.Max(0, r.heldDiamond) };
+            foreach (var d in r.dyes ?? new()) if (d != null && d.count > 0) items.Dyes.Add(new DyeCount { Swatch = d.swatch, Count = d.count });
+            foreach (var d in r.dyed ?? new()) if (d != null) items.Dyed.Add(new PieceDye { Piece = d.piece, Swatches = d.swatches ?? new() });
+            return items;
+        }
+
+        /// <summary>Applies an items answer to the profile; null when the body is not one.</summary>
+        static CharacterItems Take(CharacterProfile profile, string body)
+        {
+            ItemsReply reply = null;
+            try { reply = JsonUtility.FromJson<ItemsReply>(body); }
+            catch (Exception e) { Debug.LogWarning($"[Service] items unreadable: {e.Message}"); }
+            if (reply == null || !string.IsNullOrEmpty(reply.error)) return null;
+            return profile.Items = ToItems(reply);
+        }
+
+        static string Refusal(ServiceClient.Reply r)
+        {
+            try
+            {
+                var e = JsonUtility.FromJson<ErrorReply>(r.Body);
+                if (e != null && !string.IsNullOrEmpty(e.error))
+                    return e.error switch
+                    {
+                        "not_enough_charges" => "not enough charges - break a Diamond box for more",
+                        "not_enough_dye" => "not enough of that dye",
+                        "no_diamond_box" => "no Diamond box to break",
+                        "refused" => string.IsNullOrEmpty(e.reason) ? "refused" : e.reason,
+                        _ => e.error.Replace('_', ' '),
+                    };
+            }
+            catch { /* fall through */ }
+            return r.ToString();
+        }
+
+        [Serializable] class ErrorReply { public string error; public string reason; }
+
+        static string ItemsPath(string profileId) => "/saves/items/" + Uri.EscapeDataString(profileId);
+
+        public async Task<CharacterItems> ItemsAsync(CharacterProfile profile)
+        {
+            _unreadable ??= new HashSet<string>();
+            if (_unreadable.Contains(profile.ProfileId)) return null;
+            var r = await Ask(t => ServiceClient.Get(ItemsPath(profile.ProfileId), t));
+            if (r.NotFound) return profile.Items = new CharacterItems();   // a character not yet saved holds nothing
+            if (!r.Ok)
+            {
+                Debug.LogWarning($"[Service] items for {profile.ProfileId}: {r}");
+                return null;
+            }
+            return Take(profile, r.Body);
+        }
+
+        public async Task<string> RecolourAsync(CharacterProfile profile, List<PieceDye> changes)
+        {
+            _unreadable ??= new HashSet<string>();
+            if (_unreadable.Contains(profile.ProfileId)) return "this character could not be read this session";
+            var sb = new System.Text.StringBuilder("{\"changes\":[");
+            for (int i = 0; i < changes.Count; i++)
+            {
+                if (i > 0) sb.Append(',');
+                sb.Append("{\"piece\":").Append(ServiceClient.Quote(changes[i].Piece)).Append(",\"swatches\":[");
+                for (int c = 0; c < changes[i].Swatches.Count; c++)
+                {
+                    if (c > 0) sb.Append(',');
+                    var sw = changes[i].Swatches[c];
+                    sb.Append(string.IsNullOrEmpty(sw) ? "null" : ServiceClient.Quote(sw));
+                }
+                sb.Append("]}");
+            }
+            sb.Append("]}");
+            var r = await Ask(t => ServiceClient.Post(ItemsPath(profile.ProfileId) + "/recolour", sb.ToString(), t));
+            if (!r.Ok) return Refusal(r);
+            return Take(profile, r.Body) != null ? null : "the service's answer was unreadable";
+        }
+
+        public async Task<string> BreakBoxAsync(CharacterProfile profile)
+        {
+            _unreadable ??= new HashSet<string>();
+            if (_unreadable.Contains(profile.ProfileId)) return "this character could not be read this session";
+            var r = await Ask(t => ServiceClient.Post(ItemsPath(profile.ProfileId) + "/break-box", "{}", t));
+            if (!r.Ok) return Refusal(r);
+            if (Take(profile, r.Body) == null) return "the service's answer was unreadable";
+            // A guest's box was its save's (the service lowered that count) - keep the copy in step.
+            // A HELD box was never in the save's count (it lives only on the service).
+            if (r.Body.Contains("\"source\":\"save\"") && profile.Boxes.Diamond > 0) profile.Boxes.Diamond--;
+            return null;
         }
 
         public async Task UnlockAsync(CharacterProfile profile)

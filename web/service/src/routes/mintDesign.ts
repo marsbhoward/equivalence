@@ -3,6 +3,7 @@ import type { TxBuilder } from '@lucid-evolution/lucid';
 import { fundingInputs, getLucid, serialized, serviceAddress, signAndSubmit } from '../chain.js';
 import { getGearPolicy } from '../gearPolicy.js';
 import { ART_KEY, ArtEntry } from '../artIndex.js';
+import { lapsed } from '../pfp.js';
 import { bf, isMainnet } from '../blockfrost.js';
 import { REF_LABEL, USER_LABEL, isUserUnit, nameBody, referenceDatum, unitOf } from '../cip68.js';
 import { resolveArt } from './art.js';
@@ -29,6 +30,8 @@ const TIERS = new Set(['Diamond', 'BlackDiamond']);
 const SLOTS = new Set([
   'Head', 'Shoulders', 'Torso', 'Back', 'Neck', 'Ring', 'Legs', 'Trinket', 'Boots', 'Belt',
   'Gloves', 'Weapon', 'Relic',
+  // A Diamond armour SET - one token owning every piece (designs.ts `pieces`).
+  'Set',
 ]);
 const ID = /^[a-z0-9_]{1,64}$/i;
 /** A swatch id as `DyeCatalog` names it (without `dye.`), or `-` for a channel left as authored. */
@@ -97,7 +100,10 @@ export async function pfpGate(address: string, character: string): Promise<strin
     return null;
   }
   const utxos = await bf<unknown[]>(`/addresses/${address}/utxos/${character}`);
-  return utxos && utxos.length > 0 ? null : 'this address holds no PFP for that character';
+  if (!utxos || utxos.length === 0) return 'this address holds no PFP for that character';
+  // A LAPSED year pauses minting to the wallet (MONETIZATION.md) - renewing moves on what was held.
+  if (await lapsed(character)) return 'pfp_lapsed: renew the year to mint to the wallet again';
+  return null;
 }
 
 /**

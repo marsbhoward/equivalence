@@ -7,7 +7,7 @@ namespace Convergence.Chain
     public enum TxState { Pending, Confirmed, Failed }
 
     /// <summary>Which of the write points produced this. Mirrors IProfileStore's three, plus the account.</summary>
-    public enum TxKind { RunStart, RunEnd, Unlock, Account, DesignMint }   // append only
+    public enum TxKind { RunStart, RunEnd, Unlock, Account, DesignMint, Dyes, Portrait }   // append only
 
     public class TxRecord
     {
@@ -107,6 +107,8 @@ namespace Convergence.Chain
             TxKind.RunEnd => "RUN END",
             TxKind.Unlock => "UNLOCK",
             TxKind.DesignMint => "DESIGN MINT",
+            TxKind.Dyes => "DYES",
+            TxKind.Portrait => "PORTRAIT",
             _ => "ACCOUNT",
         };
     }

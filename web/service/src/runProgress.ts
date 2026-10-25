@@ -160,7 +160,7 @@ export interface Allowance {
  *   Snapshots alone are not enough - a modified client can send them as fast as it likes - and the
  *   clock alone is not either; together, a fake run costs its full real time.
  * - Every Diamond and Black Diamond box a run can hold was DECIDED by the service: the avatars'
- *   (avatarBoxes.ts) on floors within that depth, and the final floor's (finalFloor.ts) when the
+ *   (avatarBoxes.ts) and a milestone's (routes/items.ts) on floors within that depth, and the final floor's (finalFloor.ts) when the
  *   depth reaches the format's final floor. The claim only ever LOWERS that - a box found but lost before it was secured (a
  *   death between the avatar and a Rift) is honestly claimed as fewer.
  */
@@ -171,6 +171,7 @@ export function allowance(
   avatars: AvatarDecision[],
   final: FinalDecision | null,
   format: RunFormat,
+  milestones: { floor: number; diamond: number }[] = [],
 ): Allowance {
   const per = format.minSecondsPerFloor;
   const timeFloor = per > 0 ? Math.floor(seen.elapsedSeconds / per) : Infinity;
@@ -184,6 +185,8 @@ export function allowance(
     }
   if (final && floor >= format.finalFloor && (final.tier === 'Diamond' || final.tier === 'BlackDiamond'))
     decided[final.tier] += final.count;
+  // A milestone's Diamond box (cosmetics.ts - the first floor-25 clear of a character's life).
+  for (const m of milestones) if (m.floor <= floor) decided.Diamond += m.diamond;
 
   const allowed: Partial<Record<BoxTier, number>> = {};
   const clamped: Partial<Record<BoxTier, number>> = {};

@@ -6398,6 +6398,47 @@ namespace Convergence.Core
         }
 
         /// <summary>
+        /// The cosmetic economy held PER CHARACTER in the database (the user's calls, 2026-10-25;
+        /// MONETIZATION.md "The plan as of 2026-10-25"): dye CHARGES (a Diamond box breaks into
+        /// <see cref="ChargesPerBox"/>), earned DYES (a count, never a token until withdrawn), POSES
+        /// (untradeable, never duplicated) and the once-per-character MILESTONES. The SERVICE decides
+        /// every one of them for a service player - its copy of these numbers is
+        /// web/service/src/cosmetics.ts, keep the two in step; a LOCAL save rolls them here.
+        /// </summary>
+        public static class Cosmetics
+        {
+            /// <summary>A Diamond box broken for dye charges: one set's worth (7 pieces).</summary>
+            public const int ChargesPerBox = 7;
+
+            /// <summary>A RARE dye (Rare or Very Rare swatch) on top of a rolled avatar's boxes.</summary>
+            public const float AvatarRareDyeChance = 0.03f;
+            /// <summary>A rare dye INSTEAD of the Gold boxes on a later final-floor clear that week.</summary>
+            public const float FinalLaterRareDyeChance = 0.04f;
+            /// <summary>How a rare dye is drawn between the two rarities.</summary>
+            public const int RareWeight = 3, VeryRareWeight = 1;
+
+            /// <summary>A POSE per avatar kill - a rolled avatar and EVERY final-floor clear, flat, so
+            /// poses track playtime. From the poses the character lacks; with all owned it pays Gold.</summary>
+            public const float PoseChance = 0.01f;
+            public const int PoseGoldMin = 2, PoseGoldMax = 3;
+
+            /// <summary>
+            /// The MILESTONES, once per character, by the floor first cleared - the Short Descent's
+            /// first floor-25 clear (its first avatar) pays a Diamond box and a dye; its first 30, 40
+            /// and 50 a dye each. Classic is at the same DEPTH (its floors count once, the Short
+            /// Descent's twice): 50, 60, 80, 100 - my mapping, the plan was framed for the Short
+            /// Descent alone. Dyes climb in rarity with the floor (<see cref="MilestoneDyeRarity"/>).
+            /// </summary>
+            public static readonly int[] ShortMilestoneFloors = { 25, 30, 40, 50 };
+            public static readonly int[] ClassicMilestoneFloors = { 50, 60, 80, 100 };
+            public static readonly Art.Gear.DyeRarity[] MilestoneDyeRarity =
+                { Art.Gear.DyeRarity.Uncommon, Art.Gear.DyeRarity.Uncommon, Art.Gear.DyeRarity.Rare, Art.Gear.DyeRarity.VeryRare };
+            public static int[] MilestoneFloors => RunFormat.Short ? ShortMilestoneFloors : ClassicMilestoneFloors;
+            /// <summary>The milestone (index into the floors) that also pays the Diamond box.</summary>
+            public const int MilestoneBoxIndex = 0;
+        }
+
+        /// <summary>
         /// Magnitudes for GearRoller's per-slot stat rolls. Diamond and Black Diamond roll nothing -
         /// both are cosmetic tiers (Black Diamond's power is its relic's finisher, not stats).
         /// </summary>

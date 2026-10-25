@@ -16,6 +16,9 @@ import { graduate, loadAccount, loadCharacter, roster, saveAccount, saveCharacte
 import { newGuest, requireIdentity } from './identity.js';
 import { claimFinalFloor, finalFloorStatus } from './routes/finalFloor.js';
 import { claimAvatarBoxes, devDecideAvatarBoxes } from './routes/avatarBox.js';
+import { breakBox, claimMilestone, loadItems, recolour } from './routes/items.js';
+import { breakBoxTokens, depositDyes, submitBurn, withdrawDyes } from './routes/dyes.js';
+import { mintPortrait, portraitStatus, readPortrait, renewPortrait, submitPortrait, updatePortrait } from './routes/pfp.js';
 import { beatRun, claimRun, endRun, loadRun, saveRun } from './routes/runs.js';
 import { hasDatabase, migrate } from './db.js';
 import { playRouter } from './play.js';
@@ -115,8 +118,22 @@ app.post('/write/commit-run', perIdentity('commit', LIMITS.commit), commitRun);
 const opening = perIdentity('open', LIMITS.open);
 app.post('/write/open-boxes', opening, openBoxes);
 app.post('/write/open-boxes/submit', opening, submitOpen);
+// Dyes as tokens and box tokens into charges (routes/dyes.ts) - every one spends the service's ADA.
+app.post('/write/dyes/withdraw', opening, withdrawDyes);
+app.post('/write/dyes/deposit', opening, depositDyes);
+app.post('/write/dyes/deposit/submit', opening, submitBurn);
+app.post('/write/break-boxes', opening, breakBoxTokens);
+app.post('/write/break-boxes/submit', opening, submitBurn);
 app.get('/boxes/:profileId', requireSession, perIdentity('boxes', LIMITS.boxes), boxes);
 app.get('/art/:artKey', getArt);
+// The portrait (routes/pfp.ts): reads are public, takes are the player's and pay inside the tx.
+app.get('/pfp/:profileId', publicRead, blockfrostPublic, readPortrait);
+app.get('/pfp/:profileId/status', publicRead, blockfrostPublic, portraitStatus);
+const portrait = perIdentity('pfp', LIMITS.open);
+app.post('/write/pfp/mint', portrait, mintPortrait);
+app.post('/write/pfp/update', portrait, updatePortrait);
+app.post('/write/pfp/renew', portrait, renewPortrait);
+app.post('/write/pfp/submit', portrait, submitPortrait);
 
 // Saves (routes/saves.ts): every browser player's characters and hub room, guest or wallet.
 app.post('/guest', newGuest);
@@ -132,6 +149,11 @@ app.post('/saves/final-floor', claimFinalFloor);
 app.get('/saves/final-floor/:profileId', finalFloorStatus);
 // An avatar's boxes - decided by the service too (routes/avatarBox.ts).
 app.post('/saves/avatar-box', claimAvatarBoxes);
+// What the database holds per character - dyes, charges, poses, milestones (routes/items.ts).
+app.get('/saves/items/:profileId', loadItems);
+app.post('/saves/items/:profileId/recolour', recolour);
+app.post('/saves/items/:profileId/break-box', breakBox);
+app.post('/saves/milestone', claimMilestone);
 // A run in flight - snapshots, heartbeats, and one live session per run (routes/runs.ts).
 app.get('/saves/runs/:profileId', loadRun);
 app.put('/saves/runs/:profileId', saveRun);

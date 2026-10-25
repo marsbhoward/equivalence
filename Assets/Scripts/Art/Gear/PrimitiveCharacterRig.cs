@@ -5541,6 +5541,7 @@ namespace Convergence.Art.Gear
 
         public void PlayAttack(AttackMotion motion, float duration, bool alt)
         {
+            _frozenK = -1f;   // a real swing lets a held portrait pose go (HoldPose re-pins it after)
             _chargeTimer = 0f;
             _attackHold = 0f;
             _holdElapsed = 0f;
@@ -5600,6 +5601,29 @@ namespace Convergence.Art.Gear
         /// Held a little LONGER than asked: the strike's PlayAttack ends the hold, and a hold that
         /// ran out a frame early would let the swing start on its own clock and then restart.
         /// </summary>
+        /// <summary>See ICharacterRig.HoldPose: the motion played with its clock pinned at the
+        /// pose's frame (<see cref="_frozenK"/>) - the swing machinery poses everything (arms, body,
+        /// hop, dimensions) exactly as it does at that moment of the real motion.</summary>
+        public void HoldPose(PoseDef pose)
+        {
+            if (pose == null)
+            {
+                if (_frozenK >= 0f) { _frozenK = -1f; _attackTimer = 0f; }
+                return;
+            }
+            bool sound = MakesSound;
+            MakesSound = false;
+            PlayAttack(pose.Motion, PoseSeconds, pose.Alt);
+            MakesSound = sound;
+            _frozenK = UnityEngine.Mathf.Clamp01(pose.K);
+            _awaitLoose = false;
+        }
+
+        /// <summary>The frozen pose's place on its motion's clock, or -1 for none. NonSerialized so
+        /// a domain reload lets the pose go rather than restoring half of it.</summary>
+        [System.NonSerialized] float _frozenK = -1f;
+        const float PoseSeconds = 1f;
+
         public void HoldSwingStart(AttackMotion motion, bool alt, float seconds)
         {
             PlayAttack(motion, 1f, alt);
@@ -5782,8 +5806,14 @@ namespace Convergence.Art.Gear
             }
             else if (_attackTimer > 0f)
             {
-                // A held wind-up stops the swing's clock on frame zero; see HoldSwingStart.
-                if (_attackHold > 0f) { _attackHold -= dt; _holdElapsed += dt; }
+                // A held wind-up stops the swing's clock on frame zero; see HoldSwingStart. A
+                // PORTRAIT POSE pins it at the pose's frame (HoldPose), the entry blend run out.
+                if (_frozenK >= 0f)
+                {
+                    _attackTimer = UnityEngine.Mathf.Max(1e-4f, _attackLength * (1f - _frozenK));
+                    _holdElapsed = EntryBlendSeconds;
+                }
+                else if (_attackHold > 0f) { _attackHold -= dt; _holdElapsed += dt; }
                 else _attackTimer -= dt;
                 float k = 1f - Mathf.Clamp01(_attackTimer / _attackLength);
                 // The Lunge art's pull-back is ANIMATED over the hold (k -1 to 0), not frozen on

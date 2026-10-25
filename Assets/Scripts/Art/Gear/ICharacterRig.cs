@@ -204,6 +204,13 @@ namespace Convergence.Art.Gear
         void SetShowcasePose(bool on);
 
         /// <summary>
+        /// Hold a PORTRAIT POSE (<see cref="PoseDef"/>) - one frame of a motion, frozen until
+        /// cleared with null, no tremble, no sound. The PFP's pose, shown wherever a portrait is
+        /// previewed. No-op on a rig whose poses are authored art.
+        /// </summary>
+        void HoldPose(PoseDef pose);
+
+        /// <summary>
         /// Paint the higher-detail menu art where a piece has any. Set once when the rig is
         /// built, not per equip - it changes which sprites Apply reaches for.
         /// </summary>

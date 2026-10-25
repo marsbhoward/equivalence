@@ -56,13 +56,18 @@ namespace Convergence.EditorTools
         /// <summary>Writes <c>key.1x.png</c> and <c>key.png</c> into <paramref name="outDir"/>.</summary>
         public static string Render(string artKey, string outDir)
         {
-            var item = Resolve(artKey, out string why);
-            if (item == null) return $"{artKey}: {why}";
+            // A Diamond armour SET is one token pictured as the whole set: every piece's layers on
+            // one stand, as worn (ArmourSets).
+            bool set = ArmourSets.IsSet(artKey);
+            var setPieces = set ? ArmourSets.Pieces(artKey) : null;
+            string why = null;
+            var item = set ? null : Resolve(artKey, out why);
+            if (set ? setPieces.Count == 0 : item == null) return $"{artKey}: {why ?? "no such set"}";
 
             var root = new GameObject("nft-art (temporary)");
             try
             {
-                var pieces = Collect(item, root.transform, out why);
+                var pieces = set ? CollectWorn(setPieces, root.transform, out why) : Collect(item, root.transform, out why);
                 if (pieces == null) return $"{artKey}: {why}";
 
                 var native = Compose(pieces, out int w, out int h, out float ppu, out why);
@@ -168,10 +173,20 @@ namespace Convergence.EditorTools
                 return pieces;
             }
 
-            // Everything else hangs on the stand's joints. A temporary stand, so the positions
-            // are the rig's own pivot tree and not a copy of it that could drift.
+            // Everything else hangs on the stand's joints.
+            return CollectWorn(new[] { item }, root, out why);
+        }
+
+        /// <summary>Every layer of <paramref name="items"/> hung on one temporary stand - its
+        /// positions are the rig's own pivot tree, not a copy that could drift. A set's image is all
+        /// its pieces worn together.</summary>
+        static List<Piece> CollectWorn(IEnumerable<GearItem> items, Transform root, out string why)
+        {
+            why = null;
+            var pieces = new List<Piece>();
             var stand = ArmourStand.Build(root, Vector2.zero);
             var figure = stand.Figure;
+            foreach (var item in items)
             foreach (var l in item.LayersFor(menu: true))
             {
                 if (l == null || l.Sprite == null || RigLayers.IsBody(l.Layer)) continue;

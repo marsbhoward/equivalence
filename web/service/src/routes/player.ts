@@ -13,6 +13,8 @@ import { allowance } from '../runProgress.js';
 import { recordedFormat } from '../runFormat.js';
 import { avatarDecisions } from '../avatarBoxes.js';
 import { pfpGate } from './mintDesign.js';
+import { milestoneBoxes } from './items.js';
+import { db } from '../db.js';
 
 /**
  * The PLAYER's writes - called by the browser build through the connector, authorised by a
@@ -173,7 +175,8 @@ export async function commitRun(req: Request, res: Response): Promise<void> {
       const seen = { reached: claim.row.reached, cleared: claim.row.cleared, elapsedSeconds: claim.row.elapsed };
       const final = await decisionFor(address, profileId, runId);
       const avatars = await avatarDecisions(address, profileId, runId);
-      const { allowed, clamped, floor, timeFloor } = allowance(floors, claimed, seen, avatars, final, recordedFormat(claim.row.format));
+      const milestones = await milestoneBoxes(db(), address, profileId, runId);
+      const { allowed, clamped, floor, timeFloor } = allowance(floors, claimed, seen, avatars, final, recordedFormat(claim.row.format), milestones);
       if (Object.keys(clamped).length)
         console.warn(`[commit-run] ${profileId} run ${runId} claimed past what was seen and decided:`, clamped,
           `claimed floor ${floors}, snapshots ${seen.reached}/${seen.cleared} cleared, clock allows ${timeFloor}, counted ${floor}`);

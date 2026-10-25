@@ -63,6 +63,30 @@ namespace Convergence.Chain
         Task<AvatarBoxes?> AvatarBoxesAsync(CharacterProfile profile, string runId, int floor);
 
         /// <summary>
+        /// A MILESTONE (<see cref="MilestoneReward"/>), asked at each floor clear that is one of the
+        /// format's milestone floors: once per character, decided (and its dye credited) by the
+        /// service for a service player, by the profile for a local save. NOT a checkpoint. Null
+        /// when it is not a milestone, was passed already, or no answer could be had.
+        /// </summary>
+        Task<MilestoneReward?> MilestoneAsync(CharacterProfile profile, string runId, int floor);
+
+        /// <summary>
+        /// WHAT THE DATABASE HOLDS for this character (<see cref="CharacterItems"/>) - re-read and
+        /// written onto <c>profile.Items</c>. The service is the authority for a service player; a
+        /// local save answers its own. Null when no answer could be had (the copy is left alone).
+        /// </summary>
+        Task<CharacterItems> ItemsAsync(CharacterProfile profile);
+
+        /// <summary>A RECOLOUR session at the Forge (<see cref="Recolour"/>): every change priced and
+        /// spent at once, or nothing. Null on success (profile.Items is updated), else why not.</summary>
+        Task<string> RecolourAsync(CharacterProfile profile, System.Collections.Generic.List<PieceDye> changes);
+
+        /// <summary>A Diamond box broken into dye charges (Tuning.Cosmetics.ChargesPerBox) - one the
+        /// store holds for the character, not a box token in a wallet (Chain.Web.ChainDyes burns those).
+        /// Null on success, else why not.</summary>
+        Task<string> BreakBoxAsync(CharacterProfile profile);
+
+        /// <summary>
         /// Permanent-unlock checkpoint - the third write point named in the roguelite handoff.
         /// Equipping is permanent, account-level and outside any run, so it is its own
         /// transaction rather than something folded into a run boundary.

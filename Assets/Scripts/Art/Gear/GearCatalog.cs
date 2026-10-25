@@ -32,7 +32,7 @@ namespace Convergence.Art.Gear
             EnsureLoaded();
             var result = new List<GearItem>();
             foreach (var item in _byId.Values)
-                if (item.Slot == slot) result.Add(item);
+                if (item.Slot == slot && !IsDyedCopy(item)) result.Add(item);
             return result;
         }
 
@@ -48,11 +48,16 @@ namespace Convergence.Art.Gear
             EnsureLoaded();
             var result = new List<GearItem>();
             foreach (var item in _byId.Values)
-                if (GearSlots.Accepts(GearSlot.Relic, item, heldWeapon)) result.Add(item);
+                if (!IsDyedCopy(item) && GearSlots.Accepts(GearSlot.Relic, item, heldWeapon)) result.Add(item);
             return result;
         }
 
         public static void Invalidate() => _byId = null;
+
+        /// <summary>A DYED COPY (GearDye.DyedCopy, <c>design@dye...</c>) registered so a dyed piece
+        /// can be drawn - a picture of a piece the character already has, never something to list,
+        /// pick or drop.</summary>
+        public static bool IsDyedCopy(GearItem item) => item != null && item.ItemId != null && item.ItemId.IndexOf('@') >= 0;
 
         /// <summary>
         /// Adds one item to the catalog at runtime - a minted instance (see MintedGearRecord),

@@ -222,6 +222,64 @@ const MIGRATIONS: string[] = [
     ADD COLUMN attempt_session TEXT,
     ADD COLUMN last_seen       TIMESTAMPTZ;
   `,
+
+  // 9 - THE COSMETIC ECONOMY held per character (cosmetics.ts): earned dyes, dye charges and poses
+  // as counts (kind dye / charge / pose), what each design is dyed, the once-per-character
+  // milestones (a milestone's Diamond box is a run decision like an avatar's - commit-run mints it),
+  // and a log of every change. The avatars' and the final floor's decisions gain their rare dye
+  // and pose (and the Gold a pose pays once every pose is owned).
+  `
+  CREATE TABLE character_items (
+    owner         TEXT NOT NULL,
+    profile_id    TEXT NOT NULL,
+    kind          TEXT NOT NULL,
+    item          TEXT NOT NULL,
+    count         INTEGER NOT NULL CHECK (count >= 0),
+    PRIMARY KEY (owner, profile_id, kind, item)
+  );
+
+  CREATE TABLE dyed_pieces (
+    owner         TEXT NOT NULL,
+    profile_id    TEXT NOT NULL,
+    piece         TEXT NOT NULL,
+    swatches      JSONB NOT NULL,
+    updated_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (owner, profile_id, piece)
+  );
+
+  CREATE TABLE milestones (
+    owner         TEXT NOT NULL,
+    profile_id    TEXT NOT NULL,
+    milestone     TEXT NOT NULL,
+    run_id        TEXT NOT NULL,
+    floor         INTEGER NOT NULL,
+    diamond       INTEGER NOT NULL DEFAULT 0,
+    dye           TEXT,
+    decided_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (owner, profile_id, milestone)
+  );
+
+  CREATE TABLE item_log (
+    id            BIGSERIAL PRIMARY KEY,
+    owner         TEXT NOT NULL,
+    profile_id    TEXT NOT NULL,
+    kind          TEXT NOT NULL,
+    item          TEXT NOT NULL,
+    delta         INTEGER NOT NULL,
+    reason        TEXT NOT NULL,
+    at            TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+  CREATE INDEX item_log_by_character ON item_log (owner, profile_id, id);
+
+  ALTER TABLE avatar_boxes
+    ADD COLUMN dye       TEXT,
+    ADD COLUMN pose      TEXT,
+    ADD COLUMN pose_gold INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE final_floor
+    ADD COLUMN dye       TEXT,
+    ADD COLUMN pose      TEXT,
+    ADD COLUMN pose_gold INTEGER NOT NULL DEFAULT 0;
+  `,
 ];
 
 /** Applies every migration not yet applied. Called once at start-up. */

@@ -22,13 +22,24 @@ export interface DesignPiece {
 
 export interface DesignEntry extends DesignPiece {
   relic?: DesignPiece;
+  /** A Diamond armour SET (slot "Set", id `set_<prefix>`) - ONE design and ONE token owning every
+   *  piece listed here (the user's call, 2026-10-13). */
+  pieces?: DesignPiece[];
 }
+
+export type DyeRarity = 'Common' | 'Uncommon' | 'Rare' | 'VeryRare';
 
 interface Manifest {
   version: number;
   exportedAt: string;
   costs: { random: number; targeted: number };
   tiers: Record<string, DesignEntry[]>;
+  /** Every dye colour (DyeCatalog) - ids are permanent. */
+  swatches?: { id: string; name: string; rarity: DyeRarity }[];
+  /** Every dyeable design and how many dye channels it has (1 main, or main + accent). */
+  dyeable?: Record<string, number>;
+  /** The rolled portrait poses (PoseCatalog) - ids are permanent. */
+  poses?: { id: string; name: string }[];
 }
 
 let manifest: Manifest | null = null;

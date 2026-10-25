@@ -170,7 +170,23 @@ namespace Convergence.Chain
         /// </summary>
         public int GuaranteeWeek;
 
-        /// <summary>Name for display, never blank.</summary>
+        /// <summary>
+        /// What the DATABASE holds for this character - dyes, charges, what each design is dyed,
+        /// poses, milestones (<see cref="CharacterItems"/>). For a service player the service's copy
+        /// wins: it overwrites this on every load. Additive: older saves load empty.
+        /// </summary>
+        public CharacterItems Items = new();
+
+        /// <summary>The portrait POSE chosen for the next PFP take (Art.Gear.PoseCatalog id), or
+        /// empty for the standing pose. Only a pose in <see cref="Items"/> counts. Additive.</summary>
+        public string Pose = "";
+
+        /// <summary>LOCAL SAVES ONLY: the cosmetic decisions already credited ("avatar:run:floor",
+        /// "final:run") - a local store has no service record, so a replayed floor must not credit a
+        /// rare dye or a pose twice. Additive.</summary>
+        public System.Collections.Generic.List<string> CosmeticsDecided = new();
+
+                /// <summary>Name for display, never blank.</summary>
         public string DisplayName => string.IsNullOrWhiteSpace(Name) ? ProfileId : Name;
     }
 
@@ -343,6 +359,13 @@ namespace Convergence.Chain
         /// Empty for everything that lives only in the character's own datum. Additive.
         /// </summary>
         public string Unit;
+
+        /// <summary>
+        /// The Diamond armour SET this piece was paid out as (ArmourSets - <c>set_&lt;prefix&gt;</c>),
+        /// or empty. A set is ONE design and ONE token: every piece of it is its own record (worn and
+        /// dyed one by one), all naming the set and sharing its <see cref="Unit"/>. Additive.
+        /// </summary>
+        public string SetDesign;
 
         /// <summary>Recomputes Grants from tier, primary, star level and sub-stats - the only
         /// way Grants should change once an item exists, so the stored total can never disagree

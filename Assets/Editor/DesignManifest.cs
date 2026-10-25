@@ -36,20 +36,55 @@ namespace Convergence.EditorTools
             int total = 0;
             for (int t = 0; t < Tiers.Length; t++)
             {
-                var pool = DesignDrops.Pool(Tiers[t]);
+                // One entry per DESIGN: a whole Diamond armour SET is one (ArmourSets), with its pieces.
+                var pool = DesignDrops.Designs(Tiers[t]);
                 sb.Append($"    \"{Tiers[t]}\": [\n");
                 for (int i = 0; i < pool.Count; i++)
                 {
                     var d = pool[i];
-                    var relic = DesignDrops.RelicFor(d);
-                    sb.Append("      { ").Append(Piece(d));
-                    if (relic != null) sb.Append(", \"relic\": { ").Append(Piece(relic)).Append(" }");
+                    if (d.IsSet)
+                    {
+                        sb.Append($"      {{ \"id\": {Q(d.Id)}, \"name\": {Q(d.Name)}, \"slot\": \"Set\", \"pieces\": [");
+                        for (int p = 0; p < d.Pieces.Count; p++)
+                            sb.Append(p > 0 ? ", " : " ").Append("{ ").Append(Piece(d.Pieces[p])).Append(" }");
+                        sb.Append(" ]");
+                    }
+                    else
+                    {
+                        var relic = DesignDrops.RelicFor(d.Item);
+                        sb.Append("      { ").Append(Piece(d.Item));
+                        if (relic != null) sb.Append(", \"relic\": { ").Append(Piece(relic)).Append(" }");
+                    }
                     sb.Append(i < pool.Count - 1 ? " },\n" : " }\n");
                     total++;
                 }
-                sb.Append(t < Tiers.Length - 1 ? "    ],\n" : "    ]\n");
+                sb.Append("    ],\n");
             }
-            sb.Append("  }\n}\n");
+            sb.Length -= 2;   // the last tier's comma
+            sb.Append("\n  },\n");
+
+            // The cosmetic economy's catalogues (web/service/src/cosmetics.ts reads them): every dye
+            // colour, every dyeable design with its channel count, every rolled pose. Ids are permanent.
+            sb.Append("  \"swatches\": [\n");
+            for (int i = 0; i < DyeCatalog.All.Length; i++)
+            {
+                var sw = DyeCatalog.All[i];
+                sb.Append($"    {{ \"id\": {Q(sw.Id)}, \"name\": {Q(sw.Name)}, \"rarity\": {Q(sw.Rarity.ToString())} }}")
+                  .Append(i < DyeCatalog.All.Length - 1 ? ",\n" : "\n");
+            }
+            sb.Append("  ],\n  \"dyeable\": {\n");
+            var dyeable = new List<GearItem>();
+            foreach (var item in GearCatalog.All.Values)
+                if (item.DyeChannels is { Length: > 0 } && string.IsNullOrEmpty(item.StackKey) &&
+                    string.IsNullOrEmpty(item.DesignId) && !GearCatalog.IsDyedCopy(item)) dyeable.Add(item);
+            dyeable.Sort((a, b) => string.CompareOrdinal(a.ItemId, b.ItemId));
+            for (int i = 0; i < dyeable.Count; i++)
+                sb.Append($"    {Q(dyeable[i].ItemId)}: {dyeable[i].DyeChannels.Length}").Append(i < dyeable.Count - 1 ? ",\n" : "\n");
+            sb.Append("  },\n  \"poses\": [\n");
+            for (int i = 0; i < PoseCatalog.All.Length; i++)
+                sb.Append($"    {{ \"id\": {Q(PoseCatalog.All[i].Id)}, \"name\": {Q(PoseCatalog.All[i].Name)} }}")
+                  .Append(i < PoseCatalog.All.Length - 1 ? ",\n" : "\n");
+            sb.Append("  ]\n}\n");
 
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path)));
             File.WriteAllText(path, sb.ToString());
@@ -62,10 +97,11 @@ namespace Convergence.EditorTools
         {
             var keys = new List<string>();
             foreach (var tier in Tiers)
-            foreach (var d in DesignDrops.Pool(tier))
+            foreach (var d in DesignDrops.Designs(tier))
             {
-                keys.Add(d.ItemId);
-                var relic = DesignDrops.RelicFor(d);
+                keys.Add(d.Id);   // a set's key is its design id (set_<prefix>) - one picture per set
+                if (d.IsSet) continue;
+                var relic = DesignDrops.RelicFor(d.Item);
                 if (relic != null) keys.Add(relic.ItemId);
             }
             return string.Join(",", keys);

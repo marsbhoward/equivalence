@@ -187,6 +187,9 @@ export async function graduate(req: Request, res: Response): Promise<void> {
       await c.query('UPDATE avatar_boxes SET owner = $1 WHERE owner = $2', [wallet, from]);
       // A guarantee the guest used this week stays used - else graduating would hand out a second.
       await c.query('UPDATE final_floor SET owner = $1 WHERE owner = $2', [wallet, from]);
+      // What the database holds for each character - dyes, charges, poses, milestones (cosmetics.ts).
+      for (const table of ['character_items', 'dyed_pieces', 'milestones', 'item_log'])
+        await c.query(`UPDATE ${table} SET owner = $1 WHERE owner = $2`, [wallet, from]);
       // The room's own record names its owner (AccountProfile.AccountId) - it follows the move.
       await c.query(
         `UPDATE accounts SET owner = $1, save = jsonb_set(save, '{AccountId}', to_jsonb($1::text)), updated_at = now()

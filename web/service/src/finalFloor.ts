@@ -1,6 +1,7 @@
 import { randomInt } from 'node:crypto';
 import { hasDatabase, q } from './db.js';
 import type { RunFormat } from './runFormat.js';
+import { FINAL_LATER_RARE_DYE_CHANCE, rollRareDye } from './cosmetics.js';
 
 /**
  * THE FINAL FLOOR's BOX - floor 100 in Classic, 50 in the Short Descent (runFormat.ts) - decided by
@@ -21,13 +22,20 @@ import type { RunFormat } from './runFormat.js';
  */
 // The numbers are per FORMAT (runFormat.ts): Classic's final floor is 100, the Short Descent's 50.
 
-export type FinalTier = 'Diamond' | 'BlackDiamond' | 'Gold';
+export type FinalTier = 'Diamond' | 'BlackDiamond' | 'Gold' | 'Dye';
 
 export interface FinalDecision {
   tier: FinalTier;
+  /** Boxes of the tier - 0 for 'Dye', a later clear that paid a rare dye INSTEAD of the Gold. */
   count: number;
   guaranteed: boolean;
   week: number;
+  /** The rare dye ('Dye' tier) - credited to the character at the decision (cosmetics.ts). */
+  dye?: string | null;
+  /** A pose rolled on EVERY final clear (an avatar kill) - credited at the decision - or the Gold
+   *  boxes it pays once every pose is owned. */
+  pose?: string | null;
+  pose_gold?: number;
 }
 
 const DAY_MS = 86_400_000;
@@ -54,6 +62,11 @@ export function rollFinal(f: RunFormat, guaranteeDue: boolean, week: number): Fi
     return { tier: r < f.guaranteedBlackDiamondChance ? 'BlackDiamond' : 'Diamond', count: 1, guaranteed: true, week };
   if (r < f.laterBlackDiamondChance) return { tier: 'BlackDiamond', count: 1, guaranteed: false, week };
   if (r < f.laterBlackDiamondChance + f.laterDiamondChance) return { tier: 'Diamond', count: 1, guaranteed: false, week };
+  // A rare dye INSTEAD of the Gold (the user's call, 2026-10-25: 4% of later clears).
+  if (r < f.laterBlackDiamondChance + f.laterDiamondChance + FINAL_LATER_RARE_DYE_CHANCE) {
+    const dye = rollRareDye();
+    if (dye) return { tier: 'Dye', count: 0, guaranteed: false, week, dye };
+  }
   return { tier: 'Gold', count: f.goldBoxesMin + randomInt(f.goldBoxesMax - f.goldBoxesMin + 1), guaranteed: false, week };
 }
 
@@ -61,7 +74,7 @@ export function rollFinal(f: RunFormat, guaranteeDue: boolean, week: number): Fi
 export async function decisionFor(owner: string, profileId: string, runId: string): Promise<FinalDecision | null> {
   if (!hasDatabase()) return null;
   const rows = await q<FinalDecision>(
-    'SELECT tier, count, guaranteed, week FROM final_floor WHERE owner = $1 AND profile_id = $2 AND run_id = $3',
+    'SELECT tier, count, guaranteed, week, dye, pose, pose_gold FROM final_floor WHERE owner = $1 AND profile_id = $2 AND run_id = $3',
     [owner, profileId, runId]);
   return rows[0] ?? null;
 }

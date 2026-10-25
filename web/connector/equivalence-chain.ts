@@ -140,6 +140,12 @@ export const connector: EquivalenceChain = {
     return body === 'null' || body === '' ? '' : body;   // the PfpRecipe datum, verbatim
   },
 
+  async pfpStatus({ profileId }) {
+    // { taken, revision, paidUntil, lapsed, prices } - the year the portrait is paid until.
+    const r = await service(`/pfp/${encodeURIComponent(profileId)}/status`);
+    return r.text();
+  },
+
   // ---- design boxes (tokens in the wallet; opening them is the one other thing a player signs) -
 
   async openBoxes({ profileId, tier, count }) {
@@ -167,16 +173,40 @@ export const connector: EquivalenceChain = {
     return r.text();
   },
 
+  // ---- dyes (all else about dyes is the database's - the game reaches it over HTTP) ----------
+
+  async withdrawDyes({ profileId, swatch, count }) {
+    // Minted TO the player: the service signs alone, nothing to approve.
+    const r = await service('/write/dyes/withdraw', {
+      method: 'POST',
+      body: JSON.stringify({ profileId, swatch, count: Number(count) || 1 }),
+    });
+    return r.text();
+  },
+
+  depositDyes({ profileId, swatch, count }) {
+    return burn('/write/dyes/deposit', { profileId, swatch, count: Number(count) || 1 });
+  },
+
+  breakBoxes({ profileId, tier, count }) {
+    return burn('/write/break-boxes', { profileId, tier, count: Number(count) || 1 });
+  },
+
   // ---- the ONE player-signed write ---------------------------------------------------------
 
   assemblePfp({ profileId, accountId, datum }) {
-    return trophy('/tx/mint-pfp', profileId, accountId, datum);
+    return trophy('/write/pfp/mint', profileId, accountId, datum);
   },
 
   updatePfp({ profileId, accountId, datum }) {
     // A CIP-68 datum update on the (100) reference token. The (222) token in the wallet is
     // untouched - the same trophy, saying something new.
-    return trophy('/tx/update-pfp', profileId, accountId, datum);
+    return trophy('/write/pfp/update', profileId, accountId, datum);
+  },
+
+  renewPfp({ profileId, accountId }) {
+    // Another year on the portrait's record - minting to the wallet resumes. Paid like a take.
+    return trophy('/write/pfp/renew', profileId, accountId, '');
   },
 };
 
@@ -193,22 +223,40 @@ export const connector: EquivalenceChain = {
 async function trophy(endpoint: string, profileId: string, accountId: string, datum: string) {
   if (!api) throw new Error('no wallet connected');
 
+  // The service builds it - the player's coins in, the price left with the service, the depth
+  // attested - and keeps it; only a witness comes back.
   const built = await service(endpoint, {
     method: 'POST',
     body: JSON.stringify({ profileId, address: accountId, recipe: datum }),
   });
-  const { cbor } = await built.json();
+  const { pfpId, cbor } = await built.json();
 
   // partial: true - the service's witness is already on it and must not be discarded.
   const witness = await api.signTx(cbor, true);
 
-  const done = await service('/tx/submit', {
+  const done = await service('/write/pfp/submit', {
     method: 'POST',
-    body: JSON.stringify({ cbor, witness }),
+    body: JSON.stringify({ pfpId, witness }),
   });
   const { hash } = await done.json();
   if (!hash) throw new Error('submit returned no hash');
   return hash;
+}
+
+/**
+ * A burn of the player's own tokens (dyes into the database, boxes into charges): the service
+ * builds the transaction, pays its fee and keeps its witness; the wallet co-signs (partial) and the
+ * service submits and credits the character. Resolves the service's { hash }.
+ */
+async function burn(endpoint: string, body: Record<string, unknown>) {
+  if (!api) throw new Error('no wallet connected');
+  const built = await (await service(endpoint, { method: 'POST', body: JSON.stringify(body) })).json();
+  const witness = await api.signTx(built.cbor, true);
+  const done = await service(`${endpoint}/submit`, {
+    method: 'POST',
+    body: JSON.stringify({ burnId: built.burnId, witness }),
+  });
+  return done.text();
 }
 
 // The game reads window.EquivalenceChain lazily, but StoreFactory decides ONCE - assign before

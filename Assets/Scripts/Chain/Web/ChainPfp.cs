@@ -23,6 +23,21 @@ namespace Convergence.Chain.Web
     /// handed to the player either - a player who can spend that UTxO alone can write any depth
     /// they like into their own trophy. It wants BOTH signatures on an update.
     /// </summary>
+    /// <summary>
+    /// What a PORTRAIT costs (the user's calls, 2026-10-25; MONETIZATION.md "The plan as of
+    /// 2026-10-25"). The SERVICE's copy is what is charged (web/service/src/pfp.ts) - this is what
+    /// the game SAYS, keep them in step.
+    /// </summary>
+    public static class PfpPrices
+    {
+        /// <summary>The first take: the character's token and portrait, year one included. We pay its mint.</summary>
+        public const int MintAda = 250;
+        /// <summary>Each re-take, to us; we pay the transaction. Every new look is a reason to re-take.</summary>
+        public const int RetakeAda = 5;
+        /// <summary>Each later year - minting to the wallet pauses while a year is unpaid.</summary>
+        public const int RenewAda = 200;
+    }
+
     public static class ChainPfp
     {
         /// <summary>Raised after a successful take, so the couch and the sheet redraw.</summary>
@@ -64,7 +79,7 @@ namespace Convergence.Chain.Web
                     $"not yours to assemble - missing {missing.Count}: {string.Join(", ", missing)}");
 
             bool first = existing == null;
-            var tx = TxLog.Post(TxKind.Unlock,
+            var tx = TxLog.Post(TxKind.Portrait,
                 first ? $"Portrait taken - {recipe.Name}"
                       : $"Portrait re-taken - {recipe.Name}, take {recipe.Revision}",
                 $"profile {profile.ProfileId}\ncomponents {recipe.Components.Count}\n" +
@@ -130,6 +145,56 @@ namespace Convergence.Chain.Web
         /// decision rather than a sync. A player about to pay a fee has to see what they are
         /// paying to change, before a wallet dialog opens rather than afterwards in an explorer.
         /// </summary>
+        [Serializable]
+        public class Status { public bool taken; public int revision; public string paidUntil; public bool lapsed; }
+
+        /// <summary>The portrait's year, or null when it cannot be read.</summary>
+        public static async Task<Status> StatusAsync(string profileId)
+        {
+            try
+            {
+                var json = await WebChainBridge.Call("pfpStatus", new ChainArgs { profileId = profileId });
+                return string.IsNullOrEmpty(json) ? null : JsonUtility.FromJson<Status>(json);
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[Chain] portrait status unreadable: {e.Message}");
+                return null;
+            }
+        }
+
+        /// <summary>
+        /// Another YEAR on the portrait (<see cref="PfpPrices.RenewAda"/>): minting to the wallet
+        /// resumes. The player pays inside the transaction they sign, as for a take; only a player
+        /// pressing the button reaches this.
+        /// </summary>
+        public static async Task<string> RenewAsync(CharacterProfile profile)
+        {
+            if (!ChainWallet.Connected) throw new ChainException("connect a wallet first");
+            var tx = TxLog.Post(TxKind.Portrait, $"Portrait renewed - a year", $"profile {profile.ProfileId}\n{PfpPrices.RenewAda} ADA");
+            try
+            {
+                var hash = await WebChainBridge.Call("renewPfp", new ChainArgs { profileId = profile.ProfileId, accountId = ChainWallet.Address });
+                if (string.IsNullOrEmpty(hash))
+                {
+                    TxLog.Fail(tx, "connector returned no transaction hash");
+                    throw new ChainException("the renewal was not submitted");
+                }
+                TxLog.Confirm(tx, hash);
+                Changed?.Invoke();
+                return hash;
+            }
+            catch (ChainException) { throw; }
+            catch (Exception e)
+            {
+                TxLog.Fail(tx, e.Message);
+                throw new ChainException(e.Message);
+            }
+        }
+
+        static string PoseText(PfpRecipe r)
+            => Art.Gear.PoseCatalog.Get(r.Pose) is { } pose ? $", posed {pose.Name}" : "";
+
         public static async Task<string> DescribeAsync(CharacterProfile profile)
         {
             var next = PfpRecipe.From(profile);
@@ -143,7 +208,8 @@ namespace Convergence.Chain.Web
 
             if (existing == null)
                 return $"take \"{next.Name}\" - floor {next.MaxFloor}, " +
-                       $"{next.Components.Count} pieces worn";
+                       $"{next.Components.Count} pieces worn{PoseText(next)}\n" +
+                       $"{PfpPrices.MintAda} ADA - your portrait and character token, the first year included";
 
             if (next.SaysTheSameAs(existing))
                 return $"nothing has changed since take {existing.Revision} on {existing.TakenAtUtc}";
@@ -153,8 +219,11 @@ namespace Convergence.Chain.Web
             if (existing.MaxFloor != next.MaxFloor) changes.Add($"floor {existing.MaxFloor} -> {next.MaxFloor}");
             if (existing.Gear != next.Gear) changes.Add("gear");
             if (existing.Look != next.Look) changes.Add("appearance");
+            if ((existing.Dyes ?? "") != (next.Dyes ?? "")) changes.Add("dyes");
+            if ((existing.Pose ?? "") != (next.Pose ?? "")) changes.Add("pose" + PoseText(next));
 
-            return $"take {existing.Revision} -> {existing.Revision + 1}: {string.Join(", ", changes)}";
+            return $"take {existing.Revision} -> {existing.Revision + 1}: {string.Join(", ", changes)}\n" +
+                   $"{PfpPrices.RetakeAda} ADA to re-take";
         }
     }
 }

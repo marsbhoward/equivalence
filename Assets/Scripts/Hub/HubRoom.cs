@@ -922,14 +922,15 @@ namespace Convergence.Hub
                         Sub = _forge.HasBoxAction
                             ? "something to spend"
                             : "nothing to spend - floors drop boxes and gear",
-                        Body = "Trade a box for gear - or combine and upgrade what you own.",
-                        Key = _forge.HasBoxAction ? "[ E ]  open" : "[ E ]  nothing to redeem",
+                        Body = "Trade a box for gear, combine and upgrade what you own - or dye your Diamond armour.",
+                        // Always opens: the DYE tab previews colours whatever is held.
+                        Key = "[ E ]  open",
                         Accent = new Color(1f, 0.55f, 0.15f),
                     },
                 () =>
                 {
                     if (_editMode) { BeginCarryFixture("forge"); return; }
-                    if (_forge.HasBoxAction) _onOpenForge?.Invoke();
+                    _onOpenForge?.Invoke();
                 },
                 on => _forge.SetFocus(on));
             _points.Add(forgePoint);
@@ -956,7 +957,10 @@ namespace Convergence.Hub
             bool canSalvage = _profile.MintedGear.Exists(r =>
                 Chain.GearForge.Salvageable(r) && !equipped(r.InstanceId) &&
                 r.InstanceId != _profile.StakedInstanceId);
-            _forge.SetHasBoxAction(hasAnyBox || canCombine || canFuse || canSalvage);
+            // And charges or dyes waiting to be used at the DYE tab.
+            var items = _profile.Items;
+            bool canDye = items != null && (items.Charges > 0 || items.HeldDiamond > 0);
+            _forge.SetHasBoxAction(hasAnyBox || canCombine || canFuse || canSalvage || canDye);
         }
 
         public void FlashForge() => _forge?.Flash();

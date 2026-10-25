@@ -111,6 +111,14 @@ namespace Convergence.Chain
         {
             int week = FinalFloorReward.ThisWeek;
             var reward = FinalFloorReward.Roll(profile.GuaranteeWeek != week, week, new System.Random());
+            // The cosmetics, credited at the decision (database first) - once per run on a local save.
+            if (Decide(profile, $"final:{runId}"))
+            {
+                if (!string.IsNullOrEmpty(reward.Dye)) profile.Items.AddDye(reward.Dye, 1);
+                (reward.Pose, reward.PoseGold) = CosmeticRolls.Pose(profile.Items);
+                if (!string.IsNullOrEmpty(reward.Pose)) profile.Items.Poses.Add(reward.Pose);
+            }
+            else reward.Dye = null;
             Debug.Log($"[ProfileStore] floor {Rifts.RunLoot.FinalFloor,-4}  run={runId} {reward.Count} {reward.Tier}" +
                       (reward.Guaranteed ? " (weekly guarantee)" : ""));
             await Task.Yield();
@@ -122,8 +130,60 @@ namespace Convergence.Chain
             // Rolled BEFORE the first await, so a caller inside a seeded scope (Rifts.RunRolls) gets
             // the same boxes on a replay.
             var boxes = Rifts.RunLoot.RollAvatarLocal(floor);
+            if (Rifts.RunLoot.IsRolledAvatar(floor) && Decide(profile, $"avatar:{runId}:{floor}"))
+            {
+                var rng = new System.Random();
+                if (rng.NextDouble() < Tuning.Cosmetics.AvatarRareDyeChance) boxes.Dye = CosmeticRolls.RareDye(rng);
+                (boxes.Pose, boxes.PoseGold) = CosmeticRolls.Pose(profile.Items, rng);
+                if (!string.IsNullOrEmpty(boxes.Dye)) profile.Items.AddDye(boxes.Dye, 1);
+                if (!string.IsNullOrEmpty(boxes.Pose)) profile.Items.Poses.Add(boxes.Pose);
+            }
             await Task.Yield();
             return boxes;
+        }
+
+        /// <summary>True the first time a decision is asked for - a local save keeps no service
+        /// record, so this is what stops a replayed floor crediting its cosmetics twice.</summary>
+        static bool Decide(CharacterProfile profile, string key)
+        {
+            profile.CosmeticsDecided ??= new System.Collections.Generic.List<string>();
+            profile.Items ??= new CharacterItems();
+            if (profile.CosmeticsDecided.Contains(key)) return false;
+            profile.CosmeticsDecided.Add(key);
+            return true;
+        }
+
+        public async Task<MilestoneReward?> MilestoneAsync(CharacterProfile profile, string runId, int floor)
+        {
+            await Task.Yield();
+            var m = CosmeticRolls.MilestoneAt(floor);
+            profile.Items ??= new CharacterItems();
+            if (m == null || profile.Items.Passed(m.Value.Milestone)) return null;
+            profile.Items.Milestones.Add(m.Value.Milestone);
+            if (!string.IsNullOrEmpty(m.Value.Dye)) profile.Items.AddDye(m.Value.Dye, 1);
+            Debug.Log($"[ProfileStore] milestone {m.Value.Milestone} (floor {floor}): {m.Value.Diamond} Diamond, dye {m.Value.Dye}");
+            return m;
+        }
+
+        public Task<CharacterItems> ItemsAsync(CharacterProfile profile)
+            => Task.FromResult(profile.Items ??= new CharacterItems());
+
+        public Task<string> RecolourAsync(CharacterProfile profile, System.Collections.Generic.List<PieceDye> changes)
+        {
+            profile.Items ??= new CharacterItems();
+            string refused = Recolour.Apply(profile.Items, changes);
+            if (refused == null) Save(profile);
+            return Task.FromResult(refused);
+        }
+
+        public Task<string> BreakBoxAsync(CharacterProfile profile)
+        {
+            if (profile.Boxes.Diamond <= 0) return Task.FromResult("no Diamond box to break");
+            profile.Boxes.Diamond--;
+            profile.Items ??= new CharacterItems();
+            profile.Items.Charges += Tuning.Cosmetics.ChargesPerBox;
+            Save(profile);
+            return Task.FromResult<string>(null);
         }
 
         public async Task UnlockAsync(CharacterProfile profile)

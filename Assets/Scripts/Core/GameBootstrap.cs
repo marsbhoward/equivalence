@@ -744,7 +744,7 @@ namespace Convergence.Core
             // equally likely places for "any Diamond" to land.
             if (DesignDrops.IsDesignTier(boxTier))
             {
-                await MintDesignBox(DesignDrops.Pool(boxTier), boxTier, Tuning.GearRoll.ForgeRandomRedeemBoxCost);
+                await MintDesignBox(DesignDrops.Designs(boxTier), boxTier, Tuning.GearRoll.ForgeRandomRedeemBoxCost);
                 return;
             }
 
@@ -796,7 +796,8 @@ namespace Convergence.Core
 
             foreach (var p in result.pieces)
             {
-                var design = Art.Gear.GearCatalog.Get(p.design);
+                // An item, or a whole armour SET (one token, every piece its own record).
+                var design = DesignDrops.DesignById(p.design);
                 if (design == null)
                 {
                     // Minted on chain but unknown here - the service's design manifest is newer
@@ -804,11 +805,12 @@ namespace Convergence.Core
                     Debug.LogError($"[Forge] minted {p.design} ({p.unit}) - not in this build's catalogue");
                     continue;
                 }
-                var record = DesignDrops.RecordFor(design, p.instanceId);
-                record.Unit = p.unit;
-                _profile.MintedGear.Add(record);
-                Art.Gear.GearCatalog.Register(record.ToGearItem());
-                Debug.Log($"[Forge] minted {record.DisplayName} ({record.InstanceId}) -> {p.unit}");
+                foreach (var record in DesignDrops.RecordsFor(design, p.instanceId, p.unit))
+                {
+                    _profile.MintedGear.Add(record);
+                    Art.Gear.GearCatalog.Register(record.ToGearItem());
+                    Debug.Log($"[Forge] minted {record.DisplayName} ({record.InstanceId}) -> {p.unit}");
+                }
             }
             await Chain.Web.ChainDesigns.SyncBalanceAsync(_profile);
 
@@ -819,11 +821,11 @@ namespace Convergence.Core
         }
 
         /// <summary>
-        /// A Diamond / Black Diamond box's payout: one design from <paramref name="pool"/>, plus
-        /// its relic if it is a Black Diamond weapon (DesignDrops.Mint). The boxes are already
+        /// A Diamond / Black Diamond box's payout: one design from <paramref name="pool"/> - a whole
+        /// armour set, or a piece plus its relic if it is a Black Diamond weapon (DesignDrops.Mint). The boxes are already
         /// spent; an empty pool - which the Forge never offers - hands them back.
         /// </summary>
-        async System.Threading.Tasks.Task MintDesignBox(List<Art.Gear.GearItem> pool,
+        async System.Threading.Tasks.Task MintDesignBox(List<DesignDrops.Design> pool,
                                                          Art.Gear.LootTier tier, int spent)
         {
             var design = DesignDrops.Pick(pool, Guid.NewGuid().GetHashCode());
@@ -1595,8 +1597,8 @@ namespace Convergence.Core
                 : null;
         }
 
-        /// <summary>Opens the Forge. Reachable only through the fixture's own interact key, which
-        /// already gates on there being something to spend or combine.</summary>
+        /// <summary>Opens the Forge, through the fixture's own interact key - always, since the DYE tab
+        /// previews colours whatever is held.</summary>
         void OpenForge()
         {
             if (_profile == null) return;
@@ -1613,7 +1615,66 @@ namespace Convergence.Core
                 OnFuse = FuseGear,
                 OnSalvage = SalvageGear,
                 Calx = _profile.Calx,
+                Items = () => _profile.Items,
+                OnRecolour = RecolourAsync,
+                OnBreakBox = BreakBoxForChargesAsync,
+                BreakableBoxes = BreakableBoxes,
+                OnWithdraw = StoreFactory.UsingChain ? WithdrawDyesAsync : null,
             });
+        }
+
+        /// <summary>Diamond boxes the character could break for dye charges now: box TOKENS in the
+        /// wallet (burned by a transaction), else the boxes the store holds - the service's held
+        /// ones, or the save's for a guest or a local save.</summary>
+        int BreakableBoxes()
+        {
+            if (_profile == null) return 0;
+            return _profile.Boxes.Diamond + (_profile.Items?.HeldDiamond ?? 0);
+        }
+
+        /// <summary>A recolour session, spent through the store; the character repainted on success.</summary>
+        async System.Threading.Tasks.Task<string> RecolourAsync(List<PieceDye> changes)
+        {
+            if (_profile == null) return "no character";
+            string refused = await _store.RecolourAsync(_profile, changes);
+            if (refused == null)
+            {
+                RepaintLive();
+                if (CharacterScreen != null) CharacterScreen.Refresh();
+                Debug.Log($"[Forge] recoloured {changes.Count} piece(s)");
+            }
+            return refused;
+        }
+
+        /// <summary>One Diamond box into dye charges. A box the service HOLDS (or a guest's, or a
+        /// local save's) is a store call; a box TOKEN is burned by a transaction the player signs
+        /// (Chain.Web.ChainDyes) - held ones go first, as they cost nothing on chain.</summary>
+        async System.Threading.Tasks.Task<string> BreakBoxForChargesAsync()
+        {
+            if (_profile == null) return "no character";
+            string refused;
+            if (StoreFactory.UsingChain && (_profile.Items?.HeldDiamond ?? 0) <= 0)
+            {
+                refused = await Chain.Web.ChainDyes.BreakBoxesAsync(_profile.ProfileId, 1);
+                if (refused == null)
+                {
+                    await Chain.Web.ChainDesigns.SyncBalanceAsync(_profile);
+                    await _store.ItemsAsync(_profile);
+                }
+            }
+            else refused = await _store.BreakBoxAsync(_profile);
+            if (refused == null) _hub?.RefreshForge();
+            return refused;
+        }
+
+        /// <summary>Earned dyes out of the database and into the wallet as tokens - a PFP holder only
+        /// (nothing earned reaches a wallet without one). We pay the transaction.</summary>
+        async System.Threading.Tasks.Task<string> WithdrawDyesAsync(string swatch, int count)
+        {
+            if (_profile == null) return "no character";
+            string refused = await Chain.Web.ChainDyes.WithdrawAsync(_profile.ProfileId, swatch, count);
+            if (refused == null) await _store.ItemsAsync(_profile);
+            return refused;
         }
 
         /// <summary>Opens the Manual Shrine's book. Pure reading - no profile, no chain, nothing
@@ -1675,27 +1736,76 @@ namespace Convergence.Core
             // No wallet yet: the booth's key is "connect a wallet", and it lands here.
             if (!Chain.Web.ChainWallet.Connected) { BeginConnectWallet(); return; }
 
+            // A character holding earned POSES chooses one first (Art.Gear.PoseCatalog), seen on the
+            // figure in the booth while the question is asked; standing is always offered.
+            var owned = new List<Art.Gear.PoseDef>();
+            foreach (var pose in Art.Gear.PoseCatalog.All)
+                if (_profile.Items != null && _profile.Items.HasPose(pose.Id)) owned.Add(pose);
+            if (owned.Count == 0) { _profile.Pose = ""; ConfirmPortrait(); return; }
+
+            var answers = new List<(string Label, string Detail)> { ("Standing", "As the character stands.") };
+            foreach (var pose in owned) answers.Add((pose.Name, pose.Description));
+            Choices.Show(_canvas.transform, "Which pose?", "Earned poses are the character's own.", answers, pick =>
+            {
+                _profile.Pose = pick <= 0 ? "" : owned[pick - 1].Id;
+                _hub?.AvatarRig?.HoldPose(pick <= 0 ? null : owned[pick - 1]);
+                ConfirmPortrait();
+            }, "Not yet");
+        }
+
+        /// <summary>The portrait's question and take, once the pose is chosen. The booth's figure lets
+        /// the pose go when it is answered.</summary>
+        async void ConfirmPortrait()
+        {
             string diff;
             try { diff = await Chain.Web.ChainPfp.DescribeAsync(_profile); }
             catch (Chain.Web.ChainException e) { diff = e.Message; }
 
-            ConfirmDialog.Show(_canvas.transform, "Take a portrait?", diff, "Take it", "Not yet", async () =>
+            // A portrait already taken can also have its YEAR renewed here (the yearly charge).
+            var status = await Chain.Web.ChainPfp.StatusAsync(_profile.ProfileId);
+            if (status != null && status.taken)
             {
-                try
-                {
-                    var hash = await Chain.Web.ChainPfp.TakeAsync(_profile);
-                    Debug.Log($"[Convergence] portrait taken: {hash}");
-                    _hub?.FlashBooth();
-                }
-                catch (Chain.Web.ChainException e)
-                {
-                    // A refused wallet dialog lands here too, and is not an error - the player
-                    // said no and nothing was spent. Logged rather than surfaced further; the
-                    // booth's own re-read is what the player actually sees on their next visit.
-                    Debug.LogWarning($"[Convergence] portrait not taken: {e.Message}");
-                }
-                _hub?.RefreshBooth();
-            });
+                diff += status.lapsed ? $"\nYour year ran out on {status.paidUntil?.Substring(0, 10)} - minting to your wallet is paused."
+                                      : $"\nPaid until {status.paidUntil?.Substring(0, 10)}.";
+                ConfirmDialog.ShowChoice(_canvas.transform, "Your portrait", diff, "Re-take",
+                    $"Renew a year ({Chain.Web.PfpPrices.RenewAda} ADA)", "Not yet",
+                    () => TakeNow(), RenewPortrait, () => _hub?.AvatarRig?.HoldPose(null));
+                return;
+            }
+            ConfirmDialog.Show(_canvas.transform, "Take a portrait?", diff, "Take it", "Not yet",
+                () => TakeNow(), () => _hub?.AvatarRig?.HoldPose(null));
+        }
+
+        async void RenewPortrait()
+        {
+            _hub?.AvatarRig?.HoldPose(null);
+            try
+            {
+                var hash = await Chain.Web.ChainPfp.RenewAsync(_profile);
+                Debug.Log($"[Convergence] portrait renewed: {hash}");
+                _hub?.FlashBooth();
+            }
+            catch (Chain.Web.ChainException e) { Debug.LogWarning($"[Convergence] portrait not renewed: {e.Message}"); }
+            _hub?.RefreshBooth();
+        }
+
+        async void TakeNow()
+        {
+            _hub?.AvatarRig?.HoldPose(null);
+            try
+            {
+                var hash = await Chain.Web.ChainPfp.TakeAsync(_profile);
+                Debug.Log($"[Convergence] portrait taken: {hash}");
+                _hub?.FlashBooth();
+            }
+            catch (Chain.Web.ChainException e)
+            {
+                // A refused wallet dialog lands here too, and is not an error - the player
+                // said no and nothing was spent. Logged rather than surfaced further; the
+                // booth's own re-read is what the player actually sees on their next visit.
+                Debug.LogWarning($"[Convergence] portrait not taken: {e.Message}");
+            }
+            _hub?.RefreshBooth();
         }
 
                 async void SwitchCharacter(string profileId)
@@ -2386,6 +2496,7 @@ namespace Convergence.Core
             _runId = Guid.NewGuid().ToString("N")[..8];
             _finalAsk = null;
             _avatarAsk = null;
+            _milestoneAsks?.Clear();
             _runGuaranteeWeek = 0;
             _pendingMastery = 0;
             _runCalx = 0;
@@ -4513,6 +4624,10 @@ namespace Convergence.Core
             // roll is the same on a replay.
             if (Rifts.RunLoot.IsRolledAvatar(_floor)) ClaimAvatarBoxes(_floor);
 
+            // A MILESTONE - the first clear of one of the format's milestone floors, once per
+            // character (Tuning.Cosmetics): a dye, and for the first a Diamond box.
+            if (System.Array.IndexOf(Tuning.Cosmetics.MilestoneFloors, _floor) >= 0) ClaimMilestone(_floor);
+
             // FLOOR 100 SECURES THE RUN'S BOXES (the user's call, 2026-10-09) - the completion
             // floor has no Rift, and the boxes it pays are the point of reaching it. From here a
             // death still banks them, and the run end mints the design boxes to the wallet.
@@ -4566,6 +4681,75 @@ namespace Convergence.Core
             CreditAvatarBoxes(boxes.Value);
         }
 
+        /// <summary>Milestone floors asked about this run with no answer yet - EndRun asks again
+        /// (the service answers the decision it recorded for this run, never a second one).</summary>
+        List<int> _milestoneAsks = new();
+
+        /// <summary>
+        /// A MILESTONE, asked of the store at its floor's clear. Its dye is the character's already
+        /// (database first); its Diamond box - the first milestone's - is SECURED on the spot, a
+        /// once-in-a-character's-life gift a death must not take, and minted at the run's end like an
+        /// avatar's (commit-run counts it).
+        /// </summary>
+        async void ClaimMilestone(int floor)
+        {
+            (_milestoneAsks ??= new List<int>()).Add(floor);
+            MilestoneReward? m = null;
+            bool answered = true;
+            try { m = await _store.MilestoneAsync(_profile, _runId, floor); }
+            catch (Exception e) { answered = false; Debug.LogWarning($"[Rift] floor {floor}'s milestone: {e.Message}"); }
+            if (answered) _milestoneAsks.Remove(floor);
+            if (m != null) CreditMilestone(m.Value);
+        }
+
+        async System.Threading.Tasks.Task SettleMilestonesAsync()
+        {
+            if (_milestoneAsks == null || _milestoneAsks.Count == 0) return;
+            foreach (int floor in _milestoneAsks.ToArray())
+            {
+                MilestoneReward? m = null;
+                try { m = await _store.MilestoneAsync(_profile, _runId, floor); }
+                catch (Exception e) { Debug.LogWarning($"[Rift] floor {floor}'s milestone, asked again: {e.Message}"); continue; }
+                _milestoneAsks.Remove(floor);
+                if (m != null) CreditMilestone(m.Value);
+            }
+        }
+
+        void CreditMilestone(MilestoneReward m)
+        {
+            for (int i = 0; i < m.Diamond; i++)
+            {
+                _loot.FindTieredBox(Art.Gear.LootTier.Diamond);
+                _loot.SecureTieredBox(Art.Gear.LootTier.Diamond);
+            }
+            var dye = Art.Gear.DyeCatalog.Get(m.Dye);
+            string what = m.Diamond > 0 ? "a DIAMOND BOX" + (dye != null ? $" and {dye.Name.ToUpper()} DYE" : "")
+                                        : dye != null ? $"{dye.Name.ToUpper()} DYE" : null;
+            if (what != null) _hud?.Flash($"FIRST FLOOR {m.Floor}  -  {what}");
+            if (m.Diamond > 0) ResaveCleared();
+            RefreshItems();
+            Debug.Log($"[Rift] milestone {m.Milestone} (floor {m.Floor}): {m.Diamond} Diamond, dye {m.Dye}");
+        }
+
+        /// <summary>Flashes the cosmetics a decision paid (already the character's) and re-reads the
+        /// character's items, so the Forge and the booth show them.</summary>
+        void CreditCosmetics(string dyeId, string poseId, int poseGold)
+        {
+            var dye = Art.Gear.DyeCatalog.Get(dyeId);
+            var pose = Art.Gear.PoseCatalog.Get(poseId);
+            if (dye != null) _hud?.Flash($"RARE DYE  -  {dye.Name.ToUpper()}");
+            if (pose != null) _hud?.Flash($"NEW POSE  -  {pose.Name.ToUpper()}");
+            if (poseGold > 0) _loot.FindTieredBoxes(Art.Gear.LootTier.Gold, poseGold);
+            if (dye != null || pose != null) RefreshItems();
+        }
+
+        /// <summary>Re-reads what the database holds for the character, in the background.</summary>
+        async void RefreshItems()
+        {
+            try { await _store.ItemsAsync(_profile); }
+            catch (Exception e) { Debug.LogWarning($"[Items] refresh failed: {e.Message}"); }
+        }
+
         /// <summary>EndRun's half: an outstanding or failed ask is awaited, then asked once more,
         /// and credited before anything banks.</summary>
         async System.Threading.Tasks.Task SettleAvatarBoxesAsync()
@@ -4593,7 +4777,8 @@ namespace Convergence.Core
             for (int i = 0; i < boxes.BlackDiamond; i++) _loot.FindTieredBox(Art.Gear.LootTier.BlackDiamond);
             if (boxes.BlackDiamond > 0) _hud?.Flash("BLACK DIAMOND BOX");
             else if (boxes.Diamond > 0) _hud?.Flash("DIAMOND BOX");
-            if (boxes.Diamond > 0 || boxes.BlackDiamond > 0)
+            CreditCosmetics(boxes.Dye, boxes.Pose, boxes.PoseGold);
+            if (boxes.Diamond > 0 || boxes.BlackDiamond > 0 || boxes.PoseGold > 0)
             {
                 ResaveCleared();   // the boxes are the run's now - a resume must not ask for them again
                 Debug.Log($"[Rift] floor {boxes.Floor}'s avatar paid {boxes.Diamond} Diamond, {boxes.BlackDiamond} Black Diamond");
@@ -4622,13 +4807,14 @@ namespace Convergence.Core
         {
             _finalAsk = null;
             var reward = answered ?? FinalFloorReward.Unanswered;
-            _loot.FindTieredBoxes(reward.Tier, reward.Count);
+            if (reward.Count > 0) _loot.FindTieredBoxes(reward.Tier, reward.Count);
+            CreditCosmetics(reward.Dye, reward.Pose, reward.PoseGold);
             _loot.SecureAllBoxes();
             if (reward.Guaranteed) _runGuaranteeWeek = reward.Week;
             string boxes = reward.Count > 1 ? $"{reward.Count} {reward.Tier.ToString().ToUpper()} BOXES"
                                             : $"{reward.Tier.ToString().ToUpper()} BOX";
             if (reward.Tier == Art.Gear.LootTier.BlackDiamond) boxes = "BLACK DIAMOND BOX";
-            _hud?.Flash(reward.Guaranteed ? $"WEEKLY {boxes}" : boxes);
+            if (reward.Count > 0) _hud?.Flash(reward.Guaranteed ? $"WEEKLY {boxes}" : boxes);
             ResaveCleared();   // the box is the run's now - a resume must not ask for it again
             Debug.Log($"[Rift] floor {Rifts.RunLoot.FinalFloor} paid {reward.Count} {reward.Tier}" +
                       (reward.Guaranteed ? $" (the weekly guarantee, week {reward.Week})" : "") +
@@ -5313,6 +5499,7 @@ namespace Convergence.Core
             // An avatar's boxes still outstanding, then floor 100's box, so they are secured and
             // banked with everything else.
             await SettleAvatarBoxesAsync();
+            await SettleMilestonesAsync();
             await SettleFinalFloorAsync();
             tally.GuaranteeWeek = _runGuaranteeWeek;
 
@@ -6192,6 +6379,7 @@ namespace Convergence.Core
             _runId = s.RunId;
             _finalAsk = null;
             _avatarAsk = null;
+            _milestoneAsks?.Clear();
             _runGuaranteeWeek = s.GuaranteeWeek;
             _pendingMastery = s.PendingMastery;
             _runCalx = s.RunCalx;

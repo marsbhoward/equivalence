@@ -76,6 +76,10 @@
       const body = await r.text();
       return body === "null" || body === "" ? "" : body;
     },
+    async pfpStatus({ profileId }) {
+      const r = await service(`/pfp/${encodeURIComponent(profileId)}/status`);
+      return r.text();
+    },
     // ---- design boxes (tokens in the wallet; opening them is the one other thing a player signs) -
     async openBoxes({ profileId, tier, count }) {
       if (!api) throw new Error("no wallet connected");
@@ -98,12 +102,29 @@
       const r = await service(`/boxes/${encodeURIComponent(profileId)}`);
       return r.text();
     },
+    // ---- dyes (all else about dyes is the database's - the game reaches it over HTTP) ----------
+    async withdrawDyes({ profileId, swatch, count }) {
+      const r = await service("/write/dyes/withdraw", {
+        method: "POST",
+        body: JSON.stringify({ profileId, swatch, count: Number(count) || 1 })
+      });
+      return r.text();
+    },
+    depositDyes({ profileId, swatch, count }) {
+      return burn("/write/dyes/deposit", { profileId, swatch, count: Number(count) || 1 });
+    },
+    breakBoxes({ profileId, tier, count }) {
+      return burn("/write/break-boxes", { profileId, tier, count: Number(count) || 1 });
+    },
     // ---- the ONE player-signed write ---------------------------------------------------------
     assemblePfp({ profileId, accountId, datum }) {
-      return trophy("/tx/mint-pfp", profileId, accountId, datum);
+      return trophy("/write/pfp/mint", profileId, accountId, datum);
     },
     updatePfp({ profileId, accountId, datum }) {
-      return trophy("/tx/update-pfp", profileId, accountId, datum);
+      return trophy("/write/pfp/update", profileId, accountId, datum);
+    },
+    renewPfp({ profileId, accountId }) {
+      return trophy("/write/pfp/renew", profileId, accountId, "");
     }
   };
   async function trophy(endpoint, profileId, accountId, datum) {
@@ -112,15 +133,25 @@
       method: "POST",
       body: JSON.stringify({ profileId, address: accountId, recipe: datum })
     });
-    const { cbor } = await built.json();
+    const { pfpId, cbor } = await built.json();
     const witness = await api.signTx(cbor, true);
-    const done = await service("/tx/submit", {
+    const done = await service("/write/pfp/submit", {
       method: "POST",
-      body: JSON.stringify({ cbor, witness })
+      body: JSON.stringify({ pfpId, witness })
     });
     const { hash } = await done.json();
     if (!hash) throw new Error("submit returned no hash");
     return hash;
+  }
+  async function burn(endpoint, body) {
+    if (!api) throw new Error("no wallet connected");
+    const built = await (await service(endpoint, { method: "POST", body: JSON.stringify(body) })).json();
+    const witness = await api.signTx(built.cbor, true);
+    const done = await service(`${endpoint}/submit`, {
+      method: "POST",
+      body: JSON.stringify({ burnId: built.burnId, witness })
+    });
+    return done.text();
   }
   window.EquivalenceChain = connector;
 })();

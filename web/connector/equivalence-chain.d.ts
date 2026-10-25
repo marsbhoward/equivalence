@@ -89,6 +89,23 @@ export interface EquivalenceChain {
   /** The boxes this WALLET holds - a box is a token: { profileId, boxes: { Diamond, BlackDiamond } }. */
   designBoxes(args: { profileId: string }): Promise<string>;
 
+  /** The portrait's year: { taken, revision, paidUntil, lapsed, prices }. */
+  pfpStatus(args: { profileId: string }): Promise<string>;
+
+  // ---- dyes (MONETIZATION.md "The plan as of 2026-10-25") - all else about dyes is the database's -
+
+  /** Earned dyes out of the character's database count into this wallet as dye TOKENS. Minted TO
+   *  the player by the service (no signature), a PFP holder only. Resolves { hash }. */
+  withdrawDyes(args: { profileId: string; swatch: string; count: string }): Promise<string>;
+
+  /** Dye TOKENS in this wallet burned into the character's database count - the player approves
+   *  (signTx, partial), the service pays. Resolves { hash }. */
+  depositDyes(args: { profileId: string; swatch: string; count: string }): Promise<string>;
+
+  /** Diamond box TOKENS burned into dye charges - the player approves (signTx, partial), the
+   *  service pays. Resolves { hash }. */
+  breakBoxes(args: { profileId: string; tier: string; count: string }): Promise<string>;
+
   // ---- the ONE player-signed write ------------------------------------------------------
 
   /**
@@ -124,6 +141,10 @@ export interface EquivalenceChain {
    * Same ownership re-check as the mint.
    */
   updatePfp(args: { profileId: string; accountId: string; datum: string }): Promise<string>;
+
+  /** Another YEAR on the portrait (MONETIZATION.md: 200 ADA) - the player pays inside the transaction
+   *  they sign, the service writes the new paid-until date. Resolves the hash. */
+  renewPfp(args: { profileId: string; accountId: string }): Promise<string>;
 
 
 }

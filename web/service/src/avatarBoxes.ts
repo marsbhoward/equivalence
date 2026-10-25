@@ -20,6 +20,12 @@ export interface AvatarDecision {
   floor: number;
   diamond: number;
   black_diamond: number;
+  /** A RARE dye on top of the boxes (cosmetics.ts) - credited to the character at the decision. */
+  dye?: string | null;
+  /** A portrait POSE the character lacked - credited at the decision - or the Gold it pays once
+   *  every pose is owned (pose_gold boxes, the run's loot like any Gold). */
+  pose?: string | null;
+  pose_gold?: number;
 }
 
 /** A uniform draw in [0, 1) from the server's own randomness. */

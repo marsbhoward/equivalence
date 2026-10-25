@@ -65,7 +65,8 @@ namespace Convergence.Art.Gear
         {
             if (rig == null || rig.Transform == null || profile == null) return;
 
-            var visual = profile.Look.Resolve(profile.Gear);
+            // The disguise, then the character's DYES on whatever design is drawn (Chain.Recolour).
+            var visual = Chain.Recolour.Dress(profile.Look.Resolve(profile.Gear), profile.Items);
 
             rig.SetAppearance(profile.Look);
             rig.Apply(visual);

@@ -19,11 +19,11 @@ namespace Convergence.UI
     /// (those show only as "??? (?-?)" - nothing random is rolled until CONFIRM, or reopening the
     /// menu would be a free re-roll) -> the RESULT, so the player sees what actually rolled.
     /// </summary>
-    public class ForgeScreen : MonoBehaviour
+    public partial class ForgeScreen : MonoBehaviour
     {
         public bool IsOpen { get; private set; }
 
-        enum Mode { Redeem, Targeted, Combine, Reroll, Salvage, Fuse }
+        enum Mode { Redeem, Targeted, Combine, Reroll, Salvage, Fuse, Dye }
 
         /// <summary>Every slot the Forge can roll into. Relic is excluded - GearRoller has no
         /// pool for it (cosmetic only, same rule a weapon transmog already follows), so redeeming
@@ -72,6 +72,18 @@ namespace Convergence.UI
             public Func<IReadOnlyList<string>, string> OnSalvage;
             /// <summary>The calx short of a whole box, per tier - read live.</summary>
             public LootBoxes Calx;
+            /// <summary>What the database holds for the character - dyes, charges, what each
+            /// design is dyed (Chain.CharacterItems), read live.</summary>
+            public Func<CharacterItems> Items;
+            /// <summary>Applies a recolour session; null on success, else why not.</summary>
+            public Func<List<PieceDye>, System.Threading.Tasks.Task<string>> OnRecolour;
+            /// <summary>Breaks one Diamond box into charges; null on success, else why not.</summary>
+            public Func<System.Threading.Tasks.Task<string>> OnBreakBox;
+            /// <summary>How many Diamond boxes could be broken for charges right now.</summary>
+            public Func<int> BreakableBoxes;
+            /// <summary>Withdraws dyes to the wallet as tokens (a PFP holder only) - null when the
+            /// player cannot, else returns null on success or why not.</summary>
+            public Func<string, int, System.Threading.Tasks.Task<string>> OnWithdraw;
         }
 
         Context _ctx;
@@ -107,6 +119,7 @@ namespace Convergence.UI
             _fusion = null; _fused = null;
             (_salvagePick ??= new HashSet<string>()).Clear();
             _salvageConfirm = false; _salvageNote = null;
+            ResetDye();
         }
 
         readonly List<RectTransform> _focusRects = new();
@@ -159,7 +172,7 @@ namespace Convergence.UI
         {
             (Mode.Redeem, "REDEEM"), (Mode.Targeted, "TARGETED"),
             (Mode.Combine, "COMBINE"), (Mode.Reroll, "RE-ROLL"), (Mode.Salvage, "SALVAGE"),
-            (Mode.Fuse, "FUSE"),
+            (Mode.Fuse, "FUSE"), (Mode.Dye, "DYE"),
         };
 
         /// <summary>
@@ -189,7 +202,7 @@ namespace Convergence.UI
             full = _tabs;
 
             var tabs = Tabs();
-            const float tabW = 220f, tabH = 56f, gap = 12f;
+            const float tabW = 200f, tabH = 56f, gap = 12f;
             float gridW = tabs.Count * tabW + (tabs.Count - 1) * gap;
 
             for (int i = 0; i < tabs.Count; i++)
@@ -231,6 +244,7 @@ namespace Convergence.UI
                 case Mode.Reroll: BuildReroll(); break;
                 case Mode.Salvage: BuildSalvage(); break;
                 case Mode.Fuse: BuildFuse(); break;
+                case Mode.Dye: BuildDye(); break;
             }
         }
 

@@ -71,6 +71,15 @@ namespace Convergence.Chain
         /// </summary>
         public int Revision;
 
+        /// <summary>The portrait POSE (Art.Gear.PoseCatalog id), or empty for standing - only a pose
+        /// the character has earned (CharacterItems.Poses). Untradeable, so it says the character
+        /// earned it. Additive.</summary>
+        public string Pose;
+
+        /// <summary>The DYES on what is worn, serialised (each worn design's swatches) - two
+        /// characters wearing one set in different colours are different portraits. Additive.</summary>
+        public string Dyes;
+
         /// <summary>
         /// Built from what the character is actually WEARING, not from everything owned.
         ///
@@ -88,6 +97,8 @@ namespace Convergence.Chain
                 Gear = JsonUtility.ToJson(profile.Gear),
                 Name = profile.DisplayName,
                 MaxFloor = profile.BestFloor,
+                Pose = profile.Items != null && profile.Items.HasPose(profile.Pose) ? profile.Pose : "",
+                Dyes = WornDyes(profile),
             };
 
             foreach (var entry in profile.Gear.Equipped)
@@ -130,10 +141,30 @@ namespace Convergence.Chain
             if (other == null) return false;
             if (Name != other.Name || MaxFloor != other.MaxFloor) return false;
             if (Look != other.Look || Gear != other.Gear) return false;
+            if ((Pose ?? "") != (other.Pose ?? "") || (Dyes ?? "") != (other.Dyes ?? "")) return false;
             if (Components.Count != other.Components.Count) return false;
             for (int i = 0; i < Components.Count; i++)
                 if (Components[i] != other.Components[i]) return false;
             return true;
+        }
+
+        [Serializable] class DyeList { public List<PieceDye> Pieces = new(); }
+
+        /// <summary>The dyes on every worn design, in slot order - empty when nothing worn is dyed.</summary>
+        static string WornDyes(CharacterProfile profile)
+        {
+            if (profile.Items?.Dyed == null || profile.Items.Dyed.Count == 0) return "";
+            var list = new DyeList();
+            var drawn = profile.Look.Resolve(profile.Gear);
+            foreach (var slot in Art.Gear.GearSlots.Selectable)
+            {
+                var item = Art.Gear.GearCatalog.Get(drawn.Get(slot));
+                if (item == null) continue;
+                string design = Recolour.DesignOf(item);
+                var d = profile.Items.Dyed.Find(x => x != null && x.Piece == design);
+                if (d != null && !list.Pieces.Exists(x => x.Piece == design)) list.Pieces.Add(d);
+            }
+            return list.Pieces.Count == 0 ? "" : JsonUtility.ToJson(list);
         }
 
         public override string ToString()

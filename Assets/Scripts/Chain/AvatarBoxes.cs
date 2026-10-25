@@ -19,5 +19,27 @@ namespace Convergence.Chain
         public int Floor;
         public int Diamond;
         public int BlackDiamond;
+        /// <summary>A RARE dye (swatch id) on top of the boxes, or empty - already the character's
+        /// (CharacterItems: database first, credited at the decision).</summary>
+        public string Dye;
+        /// <summary>A portrait pose the character lacked, or empty - already the character's.</summary>
+        public string Pose;
+        /// <summary>Gold boxes the pose roll paid instead, the character owning every pose.</summary>
+        public int PoseGold;
+    }
+
+    /// <summary>
+    /// A MILESTONE (Tuning.Cosmetics): the first clear of one of the run format's milestone floors,
+    /// once per character - a dye (already the character's) and, for the first, a Diamond box that
+    /// joins the run's loot like an avatar's and is minted at the run's end. The service decides it
+    /// for a service player (web/service/src/routes/items.ts); a local save decides it itself.
+    /// </summary>
+    [Serializable]
+    public struct MilestoneReward
+    {
+        public int Floor;
+        public string Milestone;
+        public int Diamond;
+        public string Dye;
     }
 }
