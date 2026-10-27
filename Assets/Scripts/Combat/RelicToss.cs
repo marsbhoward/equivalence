@@ -80,7 +80,7 @@ namespace Convergence.Combat
             _knocked = true;
             _fallT = 0f;
             _from = transform.position;
-            Spr.Flash(transform.position, 0.45f, Art.Gear.SecretFire.Tone(Art.Gear.SecretFire.Shown, 0), 0.14f);
+            TexelFx.Bolts(transform.position, TexelFx.SecretTones(), 3);
         }
 
 
@@ -93,7 +93,7 @@ namespace Convergence.Combat
         public void Pulse()
         {
             _pulse = 1f;
-            Spr.Flash(transform.position, 0.3f, Art.Gear.SecretFire.Tone(Art.Gear.SecretFire.Shown, 0), 0.12f);
+            TexelFx.Bolts(transform.position, TexelFx.SecretTones(), 2);
         }
 
         void Update()
@@ -136,7 +136,7 @@ namespace Convergence.Combat
                 _halo.color = new Color(tone.r, tone.g, tone.b, 0.55f * (1f - e));
                 if (k >= 1f)
                 {
-                    Spr.Flash(_relic.bounds.center, 0.35f, tone, 0.18f);
+                    TexelFx.Bolts(_relic.bounds.center, TexelFx.SecretTones(), 2);
                     Destroy(gameObject);
                 }
             }

@@ -87,10 +87,11 @@ namespace Convergence.Core
             public const bool DemoShowcase = false;
 
             /// <summary>
-            /// The run-format toggle for playtesting the Short Descent: F8 in the hub flips the NEXT
-            /// run between Classic and Short, a label at the top of the hub says which, and the choice
-            /// is remembered between sessions (PlayerPrefs). Editor and development builds only, so a
-            /// release build never offers a format the service does not accept (RUN_FORMATS).
+            /// The run-format toggle. The Short Descent is the players' run; CLASSIC is internal only
+            /// (the user's call, 2026-10-25): F8 in the hub flips the NEXT run to Classic and back, a
+            /// label at the top of the hub says which, and the choice is remembered between sessions
+            /// (PlayerPrefs). Editor and development builds only, so a release build always plays
+            /// the Short Descent.
             /// </summary>
             public static readonly bool FormatToggle = true;
 
@@ -1195,6 +1196,8 @@ namespace Convergence.Core
             /// into the one pool (past the cap it is crit damage - nothing forces a crit). It used to be
             /// +20 Weapon Art.</summary>
             public const float GildingCrit = 0.25f;
+            /// <summary>How long Gilding's gilt ring stays on the floor under a body it marked.</summary>
+            public const float GildingMarkSeconds = 1.2f;
 
             // ---------------------------------------------------------------- Brittle
             public const float ThinBloodHp = 11f;
@@ -1736,24 +1739,22 @@ namespace Convergence.Core
         /// introducing new material. A boss whose enrage is a different fight teaches nothing with
         /// its first two minutes.
         ///
-        /// THE FIRST ONE - the Cantor - is a teleporting ranged boss on a floor cut into eight
-        /// slices (see <see cref="Bosses.ArenaSectors"/>), and its cycle is three movements:
+        /// THE FIRST ONE - the Wreathe (it was the Cantor) - is a teleporting singer on a floor cut
+        /// into eight slices round a safe centre (see <see cref="Bosses.ArenaSectors"/>), and its
+        /// cycle is CALL AND RESPONSE (the user's rules, 2026-10-26):
         ///
-        ///     CALL     it teleports around the eight slices in a random order, firing a blast at
-        ///              the player from each. Untouchable. This is the melody being played.
-        ///     ANSWER   the same slices erupt, in the same order, as floor hazards. Untouchable.
-        ///              This is the melody played back, and the player is inside it.
-        ///     REST     it drops into the middle, stunned and open. The only window there is.
+        ///     PRELUDE  rings rise from its hood: the phrase is about to begin.
+        ///     CALL     it teleports round the slices, SINGING each slice's note; its voice flies at
+        ///              the player as rings. Untouchable. This is the melody.
+        ///     BREATH   it holds still above the room - time to recall the phrase.
+        ///     ANSWER   the player STEPS the phrase: on each beat, stand in the slice it sang that
+        ///              note from. Every other slice hurts; the centre is safe but cuts nothing.
+        ///              Each note landed cuts one ring of its guard.
+        ///     REST     every ring cut, it unravels into the middle, open. A miss and the guard
+        ///              holds: no window, a new phrase of the same length.
         ///
-        /// The puzzle is that ANSWER is CALL. A player who watched where it stood already knows
-        /// where not to stand, and is walking to safety while a player who did not is reacting.
-        ///
-        /// THE TELEGRAPH IS DELIBERATELY TOO SHORT TO CROSS A SLICE ON. A slice at the radius the
-        /// player is likely to be at is about 3 units wide, so leaving one from its middle takes
-        /// about 0.24s at MoveSpeed 6.5 - and the telegraph is 0.40s, which sounds generous until
-        /// the player is also being pushed around by where the NEXT note lands. Reacting alone is
-        /// possible and tight; remembering is what makes it comfortable. Neither a telegraph long
-        /// enough to ignore the pattern nor none at all is the fight.
+        /// The answer never shows which slice is right - every slice fills together (the clock),
+        /// and only the cut, AFTER the beat, confirms it.
         /// </summary>
         public static class Boss
         {
@@ -1812,65 +1813,83 @@ namespace Convergence.Core
             /// ellipse squashed to the room.</summary>
             public const float TeleportRadius = 5.5f;
 
-            // ---- CALL: the melody ----
-
-            /// <summary>Notes in the first cycle's phrase, and one more per cycle after it. Capped
-            /// at the eight slices - a phrase longer than the alphabet it is drawn from stops
-            /// being a phrase and becomes a list.</summary>
-            public const int BaseNotes = 5;
-            public const int MaxNotes = ArenaSectorCount;
-
-            /// <summary>Seconds per note while calling, and enraged. The gap is what the player
-            /// reads the pattern in.</summary>
+            /// <summary>Seconds per note while calling; from band <see cref="EnemyBands.WreatheFastCallFromBand"/>
+            /// the faster tempo.</summary>
             public const float CallNoteSeconds = 0.85f;
-            public const float CallNoteSecondsEnraged = 0.60f;
+            public const float CallNoteSecondsFast = 0.60f;
 
-            /// <summary>How long the boss holds a slice before firing, so an appearance is a beat
-            /// rather than a hit.</summary>
+            /// <summary>How long it holds a slice before its voice leaves, so an appearance is a
+            /// beat rather than a hit.</summary>
             public const float CallAimSeconds = 0.35f;
 
-            /// <summary>CHIP damage: a floor-1 figure, scaled by FloorDifficulty.Damage like every
-            /// other enemy's. Flat, so MaxHp still buys room against it.</summary>
-            public const float BlastDamage = 12f;
-            public const float BlastSpeed = 10f;
-            public const float BlastLifetime = 3f;
+            /// <summary>
+            /// THE CADENCE HOLDS THE CAMERA (the user's call): from the prelude to the last beat the
+            /// view eases onto the room's centre and out to the whole room - the shift in focus says
+            /// this matters - and back to the player for the rest. 7.2 is the arena's 3.6 doubled:
+            /// the next whole step on the pixel ladder at 1080p, so it is as crisp as the usual view.
+            /// </summary>
+            public const float HoldViewHalfHeight = 7.2f;
+            public const float HoldEaseSeconds = 0.8f;
+            /// <summary>The highest a northern note is sung from (its root), so the figure stays
+            /// clear of the boss bar in the held view. Above InnerRadius, so a split's outer half.</summary>
+            public const float StationMaxNorth = 4.0f;
 
-            // ---- ANSWER: the melody played back ----
+            /// <summary>Where it waits through the prelude and the breath: over the north slice, low
+            /// enough that the whole figure is clear of the north wall and the boss bar.</summary>
+            public const float AboveY = 3.6f;
 
-            /// <summary>Seconds per note while answering. Slightly tighter than the call, because
-            /// the player already heard it once.</summary>
-            public const float AnswerNoteSeconds = 0.75f;
-            public const float AnswerNoteSecondsEnraged = 0.55f;
+            /// <summary>The rings rising from the hood before the call: the phrase begins.</summary>
+            public const float PreludeSeconds = 1.2f;
 
-            /// <summary>How long a slice glows before it erupts - see the class header for why
-            /// this is deliberately short.</summary>
-            public const float TelegraphSeconds = 0.40f;
-            public const float TelegraphSecondsEnraged = 0.30f;
+            /// <summary>ITS VOICE IS THE ATTACK: the sung rings fly at the player. CHIP damage, a
+            /// floor-1 figure scaled by FloorDifficulty.Damage like every other enemy's.</summary>
+            public const float VoiceDamage = 12f;
+            public const float VoiceSpeed = 7.5f;
+            public const float VoiceLifetime = 3f;
+            public const float VoiceHitRadius = 0.32f;
+            /// <summary>From band 1 it LEADS: aimed where the player will be when it arrives, at
+            /// most this far ahead.</summary>
+            public const float VoiceLeadMax = 2.5f;
 
-            /// <summary>How long an eruption stays lethal. Non-zero so it is a place rather than a
-            /// frame - a single-frame test would miss a player crossing it and would be pure luck
-            /// at low frame rates.</summary>
-            public const float EruptionSeconds = 0.25f;
+            // ---- BREATH: time to recall ----
+
+            /// <summary>The breath grows with the phrase (the user's pick): Base + PerNote x notes,
+            /// 2.5 s for five, 3.4 s for eight.</summary>
+            public const float BreathBaseSeconds = 1.0f;
+            public const float BreathPerNoteSeconds = 0.3f;
+
+            // ---- ANSWER: the phrase, stepped ----
+
+            /// <summary>Seconds per note while answering (the user's pick). Crossing the centre to
+            /// the opposite slice is ~3 units, ~1.1 s at a walk.</summary>
+            public const float AnswerNoteSeconds = 1.4f;
+            /// <summary>Share of a note spent filling (every slice together - the clock) before the
+            /// beat; the rest is the vents and the step to the next.</summary>
+            public const float AnswerFillShare = 0.75f;
+            /// <summary>How long the wrong slices vent after the beat (a picture - the test is the beat).</summary>
+            public const float VentSeconds = 0.45f;
+
+            /// <summary>The SAFE CENTRE's radius, and (enraged) the ring that splits every slice in
+            /// two, and where the boss stands to sing an inner half.</summary>
+            public const float SafeRadius = 1.6f;
+            public const float InnerRadius = 3.7f;
+            public const float InnerStation = 2.65f;
 
             /// <summary>
-            /// What standing in an erupting slice costs, as a fraction of the player's MAX health -
-            /// a MECHANIC hit, so it costs the same at floor 10 and floor 90 whatever the build.
-            /// A flat number goes stale as health grows and the read stops mattering.
-            ///
-            /// About a quarter (the old flat 22 against an Air character's 85), so a hazard phase
-            /// read badly is most of a health bar and one mistake is not the run. MITIGATED like
-            /// any hit (it goes through Health.Take, so Vulnerability - Graze, Brace, Resilience,
-            /// worn armour - applies): defensive gear must still matter where it matters most.
-            /// MaxHp does not help against it, by design - mechanic hits ignore the build's size.
-            /// Heals that answer it (the floor reward, the spire) are fractions too, so the two
-            /// stay in proportion.
+            /// What standing in a WRONG slice on the beat costs, as a fraction of the player's MAX
+            /// health - a MECHANIC hit, so it costs the same at floor 10 and floor 90 whatever the
+            /// build. MITIGATED like any hit (Health.Take applies Vulnerability), so defensive gear
+            /// still matters; MaxHp does not help against it, by design. The centre costs nothing.
             /// </summary>
             public const float EruptionFraction = 0.26f;
 
-            /// <summary>ENRAGED, THE ANSWER COMES IN TWO PARTS: the note's own slice and the one
-            /// opposite it. Two of eight leaves six safe, so it is a harder read rather than an
-            /// unsurvivable one - and it doubles the material without inventing any.</summary>
-            public const bool EnragedAnswersOpposite = true;
+            /// <summary>The guard held (a note missed): a beat before it sings again.</summary>
+            public const float GuardHoldsSeconds = 1.0f;
+
+            /// <summary>Notes in the first phrase, and one more for every window OPENED (a failed
+            /// phrase is sung again at the same length). Capped at the eight slices.</summary>
+            public const int BaseNotes = 5;
+            public const int MaxNotes = ArenaSectorCount;
 
             // ---- REST: the window ----
 
@@ -2006,7 +2025,7 @@ namespace Convergence.Core
             public const float GazeHoldSeconds = 0.45f;
 
             /// <summary>The gaze hit, as a share of the player's max health. A MECHANIC hit like the
-            /// Cantor's eruption: mitigated through Health.Take, so Brace and the ledger still count.</summary>
+            /// Wreathe's beat: mitigated through Health.Take, so Brace and the ledger still count.</summary>
             public const float GazeFraction = 0.5f;
 
             /// <summary>
@@ -2064,7 +2083,38 @@ namespace Convergence.Core
             public const float PullToRadius = 2.0f;
             public const float PushPullSpeed = 14f;
 
-            public const float Hp = 840f;    // same base as the Cantor, through FloorDifficulty.BossHp
+            public const float Hp = 840f;    // same base as the Wreathe, through FloorDifficulty.BossHp
+
+            // ---- the redesign's pictures and band twists (group 5, 2026-10-26)
+
+            /// <summary>A pillar her third eye sees through is drawn this clear (enraged: it casts no shadow).</summary>
+            public const float GlassAlpha = 0.4f;
+            /// <summary>How long a pillar takes to turn to glass as her third eye fixes it.</summary>
+            public const float GlassSeconds = 0.3f;
+
+            /// <summary>Her statues (the adds) stand this long before her crown hisses, then crack
+            /// for StatueCrackSeconds and wake. Immune and still while stone.</summary>
+            public const float StatueHoldSeconds = 1.0f;
+            public const float StatueCrackSeconds = 0.5f;
+
+            /// <summary>VENOM (from band EnemyBands.MedusaVenomFromBand): VenomCount globs lobbed over
+            /// the pillars through each tell at where the player stands - chip, flat, scaled by
+            /// FloorDifficulty.Damage like any enemy blow. Not a mechanic share.</summary>
+            public const int VenomCount = 3;
+            public const float VenomDamage = 9f;
+            public const float VenomRadius = 0.45f;
+            public const float VenomFlightSeconds = 0.8f;
+            public const float VenomArc = 1.4f;
+
+            /// <summary>Stones falling DURING the tell too (from band EnemyBands.MedusaTellDebrisFromBand),
+            /// so cover stops being a place to stand still.</summary>
+            public const int TellDebrisCount = 2;
+
+            /// <summary>She LOOKS TWICE (from band EnemyBands.MedusaLooksTwiceFromBand): after the
+            /// first look she breaks the player's pillar (a shorter warning) and looks again after a
+            /// short tell, before the window opens.</summary>
+            public const float SecondBreakWarnSeconds = 0.6f;
+            public const float SecondTellSeconds = 1.2f;
         }
 
         /// <summary>
@@ -2175,7 +2225,7 @@ namespace Convergence.Core
             public const float SideDoorInset = 2.4f;
 
             /// <summary>ECHO - watch and repeat. Stones light in a phrase; step them in order.
-            /// Longer every EchoLengthEvery floors. No immediate repeats, like the Cantor's.</summary>
+            /// Longer every EchoLengthEvery floors. No immediate repeats, like the Wreathe's.</summary>
             public const int EchoStones = 6;
             public const float EchoRingRadius = 3.0f;
             public const int EchoLengthBase = 4;
@@ -3446,6 +3496,155 @@ namespace Convergence.Core
         }
 
         /// <summary>
+        /// Fire's pictures (the user's picks off the mix-and-match sheet, 2026-10-25,
+        /// https://claude.ai/artifact/UtCoNRW9EcAE8Kj9ju9tXP): a burning body sheds EMBER MOTES
+        /// with small flames on its head (Combat.BurnEmbers), each burn tick BLINKS it orange
+        /// (Health's flash), heat SCORCHES the ground under the player (Player.HeatGround), full
+        /// heat burns the SIGIL EMBLEM into it, and Ignite's swings smear in FLAME (Combat.SwingSmear) - on discs and arrows a
+        /// flame TAIL (Combat.FlameTrail).
+        /// </summary>
+        public static class FireFx
+        {
+            /// <summary>The fire ramp, hottest first: white, yellow, orange, red, dark red, ember.</summary>
+            public static readonly UnityEngine.Color32[] Ramp =
+            {
+                new(255, 244, 214, 255), new(255, 214, 90, 255), new(255, 138, 31, 255),
+                new(216, 64, 26, 255), new(138, 29, 16, 255), new(58, 12, 8, 255),
+            };
+
+            /// <summary>Embers rising off a burning body at once. Denser and quicker than a Cindered
+            /// elite's nine slow motes (Enemies.BoostedMotes), and cooling as they climb.</summary>
+            public const int BurnEmbers = 14;
+            public const float EmberLife = 1.1f;
+            /// <summary>Texels a second an ember climbs (each one 0.7-1.3x this).</summary>
+            public const float EmberRise = 13f;
+            /// <summary>The head's flames: how tall, and how far below the body's highest texel a
+            /// column may top out and still count as the head.</summary>
+            public const int HeadFlameTexels = 3;
+            public const int HeadRows = 3;
+
+            /// <summary>A fire TICK's blink: the hit flash in this colour, starting at this strength
+            /// (an ordinary hit starts at 1, white). Health's flash fades 5 a second, so ~0.12 s.</summary>
+            public const float TickBlink = 0.6f;
+            public static readonly UnityEngine.Color TickBlinkColour = new(1f, 0.55f, 0.15f, 1f);
+
+            /// <summary>The scorched ring under the player: its half-width in ground texels at one
+            /// stack and per stack after, its depth as a share of the width, and how fast it eases
+            /// toward the size the heat wants.</summary>
+            public const float RingBase = 5f, RingPerStack = 2.5f, RingSquash = 0.42f, RingEase = 10f;
+            /// <summary>Embers off the ring's BACK half, behind the body, rising to the knee.</summary>
+            public const int GroundEmbersPerStack = 3;
+            public const float GroundEmberRise = 7f, GroundEmberLife = 1.1f;
+
+            /// <summary>The sigil emblem at full heat (Combat.SigilEmblem - the selector's four rings):
+            /// its half-width as a share of the full ring's (past it - the body stands in the
+            /// middle, so the side rings must clear it), flattened onto the floor, each ring this
+            /// many texels thick, pulsing at this rate, burning in over this long.</summary>
+            public const float SigilFill = 1.6f, SigilSquash = 0.5f, SigilPulse = 3f, SigilInSeconds = 0.25f;
+            public const int SigilWeight = 2;
+
+            /// <summary>Ignite's flame smear: at least this long a window and this much of the blade,
+            /// so a basic's sliver of a smear is big enough to read as fire.</summary>
+            public const float SmearWindow = 0.09f, SmearFrom = 0.3f;
+
+            /// <summary>Ignite's flame tail on the discs and the bow (Combat.FlameTrail): seconds of
+            /// path a disc's tail covers (in the hand and thrown), its width as a share of the disc's
+            /// half-size; an arrow's, and its half-width in texels; and the canvas's half-size in
+            /// world units, which a tail must fit inside.</summary>
+            public const float TrailDiscWindow = 0.12f, TrailDiscWidth = 0.6f;
+            public const float TrailArrowWindow = 0.07f, TrailArrowRadius = 1.5f;
+            public const float TrailHalfExtent = 2.4f;
+        }
+
+        /// <summary>
+        /// The elemental releases' pictures (the user's picks off the mock sheet, 2026-10-25,
+        /// https://claude.ai/artifact/QK1ze9roG2X5tfBFwVADHo): Erupt's sigil blast and its pools,
+        /// Ignite's flame outline, Soak's ripple, Surge's undertow, Burst's sigil rings, the
+        /// Quake's fault sigil, Gust's slipstream and Squall's dust devils. Texel-drawn on the
+        /// floor's grid (37.5) unless a note says otherwise. Ground rings are drawn ROUND, at the
+        /// release's real radius, so the edge drawn is the edge that hits.
+        /// </summary>
+        public static class ReleaseFx
+        {
+            static UnityEngine.Color32 C(byte r, byte g, byte b) => new(r, g, b, 255);
+
+            /// <summary>Ramps, brightest first (the fire one is FireFx.Ramp).</summary>
+            public static readonly UnityEngine.Color32[] Water =
+                { C(242, 253, 255), C(168, 236, 255), C(86, 198, 242), C(44, 134, 204), C(27, 79, 146), C(15, 42, 82) };
+            public static readonly UnityEngine.Color32[] Stone =
+                { C(239, 224, 184), C(201, 164, 110), C(148, 108, 67), C(99, 69, 41), C(60, 41, 24), C(31, 21, 12) };
+            /// <summary>Earth's light - its element colour - in the cracks.</summary>
+            public static readonly UnityEngine.Color32[] Moss =
+                { C(233, 255, 208), C(184, 231, 127), C(140, 199, 92), C(94, 154, 60), C(54, 99, 42), C(28, 58, 24) };
+            public static readonly UnityEngine.Color32[] Air =
+                { C(255, 255, 255), C(232, 236, 255), C(196, 203, 232), C(154, 162, 200), C(108, 115, 154), C(62, 68, 102) };
+            /// <summary>Gust's own yellow - the tell the player plans round.</summary>
+            public static readonly UnityEngine.Color32[] Gust =
+                { C(255, 251, 230), C(255, 240, 160), C(255, 216, 74), C(224, 168, 30), C(154, 106, 16), C(74, 50, 8) };
+            /// <summary>Wet floor, laid over the ground at <see cref="WetAlpha"/>; a crack's groove.</summary>
+            public static readonly UnityEngine.Color32 Wet = C(15, 26, 44), Groove = C(11, 9, 12);
+            public const float WetAlpha = 0.4f;
+
+            /// <summary>ERUPT: the sigil flares white for FlareSeconds, then burns down and is gone by
+            /// BurntFadeFrom + BurntFadeSeconds; a ring of fire FrontTexels thick runs out to the
+            /// spread over FrontSeconds, flames up to FrontFlame texels on it, and each pool lights
+            /// as it passes.</summary>
+            public const float EruptFlareSeconds = 0.12f, EruptFrontSeconds = 0.3f;
+            public const float EruptBurntFadeFrom = 1.2f, EruptBurntFadeSeconds = 0.8f;
+            public const int EruptFrontTexels = 3, EruptFrontFlame = 6;
+
+            /// <summary>A burning pool (Combat.FirePool): its edge, how many flames per texel of
+            /// radius and how tall, redrawn this often, lit over PoolInSeconds.</summary>
+            public const float PoolEdgeTexels = 1.6f, PoolFlamesPerTexel = 0.35f, PoolFps = 12f, PoolInSeconds = 0.12f;
+            public const int PoolFlameMin = 3, PoolFlameMax = 7;
+
+            /// <summary>IGNITE: the figure outlined in flame for OutlineSeconds - solid for
+            /// OutlineSolidSeconds, then breaking up - with flames off the head up to
+            /// OutlineHeadFlame texels (the body's own texels) on every column within OutlineHeadRows
+            /// of the top.</summary>
+            public const float OutlineSeconds = 0.9f, OutlineSolidSeconds = 0.35f;
+            public const int OutlineHeadFlame = 9, OutlineHeadRows = 5;
+
+            /// <summary>SOAK: one ring running out to the radius over RippleSeconds, the floor wet
+            /// behind it, drying from RippleDryFrom over RippleDrySeconds; each body splashes as
+            /// the ring passes it.</summary>
+            public const float RippleSeconds = 0.3f, RippleFrontTexels = 2.5f;
+            public const float RippleDryFrom = 1.2f, RippleDrySeconds = 1.2f, SplashSeconds = 0.45f;
+
+            /// <summary>SURGE: two ribbons round the body for the whole window - their half-width,
+            /// their heights as shares of the body's, radians a second at no attack speed bonus
+            /// (faster by the surge's own), and texels in each ribbon.</summary>
+            public const float UndertowRadius = 0.42f, UndertowLow = 0.28f, UndertowHigh = 0.52f;
+            public const float UndertowSpin = 5f, UndertowInSeconds = 0.2f;
+            public const int UndertowTexels = 22;
+
+            /// <summary>BURST: the sigil (this share of the radius) flashes white, then its four
+            /// rings spread from its compass points to the radius.</summary>
+            public const float BurstSigilShare = 0.47f, BurstFlashSeconds = 0.15f;
+            public const float BurstRingsFrom = 0.1f, BurstRingsSeconds = 0.45f, BurstFadeSeconds = 0.25f;
+
+            /// <summary>QUAKE: the sigil cracked into the floor (this share of the radius), cracks
+            /// run out over GrowSeconds, each shock's light runs down them over PulseSeconds;
+            /// gone FadeAfter the last shock, over FadeSeconds. An aftershock further than
+            /// ReuseDistance from the last fault opens its own.</summary>
+            public const float QuakeSigilShare = 0.4f, QuakeGrowSeconds = 0.28f, QuakePulseSeconds = 0.35f;
+            public const float QuakeFadeAfter = 1.6f, QuakeFadeSeconds = 0.8f, QuakeReuseDistance = 0.3f;
+            public const int QuakeCracks = 9;
+
+            /// <summary>GUST: streaks off the body a second at full walking speed and standing,
+            /// each living StreakLife and StreakMin..Max texels long; a puff ring at the feet as it
+            /// starts.</summary>
+            public const float GustStreaksMoving = 34f, GustStreaksStill = 5f, GustStreakLife = 0.3f;
+            public const int GustStreakMin = 3, GustStreakMax = 9;
+            public const float GustPuffSeconds = 0.3f, GustPuffTexels = 18f;
+
+            /// <summary>SQUALL: each vortex a standing dust devil this tall (units) and wide at the
+            /// top, turning this fast, with grit drawn in across the pull's radius.</summary>
+            public const float DevilHeight = 0.95f, DevilTopWidth = 0.62f, DevilSpin = 9f, DevilInSeconds = 0.25f;
+            public const int DevilGrit = 10;
+        }
+
+        /// <summary>
         /// The light running up the weapon while a finisher is banked (Combat.FinisherGlint) - the
         /// gold ring's old job, moved onto the thing that will deliver the finisher.
         /// </summary>
@@ -3908,6 +4107,9 @@ namespace Convergence.Core
                 Convergence.Audio.Sound.Push or Convergence.Audio.Sound.Pull => 0.55f,
                 Convergence.Audio.Sound.Chip => 0.35f,
                 Convergence.Audio.Sound.Rubble => 0.60f,
+                Convergence.Audio.Sound.Clash => 0.55f,
+                Convergence.Audio.Sound.Hiss => 0.55f,
+                Convergence.Audio.Sound.Spit => 0.35f,
                 _ => 0.5f,
             };
 
@@ -3930,6 +4132,7 @@ namespace Convergence.Core
                 Convergence.Audio.Sound.Toll or Convergence.Audio.Sound.Erupt => 0f,
                 Convergence.Audio.Sound.Rubble => 0.15f,
                 Convergence.Audio.Sound.Chip => 0.05f,
+                Convergence.Audio.Sound.Clash => 0.05f,
                 _ => 0.03f,
             };
 
@@ -3941,7 +4144,7 @@ namespace Convergence.Core
                     or Convergence.Audio.Sound.PlayerDeath or Convergence.Audio.Sound.FloorClear
                     or Convergence.Audio.Sound.FuseTick or Convergence.Audio.Sound.Sing
                     or Convergence.Audio.Sound.Toll or Convergence.Audio.Sound.Enrage
-                    or Convergence.Audio.Sound.BossDeath => 0f,   // the Cantor's notes are a TUNE
+                    or Convergence.Audio.Sound.BossDeath => 0f,   // the Wreathe's notes are a TUNE
                 Convergence.Audio.Sound.Distant => 0.15f,
                 _ => 0.07f,
             };
@@ -4234,6 +4437,10 @@ namespace Convergence.Core
         {
             /// <summary>Distance from centre to each side wall. Doors are mounted on these.</summary>
             public const float HalfWidth = 8f;
+
+            /// <summary>How dark the hub is where no light reaches (the user's pick, group 6 - "light
+            /// dimness"): enough that the forge, the candles and the door each light their own pool.</summary>
+            public const float Dimness = 0.25f;
 
             /// <summary>Where the walkable floor stops and the gallery wall begins.</summary>
             public const float FloorTop = 3.05f;
@@ -4629,7 +4836,7 @@ namespace Convergence.Core
             /// shrinks toward nothing stops being one, and an unreactable attack is damage on a
             /// timer rather than difficulty.</summary>
             public const float TelegraphShrinkPerFloor = 0.005f;
-            public const float TelegraphMinMultiplier = 0.55f;
+            public const float TelegraphMinMultiplier = 0.75f;   // was 0.55 - see AttackTokens
 
             /// <summary>
             /// An ABSOLUTE floor on any telegraph, whatever the multiplier works out to.
@@ -4983,10 +5190,8 @@ namespace Convergence.Core
             public const float MortarFlameRange = 3f;
             public const float MortarFlameHalfAngle = 28f;
 
-            /// <summary>How fast the flame turns to follow. At the flame's range the player
-            /// (4.1 u/s) sweeps well over 100 deg/s circling it, so this can be outrun - round
-            /// the side, not back through it.</summary>
-            public const float MortarFlameTurnDegPerSec = 70f;
+            // The flame does NOT turn (the user's call, 2026-10-25): it holds the line it was aimed
+            // along when the wind-up began, and the player escapes by stepping out of the side.
 
             /// <summary>Damage per second as a multiple of the shell's damage, dealt in ticks.
             /// Standing in the whole 2s costs about two shells.</summary>
@@ -5243,6 +5448,11 @@ namespace Convergence.Core
             /// it a wider slam rather than a second, unrelated effect.</summary>
             public const float GargoylePetrifySeconds = 2f;
 
+            /// <summary>After a Watcher's root ends, the player cannot be rooted again for this long,
+            /// and no root extends one already holding (StatusEffects.TryRoot) - two Watchers could
+            /// root a player back to back (the user's call, 2026-10-25).</summary>
+            public const float GargoyleRootGraceSeconds = 1f;
+
             /// <summary>Cooldown before a basic Gargoyle may glow again, after landing a root OR
             /// being flinched out of one.</summary>
             public const float GargoyleRecoverSeconds = 2f;
@@ -5439,6 +5649,322 @@ namespace Convergence.Core
             /// breaks the whole bubble at once (the user's call). The elite blows two - one on an
             /// ally and one on itself - and nothing stacks.</summary>
             public const int BubblesEliteCharges = 2;
+        }
+
+        /// <summary>
+        /// ENEMY BANDS (Core.RunFormat.EnemyBand, Enemies/EnemyController.Bands.cs; the user's
+        /// go-ahead 2026-10-25). The Short Descent - the players' run - steps a band after EVERY
+        /// MINI-BOSS (10 / 20 / 30 / 40): five bands of ten floors, about one heat tier each, so
+        /// something new arrives every ~12 minutes. Classic (internal) at the same DEPTH: 20/40/60/80.
+        ///
+        ///   band 0  floors  1-10  every kind as authored - the place to learn them
+        ///   band 1  floors 11-20  THEY AIM: leading shots, the Stinger's missile, the Brute's lunge
+        ///   band 2  floors 21-30  NEW MOVES: one per kind
+        ///   band 3  floors 31-40  VETERANS: every basic carries its elite's move
+        ///   band 4  floors 41-49  THE STRONGEST: each kind's sharpest form (50 is the final avatar)
+        ///
+        /// A behaviour that arrives with depth reads its FromBand here and EnemyController.Band,
+        /// never the floor. Elites take every band's behaviours too.
+        /// </summary>
+        public static class EnemyBands
+        {
+            /// <summary>The floors AFTER which each band begins.</summary>
+            public static readonly int[] ShortEdges = { 10, 20, 30, 40 };
+            public static readonly int[] ClassicEdges = { 20, 40, 60, 80 };
+
+            // ---- the Wreathe (the user's picks, group 5) - each ADDS to the bands before it ----
+
+            /// <summary>Band 1: its voice LEADS the player (Tuning.Boss.VoiceLeadMax).</summary>
+            public const int WreatheLeadFromBand = 1;
+            /// <summary>Band 2: one note of each phrase is SILENT - sung unseen, only a faint ring at
+            /// the slice for anyone who cannot hear it. It sends no voice on that note.</summary>
+            public const int WreatheSilentFromBand = 2;
+            /// <summary>Band 3: some phrases are answered BACKWARDS - its hood turned away through the
+            /// breath is the tell, every time.</summary>
+            public const int WreatheBackwardsFromBand = 3;
+            public const float WreatheBackwardsChance = 0.5f;
+            /// <summary>Band 4: the call at the faster tempo (Tuning.Boss.CallNoteSecondsFast).</summary>
+            public const int WreatheFastCallFromBand = 4;
+
+            /// <summary>Medusa (the user's picks, group 5): from band 1 she breaks the pillar the
+            /// player hides behind (it was a random one); from 2 her crown spits VENOM through the
+            /// tell; from 3 stones fall DURING the tell too; from 4 she LOOKS TWICE a cycle.</summary>
+            public const int MedusaBreaksYoursFromBand = 1;
+            public const int MedusaVenomFromBand = 2;
+            public const int MedusaTellDebrisFromBand = 3;
+            public const int MedusaLooksTwiceFromBand = 4;
+
+            // ---- band 1: they aim (leading shots and the missile: Tuning.EnemyAi) ----
+
+            /// <summary>The Brute's swing STEPS IN: it starts its tell from this much further out and
+            /// lunges the gap over <see cref="BruteLungeSeconds"/> as it swings.</summary>
+            public const int BruteLungeFromBand = 1;
+            public const float BruteLungeReach = 0.8f;
+            public const float BruteLungeSeconds = 0.12f;
+
+            // ---- band 2: new moves ----
+
+            /// <summary>The Heart's sweep takes any of the four patterns (there and back too) - an
+            /// elite's, until here.</summary>
+            public const int HeartPatternsFromBand = 2;
+            /// <summary>The Watcher COMMITS: in the last <see cref="WatcherCommitSeconds"/> of its
+            /// tell (its eyes fully lit), breaking its sight no longer saves you - the root lands. Its
+            /// reach is its sight (40 units), so a wider root meant nothing (measured 2026-10-25).</summary>
+            public const int WatcherCommitFromBand = 2;
+            public const float WatcherCommitSeconds = 0.6f;
+            /// <summary>The Tempest Eye's beam spins up faster.</summary>
+            public const int EyeQuickFromBand = 2;
+            public const float EyeChargeMul = 0.7f;
+            /// <summary>The Hound's dashes leave a WAKE: small slowing patches (the mire's) along the
+            /// line, one every <see cref="HoundWakeEvery"/> units.</summary>
+            public const int HoundWakeFromBand = 2;
+            public const float HoundWakeEvery = 1.2f;
+            public const float HoundWakeRadius = 0.7f;
+            public const float HoundWakeSeconds = 2.5f;
+            /// <summary>The Green Lion's roar also heals the ally this share of its health.</summary>
+            public const int LionHealFromBand = 2;
+            public const float LionHealFraction = 0.25f;
+            /// <summary>The Drowned Bell's bubble has one more wall.</summary>
+            public const int BellWallFromBand = 2;
+            /// <summary>The Salamander's shells BOUNCE once - a second, smaller hop along the same line
+            /// after the first blast, its own ring drawn as it lands.</summary>
+            public const int ShellBounceFromBand = 2;
+            public const float ShellBounceDistance = 2.2f;
+
+            // ---- band 3: veterans ----
+
+            /// <summary>Every BASIC carries its elite's move - Brute riposte, Stinger volley, Heart
+            /// cluster, Eye mire lob and overcharge, Hound redouble, Salamander barrage, Lion's two
+            /// roars, Bell's own bubble - at <see cref="VeteranEveryMul"/> times the elite's interval
+            /// where the move has one. The Watcher can't fly (its basic body stands on a plinth), so
+            /// a veteran SLAMS WHERE IT STANDS: a player within GargoyleAoeRadius as its tell ends
+            /// takes its Damage with the root, the ring cracked round it through the tell (the user's
+            /// call). A longer root (x1.5, tried first) held a standing player rooted 60-70% of the
+            /// time.</summary>
+            public const int VeteranFromBand = 3;
+            public const int VeteranEveryMul = 2;
+
+            // ---- band 4: the strongest ----
+
+            /// <summary>A Brute that cannot reach a kiting player THROWS RUBBLE: from
+            /// <see cref="RubbleMinBeyondReach"/> past its reach to <see cref="RubbleMaxRange"/>, on its
+            /// own cooldown, after a grey line tell, frozen like the Stinger's.</summary>
+            public const int BruteRubbleFromBand = 4;
+            public const float RubbleMinBeyondReach = 1.5f;
+            public const float RubbleMaxRange = 7f;
+            public const float RubbleCooldown = 5f;
+            public const float RubbleTellSeconds = 0.6f;
+            public const float RubbleSpeed = 7f;
+            public const float RubbleDamageMul = 0.8f;
+            public const float RubbleHitRadius = 0.3f;
+            /// <summary>The Stinger's missile SPLITS in two at half its reach, each half turning in
+            /// from its own side.</summary>
+            public const int MissileSplitFromBand = 4;
+            public const float MissileSplitDegrees = 35f;
+            /// <summary>The Heart's self-destruct rush starts from this share of its health (20%).</summary>
+            public const int HeartRushFromBand = 4;
+            public const float HeartRushFraction = 0.3f;
+            /// <summary>The Eye's beam SLOWS the player while it holds them.</summary>
+            public const int EyeSlowFromBand = 4;
+            public const float EyeSlowMul = 0.8f;
+            /// <summary>The Hound's charge runs this much further past the player.</summary>
+            public const int HoundLongDashFromBand = 4;
+            public const float HoundRushPastMul = 2f;
+            /// <summary>The Watcher's root also EXPOSES: more damage taken while rooted.</summary>
+            public const int WatcherExposeFromBand = 4;
+            public const float WatcherExposeVulnerability = 1.15f;
+            /// <summary>A roared ally also moves faster (capped below the player like any rush).</summary>
+            public const int LionSpeedFromBand = 4;
+            public const float LionSpeedMul = 1.2f;
+            /// <summary>The Bell recovers faster between bubbles.</summary>
+            public const int BellQuickFromBand = 4;
+            public const float BellRecoverMul = 0.6f;
+            /// <summary>The Salamander's flame reaches further.</summary>
+            public const int FlameReachFromBand = 4;
+            public const float FlameReachMul = 1.3f;
+        }
+
+        /// <summary>
+        /// ATTACK TURNS (Enemies/EnemyController.Tokens.cs, 2026-10-25): a pack takes turns. An
+        /// enemy needs a TURN from ONE SHARED POOL to START a tell and gives it back as its blow
+        /// resolves (plus <see cref="HoldAfterSeconds"/>), on a flinch, a clash, or its death. Shared
+        /// across every attacker - the Brute's swing and rubble, the Hound's dash, the Stinger's shot
+        /// and missile, the Salamander's lob and barrage, the Brimstone Heart's sweep - because a wave
+        /// is ~7 bodies over 8 kinds: what overlaps is a swing, a bolt, a lob and a sweep at once, not
+        /// six of one kind (measured over the Short Descent's waves, 2026-10-25). Exempt: the Turret's
+        /// beam, the Watcher, the Green Lion, the Drowned Bell, the Salamander's flame (it answers a
+        /// rush) and the Heart's self-destruct (its death throes). An elite costs <see cref="EliteCost"/>.
+        ///
+        /// Deep floors are made dangerous by MORE TOKENS (more blows in the air at once, each still
+        /// readable) rather than by shorter tells - so the tell's floor multiplier was raised to
+        /// 0.75 with this (Enemy.TelegraphMinMultiplier).
+        /// </summary>
+        public static class AttackTokens
+        {
+            public const bool Enabled = true;
+
+            /// <summary>Turns in the shared pool by ENEMY BAND (Core.RunFormat.EnemyBand, 0-4).</summary>
+            public static readonly int[] Turns = { 2, 3, 3, 4, 4 };
+
+            /// <summary>What an elite's turn takes from its pool. An elite always gets a turn when
+            /// its pool is EMPTY, whatever the pool's size.</summary>
+            public const int EliteCost = 2;
+
+            /// <summary>Held this long after the blow resolves, so the next tell in the pool cannot
+            /// start on the frame this one lands.</summary>
+            public const float HoldAfterSeconds = 0.25f;
+
+            /// <summary>The least time between two tells STARTING, of any kind, even with turns free -
+            /// a pack that came into reach together never winds up on the same frame.</summary>
+            public const float StaggerSeconds = 0.2f;
+
+            /// <summary>Backstop: a token held this long is given back whatever happened (a path
+            /// that forgot to release it never starves the pool for the rest of the floor).</summary>
+            public const float MaxHoldSeconds = 4f;
+        }
+
+        /// <summary>
+        /// Enemies that READ THE PLAYER (2026-10-25), and the Stinger's two new shots. Every check
+        /// is made at the moment a decision is made (a tell starting, a step chosen), never per
+        /// frame against a moving read.
+        /// </summary>
+        public static class EnemyAi
+        {
+            // ---- leading aim: the Stinger and the Salamander ----
+
+            /// <summary>From ENEMY BAND <see cref="LeadFromBand"/> (band 0 aims plainly), an ordinary
+            /// Stinger or Salamander leads every Nth shot - aimed at where the player WILL be if they
+            /// keep moving as they are when the tell starts. An elite leads every shot. The tell's line
+            /// is drawn along the led aim, so it still never lies.</summary>
+            public const int LeadEvery = 3;
+            public const int LeadFromBand = 1;
+            /// <summary>How far ahead a lead may reach, world units (a dash read as a sprint would
+            /// throw it across the room).</summary>
+            public const float LeadMaxDistance = 3f;
+            /// <summary>Player speed below which there is nothing to lead (standing still).</summary>
+            public const float LeadMinSpeed = 0.4f;
+            /// <summary>A led tell's line is drawn in this colour instead of the bolt's orange - the
+            /// player learns which shots are aimed ahead of them.</summary>
+            public static readonly UnityEngine.Color LeadTellColor = new(1f, 0.92f, 0.45f);
+
+            // ---- the Stinger's homing missile ----
+
+            /// <summary>The missile appears from this ENEMY BAND (0 = from the first floor the
+            /// Stinger walks, 1 = after the first band boss).</summary>
+            public const int MissileFromBand = 1;
+            /// <summary>
+            /// The missile is the Stinger's DEFENCE (the user's call): fired when the player comes
+            /// within <see cref="MissileTriggerRange"/>, on its own cooldown, to drive them back -
+            /// then it kites and its first bolt is ready <see cref="MissileFollowUpSeconds"/> after.
+            /// Inside its kiting band (RangedPreferredMinRange 4.5) and well inside the reach, so it
+            /// always has room to land.
+            /// </summary>
+            public const float MissileTriggerRange = 3.5f;
+            public const float MissileCooldown = 6f;
+            public const float MissileFollowUpSeconds = 1.0f;
+            /// <summary>World units of flight before it bursts on its own (the user's numbers).</summary>
+            public const float MissileReach = 5f, MissileReachElite = 7f;
+            /// <summary>Slow, so it can be outwalked (the player walks 3.7) - and turns slowly, so a
+            /// sharp sidestep lets it overshoot.</summary>
+            public const float MissileSpeed = 2.6f;
+            public const float MissileTurnDegPerSec = 110f;
+            /// <summary>Contact radius against the player, and what its blast does there - the ONLY
+            /// thing it hurts (cut, it bursts harmlessly; it never hurts enemies).</summary>
+            public const float MissileHitRadius = 0.3f;
+            public const float MissileDamageMul = 1.3f;
+            /// <summary>The missile's tell: the sting swells for this long (no line - it homes).</summary>
+            public const float MissileTellSeconds = 0.7f;
+
+            // ---- reacting to the player ----
+
+            /// <summary>A Stinger in reach that sees the player's weapon-art bar open: if its next
+            /// shot is this close (cooldown seconds left), it starts its tell NOW, punishing the
+            /// commitment; otherwise it backs off for <see cref="BarKiteSeconds"/>.</summary>
+            public const float BarPunishWithin = 0.9f;
+            public const float BarKiteSeconds = 0.5f;
+
+            /// <summary>Brutes and Hounds HURRY toward a player who cannot walk away - petrified,
+            /// stone, or slowed under this move multiplier - at this speed multiplier.</summary>
+            public const float HurrySpeedMul = 1.35f;
+            public const float HurryWhenSlowerThan = 0.75f;
+
+            /// <summary>A Brimstone Heart in its self-destruct rush runs at where the player is GOING,
+            /// this many seconds ahead, capped at <see cref="BombCutOffMax"/> units.</summary>
+            public const float BombCutOffSeconds = 0.8f;
+            public const float BombCutOffMax = 2.5f;
+
+            // ---- the weapon art: respected while loaded, punished once spent (the user's call) ----
+            // The RUSHERS - Brutes and Hounds - only.
+
+            /// <summary>While the player holds a BANKED art: a Brute without a turn hangs this far
+            /// past its reach (circling, giving ground if closer), and a rusher asking for a turn finds
+            /// <see cref="LoadedTokenCut"/> fewer (never under one) - fewer come in at once.</summary>
+            public const float StandoffMargin = 1.0f;
+            public const float StandoffBackOffFraction = 0.5f;
+            public const float StandoffCircleFraction = 0.3f;
+            public const int LoadedTokenCut = 1;
+
+            /// <summary>For this long after an art is DONE (PlayerController.ArtEndedAt), rushers
+            /// within <see cref="PunishRadius"/> come in: their swing is ready at once, they move at
+            /// <see cref="PunishSpeedMul"/>, and a rusher asking for a turn finds
+            /// <see cref="PunishBonusTokens"/> more.</summary>
+            public const float PunishSeconds = 1.2f;
+            public const float PunishRadius = 6f;
+            public const float PunishSpeedMul = 1.4f;
+            public const int PunishBonusTokens = 1;
+
+            /// <summary>A rush or hurry never takes a body past this share of the player's base walk
+            /// (Player.MoveSpeed) - disengaging stays possible. Bodies already faster keep their speed.</summary>
+            public const float RushSpeedCap = 0.9f;
+        }
+
+        /// <summary>
+        /// DESIGNED GROUPS in a wave (Enemies.WaveGroups, the user's go-ahead 2026-10-25): some floors
+        /// draw a named pairing of kinds that make each other dangerous, bought from the floor's pool
+        /// like any body and arriving TOGETHER at the head of the queue. Names are code only - never
+        /// shown to a player. The rest of the pool fills at random as ever.
+        /// </summary>
+        public static class WaveGroups
+        {
+            /// <summary>No groups before this ENEMY BAND - the first band teaches kinds one at a time.</summary>
+            public const int FromBand = 1;
+            /// <summary>The share of eligible floors that draw a group.</summary>
+            public const float Chance = 0.3f;
+            /// <summary>A group may spend at most this share of the floor's pool, so it has company. A
+            /// group's elite stands in for the every-third-floor guaranteed one.</summary>
+            public const float MaxPoolShare = 0.75f;
+            /// <summary>How far round the group's arrival point its members are placed.</summary>
+            public const float Spread = 1.4f;
+        }
+
+        /// <summary>
+        /// ELITE MODIFIERS that ride any kind (Enemies.EliteAffix, the user's go-ahead 2026-10-25):
+        /// rolled in the composer per elite from <see cref="FromBand"/>, at most one each. Every one
+        /// SHOWS itself - a bubble, rising embers, falling drips - and none is named on screen.
+        /// </summary>
+        public static class EliteAffixes
+        {
+            public const int FromBand = 2;
+            /// <summary>The chance an elite carries one, by enemy band.</summary>
+            public static readonly float[] Chance = { 0f, 0f, 0.35f, 0.5f, 0.65f };
+            /// <summary>An affixed elite's pressure on the on-screen cap, as a multiple of its own.</summary>
+            public const float PressureMul = 1.2f;
+
+            /// <summary>WARDED: arrives inside a Drowned Bell's bubble of this many walls (a weapon
+            /// art breaks one, a Heavy all).</summary>
+            public const int WardCharges = 1;
+
+            /// <summary>CINDERED: sheds a patch of burning ground every CinderEvery units it walks,
+            /// hurting only the player, CinderDamageMul of its own blow a second.</summary>
+            public const float CinderEvery = 1.3f;
+            public const float CinderRadius = 0.45f;
+            public const float CinderSeconds = 3f;
+            public const float CinderDamageMul = 0.35f;
+            /// <summary>The patch only burns after this long - it lands as a warning.</summary>
+            public const float CinderArmSeconds = 0.5f;
+
+            /// <summary>MIRED: falls into a mire (the Eye's slow, its own radius and length).</summary>
+            public const float MireRadiusMul = 1f;
         }
 
         /// <summary>
@@ -5957,10 +6483,6 @@ namespace Convergence.Core
             public const float FireTongueWidthMin = 0.28f;
             public const float FireTongueWidthMax = 0.5f;
 
-            /// <summary>How far past the pit the glow reaches, and how strong it gets at full heat.</summary>
-            public const float FireBloomScale = 1.5f;
-            public const float FireBloomAlpha = 0.5f;
-
             // ---- Sand pit ----
 
             /// <summary>
@@ -6021,8 +6543,6 @@ namespace Convergence.Core
             /// </summary>
             public const float WaterSoakDamageTaken = 0.25f;
             public const float WaterSoakSeconds = 3f;
-            /// <summary>Seconds between the soaked readout's drips at the player's feet.</summary>
-            public const float WaterSoakCueInterval = 0.3f;
 
             /// <summary>Body speed (u/s) above which wading throws up a ripple at the feet, and
             /// the seconds between them - the "you are sliding" readout.</summary>
@@ -6872,6 +7392,34 @@ namespace Convergence.Core
         /// <summary>
         /// A brief freeze on landing a hit, giving weight to an impact - see Combat/Hitstop.cs.
         /// </summary>
+        /// <summary>
+        /// Clashes: two attacks that meet cancel each other out (Combat.Clash, the user's calls,
+        /// 2026-10-25). A Heavy weapon art beats an enemy's strike; a basic is spent on a shot it
+        /// cuts, an art's carries on.
+        /// </summary>
+        public static class Clash
+        {
+            /// <summary>How long before an enemy's melee strike lands a player's attack reaching it
+            /// clashes with it. Enemy blows land on one frame, so the window is cut from the END of
+            /// the tell - the tell itself is the cue. Tight enough to be a read, not a mash.</summary>
+            public const float WindowSeconds = 0.12f;
+
+            /// <summary>The freeze on a melee clash - shorter than a parry's: the blows met, neither
+            /// was turned.</summary>
+            public const float HitstopSeconds = 0.08f;
+
+            /// <summary>How far in front of the struck body the sparks fly, at most.</summary>
+            public const float SparkInset = 0.35f;
+
+            /// <summary>How far round a player's shot cuts an enemy shot, on top of the bolt's own
+            /// hit radius.</summary>
+            public const float ShotCutRadius = 0.12f;
+
+            public const int SparksMelee = 9, SparksShot = 5;
+            public const float SparkSeconds = 0.28f;
+            public static readonly UnityEngine.Color Spark = new(1f, 0.86f, 0.45f, 1f);
+        }
+
         public static class Hitstop
         {
             /// <summary>A finisher connecting, non-crit - Light through Heavy. Basics carry no
@@ -6996,6 +7544,25 @@ namespace Convergence.Core
             //
             // Moved here from GameBootstrap's serialized fields (same values) so the composer can
             // read them without a scene. Mortar and Bubbles keep their own in Tuning.Enemy.
+
+            /// <summary>
+            /// THE SHORT DESCENT'S INTRODUCTIONS (the user's call, 2026-10-25): by FLOOR, not depth -
+            /// the attackers in the first band, one at a time with floors between to learn each; the
+            /// kinds that make OTHERS dangerous (the Eye's beam, the Watcher's root, the Bell's bubble)
+            /// in the second, once what they help is known. It used to be every kind by floor 8 (by
+            /// depth, the ramp's floors 1-5 at Classic's own). Classic keeps the depth unlocks below.
+            /// </summary>
+            public const int ShortRangedFromFloor = 2;     // the Cinder Stinger
+            public const int ShortBombFromFloor = 4;       // the Brimstone Heart
+            public const int ShortDasherFromFloor = 6;     // the Gale Hound
+            public const int ShortMortarFromFloor = 8;     // the Salamander
+            public const int ShortTurretFromFloor = 12;    // the Tempest Eye
+            public const int ShortGargoyleFromFloor = 14;  // the Watcher
+            public const int ShortBubblesFromFloor = 17;   // the Drowned Bell
+            /// <summary>The Green Lion (still gated on the account's best floor, Tuning.Enemy) rolls
+            /// only on these Short floors - after the second band's kinds, up to the avatar.</summary>
+            public const int ShortBoosterFromFloor = 18;
+            public const int ShortBoosterToFloor = 25;
 
             public const int BombFromFloor = 2;
             public const int RangedFromFloor = 2;

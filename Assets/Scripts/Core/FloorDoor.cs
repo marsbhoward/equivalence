@@ -20,13 +20,11 @@ namespace Convergence.Core
     /// because the floor is already cleared - so it stands parted from the moment it is spawned
     /// rather than animating open for nobody.
     ///
-    /// NO ILLUMINATION. The hub door's white light, glare and halo all sell the idea that there is
-    /// a lit room on the far side of the gap - true there, false here. This is furniture standing
-    /// on open arena ground with nothing behind it, so none of that carries over: no light panel
-    /// in the gap, no glare, no halo, no floor spill. What is left is the stone and the mark, and
-    /// the mark still carries the colour on its own - the hub door's own rule that "the selected
-    /// mark stays lit whether the doors are shut or open" is exactly what makes that legible with
-    /// no light behind it at all.
+    /// LIGHT THROUGH THE GAP (the user's pick, group 4 - 2026-10-26; it had none): the hub door's
+    /// blinding white, and only that - no glare, halo or floor spill. Opening (a puzzle solved)
+    /// the seam glows white first, then the leaves part on the light and dust sifts down from the
+    /// lintel. A solved puzzle's door uses this and nothing else - no second flash. Sealing, the
+    /// mark dies and grey dust falls down the seam.
     ///
     /// Proximity is checked directly rather than through a trigger collider, matching how every
     /// other hit-radius check in this project already works.
@@ -65,6 +63,7 @@ namespace Convergence.Core
         /// </summary>
         public bool Shut { get; private set; }
         Transform _doorL, _doorR;
+        SpriteRenderer _gap;
         float _openT = -1f;
         System.Collections.Generic.List<SpriteRenderer> _grooves = new();
 
@@ -82,6 +81,10 @@ namespace Convergence.Core
             // Each leaf's origin sits on the seam, exactly as the hub door's does, so a half-mark
             // pivoted on that edge hangs off the leaf and slides with it as one piece - except
             // here nothing ever slides again once it is placed.
+            // The light through the gap, between the frame and the leaves; sized each frame.
+            var gap = Quad(go.transform, "gap", OpenGap, Height, Color.white, SortingOrders.GroundDecal + 2);
+            gap.transform.localPosition = new Vector3(0f, Height * 0.5f, 0f);
+
             var doorL = Leaf(go.transform, "door-l");
             var doorR = Leaf(go.transform, "door-r");
             Slab(doorL, -1, HalfWidth, Height);
@@ -120,7 +123,17 @@ namespace Convergence.Core
             d.Shut = shut;
             d._doorL = doorL;
             d._doorR = doorR;
+            d._gap = gap;
+            d.SetGap(shut ? 0f : OpenGap, 1f);
+            if (!shut) Convergence.Art.Lighting.Glow.Attach(go, 1.4f, Color.white, 0.5f);
             return d;
+        }
+
+        void SetGap(float width, float alpha)
+        {
+            if (_gap == null) return;
+            _gap.transform.localScale = new Vector3(Mathf.Max(width, 0.0001f), Height, 1f);
+            _gap.color = new Color(1f, 1f, 1f, width > 0f ? alpha : 0f);
         }
 
         /// <summary>The puzzle was solved: the leaves part (the mark tearing in two with them) and
@@ -130,7 +143,6 @@ namespace Convergence.Core
             if (Shut && _openT < 0f && !_sealed) Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.DoorOpen, transform.position);
             if (!Shut || _openT >= 0f || _sealed) return;
             _openT = 0f;
-            Spr.Flash(transform.position + Vector3.up * Height * 0.5f, 1.8f, new Color(0.75f, 0.9f, 1f), 0.4f);
         }
 
         /// <summary>A wrong answer: the mark goes dead in the stone and the door stays shut.</summary>
@@ -138,33 +150,55 @@ namespace Convergence.Core
         {
             if (!Shut || _sealed) return;
             _sealed = true;
-            foreach (var g in _grooves) if (g != null) g.color = StoneDeep;
-            Spr.Flash(transform.position + Vector3.up * Height * 0.5f, 1.4f, new Color(0.35f, 0.32f, 0.36f), 0.35f);
+            _sealT = 0f;
+            foreach (var g in _grooves) if (g != null) _markLit = g.color;
+            Combat.TexelFx.Sift((Vector2)transform.position + Vector2.up * (Height * 0.5f), Combat.TexelFx.Grey, 0.03f, Height * 0.5f, 10, 1f, SortingOrders.GroundDecal + 8);
         }
         bool _sealed;
+        float _sealT = -1f;
+        Color _markLit;
+        const float SeamSeconds = 0.2f;
 
         const float OpenSeconds = 0.7f;
 
         void Update()
         {
+            // Sealing: the mark goes dark over a moment rather than at once.
+            if (_sealT >= 0f && _sealT < 0.5f)
+            {
+                _sealT += Time.deltaTime;
+                var c = Color.Lerp(_markLit, StoneDeep, Mathf.Clamp01(_sealT / 0.4f));
+                foreach (var g in _grooves) if (g != null) g.color = c;
+            }
             if (_openT >= 0f && Shut)
             {
+                float before = _openT;
                 _openT += Time.deltaTime;
-                float k = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(_openT / OpenSeconds));
-                float slide = OpenGap * 0.5f * k;
-                if (_doorL) _doorL.localPosition = new Vector3(-slide, 0f, 0f);
-                if (_doorR) _doorR.localPosition = new Vector3(slide, 0f, 0f);
-                if (k >= 1f) Shut = false;
+                // The seam glows white first, a texel wide, then the leaves part on the light.
+                if (_openT < SeamSeconds) SetGap(1f / Combat.TexelFx.Body, Mathf.Clamp01(_openT / SeamSeconds));
+                else
+                {
+                    if (before < SeamSeconds)
+                    {
+                        Combat.TexelFx.Sift((Vector2)transform.position + Vector2.up * Height, Combat.TexelFx.Grey, HalfWidth, 0.7f, 14, 1f, SortingOrders.GroundDecal + 8);
+                        Convergence.Art.Lighting.Glow.Attach(gameObject, 1.4f, Color.white, 0.5f);
+                    }
+                    float k = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((_openT - SeamSeconds) / OpenSeconds));
+                    float slide = OpenGap * 0.5f * k;
+                    if (_doorL) _doorL.localPosition = new Vector3(-slide, 0f, 0f);
+                    if (_doorR) _doorR.localPosition = new Vector3(slide, 0f, 0f);
+                    SetGap(Mathf.Max(1f / Combat.TexelFx.Body, slide * 2f), 1f);
+                    if (k >= 1f) Shut = false;
+                }
             }
             if (Shut || _done || _player == null) return;
             if (Vector2.Distance(transform.position, _player.position) > TriggerRadius) return;
 
             _done = true;
 
-            // The one flash this keeps: confirmation that stepping through actually did
-            // something, distinct from the door's own (now dark) rendering. It fires once, on
-            // the frame the floor changes, rather than being anything the door emits on its own.
-            Spr.Flash(transform.position, 1.2f, new Color(0.75f, 0.9f, 1f), 0.3f);
+            // Stepping through stirs the dust at the threshold - the confirmation, once, on the
+            // frame the floor changes.
+            Combat.TexelFx.Puff(transform.position, Combat.TexelFx.Grey, 10, 8f, 0.5f);
             _onPassed?.Invoke();
             Destroy(gameObject);
         }

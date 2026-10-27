@@ -17,6 +17,7 @@ namespace Convergence.Audio
         [Header("Combat")]
         public AudioClip[] HitBasic, HitLight, HitMedium, HitHeavy, Crit;
         public AudioClip[] PlayerHurt, EnemyDeath;
+        [UnityEngine.Tooltip("Two attacks meeting and cancelling (Combat.Clash)")] public AudioClip[] Clash;
         public AudioClip PlayerDeath;
 
         [Header("Timing bar")]
@@ -34,8 +35,9 @@ namespace Convergence.Audio
         [Header("The run")]
         public AudioClip FloorClear, DoorOpen;
 
-        [Header("Bosses (Sing and Toll: one clip per Cantor slice, in slice order)")]
+        [Header("Bosses (Sing and Toll: one clip per Wreathe zone: slices, then an octave down; Toll's 17th the neutral bell)")]
         public AudioClip[] Sing, Toll, Erupt, Blink, Rattle;
+        [UnityEngine.Tooltip("Medusa's crown hissing (it wakes her statues); her venom spat")] public AudioClip[] Hiss, Spit;
         public AudioClip Enrage, Vulnerable, Seal, BossDeath, GazeLook, Petrify, Push, Pull;
 
         [Header("Stone")]

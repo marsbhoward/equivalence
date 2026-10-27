@@ -20,7 +20,6 @@ namespace Convergence.Combat
     {
         const float Ppu = 37.5f;
         const int R = 10;                // the sigil's half-size in texels (21 square)
-        const float Above = 0.10f;       // over the head
         const float FadeSeconds = 0.4f;
         const float BreakSeconds = 0.32f;
         const float FlareSeconds = 0.07f;
@@ -102,17 +101,9 @@ namespace Convergence.Combat
         void Follow()
         {
             if (_body == null) return;
-            float top = _body.transform.position.y + 0.5f;
-            bool any = false;
-            if (_bodyRenderers != null)
-                foreach (var r in _bodyRenderers)
-                {
-                    if (r == null || !r.enabled || r.sprite == null) continue;
-                    float y = r.bounds.max.y;
-                    if (!any || y > top) top = y;
-                    any = true;
-                }
-            var p = new Vector2(_body.transform.position.x, top + Above + (R + 0.5f) / Ppu);
+            // The top row over the head (OverHead): Sulfur's pips and the stagger stars are below.
+            if (!OverHead.Top(_body.transform, out float top, out _)) top = _body.transform.position.y + 0.5f;
+            var p = new Vector2(_body.transform.position.x, top + OverHead.SigilAt + (R + 0.5f) / Ppu);
             transform.position = new Vector3(Mathf.Round(p.x * Ppu) / Ppu, Mathf.Round(p.y * Ppu) / Ppu, 0f);
         }
 

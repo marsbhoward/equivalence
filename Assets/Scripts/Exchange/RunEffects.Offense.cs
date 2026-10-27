@@ -53,7 +53,7 @@ namespace Convergence.Exchange
             if (AtMax("fleetfoot") && _movingSeconds >= T.WakeAfterSeconds && !_wakeReady)
             {
                 _wakeReady = true;
-                if (_pc != null) Spr.Pulse(_pc.transform, 0.7f, new Color(0.7f, 0.95f, 1f, 0.6f), 0.22f, true, 0.8f);
+                if (_pc != null) LedgerFx.Spark(_pc);
             }
         }
 
@@ -263,7 +263,7 @@ namespace Convergence.Exchange
                 var enemy = target.GetComponent<Enemies.EnemyController>();
                 if (enemy != null && !enemy.Elite)
                 {
-                    Spr.Flash(target.transform.position, 0.9f, new Color(1f, 0.25f, 0.2f), 0.25f, false);
+                    LedgerFx.CoupLine(target);
                     target.Kill();
                 }
             }
@@ -292,7 +292,7 @@ namespace Convergence.Exchange
                 float dmg = info.Amount * T.FelicityShare * _mods.Potency("felicity");
                 foreach (var hp in EnemiesInStrip(from, dir, T.FelicityReach, T.FelicityHalfWidth))
                     if (hp != target) hp.Take(new DamageInfo(dmg, info.Element, _pc.gameObject));
-                Spr.Flash(from + dir * T.FelicityReach * 0.6f, 0.7f, new Color(1f, 0.95f, 0.7f, 0.4f), 0.18f, false);
+                LedgerFx.Crest(ReleaseCanvas.Feet(_pc.transform), dir, T.FelicityReach, TexelFx.Gold);
             }
             // FURY OF THE FRAIL (reworked): low on health, basics bleed.
             if (!h.IsFinisher && Has("fury_of_the_frail") && Hp != null && Hp.Max > 0f && Hp.Current / Hp.Max < T.FuryBelow && !target.IsDead)
@@ -348,7 +348,7 @@ namespace Convergence.Exchange
                 if (left > 0f && !target.IsDead)
                 {
                     target.Take(new DamageInfo(left * T.LancetShare, ElementType.Earth, _pc.gameObject));
-                    Spr.Flash(target.transform.position, 0.6f, new Color(0.75f, 0.1f, 0.15f), 0.22f, false);
+                    LedgerFx.StatusBurst(target, LedgerFx.Blood);
                 }
             }
         }
@@ -367,7 +367,7 @@ namespace Convergence.Exchange
                 float dmg = info.Amount * fraction;
                 var where = (Vector2)at.transform.position;
                 at.Take(new DamageInfo(dmg, info.Element, _pc.gameObject) { IsFinisher = info.IsFinisher, Crit = crit });
-                Spr.Flash(where, 0.5f, new Color(1f, 0.95f, 0.7f), 0.18f, false);
+                LedgerFx.Echo(where, _pc.transform.position);
                 if (!chainKills || !at.IsDead) break;
                 at = NearestEnemy(where, 4f, at);
             }
@@ -401,7 +401,7 @@ namespace Convergence.Exchange
             if (_perfectArt && Has("knell") && _pc != null)
             {
                 foreach (var hp in EnemiesWithin(_pc.transform.position, T.KnellRadius)) _pc.Stagger(hp, T.KnellStagger);
-                Spr.Flash(_pc.transform.position, T.KnellRadius, new Color(0.75f, 0.7f, 0.95f, 0.5f), 0.3f);
+                LedgerFx.ForceRound(_pc, LedgerFx.Lilac, T.KnellRadius);
             }
         }
 
@@ -441,7 +441,7 @@ namespace Convergence.Exchange
             if (ouro > 0 && (Random.value < T.OuroborosChance * ouro * counts || (AtMax("ouroboros") && byArt)))
             {
                 _pc.RefundFinisher();
-                Spr.Pulse(_pc.transform, 0.9f, new Color(1f, 0.85f, 0.4f, 0.7f), 0.25f, true, 1.2f);
+                LedgerFx.Spark(_pc);
             }
 
             if (AtMax("rich_vein")) Resource?.Refund(T.MotherLodeRefill * counts);

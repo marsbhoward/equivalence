@@ -34,10 +34,6 @@ namespace Convergence.Hazards
         /// body and the ground it marks stay two things.</summary>
         public static readonly Color ShellYellow = new(0.92f, 0.70f, 0.10f);
 
-        // The patch: a yellow wash under a bright rim. The very first pass was a soft olive glow
-        // that read as nothing against the brick - a slow the player cannot see is a slow they
-        // cannot route round - so the fill is solid and the rim is the edge the radius check uses.
-        static readonly Color MireFill = new(0.95f, 0.78f, 0.12f);
         static readonly Color TurnedFill = new(0.08f, 0.22f, 0.45f);
         static readonly Color TurnedRim = new(0.35f, 0.7f, 1f);
 
@@ -46,9 +42,18 @@ namespace Convergence.Hazards
 
         // Plain serialised fields - see the domain-reload notes in CLAUDE.md.
         [SerializeField] float _radius;
+        // 0 = the mire's own (Tuning.Enemy.MireSeconds); the Hound's wake sets a shorter one.
+        [SerializeField] float _life;
         [SerializeField] bool _turned;
         [SerializeField] float _age;
-        [SerializeField] SpriteRenderer _fill, _edge;
+        // The patch itself (the user's pick, 2026-10-26 - "bog"): murky ground with slow rings
+        // spreading across it and a pale lip at the edge - the lip is the edge the radius check
+        // uses. Texel-drawn at body density a few times a second.
+        [SerializeField] SpriteRenderer _bog;
+        Texture2D _bogTex;
+        Color32[] _bogPx;
+        float _nextBog;
+        static readonly Color MireMud = new(0.24f, 0.2f, 0.09f), MireRipple = new(0.48f, 0.42f, 0.19f);
 
         // The Tempest Eye's charged ground (the user's call, 2026-10-18): the same slow, drawn as
         // a dark field with sparks flickering across it, short arcs jumping between them and a
@@ -61,33 +66,26 @@ namespace Convergence.Hazards
         float _nextSpark;
         static readonly Color StaticFill = new(0.08f, 0.09f, 0.13f);
 
-        public static MireField Spawn(Vector2 at, Transform parent, bool turned, Color[] staticRamp = null)
+        /// <param name="radius">0 = the mire's own; the Hound's wake (Tuning.EnemyBands) is smaller.</param>
+        /// <param name="seconds">0 = the mire's own; the wake's patches are brief.</param>
+        public static MireField Spawn(Vector2 at, Transform parent, bool turned, Color[] staticRamp = null,
+                                      float radius = 0f, float seconds = 0f, bool quiet = false)
         {
             var go = new GameObject(turned ? "mire.turned" : "mire");
             if (parent != null) go.transform.SetParent(parent, false);
             go.transform.position = at;
 
             var f = go.AddComponent<MireField>();
-            f._radius = Tuning.Enemy.MireRadius;
+            f._radius = radius > 0f ? radius : Tuning.Enemy.MireRadius;
+            f._life = seconds;
             f._turned = turned;
 
             // Ground, so under every body but over the floor and the pit band - a patch landing
             // in a pit still reads.
-            var fill = new GameObject("fill");
-            fill.transform.SetParent(go.transform, false);
-            fill.transform.localScale = Vector3.one * (f._radius * 2f);
-            f._fill = fill.AddComponent<SpriteRenderer>();
-            f._fill.sprite = Spr.Circle;
-            f._fill.color = Color.clear;
-            f._fill.sortingOrder = SortingOrders.Enemy - 1;
-
-            var edge = new GameObject("edge");
-            edge.transform.SetParent(go.transform, false);
-            edge.transform.localScale = Vector3.one * (f._radius * 2f);
-            f._edge = edge.AddComponent<SpriteRenderer>();
-            f._edge.sprite = Spr.ThinRing;
-            f._edge.color = Color.clear;
-            f._edge.sortingOrder = SortingOrders.Enemy - 1;
+            var bog = new GameObject("bog");
+            bog.transform.SetParent(go.transform, false);
+            f._bog = bog.AddComponent<SpriteRenderer>();
+            f._bog.sortingOrder = SortingOrders.GroundLasting;   // under the charged ground's sparks
 
             // Turned by a parry it is the player's blue whatever threw it.
             if (!turned && staticRamp != null && staticRamp.Length >= 4)
@@ -96,10 +94,10 @@ namespace Convergence.Hazards
                 var sp = new GameObject("sparks");
                 sp.transform.SetParent(go.transform, false);
                 f._sparks = sp.AddComponent<SpriteRenderer>();
-                f._sparks.sortingOrder = SortingOrders.Enemy - 1;
+                f._sparks.sortingOrder = SortingOrders.GroundFx;
             }
 
-            Spr.Flash(at, f._radius, turned ? TurnedRim : f._static != null ? f._static[2] : Yellow, 0.25f);
+            _ = quiet;   // the bog spreading out from where it lands is its own arrival
             return f;
         }
 
@@ -109,21 +107,59 @@ namespace Convergence.Hazards
         void Update()
         {
             _age += Time.deltaTime;
-            float life = Tuning.Enemy.MireSeconds;
+            float life = _life > 0f ? _life : Tuning.Enemy.MireSeconds;
             if (_age >= life) { Destroy(gameObject); return; }
 
             // In fast, out over the last stretch - the edge going soft is the warning that the
             // ground is about to be free again.
             float a = Mathf.Min(Mathf.Clamp01(_age / 0.15f), Mathf.Clamp01((life - _age) / 0.8f));
             bool charged = _static != null && !_turned;
-            var fill = _turned ? TurnedFill : charged ? StaticFill : MireFill;
             var rim = _turned ? TurnedRim : charged ? _static[2] : Yellow;
-            float ripple = 0.5f + 0.5f * Mathf.Sin(_age * 3.2f);
-            float body = _turned ? 0.48f : charged ? 0.38f : 0.30f;
-            if (_fill != null) _fill.color = new Color(fill.r, fill.g, fill.b, a * (body + 0.06f * ripple));
-            // the charged ground's rim is the broken one its sparks draw; the solid ring stays faint
-            if (_edge != null) _edge.color = new Color(rim.r, rim.g, rim.b, a * (charged ? 0.25f : 0.9f));
+            var mud = _turned ? TurnedFill : charged ? StaticFill : MireMud;
+            var ripple = _turned ? Color.Lerp(TurnedFill, TurnedRim, 0.35f) : charged ? Color.Lerp(StaticFill, _static[1], 0.5f) : MireRipple;
+            // the charged ground's rim is the broken one its sparks draw; its lip stays faint
+            PaintBog(a, mud, ripple, rim, charged ? 0.25f : 1f);
             if (charged) PaintSparks(a);
+        }
+
+        void PaintBog(float alpha, Color mud, Color ripple, Color lip, float lipAlpha)
+        {
+            if (_bog == null) return;
+            _bog.color = new Color(1f, 1f, 1f, alpha);
+            if (Time.time < _nextBog && _bogTex != null) return;
+            _nextBog = Time.time + 0.1f;
+
+            float tpu = Enemies.TexelRig.TexelsPerUnit;
+            int rT = Mathf.CeilToInt(_radius * tpu), n = rT * 2 + 2;
+            if (_bogTex == null || _bogTex.width != n)
+            {
+                _bogTex = new Texture2D(n, n, TextureFormat.RGBA32, false)
+                {
+                    filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp, hideFlags = HideFlags.HideAndDontSave,
+                };
+                _bogPx = new Color32[n * n];
+                _bog.sprite = Sprite.Create(_bogTex, new Rect(0, 0, n, n), new Vector2(0.5f, 0.5f), tpu, 0, SpriteMeshType.FullRect);
+            }
+            System.Array.Clear(_bogPx, 0, _bogPx.Length);
+            // It spreads out from where it landed over its first moment.
+            float r = rT * Mathf.Clamp01(_age / 0.2f), c = n / 2f;
+            for (int y = 0; y < n; y++)
+            for (int x = 0; x < n; x++)
+            {
+                float dx = x + 0.5f - c, dy = y + 0.5f - c, d = Mathf.Sqrt(dx * dx + dy * dy);
+                if (d > r) continue;
+                Color col;
+                if (d > r - 1.3f) { col = lip; col.a = lipAlpha; }
+                else
+                {
+                    float rings = Mathf.Repeat((r - d) * 0.4f - _age * 2f, 3f);
+                    col = rings < 0.35f && d > 3f ? ripple : mud;
+                    col.a = 0.8f;
+                }
+                _bogPx[y * n + x] = col;
+            }
+            _bogTex.SetPixels32(_bogPx);
+            _bogTex.Apply();
         }
 
         void PaintSparks(float alpha)
@@ -188,6 +224,8 @@ namespace Convergence.Hazards
         {
             if (_sparks != null && _sparks.sprite != null) Destroy(_sparks.sprite);
             if (_sparkTex != null) Destroy(_sparkTex);
+            if (_bog != null && _bog.sprite != null) Destroy(_bog.sprite);
+            if (_bogTex != null) Destroy(_bogTex);
         }
 
         bool Contains(Vector2 p) => ((Vector2)transform.position - p).sqrMagnitude <= _radius * _radius;

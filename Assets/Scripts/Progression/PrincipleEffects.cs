@@ -117,7 +117,7 @@ namespace Convergence.Progression
                 var at = hp.transform.position;
 
                 hp.Take(new DamageInfo(dmg, ElementType.Fire, gameObject));
-                Spr.Flash(at, 0.8f, new Color(1f, 0.65f, 0.2f), 0.25f);
+                Combat.TexelFx.Star(at, Combat.TexelFx.Fire, 5, 0.12f); Combat.TexelFx.Spray(at, Combat.TexelFx.Fire, 0.4f, 14, 0.35f, false);
 
                 if (splash <= 0f) continue;
                 foreach (var other in Enemies.EnemyRegistry.All)
@@ -181,7 +181,7 @@ namespace Convergence.Progression
                 reflect *= 1f + _player.Resilience() * Tuning.Principle.ReturnPerResilience;
 
             var at = _player?.Position != null ? _player.Position() : (Vector2)transform.position;
-            Spr.Flash(at, Tuning.Principle.ReturnRadius, new Color(0.75f, 0.85f, 0.6f), 0.3f);
+            Combat.LedgerFx.Force(Combat.ReleaseCanvas.Feet(transform), Combat.LedgerFx.Sage, Tuning.Principle.ReturnRadius);
 
             foreach (var e in Enemies.EnemyRegistry.All)
             {

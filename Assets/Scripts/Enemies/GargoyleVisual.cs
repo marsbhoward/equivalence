@@ -76,7 +76,8 @@ namespace Convergence.Enemies
 
         void TickCracks(float t)
         {
-            if (!_elite) return;
+            // The elite's slam edge - and a VETERAN's (band 3), which slams where it stands.
+            if (!_elite && !_enemy.Veteran) return;
             if (t > 0f && !_enemy.GargoyleFlying)
             {
                 if (_cracks == null) _cracks = GargoyleCracks.Create(_enemy.transform.parent, _enemy.transform.position);

@@ -117,8 +117,10 @@ namespace Convergence.Hazards
             // Enemies route round it until told otherwise - the nav grid ignores a Broken column
             // from this frame, before Destroy has actually removed the collider.
             Enemies.NavField.MarkDirty();
-            Spr.Flash(transform.position + Vector3.up * (_height * 0.5f), RadiusFor(Size) * 1.4f,
-                      new Color(0.75f, 0.7f, 0.62f), 0.3f);
+            // Chunks fly, land and roll, in the place's own material (the user's pick, group 4).
+            float r = RadiusFor(Size);
+            Combat.TexelFx.Rubble(transform.position, Combat.TexelFx.RubbleOf(Cracked), _height,
+                                  Mathf.Clamp(Mathf.RoundToInt(r * 22f), 6, 14), Mathf.Clamp(r * 2.2f, 0.6f, 1.4f));
             Destroy(gameObject);
         }
 
@@ -134,11 +136,57 @@ namespace Convergence.Hazards
 
         static readonly Color PermanentBase = new(0.42f, 0.44f, 0.52f);
         static readonly Color CrackedBase = new(0.66f, 0.52f, 0.4f);
+        static readonly Color GlassTint = new(0.78f, 0.93f, 1f);
 
         [SerializeField] SpriteRenderer _art;
         [SerializeField] ColumnStyle _style;
         [SerializeField] float _height, _shaftHalf;
         float _alpha = 1f;
+        [SerializeField] float _glass;
+        bool _glassShown;
+
+        /// <summary>The drawn column (null for authored art) - for pictures laid over it.</summary>
+        public SpriteRenderer Art => _art;
+
+        /// <summary>0 stone .. 1 GLASS: pale and clear, the player seen through it - Medusa's third
+        /// eye seeing through stone (group 5). A picture only; the ring decides what it shadows.</summary>
+        public void SetGlass(float k) => _glass = Mathf.Clamp01(k);
+
+        [SerializeField] SpriteRenderer _glassWash, _glassRim;
+
+        /// <summary>Glass reads as glass: the column's silhouette washed pale over the stone, and a
+        /// bright rim round it - a tint alone sank into the dark floor.</summary>
+        void GlassOver()
+        {
+            if (_glass <= 0f)
+            {
+                if (_glassWash != null) _glassWash.enabled = false;
+                if (_glassRim != null) _glassRim.enabled = false;
+                return;
+            }
+            if (_glassWash == null) _glassWash = GlassLayer("glass.wash");
+            if (_glassRim == null) _glassRim = GlassLayer("glass.rim");
+            _glassWash.sprite = PixelSprite.Silhouette(_art.sprite);
+            _glassRim.sprite = PixelSprite.Rim(_art.sprite, 1, false);
+            _glassWash.color = new Color(GlassTint.r, GlassTint.g, GlassTint.b, 0.35f * _glass);
+            _glassRim.color = new Color(0.9f, 0.98f, 1f, _glass);
+            _glassWash.sortingOrder = _art.sortingOrder + 1;
+            _glassRim.sortingOrder = _art.sortingOrder + 1;
+            _glassWash.enabled = _glassRim.enabled = true;
+        }
+
+        SpriteRenderer GlassLayer(string name)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(_art.transform, false);
+            return go.AddComponent<SpriteRenderer>();
+        }
+
+        /// <summary>Shudder the drawn column by whole texels of its own art (a warning); 0 still.</summary>
+        public void Shake(int texels)
+        {
+            if (_art != null) _art.transform.localPosition = new Vector3(texels / ColumnArt.Ppu, 0f, 0f);
+        }
 
         public ColumnStyle Style => _style;
 
@@ -234,10 +282,14 @@ namespace Convergence.Hazards
                          && body.max.y > transform.position.y;
             }
             float target = behind ? Tuning.Hazards.ColumnBehindAlpha : 1f;
+            if (_glass > 0f) target = Mathf.Min(target, Mathf.Lerp(1f, Tuning.Medusa.GlassAlpha, _glass));
             _alpha = Mathf.MoveTowards(_alpha, target, Time.unscaledDeltaTime / Tuning.Hazards.ColumnFadeSeconds);
             // Written whenever it differs: a hit flash lerps the colour back to opaque.
             var c = _art.color;
-            if (c.a != _alpha) { c.a = _alpha; _art.color = c; }
+            GlassOver();
+            bool tint = _glass > 0f || _glassShown;
+            if (tint) { var g = Color.Lerp(Color.white, GlassTint, _glass); c.r = g.r; c.g = g.g; c.b = g.b; _glassShown = _glass > 0f; }
+            if (c.a != _alpha || tint) { c.a = _alpha; _art.color = c; }
         }
     }
 }

@@ -16,9 +16,10 @@ namespace Convergence.Puzzles
     /// </summary>
     public class PuzzlePlate : MonoBehaviour
     {
-        public enum Look { Dim, Lit, Dead, Wrong }
+        public enum Look { Dim, Lit, Dead, Wrong, Solved }
 
-        [SerializeField] SpriteRenderer _base, _rim, _glyph, _glow;
+        [SerializeField] SpriteRenderer _base, _rim, _glyph;
+        [SerializeField] Art.Lighting.Glow _light;
         [SerializeField] List<SpriteRenderer> _pips = new();
         [SerializeField] Color _tint;
         [SerializeField] float _radius;
@@ -31,6 +32,7 @@ namespace Convergence.Puzzles
 
         static readonly Color DeadGrey = new(0.26f, 0.26f, 0.29f);
         static readonly Color WrongRed = new(1f, 0.25f, 0.2f);
+        static readonly Color SolvedGold = new(0.95f, 0.76f, 0.35f);
 
         const int Order = SortingOrders.GroundDecal;
 
@@ -44,15 +46,13 @@ namespace Convergence.Puzzles
             p._tint = tint;
             p._radius = radius;
 
-            p._glow = Quad(go.transform, "glow", radius * 4.4f, Spr.Glow, Order);
             // The stone and its light's channel in the place's material (PlateArt) - drawn at their
             // own size, so scale 1.
             var place = Art.Biomes.Biome.Current;
             p._base = Quad(go.transform, "base", 1f, PlateArt.Face(place, radius), Order + 1);
             p._rim = Quad(go.transform, "rim", 1f, PlateArt.Channel(place, radius), Order + 2);
-            // A lit stone lights the room round it, borrowing the glow's colour and strength.
-            var light = Art.Lighting.Glow.Attach(p._glow.gameObject, radius * 3.2f, Color.white);
-            light.Follow = p._glow;
+            // A lit stone lights the room round it - a light pool, no soft glow (the user's rule, group 4).
+            p._light = Art.Lighting.Glow.Attach(go, radius * 3.2f, Color.white, 0f);
             if (glyph != null) p._glyph = Quad(go.transform, "glyph", radius * 1.15f, glyph, Order + 3);
 
             // Pips on a small ring, the first at the top - a count reads at a glance where a
@@ -80,6 +80,19 @@ namespace Convergence.Puzzles
 
         public void Set(Look look) { _look = look; _pulse = 0f; Apply(look); }
 
+        /// <summary>The puzzle is solved (the user's pick, group 4 - "locked in"): the stone sinks a
+        /// texel into the floor with a puff of dust at its edges, its channel steady gold. Nothing flashes.</summary>
+        public void LockIn()
+        {
+            if (_look == Look.Solved) return;
+            Set(Look.Solved);
+            float texel = 1f / Art.FloorArt.PixelsPerUnit;
+            foreach (Transform child in transform) child.localPosition += Vector3.down * texel;
+            var ramp = Combat.TexelFx.RubbleOf(false);
+            for (int side = -1; side <= 1; side += 2)
+                Combat.TexelFx.Puff((Vector2)transform.position + new Vector2(side * _radius, -_radius * 0.3f), ramp, 5, 3f, 0.5f);
+        }
+
         /// <summary>Lit for a moment, then back to whatever it was.</summary>
         public void Pulse(float seconds) { _pulse = seconds; Apply(Look.Lit); }
 
@@ -101,6 +114,9 @@ namespace Convergence.Puzzles
                 case Look.Dead:
                     rim = DeadGrey; mark = new Color(DeadGrey.r, DeadGrey.g, DeadGrey.b, 0.5f);
                     face = new Color(0.72f, 0.72f, 0.74f); glow = 0f; break;
+                case Look.Solved:
+                    rim = SolvedGold; mark = Color.Lerp(SolvedGold, Color.white, 0.3f);
+                    face = new Color(0.86f, 0.84f, 0.8f); glow = 0.4f; break;
                 case Look.Wrong:
                     rim = WrongRed; mark = WrongRed;
                     face = Color.Lerp(Color.white, WrongRed, 0.3f); glow = 0.45f; break;
@@ -110,12 +126,12 @@ namespace Convergence.Puzzles
                     face = Color.white; glow = 0f; break;
             }
             face.a = 1f;
-            var g = look == Look.Wrong ? WrongRed : _tint;
+            var g = look == Look.Wrong ? WrongRed : look == Look.Solved ? SolvedGold : _tint;
             if (_base) _base.color = face;
             if (_rim) _rim.color = rim;
             if (_glyph) _glyph.color = mark;
             foreach (var pip in _pips) if (pip) pip.color = mark;
-            if (_glow) _glow.color = new Color(g.r, g.g, g.b, glow);
+            if (_light) { _light.Color = g; _light.Intensity = glow * 2f; }
         }
 
         static SpriteRenderer Quad(Transform parent, string name, float size, Sprite sprite, int order)

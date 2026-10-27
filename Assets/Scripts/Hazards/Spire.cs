@@ -154,12 +154,18 @@ namespace Convergence.Hazards
         [SerializeField] Transform _player;
         [SerializeField] Health _playerHealth;
 
-        [SerializeField] SpriteRenderer _ring, _fill, _core, _coreGlow, _channelUp, _channelDown, _grooveUp, _grooveDown;
-        [SerializeField] SpriteRenderer _dome, _domeRim, _shadow;
+        [SerializeField] SpriteRenderer _core, _channelUp, _channelDown, _grooveUp, _grooveDown;
+        [SerializeField] SpriteRenderer _shadow;
         [SerializeField] Transform _sinkRoot;
         [SerializeField] CircleCollider2D _collider;
-        [SerializeField] SpriteRenderer[] _lineArt;
-        [SerializeField] Transform _linePivot;
+
+        // What the pictures read (Hazards/SpireArt): the ground ring, the lines, the dome.
+        internal float SinkShare => _sink;
+        internal bool Sinking => _sinking;
+        internal bool Dark => _collapsed && !_captured;
+        internal float LineAngle => _lineAngle;
+        internal float LineFade => _lineCount > 0 ? _fade * (1f - _sink) : 0f;
+        internal float BubbleFade => _bubble ? _fade * (1f - _sink) : 0f;
 
         public SpireBoon Boon => _boon;
         public bool Captured => _captured;
@@ -199,15 +205,7 @@ namespace Convergence.Hazards
 
         // ---- building ----
 
-        // ABOVE the pit band (PitBase..PitBase+5), because a spire may stand in a pit and its ring
-        // has to read over fire, sand and jacks alike - and still below every body.
-        const int OrderFill = SortingOrders.PitBase + 5;
-        const int OrderRing = SortingOrders.PitBase + 6;
-
         static readonly Color Stone = new(0.24f, 0.25f, 0.31f);
-        static readonly Color LineCore = new(1f, 0.92f, 0.85f);
-        static readonly Color LineEdge = new(1f, 0.25f, 0.18f);
-        static readonly Color DomeTint = new(0.75f, 0.88f, 1f);
 
         public static Spire Spawn(Vector2 pos, SpireBoon boon, int lines, float lineSpeed, float lineDamage,
                                   bool bubble, Transform player, Transform parent)
@@ -241,11 +239,12 @@ namespace Convergence.Hazards
             return s;
         }
 
+        /// <summary>The capture ring, cut into the floor (the user's pick, group 4 - "clock fill"):
+        /// over the pits - a spire may stand in one - and under every body.</summary>
         void BuildGround()
         {
-            float d = Tuning.Spire.CaptureRadius * 2f;
-            _fill = Quad(gameObject, Spr.Circle, Color.clear, Vector2.one * 0.01f, OrderFill, "fill");
-            _ring = Quad(gameObject, Spr.ThinRing, Color.clear, Vector2.one * d, OrderRing, "ring");
+            int r = Mathf.CeilToInt(Tuning.Spire.CaptureRadius * TexelFx.Body) + 2;
+            TexelPicture.Attach<SpireGround>(transform, "ring", Vector2.zero, r, r, r, SortingOrders.GroundCarved, clip: true);
         }
 
         /// <summary>
@@ -287,8 +286,6 @@ namespace Convergence.Hazards
             _grooveDown.transform.localPosition = new Vector3(0f, mid - grooveLen * 0.5f, 0f);
             _channelUp = Quad(sink, Spr.Square, Color.clear, new Vector2(chanW, 0.01f), 7, "channel.up");
             _channelDown = Quad(sink, Spr.Square, Color.clear, new Vector2(chanW, 0.01f), 7, "channel.down");
-            _coreGlow = Quad(sink, Spr.Glow, Color.clear, Vector2.one * (w * 2.2f), 8, "core.glow");
-            _coreGlow.transform.localPosition = new Vector3(0f, mid, 0f);
             _core = Quad(sink, Hazards.ColumnArt.SpireCore, Color.clear, Vector2.one, 9, "core");
             _core.transform.localPosition = new Vector3(0f, mid, 0f);
             // The core lights the room in its boon's colour as it rises - borrowed from the core
@@ -318,9 +315,6 @@ namespace Convergence.Hazards
                 lo = Mathf.Min(lo, sr.sortingOrder);
                 hi = Mathf.Max(hi, sr.sortingOrder);
             }
-            // Except the glow: a soft sprite under a mask is cut to a hard-edged block. It
-            // stays unmasked and fades out in the first moments of the sink instead.
-            _coreGlow.maskInteraction = SpriteMaskInteraction.None;
             mask.isCustomRangeActive = true;
             mask.backSortingOrder = lo - 1;
             mask.frontSortingOrder = hi + 1;
@@ -331,44 +325,15 @@ namespace Convergence.Hazards
         static float SinkDepth => Tuning.Spire.BodyHeight + 0.6f + MaskBelowFoot;
         const float MaskBelowFoot = 0.12f;
 
+        /// <summary>The rotating damage lines, on the danger rung (the user's pick, group 4 - "beam").</summary>
         void BuildLines()
         {
-            _linePivot = new GameObject("lines").transform;
-            _linePivot.SetParent(transform, false);
-
-            float inner = Tuning.Spire.BodyRadius;
-            float len = Tuning.Spire.CaptureRadius - inner;
-            float width = Tuning.Spire.LineHalfWidth * 2f;
-            _lineArt = new SpriteRenderer[_lineCount * 2];
-            for (int i = 0; i < _lineCount; i++)
-            {
-                var arm = new GameObject($"line.{i}").transform;
-                arm.SetParent(_linePivot, false);
-                arm.localRotation = Quaternion.Euler(0f, 0f, 360f * i / _lineCount);
-
-                // Laid along +X from the obelisk's rim to the ring's. A red edge band under a
-                // white-hot core: a damaging line must read as DANGER whatever colour the spire
-                // is, or a green Mending spire's lines would read as part of the heal.
-                var edge = Quad(arm.gameObject, Spr.Capsule, LineEdge, new Vector2(width * 1.8f, len), OrderRing, "edge");
-                edge.transform.localRotation = Quaternion.Euler(0f, 0f, -90f);
-                edge.transform.localPosition = new Vector3(inner + len * 0.5f, 0f, 0f);
-                var core = Quad(arm.gameObject, Spr.Capsule, LineCore, new Vector2(width * 0.6f, len * 0.98f), OrderRing, "core");
-                core.transform.localRotation = Quaternion.Euler(0f, 0f, -90f);
-                core.transform.localPosition = new Vector3(inner + len * 0.5f, 0f, 0f);
-                _lineArt[i * 2] = edge;
-                _lineArt[i * 2 + 1] = core;
-            }
+            int r = Mathf.CeilToInt(Tuning.Spire.CaptureRadius * TexelFx.Body) + 3;
+            TexelPicture.Attach<SpireLines>(transform, "lines", Vector2.zero, r, r, r, SortingOrders.GroundDanger);
         }
 
-        void BuildBubble()
-        {
-            float d = Tuning.Spire.CaptureRadius * 2f;
-            // The dome's fill on the GROUND, so it tints the floor and never washes out a body
-            // standing inside it; only the rim is drawn over everything, as a force field is.
-            _dome = Quad(gameObject, Spr.GradientDisc(), Color.clear, Vector2.one * d, OrderFill, "dome");
-            // Just OUTSIDE the capture ring, so the boon-coloured ring still shows inside the wall.
-            _domeRim = Quad(gameObject, Spr.ThinRing, Color.clear, Vector2.one * (d * 1.07f), SortingOrders.Telegraph, "dome.rim");
-        }
+        /// <summary>The bubble (the user's pick, group 4 - "lattice dome").</summary>
+        void BuildBubble() => SpireDome.Build(this);
 
         static SpriteRenderer Quad(GameObject parent, Sprite sprite, Color color, Vector2 size, int order, string name)
         {
@@ -433,10 +398,9 @@ namespace Convergence.Hazards
             if (live) TickCapture(dt);
             _fade = Mathf.MoveTowards(_fade, live ? 1f : 0f, dt * 2.5f);
 
-            if (_lineCount > 0 && _linePivot != null)
+            if (_lineCount > 0)
             {
                 _lineAngle += _lineSpeed * dt;
-                _linePivot.localRotation = Quaternion.Euler(0f, 0f, _lineAngle);
                 if (live) TickLines(dt);
             }
 
@@ -455,7 +419,14 @@ namespace Convergence.Hazards
             if (_progress >= 1f)
             {
                 _captured = true;
-                Spr.Flash(transform.position, Tuning.Spire.CaptureRadius * 2f, SpireBoons.ColorOf(_boon), 0.5f, true);
+                // "To you" (the user's pick, group 4): the core's light leaves the stone as a mote,
+                // flies into the player and their outline glints in its colour.
+                var tint = SpireBoons.ColorOf(_boon);
+                var from = (Vector2)transform.position + Vector2.up * (Tuning.Spire.BodyHeight * 0.5f);
+                var player = _player;
+                if (player != null)
+                    TexelFx.Mote(from, (Vector2)player.position, TexelFx.RampOf(tint), 0.4f,
+                                 () => { if (player != null) Player.RigRim.Glint(player, tint); }, TexelFx.Air);
             }
         }
 
@@ -467,8 +438,8 @@ namespace Convergence.Hazards
         {
             bool starting = dt > 0f ? _sink <= 0f : _sink >= 1f;
             _sink = Mathf.Clamp01(_sink + dt / Tuning.Spire.SinkSeconds);
-            if (starting)
-                Spr.Flash(transform.position, Tuning.Spire.BodyRadius * 3.2f, new Color(0.55f, 0.52f, 0.48f), 0.45f, true);
+            if (starting)   // stone dust as it breaks the floor, either way
+                TexelFx.Puff(transform.position, TexelFx.RubbleOf(false), 14, Tuning.Spire.BodyRadius * TexelFx.Body * 1.2f, 0.6f);
             PlaceShaft();
         }
 
@@ -513,25 +484,9 @@ namespace Convergence.Hazards
         {
             var tint = SpireBoons.ColorOf(_boon);
             bool dark = _collapsed && !_captured;
-            float t = Time.time;
 
             // Ground art goes with the spire: gone by the time the shaft is under.
             float ground = 1f - _sink;
-
-            // Ring: steady at rest, brighter and quicker-pulsing while held.
-            float pulse = 0.5f + 0.5f * Mathf.Sin(t * (PlayerInside ? 6f : 2.2f));
-            var ring = tint;
-            ring.a = (dark ? 0.12f : _captured ? 0.8f : 0.6f + 0.3f * pulse) * ground;
-            if (_ring != null) _ring.color = ring;
-
-            if (_fill != null)
-            {
-                float fd = Tuning.Spire.CaptureRadius * 2f * (_captured ? 1f : _progress);
-                _fill.transform.localScale = new Vector3(fd, fd, 1f);
-                var f = tint;
-                f.a = (dark ? 0f : _captured ? 0.10f : 0.22f) * ground;
-                _fill.color = f;
-            }
 
             // The light in the stone: the circle always burns (it names the boon), the channels
             // grow out of it toward each end as the capture climbs and run full once it is taken.
@@ -539,10 +494,9 @@ namespace Convergence.Hazards
             float mid = h * 0.5f;
             float reach = (h * 0.5f - 0.12f) * (_captured ? 1f : _progress);
             var light = dark ? Color.Lerp(tint, Color.gray, 0.8f) : tint;
-            float glowA = dark ? 0.05f : _captured ? 0.65f : 0.35f + 0.2f * pulse;
 
-            if (_core != null) _core.color = Color.Lerp(light, Color.white, _captured ? 0.35f : 0.1f);
-            if (_coreGlow != null) { var g = light; g.a = glowA * Mathf.Clamp01(1f - _sink * 3f); _coreGlow.color = g; }
+            // Taken, the core's light has gone into the player: it dims to an ember of the colour.
+            if (_core != null) _core.color = _captured ? Color.Lerp(light, Stone, 0.6f) : Color.Lerp(light, Color.white, 0.1f);
             var groove = Color.Lerp(light, Stone, dark ? 0.85f : 0.45f);
             if (_grooveUp != null) _grooveUp.color = groove;
             if (_grooveDown != null) _grooveDown.color = groove;
@@ -550,24 +504,6 @@ namespace Convergence.Hazards
             SetChannel(_channelUp, mid, reach, +1f, lit);
             SetChannel(_channelDown, mid, reach, -1f, lit);
             if (_shadow != null) _shadow.color = new Color(0f, 0f, 0f, 0.38f * ground);
-
-            if (_lineArt != null)
-                for (int i = 0; i < _lineArt.Length; i++)
-                {
-                    if (_lineArt[i] == null) continue;
-                    var c = (i & 1) == 0 ? LineEdge : LineCore;
-                    c.a = ((i & 1) == 0 ? 0.55f : 0.95f) * _fade;
-                    _lineArt[i].color = c;
-                }
-
-            if (_dome != null)
-            {
-                float shimmer = 0.5f + 0.5f * Mathf.Sin(t * 3.1f);
-                var dc = DomeTint; dc.a = (0.10f + 0.04f * shimmer) * _fade;
-                _dome.color = dc;
-                var rc = Color.Lerp(DomeTint, Color.white, 0.3f); rc.a = (0.28f + 0.14f * shimmer) * _fade;
-                _domeRim.color = rc;
-            }
         }
 
         static void SetChannel(SpriteRenderer sr, float mid, float reach, float sign, Color c)

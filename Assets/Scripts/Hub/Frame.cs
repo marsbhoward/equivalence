@@ -66,8 +66,6 @@ namespace Convergence.Hub
         float _lit;
         bool _focused;
 
-        static readonly Color Stone = new(0.26f, 0.25f, 0.31f);
-        static readonly Color StoneCap = new(0.34f, 0.33f, 0.40f);
 
         /// <param name="visualAt">Where the fixture itself is drawn - the wall face for Wall mode,
         /// the floor spot for Easel mode.</param>
@@ -144,12 +142,13 @@ namespace Convergence.Hub
             float inner = Tuning.Hub.FrameSize;
             float border = inner * 0.11f;
 
-            _wBorder = Quad("border", inner + border * 2f, new Color(0.42f, 0.36f, 0.26f),
-                            SortingOrders.FloorDetail + 1);
-            _wMatte = Quad("matte", inner + border * 0.6f, new Color(0.13f, 0.12f, 0.14f),
-                           SortingOrders.FloorDetail + 2);
-            _empty = Quad("empty", inner * 0.34f, inner * 0.34f, new Color(1f, 1f, 1f, 0.05f),
-                          SortingOrders.FloorDetail + 3, Vector2.zero, Spr.Ring);
+            // A gilt frame round a dark matte (the user's pick, group 6). The art inside is the
+            // wallet's own - only the frame is ours.
+            _ = border;
+            _wBorder = Quad("border", 1f, 1f, Color.white, SortingOrders.FloorDetail + 1, Vector2.zero,
+                            HubArt.GiltFrame(Mathf.RoundToInt(inner * HubArt.Ppu)));
+            _empty = Quad("empty", 1f, 1f, new Color(1f, 1f, 1f, 0.08f),
+                          SortingOrders.FloorDetail + 3, Vector2.zero, Combat.TexelFx.RingSprite(inner * 0.17f));
 
             var artGo = new GameObject("art");
             artGo.transform.SetParent(transform, false);
@@ -161,15 +160,15 @@ namespace Convergence.Hub
         {
             _eShadow = Quad("shadow", Radius * 2.1f, Radius * 1.0f, new Color(0f, 0f, 0f, 0.30f),
                             0, new Vector2(0f, -0.02f), Spr.Circle);
-            _ePlinth = Quad("plinth", Radius * 1.7f, 0.34f, Stone, 1, new Vector2(0f, 0.14f), Spr.Square);
-            _eCap = Quad("cap", Radius * 2.0f, 0.10f, StoneCap, 2, new Vector2(0f, 0.30f), Spr.Square);
+            // A stone plinth with a gilt band, the piece standing on it under a glass bell jar (the
+            // user's pick, group 6). No glow: the jar's highlight catches the dim hub's light.
+            _ePlinth = Quad("plinth", 1f, 1f, Color.white, 1, new Vector2(0f, -0.02f),
+                            HubArt.Plinth(Mathf.RoundToInt(Radius * 0.85f * HubArt.Ppu), Mathf.RoundToInt(0.3f * HubArt.Ppu)));
+            _eGlow = Quad("jar", 1f, 1f, new Color(1f, 1f, 1f, 0.7f), 5, new Vector2(0f, 0.34f),
+                          HubArt.BellJar(Mathf.RoundToInt(Radius * 2.5f * HubArt.Ppu), Mathf.RoundToInt((ArtHeight + 0.12f) * HubArt.Ppu)));
 
-            // Behind the art, so a dark piece still separates from a dark room.
-            _eGlow = Quad("glow", Radius * 2.2f, ArtHeight * 1.1f, new Color(1f, 0.94f, 0.75f, 0f),
-                          3, new Vector2(0f, 0.34f + ArtHeight * 0.5f), Spr.Circle);
-
-            _empty = Quad("empty", Radius * 0.7f, Radius * 0.7f, new Color(1f, 1f, 1f, 0.05f), 3,
-                         new Vector2(0f, 0.34f + ArtHeight * 0.5f), Spr.Ring);
+            _empty = Quad("empty", 1f, 1f, new Color(1f, 1f, 1f, 0.08f), 3,
+                         new Vector2(0f, 0.34f + ArtHeight * 0.5f), Combat.TexelFx.RingSprite(Radius * 0.35f));
 
             var artGo = new GameObject("art");
             artGo.transform.SetParent(transform, false);
@@ -188,7 +187,7 @@ namespace Convergence.Hub
 
             // Sorted from the BASE of the plinth, which is where it touches the floor.
             _depth = DepthSorted.Attach(gameObject, 0f, isFixed: false,
-                                        _eShadow, _ePlinth, _eCap, _eGlow, _art);
+                                        _eShadow, _ePlinth, _eGlow, _art, _empty);
         }
 
         void FitArt()
@@ -252,26 +251,23 @@ namespace Convergence.Hub
 
             if (Mode == FrameMode.Easel)
             {
-                _ePlinth.color = legal ? Stone * 1.2f : new Color(0.5f, 0.24f, 0.24f);
-                _eCap.color = legal ? StoneCap * 1.2f : new Color(0.6f, 0.30f, 0.30f);
+                _ePlinth.color = legal ? Color.white : new Color(1f, 0.5f, 0.5f);
                 _eShadow.color = new Color(0f, 0f, 0f, legal ? 0.22f : 0.10f);
-                _eGlow.color = new Color(1f, 0.94f, 0.75f, legal ? 0.16f : 0f);
+                _eGlow.color = new Color(1f, 1f, 1f, legal ? 0.5f : 0.2f);
                 if (_depth != null) _depth.Apply();
             }
             else
             {
-                _wBorder.color = legal ? new Color(0.42f, 0.36f, 0.26f) : new Color(0.5f, 0.24f, 0.24f);
+                _wBorder.color = legal ? Color.white : new Color(1f, 0.5f, 0.5f);
             }
         }
 
         void Update()
         {
-            // Only an easel glows when focused - a wall frame is flush stone, lit the same
-            // whether or not anyone is standing in front of it.
+            // Only a standing piece answers focus - its jar's glass brightens. A wall frame hangs flush.
             if (Mode != FrameMode.Easel || _eGlow == null) return;
             _lit = Mathf.MoveTowards(_lit, _focused ? 1f : 0f, Time.unscaledDeltaTime * 5f);
-            _eGlow.color = new Color(1f, 0.94f, 0.75f, Mathf.Lerp(0.05f, 0.22f, _lit));
-            _eCap.color = Color.Lerp(StoneCap, StoneCap * 1.45f, _lit);
+            _eGlow.color = new Color(1f, 1f, 1f, Mathf.Lerp(0.6f, 1f, _lit));
         }
 
         // ------------------------------------------------------------------ construction

@@ -11,8 +11,9 @@
  * the run (`run_progress.format`); every check after that reads the RUN's format, so a run is judged
  * by the rules it started under. A save that names none is CLASSIC - every build before formats.
  *
- * `RUN_FORMATS` lists the formats the service ACCEPTS (comma separated, default `classic`): a run
- * starting under any other is refused. Production names only what players can play.
+ * `RUN_FORMATS` lists the formats the service ACCEPTS (comma separated, default `short` - the
+ * players' run since 2026-10-25; Classic is internal): a run starting under any other is refused.
+ * Production names only what players can play.
  *
  * The game's copies of these numbers are Tuning.GearRoll (avatar and final-floor chances),
  * Chain/FinalFloorReward and Core/RunFormat - keep them in step.
@@ -108,9 +109,9 @@ export function formatOf(name: unknown): RunFormat | null {
 export const recordedFormat = (id: string | null | undefined): RunFormat =>
   (id && Object.prototype.hasOwnProperty.call(FORMATS, id) ? FORMATS[id as FormatId] : FORMATS.classic);
 
-/** The formats this service accepts new runs under (RUN_FORMATS, default classic). */
+/** The formats this service accepts new runs under (RUN_FORMATS, default short). */
 export function accepts(format: RunFormat): boolean {
-  const list = (process.env.RUN_FORMATS ?? 'classic').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+  const list = (process.env.RUN_FORMATS ?? 'short').split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
   return list.includes(format.id);
 }
 

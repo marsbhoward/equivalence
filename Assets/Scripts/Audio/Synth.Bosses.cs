@@ -5,11 +5,10 @@ namespace Convergence.Audio
     /// <summary>
     /// The bosses' sounds, and stone breaking anywhere.
     ///
-    /// THE CANTOR SINGS ITS PHRASE. Each of the eight slices has a NOTE (<see cref="SliceNote"/>,
-    /// D natural minor up the ring, so walking round the arena climbs the scale): the CALL is sung
-    /// on the slice's note, and the ANSWER tolls the SAME note as each slice warns before it erupts.
-    /// That the answer replays the call is the fight's whole puzzle, and nothing states it outright
-    /// - now a player who remembers the tune knows the order without watching the floor.
+    /// THE WREATHE SINGS ITS PHRASE. Each of the eight slices has a NOTE (<see cref="SliceNote"/>,
+    /// D natural minor up the ring, so walking round the arena climbs the scale), an inner half an
+    /// octave down (<see cref="ZoneNote"/>): the CALL is sung on the slice's note. The ANSWER's beat
+    /// tolls one NEUTRAL bell (it must never name the slice), and a landed step tolls the note back.
     /// </summary>
     public static partial class Synth
     {
@@ -18,7 +17,14 @@ namespace Convergence.Audio
 
         public static float SliceNote(int sector) => Scale[((sector % Scale.Length) + Scale.Length) % Scale.Length];
 
-        /// <summary>The Cantor's sung note: a voiced saw with vibrato through "ah" formants.</summary>
+        /// <summary>A Wreathe zone's note: 0-7 a slice's, 8-15 the same an octave down (an inner
+        /// half, enraged).</summary>
+        public static float ZoneNote(int zone) => zone >= Scale.Length ? SliceNote(zone) * 0.5f : SliceNote(zone);
+
+        /// <summary>The answer's clock: one low D, the same every beat, so it never names a slice.</summary>
+        public const float NeutralBell = 73.42f;
+
+        /// <summary>The Wreathe's sung note: a voiced saw with vibrato through "ah" formants.</summary>
         public static float[] Sing(float hz)
         {
             var n = new Noise((int)hz);
@@ -146,6 +152,25 @@ namespace Convergence.Audio
                 f.Run(n.Next() * clicks, 5200f, 1.5f);
                 s[i] = f.Band * Env(t, 0.01f, 0.18f);
             }
+            return Normalise(s);
+        }
+
+        /// <summary>Her crown rearing: many serpents hissing at once, a sharp onset and a long
+        /// sibilant tail - it wakes her statues.</summary>
+        public static float[] SerpentHiss(int seed)
+        {
+            var s = Buffer(0.9f);
+            Hiss(s, seed, 2, 7000, 5200, 1.2f, 0.03f, 0.75f, 1f);
+            Hiss(s, seed + 5, 1, 4200, 3600, 1.5f, 0.06f, 0.6f, 0.5f);
+            return Normalise(s);
+        }
+
+        /// <summary>Venom spat from her crown: a wet click and a short hiss.</summary>
+        public static float[] Spit(int seed)
+        {
+            var s = Buffer(0.3f);
+            Thump(s, 420, 180, 0.02f, 0.06f, 0.6f);
+            Hiss(s, seed, 1, 5200, 2600, 1.4f, 0.002f, 0.18f, 0.8f);
             return Normalise(s);
         }
 

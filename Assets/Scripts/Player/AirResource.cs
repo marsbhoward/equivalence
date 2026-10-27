@@ -144,14 +144,14 @@ namespace Convergence.Player
             if (_gustRemaining <= 0f)
             {
                 _gustRemaining = 0f;
-                _glow?.SetShown(false);
-                Spr.Pulse(transform, 0.8f, GustOutlineColor, 0.25f, true, 0.5f);
+                if (_glow != null) _glow.SetShown(false);
+                TexelFx.Ring(ReleaseCanvas.Feet(transform), Tuning.ReleaseFx.Gust, 0.55f, 0.05f, 0.4f, 1.2f);   // closing
                 return;
             }
 
             if (_gustRemaining > GustBlinkWindow)
             {
-                _glow?.SetShown(true);
+                if (_glow != null) _glow.SetShown(true);
                 return;
             }
 
@@ -162,7 +162,7 @@ namespace Convergence.Player
 
             float urgency = 1f - Mathf.Clamp01(_gustRemaining / GustBlinkWindow);
             _gustBlinkTimer = Mathf.Lerp(GustBlinkInterval, GustBlinkInterval * 0.35f, urgency);
-            _glow?.Toggle();
+            if (_glow != null) _glow.Toggle();
         }
 
         public override void OnHitLanded(Health target, DamageInfo info)
@@ -172,12 +172,12 @@ namespace Convergence.Player
             // The streak is air's player-driven half, and it was the half with no tell at all -
             // the crit floor just quietly rose. Mark the cap, the point past which it stops paying.
             if (HitStreak == StreakCap)
-                Spr.Pulse(transform, 1.3f, new Color(0.75f, 0.95f, 1f), 0.4f, true, 1.5f);
+                TexelFx.Swirl(ReleaseCanvas.Feet(transform), TexelFx.Steel, 0.45f, 0.6f, TexelFx.Ground);
 
             if (info.Crit)
             {
                 Momentum = Mathf.Clamp01(Momentum + MomentumPerCrit * Gain);
-                Spr.Flash(target.transform.position, 0.9f, Color.white, 0.18f, false);
+                TexelFx.Star(target.transform.position, TexelFx.Steel, 3);
                 // No ring round the body on the crit (the user's call, 2026-10-15 - no ring on a
                 // landed hit); the seal's Gale shows the momentum.
             }
@@ -206,9 +206,8 @@ namespace Convergence.Player
             // every stray swing, which is how a cue stops being read at all.
             if (lost < 0.05f && streak < 3) return;
 
-            Spr.Pulse(transform, 0.7f + lost * 1.1f,
-                      new Color(0.5f, 0.55f, 0.62f, 0.55f + lost * 0.4f),
-                      0.25f + lost * 0.2f, true, 0.4f);
+            // The streak's swirl closing in on the floor, grey (the user's pick: on the floor).
+            TexelFx.Ring(ReleaseCanvas.Feet(transform), TexelFx.Grey, 0.45f + lost * 0.3f, 0.1f, 0.3f, 1.2f, dotted: true);
         }
 
         // ---- GUST: the max-momentum self-buff, replacing the old cone ----
@@ -234,7 +233,7 @@ namespace Convergence.Player
 
         float _gustRemaining;
         float _gustBlinkTimer;
-        AirGustGlow _glow;
+        [SerializeField] Slipstream _glow;   // Gust's picture
 
         public bool Gusting => _gustRemaining > 0f;
         public float GustRemaining => _gustRemaining;
@@ -263,16 +262,10 @@ namespace Convergence.Player
             Momentum = 0f;
             HitStreak = 0;
 
-            _glow ??= AirGustGlow.Attach(transform);
+            if (_glow == null) _glow = Slipstream.Attach(transform);
             _glow.SetShown(true);
-
-            Spr.Pulse(transform, 1.1f, GustOutlineColor, 0.35f, true, 1.4f);
-            Spr.Flash(transform.position, 1.1f, Color.white, 0.22f);
         }
 
-        /// <summary>Yellow, per the ability's own tell - kept as one shared constant so the
-        /// activation pulse, the blink, and the outline are all visibly the same colour.</summary>
-        static readonly Color GustOutlineColor = new Color(1f, 0.85f, 0.2f);
 
         /// <summary>
         /// The release once more, spending nothing (Twin Spark, Wellspring): Gust's window runs on
@@ -282,9 +275,8 @@ namespace Convergence.Player
         {
             if (UseSecondAbility) { SquallAgain(); return; }
             _gustRemaining = Mathf.Max(0f, _gustRemaining) + GustDuration * RepeatStrength;
-            _glow ??= AirGustGlow.Attach(transform);
+            if (_glow == null) _glow = Slipstream.Attach(transform);
             _glow.SetShown(true);
-            Spr.Pulse(transform, 1f, GustOutlineColor, 0.3f, true, 1.2f);
         }
 
         public override void Spill(float fraction01) => Momentum = Mathf.Max(0f, Momentum - fraction01);
@@ -366,8 +358,7 @@ namespace Convergence.Player
                                VortexLifetime, gameObject, transform.parent);
             }
 
-            Spr.Flash(transform.position, spread, new Color(0.8f, 0.95f, 1f), 0.5f);
-            Spr.Flash(transform.position, spread * 0.5f, Color.white, 0.3f);
+
         }
 
         public override string StatusLine

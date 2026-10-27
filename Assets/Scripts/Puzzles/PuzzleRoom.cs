@@ -134,8 +134,9 @@ namespace Convergence.Puzzles
         {
             if (_state != PuzzleState.Active) return;
             _state = PuzzleState.Solved;
-            foreach (var p in Plates) if (p) p.Set(PuzzlePlate.Look.Lit);
-            Spr.Flash(Centre, 4.5f, new Color(0.75f, 0.9f, 1f), 0.5f);
+            // Locked in (the user's pick, group 4): every stone sinks a texel, gold. The door then
+            // opens with its own picture - no flash over the room.
+            foreach (var p in Plates) if (p) p.LockIn();
         }
 
         /// <param name="wrong">The stone that was the wrong answer, left burning red among the

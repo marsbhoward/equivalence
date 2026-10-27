@@ -102,7 +102,7 @@ namespace Convergence.Enemies
         /// REST windows, so its health follows how strong a typical player is at that depth (the
         /// ledger's measured growth, x1.24 at floor 10 to x3.70 at 100 - see the class header),
         /// not how long a crowd should take. On the wave's 9% a floor-90 boss would be nine times
-        /// the Cantor and a ledger-only player would need ten windows. What stops a stronger
+        /// the Wreathe and a ledger-only player would need ten windows. What stops a stronger
         /// player skipping the fight is the window cap, not this.
         /// </summary>
         public static float BossHp(int floor) => 1f + Mathf.Max(0, D(floor) - 1) * Tuning.Boss.HpPerFloor;

@@ -224,7 +224,7 @@ namespace Convergence.Hazards
                 var go = new GameObject("ripple");
                 go.transform.SetParent(transform, false);
                 var sr = go.AddComponent<SpriteRenderer>();
-                sr.sprite = Spr.Ring;
+                sr.sprite = Combat.TexelFx.FaintRingSprite(0.1f);   // faint broken rings (group 4)
                 sr.color = Color.clear;
                 sr.sortingOrder = SortingOrders.PitBase + 2;
                 _ripples.Add(new Ripple { T = go.transform, Sr = sr });
@@ -428,7 +428,8 @@ namespace Convergence.Hazards
                 }
                 float k = r.Age / life;
                 float grow = 1f - (1f - k) * (1f - k);
-                r.T.localScale = Vector3.one * Mathf.Lerp(0.12f, r.Size, grow);
+                if (r.Sr != null) r.Sr.sprite = Combat.TexelFx.FaintRingSprite(Mathf.Lerp(0.12f, r.Size, grow) * 0.5f);
+                r.T.localScale = Vector3.one;
                 var col = RippleColor;
                 col.a = r.Alpha * (1f - k);
                 if (r.Sr != null) r.Sr.color = col;
@@ -471,7 +472,9 @@ namespace Convergence.Hazards
         /// </summary>
         public static void Splash(Vector2 p)
         {
-            Spr.Flash(p, 0.75f, Foam, 0.22f);
+            // A crown of drops and a broken ring of foam (the user's pick, group 4).
+            Color32 foam = Foam;
+            Combat.TexelFx.Splash(p, new Color32[] { new(255, 255, 255, 255), foam, foam }, 1f);
             var lake = At(p);
             if (lake == null) return;
             float room = Room(p, 1.2f);

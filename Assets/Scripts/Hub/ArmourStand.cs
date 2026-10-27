@@ -53,7 +53,8 @@ namespace Convergence.Hub
 
         Transform _hips, _torso, _armBack, _armFront, _legBack, _legFront, _head;
         readonly Dictionary<RigLayer, SpriteRenderer> _layers = new();
-        SpriteRenderer _shadow, _base, _plinth, _glow;
+        SpriteRenderer _shadow;
+        [SerializeField] HubFixture _base;
         float _lit;
         bool _focused;
 
@@ -70,9 +71,6 @@ namespace Convergence.Hub
         static readonly float FeetY = PixelSprite.Px(0f, -34f).y;
 
         static readonly Color Wood = new(0.44f, 0.33f, 0.22f);
-        static readonly Color WoodDark = new(0.31f, 0.23f, 0.15f);
-        static readonly Color WoodLit = new(0.53f, 0.40f, 0.27f);
-        static readonly Color Stone = new(0.26f, 0.25f, 0.31f);
 
         public static ArmourStand Build(Transform parent, Vector2 centre)
         {
@@ -98,14 +96,10 @@ namespace Convergence.Hub
             figure.localPosition = new Vector3(0f, FeetY * (1f - k), 0f);
             figure.localScale = new Vector3(k, k, 1f);
 
-            s._glow = Quad(figure, "glow", 1.5f, 1.8f,
-                           new Color(1f, 0.92f, 0.72f, 0f), 1, new Vector2(0f, 0.05f), Spr.Glow);
 
             // The plinth it stands on, so it reads as a stand rather than as a person who is not
             // moving. Same stone the trophy plinths use, for the same job.
-            s._plinth = Quad(go.transform, "plinth", 0.78f, 0.30f, Stone, 2, new Vector2(0f, -0.46f), Spr.Circle);
-            s._base = Quad(go.transform, "base", 0.62f, 0.16f, Color.Lerp(Stone, Color.white, 0.14f),
-                           3, new Vector2(0f, -0.41f), Spr.Circle);
+            s._base = HubFixture.Attach(go, HubArt.MannequinBase(), new Vector2(0f, -0.52f), 2);
 
             // PrimitiveCharacterRig's own joint tree, at its own texel positions - see the header.
             // (Doubled alongside the rig's own pivots when LayoutUnit moved 37.5 -> 75.)
@@ -126,7 +120,7 @@ namespace Convergence.Hub
 
             // Sorted from the plinth, which is where the stand touches the floor. Everything under
             // the root goes in, so the whole mannequin re-bases as one piece.
-            var all = new List<SpriteRenderer> { s._shadow, s._glow, s._plinth, s._base };
+            var all = new List<SpriteRenderer> { s._shadow, s._base.Art, s._base.RimRenderer };
             foreach (var sr in s._layers.Values) all.Add(sr);
             DepthSorted.Attach(go, -0.42f, isFixed: false, all.ToArray());
 
@@ -253,20 +247,20 @@ namespace Convergence.Hub
 
         void Update()
         {
-            if (_glow == null) return;   // half-built after a reload; wait for the room rebuild
+            if (_base == null) return;   // half-built after a reload; wait for the room rebuild
             _lit = Mathf.MoveTowards(_lit, _focused ? 1f : 0f, Time.unscaledDeltaTime * 5f);
             Apply(_lit);
         }
 
         void Apply(float lit)
         {
-            _glow.color = new Color(1f, 0.92f, 0.72f, 0.08f + lit * 0.24f);
-            Tone(RigLayer.Torso, Color.Lerp(Wood, WoodLit, lit));
-            Tone(RigLayer.Head, Color.Lerp(Wood, WoodLit, lit));
-            Tone(RigLayer.ArmFront, Color.Lerp(Wood, WoodLit, lit));
-            Tone(RigLayer.LegFront, Color.Lerp(Wood, WoodLit, lit));
-            Tone(RigLayer.ArmBack, Color.Lerp(WoodDark, WoodLit, lit * 0.6f));
-            Tone(RigLayer.LegBack, Color.Lerp(WoodDark, WoodLit, lit * 0.6f));
+            // The carved wood carries its own colour: the blocks only brighten a step when focused,
+            // the far limbs kept a shade back, and the base takes the outline.
+            var near = Color.Lerp(new Color(0.86f, 0.86f, 0.86f), Color.white, lit);
+            var far = Color.Lerp(new Color(0.66f, 0.66f, 0.66f), new Color(0.8f, 0.8f, 0.8f), lit);
+            Tone(RigLayer.Torso, near); Tone(RigLayer.Head, near); Tone(RigLayer.ArmFront, near); Tone(RigLayer.LegFront, near);
+            Tone(RigLayer.ArmBack, far); Tone(RigLayer.LegBack, far);
+            _base.SetFocus(_focused);
         }
 
         void Tone(RigLayer layer, Color c)
@@ -284,12 +278,14 @@ namespace Convergence.Hub
             // Both the position AND the size arguments are texel counts divided by the global
             // LayoutUnit (PixelSprite.Px does both jobs here - Body's own `size` becomes
             // localScale directly), so both had to double when LayoutUnit did.
-            Body(RigLayer.Torso, PixelSprite.Px(0f, 10f), PixelSprite.Px(24f, 20f), Spr.Square);
-            Body(RigLayer.Head, PixelSprite.Px(0f, 12f), PixelSprite.Px(26f, 30f), Spr.Circle);
-            Body(RigLayer.ArmBack, PixelSprite.Px(0f, -8f), PixelSprite.Px(8f, 16f), Spr.Square);
-            Body(RigLayer.ArmFront, PixelSprite.Px(0f, -8f), PixelSprite.Px(8f, 16f), Spr.Square);
-            Body(RigLayer.LegBack, PixelSprite.Px(0f, -8f), PixelSprite.Px(12f, 16f), Spr.Square);
-            Body(RigLayer.LegFront, PixelSprite.Px(0f, -8f), PixelSprite.Px(12f, 16f), Spr.Square);
+            // Carved wooden blocks (the user's pick, group 6), drawn at the rig's own density at the
+            // same sizes - Px(n) is n of LayoutUnit 75, so half that in the body's 37.5 texels.
+            Body(RigLayer.Torso, PixelSprite.Px(0f, 10f), Vector2.one, HubArt.MannequinBlock(12, 10, false));
+            Body(RigLayer.Head, PixelSprite.Px(0f, 12f), Vector2.one, HubArt.MannequinBlock(13, 15, true));
+            Body(RigLayer.ArmBack, PixelSprite.Px(0f, -8f), Vector2.one, HubArt.MannequinBlock(4, 8, false));
+            Body(RigLayer.ArmFront, PixelSprite.Px(0f, -8f), Vector2.one, HubArt.MannequinBlock(4, 8, false));
+            Body(RigLayer.LegBack, PixelSprite.Px(0f, -8f), Vector2.one, HubArt.MannequinBlock(6, 8, false));
+            Body(RigLayer.LegFront, PixelSprite.Px(0f, -8f), Vector2.one, HubArt.MannequinBlock(6, 8, false));
         }
 
         void Body(RigLayer layer, Vector2 at, Vector2 size, Sprite sprite)

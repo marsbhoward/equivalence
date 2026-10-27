@@ -39,7 +39,7 @@ namespace Convergence.Combat
             float t = Mathf.Clamp01(_clock / _seconds);
             transform.position = Vector2.Lerp(_from, _to, t);
             if (t < 1f) return;
-            Spr.Flash(_to, 0.35f, new Color(1f, 0.96f, 0.85f), 0.12f, false);
+            TexelFx.Star(_to, TexelFx.Steel, 2, 0.1f);
             _onArrive?.Invoke(_to);
             Destroy(gameObject);
         }

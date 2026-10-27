@@ -16,13 +16,8 @@ namespace Convergence.Hub
     /// </summary>
     public class Doorway : MonoBehaviour
     {
-        static readonly Color Stone = new(0.30f, 0.31f, 0.37f);
-        static readonly Color StoneLit = new(0.40f, 0.41f, 0.48f);
-        static readonly Color Step = new(0.24f, 0.25f, 0.30f);
-        static readonly Color Dark = new(0.012f, 0.012f, 0.018f);
 
-        SpriteRenderer _frame;
-        float _lit;
+        [SerializeField] HubFixture _art;
         bool _focused;
 
         /// <summary>Where the player stands to use it: on the floor, just in front of the wall.</summary>
@@ -40,16 +35,10 @@ namespace Convergence.Hub
             var d = go.AddComponent<Doorway>();
             d.Anchor = (Vector2)parent.TransformPoint(new Vector3(x, wallY - 0.45f, 0f));
 
-            // Based on GroundDecal for the same reason the sigil door is - see its own note.
-            d._frame = Quad(go.transform, "frame", halfWidth * 2f + 0.20f, height + 0.10f,
-                            Stone, SortingOrders.GroundDecal + 1, new Vector2(0f, (height + 0.10f) * 0.5f));
-            Quad(go.transform, "entry", halfWidth * 2f, height,
-                 Dark, SortingOrders.GroundDecal + 2, new Vector2(0f, height * 0.5f));
-
-            // A worn step on the floor at the foot of the opening - the one thing that says
-            // "walk up to this" on a top-down floor, where the opening itself is up the wall.
-            Quad(go.transform, "threshold", halfWidth * 2f + 0.12f, 0.12f,
-                 Step, SortingOrders.GroundDecal + 1, new Vector2(0f, -0.06f));
+            // The raised portcullis (the user's pick, group 6): an iron-framed opening, black - it is
+            // a way through - its gate drawn up into the top. On the wall's band like the sigil door.
+            d._art = HubFixture.Attach(go, HubArt.Portcullis(Mathf.RoundToInt(halfWidth * HubArt.Ppu), Mathf.RoundToInt(height * HubArt.Ppu)),
+                                       Vector2.zero, SortingOrders.GroundDecal + 2);
             return d;
         }
 
@@ -57,9 +46,7 @@ namespace Convergence.Hub
 
         void Update()
         {
-            if (_frame == null) return;
-            _lit = Mathf.MoveTowards(_lit, _focused ? 1f : 0f, Time.unscaledDeltaTime * 5f);
-            _frame.color = Color.Lerp(Stone, StoneLit, _lit);
+            if (_art != null) _art.SetFocus(_focused);
         }
 
         static SpriteRenderer Quad(Transform parent, string name, float w, float h,

@@ -13,7 +13,13 @@ namespace Convergence.Enemies
     {
         public readonly EnemyKind Kind;
         public readonly bool Elite;
-        public WaveSpawn(EnemyKind kind, bool elite) { Kind = kind; Elite = elite; }
+        /// <summary>The designed group it arrives with (Tuning.WaveGroups), or None.</summary>
+        public readonly WaveGroupId Group;
+        /// <summary>An elite's modifier (Tuning.EliteAffixes), or None.</summary>
+        public readonly EliteAffix Affix;
+        public WaveSpawn(EnemyKind kind, bool elite, WaveGroupId group = WaveGroupId.None,
+                         EliteAffix affix = EliteAffix.None)
+        { Kind = kind; Elite = elite; Group = group; Affix = affix; }
     }
 
     /// <summary>A floor's whole wave, decided before anything spawns.</summary>
@@ -41,6 +47,9 @@ namespace Convergence.Enemies
         }
 
         public int Elites => Spawns.Count(s => s.Elite);
+
+        /// <summary>The designed group drawn, or None (code only - never shown).</summary>
+        public WaveGroupId Group;
 
         /// <summary>"7 Chaser · 3 Mortar (1 elite) · 2 Turret" - what a preview boon shows.</summary>
         public string Roster()
@@ -126,6 +135,43 @@ namespace Convergence.Enemies
             _                  => int.MaxValue,
         };
 
+        /// <summary>
+        /// The floor a kind first appears on IN THE RUN BEING PLAYED: the Short Descent introduces
+        /// by FLOOR (Tuning.Waves.Short*FromFloor - attackers in the first band, the kinds that help
+        /// others in the second); Classic by depth (<see cref="UnlockFloor"/>).
+        /// </summary>
+        public static int UnlockAt(EnemyKind kind)
+        {
+            if (!Core.RunFormat.Short) return UnlockFloor(kind);
+            return kind switch
+            {
+                EnemyKind.Chaser   => 1,
+                EnemyKind.Ranged   => Tuning.Waves.ShortRangedFromFloor,
+                EnemyKind.Bomb     => Tuning.Waves.ShortBombFromFloor,
+                EnemyKind.Dasher   => Tuning.Waves.ShortDasherFromFloor,
+                EnemyKind.Mortar   => Tuning.Waves.ShortMortarFromFloor,
+                EnemyKind.Turret   => Tuning.Waves.ShortTurretFromFloor,
+                EnemyKind.Gargoyle => Tuning.Waves.ShortGargoyleFromFloor,
+                EnemyKind.Bubbles  => Tuning.Waves.ShortBubblesFromFloor,
+                _                  => int.MaxValue,
+            };
+        }
+
+        /// <summary>How far into its introductions the run is on <paramref name="floor"/>, in the
+        /// units <see cref="UnlockAt"/> counts: the floor in the Short Descent, the depth in Classic.</summary>
+        static int Progress(int floor) => Core.RunFormat.Short ? floor : Core.RunFormat.Depth(floor);
+        static int ProgressBefore(int floor) => Core.RunFormat.Short ? floor - 1 : Core.RunFormat.DepthBefore(floor);
+
+        /// <summary>Whether <paramref name="kind"/> has been introduced by <paramref name="floor"/> -
+        /// for anything outside the wave that picks a kind (a Red Rift's guards). The Green Lion,
+        /// never part of the pool, counts as introduced from its Short window.</summary>
+        public static bool Unlocked(EnemyKind kind, int floor)
+        {
+            if (kind == EnemyKind.Booster)
+                return !Core.RunFormat.Short || floor >= Tuning.Waves.ShortBoosterFromFloor;
+            return UnlockAt(kind) <= Progress(floor);
+        }
+
         static bool CanBeElite(EnemyKind kind) => Array.IndexOf(EliteKinds, kind) >= 0;
 
         // ------------------------------------------------------------------ prices
@@ -141,6 +187,10 @@ namespace Convergence.Enemies
         public static float Cost(EnemyKind kind, bool elite, int floor)
             => Mathf.Max(Ehp(kind, elite, floor),
                          Tuning.Waves.MinCostFraction * Ehp(EnemyKind.Chaser, false, floor));
+
+        /// <summary>A spawn's pressure, its elite modifier included.</summary>
+        public static float Pressure(EnemyKind kind, bool elite, EliteAffix affix)
+            => Pressure(kind, elite) * (affix != EliteAffix.None ? Tuning.EliteAffixes.PressureMul : 1f);
 
         public static float Pressure(EnemyKind kind, bool elite)
         {
@@ -171,7 +221,7 @@ namespace Convergence.Enemies
         public static bool Fits(WaveSpawn next, float livePressure, int liveBodies, int floor)
             => liveBodies == 0
             || (liveBodies < Tuning.Waves.MaxLiveBodies
-                && livePressure + Pressure(next.Kind, next.Elite) <= LivePressureCap(floor) + 1e-4f);
+                && livePressure + Pressure(next.Kind, next.Elite, next.Affix) <= LivePressureCap(floor) + 1e-4f);
 
         /// <summary>Seconds of damage the floor should take the expected player.</summary>
         public static float TargetSeconds(int floor)
@@ -241,21 +291,63 @@ namespace Convergence.Enemies
             // A kind's DEBUT is exactly one body, so the floor that introduces it teaches it.
             // Kinds there from the start (the Chaser) have nothing to be introduced against and are
             // drawn normally.
-            // Unlocks are DEPTHS (Core.RunFormat): a Short floor covers two, so a kind debuts on the
-            // floor whose depth first reaches its unlock.
-            int depth = Core.RunFormat.Depth(floor), depthBefore = Core.RunFormat.DepthBefore(floor);
+            // Unlocks are counted by UnlockAt/Progress: FLOORS in the Short Descent, DEPTHS in Classic
+            // (a Classic-unlocked kind debuts on the floor whose depth first reaches its unlock).
+            int depth = Progress(floor), depthBefore = ProgressBefore(floor);
             foreach (var kind in Pooled)
-                if (UnlockFloor(kind) > depthBefore && UnlockFloor(kind) <= depth && UnlockFloor(kind) > 1)
+                if (UnlockAt(kind) > depthBefore && UnlockAt(kind) <= depth && UnlockAt(kind) > 1)
                     Buy(drawn, kind, false);
 
+            // A DESIGNED GROUP (Tuning.WaveGroups): drawn from a stream of its own, so a floor that
+            // draws none is exactly the wave it always was. Never on a floor that debuts a kind - that
+            // floor teaches one thing - and only groups whose every kind the run has met.
+            var group = new List<WaveSpawn>();
+            bool debutFloor = Pooled.Any(k => UnlockAt(k) > depthBefore && UnlockAt(k) <= depth && UnlockAt(k) > 1);
+            if (!debutFloor && Core.RunFormat.EnemyBand(floor) >= Tuning.WaveGroups.FromBand)
+            {
+                var grng = new System.Random(seed ^ 0x47524F55);
+                if (grng.NextDouble() < Tuning.WaveGroups.Chance)
+                {
+                    var fits = new List<WaveGroupId>();
+                    for (int g = 1; g < WaveGroups.Count; g++)
+                    {
+                        var id = (WaveGroupId)g;
+                        var members = WaveGroups.Of(id);
+                        if (members.Length == 0 || members.Any(m => UnlockAt(m.Kind) > depth)) continue;
+                        float price = 0f;
+                        int e = elites;
+                        foreach (var m in members)
+                        {
+                            bool el = m.Elite && e < eliteCap;
+                            if (el) e++;
+                            price += CostOf(m.Kind, el);
+                        }
+                        if (price <= wave.Pool * Tuning.WaveGroups.MaxPoolShare && price <= wave.Pool - wave.Spent)
+                            fits.Add(id);
+                    }
+                    if (fits.Count > 0)
+                    {
+                        var id = fits[grng.Next(fits.Count)];
+                        wave.Group = id;
+                        foreach (var m in WaveGroups.Of(id))
+                        {
+                            var bought = new List<WaveSpawn>();
+                            Buy(bought, m.Kind, m.Elite && elites < eliteCap);
+                            group.Add(new WaveSpawn(bought[0].Kind, bought[0].Elite, id));
+                        }
+                    }
+                }
+            }
+
+            // A group's elite stands in for it (the group was drawn first).
             // The guaranteed elite is paid for FIRST, so the pool knows about it, but queued
             // LAST, so it trickles in late as it always has. Chosen among kinds that leave at
             // least half the pool for its company where any do - on an early floor a lone elite
             // Chaser would otherwise be the whole floor.
             WaveSpawn? guaranteed = null;
-            if (eliteFloor && elites < eliteCap)
+            if (eliteFloor && elites < eliteCap && !group.Any(g => g.Elite))
             {
-                var open = EliteKinds.Where(k => UnlockFloor(k) <= depth).ToList();
+                var open = EliteKinds.Where(k => UnlockAt(k) <= depth).ToList();
                 var light = open.Where(k => CostOf(k, true) <= wave.Pool * 0.5f - wave.Spent).ToList();
                 var from = light.Count > 0 ? light : open;
                 var kind = from.Count > 0 ? from[rng.Next(from.Count)] : EnemyKind.Chaser;
@@ -269,9 +361,9 @@ namespace Convergence.Enemies
             var weights = new Dictionary<EnemyKind, float>();
             foreach (var kind in Pooled)
             {
-                int since = depth - UnlockFloor(kind);
+                int since = depth - UnlockAt(kind);
                 // Not yet unlocked, or debuting on this floor (bought alone above).
-                if (since < 0 || (UnlockFloor(kind) > depthBefore && UnlockFloor(kind) > 1)) continue;
+                if (since < 0 || (UnlockAt(kind) > depthBefore && UnlockAt(kind) > 1)) continue;
                 float ramp = floor == 1 || since >= Tuning.Waves.DebutRampFloors
                     ? 1f
                     : Mathf.Lerp(Tuning.Waves.DebutWeight, 1f, since / (float)Tuning.Waves.DebutRampFloors);
@@ -281,7 +373,7 @@ namespace Convergence.Enemies
             double eliteShare = rng.NextDouble() * EliteShareCap(floor);
             var options = new List<(EnemyKind Kind, float Weight)>();
 
-            while (drawn.Count + (guaranteed.HasValue ? 1 : 0) < Tuning.Waves.MaxBodies)
+            while (drawn.Count + group.Count + (guaranteed.HasValue ? 1 : 0) < Tuning.Waves.MaxBodies)
             {
                 float remaining = wave.Pool - wave.Spent;
                 if (remaining <= 0f) break;
@@ -289,7 +381,7 @@ namespace Convergence.Enemies
                 // Running out of bodies before running out of pool: only what is dear enough to
                 // spend the rest in the slots left. Otherwise a deep room of cheap kinds hits
                 // MaxBodies with a fifth of its pool unspent - a floor that comes up short.
-                int slotsLeft = Tuning.Waves.MaxBodies - drawn.Count - (guaranteed.HasValue ? 1 : 0);
+                int slotsLeft = Tuning.Waves.MaxBodies - drawn.Count - group.Count - (guaranteed.HasValue ? 1 : 0);
                 float atLeast = remaining / slotsLeft;
 
                 bool elite = elites < eliteCap && rng.NextDouble() < eliteShare;
@@ -319,9 +411,36 @@ namespace Convergence.Enemies
                 int j = rng.Next(i + 1);
                 (drawn[i], drawn[j]) = (drawn[j], drawn[i]);
             }
+            // The group arrives FIRST, together, ahead of the shuffled rest.
+            wave.Spawns.AddRange(group);
             wave.Spawns.AddRange(drawn);
             if (guaranteed.HasValue) wave.Spawns.Add(guaranteed.Value);
+            RollAffixes(wave, seed);
             return wave;
+        }
+
+        /// <summary>
+        /// Each ELITE may carry one modifier (Tuning.EliteAffixes), from a stream of its own so the
+        /// draw above is untouched. In spawn order, so a seed always dresses the same bodies.
+        /// </summary>
+        static void RollAffixes(Wave wave, int seed)
+        {
+            float chance = WaveGroups.AffixChance(Core.RunFormat.EnemyBand(wave.Floor));
+            if (chance <= 0f) return;
+            var arng = new System.Random(seed ^ 0x41464658);
+            var all = (EliteAffix[])Enum.GetValues(typeof(EliteAffix));
+            var fit = new List<EliteAffix>();
+            for (int i = 0; i < wave.Spawns.Count; i++)
+            {
+                var s = wave.Spawns[i];
+                if (!s.Elite) continue;
+                if (arng.NextDouble() >= chance) continue;
+                fit.Clear();
+                foreach (var a in all)
+                    if (a != EliteAffix.None && WaveGroups.Suits(a, s.Kind)) fit.Add(a);
+                if (fit.Count == 0) continue;
+                wave.Spawns[i] = new WaveSpawn(s.Kind, s.Elite, s.Group, fit[arng.Next(fit.Count)]);
+            }
         }
 
         /// <summary>
@@ -367,6 +486,9 @@ namespace Convergence.Enemies
                       "top kind p90 | spent/pool min-avg | ref/avg  built/avg  built/stack\n");
 
             var seenOn = new Dictionary<EnemyKind, int>();
+            var groupsDrawn = new Dictionary<WaveGroupId, int>();
+            var affixes = new Dictionary<EliteAffix, int>();
+            int wavesTotal = 0, elitesTotal = 0;
             var report = new HashSet<int> { 1, 2, 3, 4, 5, 6, 8, 10, 15, 20, 25, 30, 40, 50, 60, 75, 80, 100 };
 
             for (int floor = 1; floor <= Core.RunFormat.FinalFloor; floor++)
@@ -389,6 +511,15 @@ namespace Convergence.Enemies
                     fill.Add(w.Spent / w.Pool);
                     ehp += w.TotalEhp;
                     foreach (var s in w.Spawns) kinds.Add(s.Kind);
+                    wavesTotal++;
+                    if (w.Group != WaveGroupId.None)
+                        groupsDrawn[w.Group] = groupsDrawn.TryGetValue(w.Group, out var gn) ? gn + 1 : 1;
+                    foreach (var s in w.Spawns)
+                    {
+                        if (s.Elite) elitesTotal++;
+                        if (s.Affix != EliteAffix.None)
+                            affixes[s.Affix] = affixes.TryGetValue(s.Affix, out var an) ? an + 1 : 1;
+                    }
                 }
                 foreach (var k in kinds) seenOn[k] = seenOn.TryGetValue(k, out var n) ? n + 1 : 1;
                 if (!report.Contains(floor)) continue;
@@ -409,6 +540,10 @@ namespace Convergence.Enemies
             sb.Append($"\nfloors (of {Core.RunFormat.FinalFloor}) each kind appears on: ");
             sb.Append(string.Join(", ", seenOn.OrderByDescending(kv => kv.Value)
                                               .Select(kv => $"{EnemyTypes.Of(kv.Key).Name} {kv.Value}")));
+            sb.Append($"\ngroups: {groupsDrawn.Values.Sum()} of {wavesTotal} waves - ");
+            sb.Append(string.Join(", ", groupsDrawn.OrderByDescending(kv => kv.Value).Select(kv => $"{kv.Key} {kv.Value}")));
+            sb.Append($"\naffixes: {affixes.Values.Sum()} of {elitesTotal} elites - ");
+            sb.Append(string.Join(", ", affixes.OrderByDescending(kv => kv.Value).Select(kv => $"{kv.Key} {kv.Value}")));
             return sb.ToString();
         }
 
@@ -420,7 +555,7 @@ namespace Convergence.Enemies
             foreach (var s in w.Spawns)
             {
                 if (!Fits(s, pressure, n, w.Floor)) break;
-                pressure += Pressure(s.Kind, s.Elite);
+                pressure += Pressure(s.Kind, s.Elite, s.Affix);
                 n++;
             }
             return n;

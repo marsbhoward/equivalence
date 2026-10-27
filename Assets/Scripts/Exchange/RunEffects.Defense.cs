@@ -42,7 +42,7 @@ namespace Convergence.Exchange
                 if (_wardTimer <= 0f)
                 {
                     _wardReady = true;
-                    if (_pc != null) Spr.Pulse(_pc.transform, 1.1f, new Color(0.7f, 0.85f, 1f, 0.7f), 0.35f, true, 1.3f);
+                    if (_pc != null) Player.RigRim.Glint(_pc.transform, LedgerFx.WardColour);
                 }
             }
 
@@ -172,7 +172,7 @@ namespace Convergence.Exchange
                     _negationLock = T.NegationGapSeconds;
                     if (_pc != null)
                     {
-                        Spr.Flash(_pc.transform.position, 1.2f, new Color(0.7f, 0.85f, 1f), 0.3f);
+                        Player.RigRim.Flare(_pc.transform);
                         if (AtMax("aegis_cycle")) Burst(_pc.transform.position, T.TinWardRadius, T.TinWardHitUnits);
                     }
                     return 0f;
@@ -180,7 +180,7 @@ namespace Convergence.Exchange
                 if (AtMax("evanescence") && _pc != null && _pc.IsMoving && ++_vapourCount % T.VapourEvery == 0)
                 {
                     _negationLock = T.NegationGapSeconds;
-                    Spr.Flash(_pc.transform.position, 0.8f, new Color(0.85f, 0.95f, 1f, 0.6f), 0.2f);
+                    Player.RigRim.Flare(_pc.transform);
                     return 0f;
                 }
             }
@@ -227,7 +227,7 @@ namespace Convergence.Exchange
                 if (left > 0f)
                 {
                     attacker.Take(new DamageInfo(left * T.BackdraftShare, ElementType.Fire, _pc.gameObject));
-                    Spr.Flash(attacker.transform.position, 0.9f, new Color(1f, 0.5f, 0.15f), 0.25f, false);
+                    LedgerFx.StatusBurst(attacker, TexelFx.Fire);
                 }
             }
             if (Has("tidewater") && !attacker.IsDead)
@@ -309,10 +309,10 @@ namespace Convergence.Exchange
                 // Phoenix: risen, and the blast sets the crowd round you burning.
                 _riseTo = T.PhoenixRise;
                 Ignite(_pc.transform.position, T.PhoenixRadius, T.PhoenixBurnHitUnits, T.PhoenixBurnSeconds);
-                Spr.Flash(_pc.transform.position, T.PhoenixRadius, new Color(1f, 0.55f, 0.2f), 0.5f);
+                LedgerFx.Wings(_pc, phoenix: true);
             }
             else _secondWindHealLeft = Hp.Max * T.SecondWindHeal;
-            Spr.Flash(_pc.transform.position, 1.6f, new Color(1f, 0.95f, 0.6f), 0.6f);
+            if (!Has("phoenix")) LedgerFx.Wings(_pc, phoenix: false);
             return true;
         }
 
@@ -326,7 +326,7 @@ namespace Convergence.Exchange
             float dmg = hitUnits * _pc.HitUnit;
             foreach (var hp in EnemiesWithin(from, radius))
                 hp.Take(new DamageInfo(dmg, Element, _pc.gameObject));
-            Spr.Flash(from, radius, new Color(0.7f, 0.85f, 1f, 0.7f), 0.3f);
+            LedgerFx.Force(from, LedgerFx.Ward, radius);
         }
 
         /// <summary>Phoenix: every live enemy within <paramref name="radius"/> set burning for

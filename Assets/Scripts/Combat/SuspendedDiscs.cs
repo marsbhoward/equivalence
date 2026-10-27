@@ -227,7 +227,7 @@ namespace Convergence.Combat
                     _player?.NotifyThrownHit(hp, info, 0.5f, false);
                 }
 
-                Spr.Flash(at, radius, ElementInfo.Tint(_element), 0.32f);
+                TexelFx.Shock(at, TexelFx.RampOf(ElementInfo.Tint(_element)), TexelFx.Grey, radius, 0.35f);
             }
 
             Dissolve();

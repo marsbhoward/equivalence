@@ -241,6 +241,19 @@ namespace Convergence.Audio
             return Normalise(s);
         }
 
+        /// <summary>Two blows meeting: a bright metallic clang - inharmonic partials over a hard
+        /// attack, a scrape of noise and a small knock under it. Distinct from the crit's clean ring.</summary>
+        public static float[] Clash(int seed)
+        {
+            var n = new Noise(seed);
+            var s = Buffer(0.4f);
+            float f = n.Range(1180, 1380);
+            Ring(s, new[] { f, f * 1.37f, f * 2.11f, f * 2.93f }, new[] { 0.45f, 0.32f, 0.22f, 0.12f }, 0.0005f, 0.32f);
+            Hiss(s, seed, 1, n.Range(3800, 4800), 2200, 1.5f, 0.0005f, 0.06f, 0.7f);
+            Thump(s, 260, 170, 0.01f, 0.05f, 0.35f);
+            return Normalise(s);
+        }
+
         public static float[] PlayerHurt(int seed)
         {
             var s = Buffer(0.22f);

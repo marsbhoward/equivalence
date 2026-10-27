@@ -184,8 +184,7 @@ namespace Convergence.Combat
             {
                 if (p == null || !p.Hostile) continue;
                 if (((Vector2)p.transform.position - c).sqrMagnitude > r * r) continue;
-                SmokePuff.At(p.transform.position);
-                Destroy(p.gameObject);
+                p.Cut();   // a puff for a bolt, a burst for a missile
             }
             foreach (var s in FindObjectsByType<Enemies.MortarShell>())
             {

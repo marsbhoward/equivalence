@@ -20,22 +20,9 @@ namespace Convergence.Hub
         public float Radius { get; private set; }
         public bool Focused { get; private set; }
 
-        SpriteRenderer _outer, _inner, _fill;
-
-        /// <summary>
-        /// NOT readonly, deliberately.
-        ///
-        /// Editing a script while play mode is running triggers a domain reload, and Unity
-        /// restores a MonoBehaviour's plain private fields across it but CANNOT write to a
-        /// readonly one - so a readonly array came back freshly initialised, full of nulls, while
-        /// every sibling field survived. The result was not a blip: Update kept running against
-        /// the empty array and threw once per frame for the rest of the session. It looked like a
-        /// stale error from the reload and was not.
-        /// </summary>
-        SpriteRenderer[] _marks = new SpriteRenderer[3];
+        [SerializeField] HubCircleArt _art;
         float _lit;
-
-        static readonly Color Gold = new(0.86f, 0.72f, 0.38f);
+        internal float Lit => _lit;
 
         public static TransmutationCircle Build(Transform parent, Vector2 centre, float radius)
         {
@@ -47,35 +34,11 @@ namespace Convergence.Hub
             c.Anchor = centre;
             c.Radius = radius;
 
-            c._fill = Disc(go.transform, "fill", radius * 2f, new Color(0.86f, 0.72f, 0.38f, 0.03f),
-                           SortingOrders.Floor, Spr.Circle);
-            c._outer = Disc(go.transform, "outer", radius * 2f, Gold, SortingOrders.GroundDecal, Spr.ThinRing);
-            c._inner = Disc(go.transform, "inner", radius * 1.52f, Gold, SortingOrders.GroundDecal, Spr.ThinRing);
-
-            // Marks on a triangle, point UP: the arrangement is the one thing that says this is a
-            // transmutation circle rather than a decorative ring on a floor.
-            var marks = new[]
-            {
-                Combat.Glyphs.PrimeMark.Sulfur,
-                Combat.Glyphs.PrimeMark.Mercury,
-                Combat.Glyphs.PrimeMark.Salt,
-            };
-            for (int i = 0; i < 3; i++)
-            {
-                float a = (90f + i * 120f) * Mathf.Deg2Rad;
-                var at = new Vector3(Mathf.Cos(a), Mathf.Sin(a), 0f) * (radius * 0.76f);
-
-                var m = new GameObject(marks[i].ToString());
-                m.transform.SetParent(go.transform, false);
-                m.transform.localPosition = at;
-                m.transform.localScale = Vector3.one * (radius * 0.48f);
-                var sr = m.AddComponent<SpriteRenderer>();
-                sr.sprite = Combat.Glyphs.Prime(marks[i]);
-                sr.sortingOrder = SortingOrders.GroundDecal + 1;
-                c._marks[i] = sr;
-            }
-
-            c.Apply(0f);
+            // The arena circle's look (the agreed rule, group 6): a double ring cut in the floor with
+            // the three principles' glyphs - its Sulfur, Mercury and Salt tabs - lit gold on approach.
+            int r = Mathf.CeilToInt(radius * Combat.TexelFx.Body) + 2;
+            c._art = Combat.TexelPicture.Attach<HubCircleArt>(go.transform, "circle", Vector2.zero, r, r, r, SortingOrders.GroundDecal);
+            c._art.Radius = radius;
             return c;
         }
 
@@ -83,47 +46,41 @@ namespace Convergence.Hub
 
         void Update()
         {
-            // A domain reload can hand this component back with its renderers gone. Rebuilding is
-            // not possible from here, but a silent skip is far better than an exception per frame
-            // - the room keeps working and the circle simply stops animating until it is rebuilt.
-            if (_outer == null || _inner == null || _fill == null || _marks == null) return;
-
-            // Unscaled, so the circle keeps breathing under the screen it opens rather than
-            // freezing the moment the player uses it.
+            // Unscaled, so the circle keeps breathing under the screen it opens.
             _lit = Mathf.MoveTowards(_lit, Focused ? 1f : 0f, Time.unscaledDeltaTime * 4f);
-            Apply(_lit);
         }
+    }
 
-        void Apply(float lit)
+    /// <summary>The hub circle's picture: the arena's carved double ring and glyphs (Hazards.CircleArt),
+    /// the grooves warming and the glyphs lighting gold in turn as the player steps up to it.</summary>
+    public class HubCircleArt : Combat.TexelPicture
+    {
+        [SerializeField] public float Radius;
+        [SerializeField] TransmutationCircle _c;
+        static readonly Color32 GoldLit = new(242, 194, 90, 255), Lip = Combat.TexelFx.GrooveLip, Groove = Combat.TexelFx.Groove;
+
+        protected override bool Draw()
         {
-            _outer.color = new Color(Gold.r, Gold.g, Gold.b, Mathf.Lerp(0.16f, 0.60f, lit));
-            _inner.color = new Color(Gold.r, Gold.g, Gold.b, Mathf.Lerp(0.10f, 0.40f, lit));
-            _fill.color = new Color(Gold.r, Gold.g, Gold.b, Mathf.Lerp(0.022f, 0.075f, lit));
-
-            // The three marks pulse in sequence rather than together. In step they read as one
-            // flashing object; offset, they read as three things taking turns, which is the
-            // relationship the screen behind them is built on.
-            for (int i = 0; i < _marks.Length; i++)
+            if (_c == null) _c = GetComponentInParent<TransmutationCircle>();
+            float lit = _c != null ? _c.Lit : 0f, R = Radius * Ppu, Ri = R * 0.74f;
+            var lip = Lerp(Lip, GoldLit, lit * (0.6f + 0.2f * Mathf.Sin(Time.unscaledTime * 2f)));
+            GrooveRing(R, 3, lip); GrooveRing(Ri, 2, lip);
+            for (int i = 0; i < 3; i++)
             {
-                if (_marks[i] == null) continue;
-                float phase = Time.unscaledTime * 2.2f - i * (Mathf.PI * 2f / 3f);
-                float beat = 0.5f + 0.5f * Mathf.Sin(phase);
-                float a = Mathf.Lerp(0.22f, Mathf.Lerp(0.55f, 1f, beat), lit);
-                _marks[i].color = new Color(Gold.r, Gold.g, Gold.b, Mathf.Max(0.22f, a));
+                float a = (90f + i * 120f) * Mathf.Deg2Rad, rr = (R - 3f + Ri) * 0.5f;
+                int gx = Mathf.RoundToInt(Mathf.Cos(a) * rr), gy = Mathf.RoundToInt(Mathf.Sin(a) * rr);
+                float beat = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 2.2f - i * 2.094f);
+                var col = Lerp(Groove, GoldLit, lit * Mathf.Lerp(0.55f, 1f, beat));
+                var g = Hazards.CircleArt.Glyph[i];
+                for (int y = 0; y < 5; y++)
+                    for (int x = 0; x < 5; x++)
+                        if (g[4 - y][x] == 'x')
+                            for (int sy = 0; sy < 2; sy++) for (int sx = 0; sx < 2; sx++) Over(gx - 5 + x * 2 + sx, gy - 5 + y * 2 + sy, col);
             }
+            return true;
         }
 
-        static SpriteRenderer Disc(Transform parent, string name, float size, Color color,
-                                   int order, Sprite sprite)
-        {
-            var go = new GameObject(name);
-            go.transform.SetParent(parent, false);
-            go.transform.localScale = Vector3.one * size;
-            var sr = go.AddComponent<SpriteRenderer>();
-            sr.sprite = sprite;
-            sr.color = color;
-            sr.sortingOrder = order;
-            return sr;
-        }
+        void GrooveRing(float r, int w, Color32 lip)
+            => Ring(0, 0, r - w, r, (x, y, d, ang) => Over(x, y, (y > 0 ? d > r - 1f : d < r - w + 1f) ? lip : Groove));
     }
 }

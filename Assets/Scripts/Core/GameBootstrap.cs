@@ -156,6 +156,10 @@ namespace Convergence.Core
         int _avatarAskFloor;
 
         Transform _arenaRoot, _enemyRoot, _hazardRoot;
+
+        /// <summary>What lasts until the floor ends and no longer: the hazard root, emptied as each
+        /// floor builds. A boss's remains (Medusa's rubble) go here - the boss itself is gone.</summary>
+        public static Transform FloorRoot { get; private set; }
         PlayerController _player;
         StuckWatch _stuckWatch;
         Hud _hud;
@@ -225,11 +229,13 @@ namespace Convergence.Core
         {
             public readonly EnemyKind Kind;
             public readonly bool Elite;
+            public readonly EliteAffix Affix;
             public readonly Func<Vector2> Position;
-            public PendingSpawn(EnemyKind kind, bool elite, Func<Vector2> position)
+            public PendingSpawn(EnemyKind kind, bool elite, Func<Vector2> position, EliteAffix affix = EliteAffix.None)
             {
                 Kind = kind;
                 Elite = elite;
+                Affix = affix;
                 Position = position;
             }
         }
@@ -442,8 +448,10 @@ namespace Convergence.Core
             _canvas = UiKit.CreateCanvas("UI", 10);
             _canvas.transform.SetParent(transform, false);
 
-            // DEV: the format the toggle last chose (Tuning.Testing.FormatToggle).
-            if (DevFormatEnabled && PlayerPrefs.GetInt(DevFormatPref, 0) == 1) RunFormat.Current = RunFormatId.ShortDescent;
+            // DEV: the format the toggle last chose (Tuning.Testing.FormatToggle). The Short Descent
+            // is the default; only an internal build that chose Classic plays it.
+            RunFormat.Current = DevFormatEnabled && PlayerPrefs.GetInt(DevFormatPref, 0) == 1
+                ? RunFormatId.Classic : RunFormatId.ShortDescent;
 
             _fade = UI.ScreenFade.Build(transform);
 
@@ -1081,7 +1089,7 @@ namespace Convergence.Core
             var lines = new System.Text.StringBuilder();
             foreach (Bosses.BossKind kind in Enum.GetValues(typeof(Bosses.BossKind)))
                 lines.AppendLine($"{(int)kind + 1,2}  {kind,-10} " +
-                                 (kind == Bosses.BossKind.Cantor ? "the avatars' stand-in; " : "") +
+                                 (kind == Bosses.BossKind.Wreathe ? "the avatars' stand-in; " : "") +
                                  (Rifts.FloorPlanner.InMiniBossPool(kind) ? "drawn for mini-boss floors" : "not drawn for any floor yet"));
             return lines.ToString();
         }
@@ -1549,7 +1557,8 @@ namespace Convergence.Core
         {
             _state = State.Hub;
             Convergence.Audio.Ambience.Set(Convergence.Audio.Bed.Hub);
-            Convergence.Art.Lighting.LightField.SetPlace(0f, Color.black);   // the hub is lit as it always was
+            // Dim (the user's pick, group 6): every fixture's light pools in it, as the arena's do.
+            Convergence.Art.Lighting.LightField.SetPlace(Tuning.Hub.Dimness, new Color(0.04f, 0.035f, 0.05f));
             Combat.FightMarks.Hide();
             Art.Biomes.Nigredo.Clear();
             Convergence.Audio.Ambience.SetNigredo(0f);
@@ -1883,7 +1892,9 @@ namespace Convergence.Core
 
         // ---- the dev run-format toggle (Tuning.Testing.FormatToggle) ----
 
-        const string DevFormatPref = "dev.runFormat";
+        // 1 = Classic. A new key (the old "dev.runFormat" meant 1 = Short), so a toggle left on
+        // Classic from before the Short Descent became the default does not carry over.
+        const string DevFormatPref = "dev.classicRun";
         Text _devFormatLabel;
 
         static bool DevFormatEnabled => Tuning.Testing.FormatToggle && (Application.isEditor || Debug.isDebugBuild);
@@ -1902,7 +1913,7 @@ namespace Convergence.Core
             if (pressed)
             {
                 RunFormat.Current = RunFormat.Short ? RunFormatId.Classic : RunFormatId.ShortDescent;
-                PlayerPrefs.SetInt(DevFormatPref, RunFormat.Short ? 1 : 0);
+                PlayerPrefs.SetInt(DevFormatPref, RunFormat.Short ? 0 : 1);
                 PlayerPrefs.Save();
             }
 
@@ -1916,7 +1927,7 @@ namespace Convergence.Core
             _devFormatLabel.gameObject.SetActive(true);
             _devFormatLabel.text = RunFormat.Short
                 ? "NEXT RUN: SHORT DESCENT  (50 floors, 60 min)   [ F8 ]"
-                : "NEXT RUN: CLASSIC  (100 floors)   [ F8 ]";
+                : "NEXT RUN: CLASSIC - INTERNAL  (100 floors)   [ F8 ]";
             return pressed;
         }
 
@@ -2352,6 +2363,7 @@ namespace Convergence.Core
         void TrackCamera()
         {
             TrackCloseView();
+            TrackHold();
             float halfH = _cam.orthographicSize;
             float halfW = halfH * _cam.aspect;
 
@@ -2366,6 +2378,8 @@ namespace Convergence.Core
                 Mathf.Clamp(_player.transform.position.x, -maxX, maxX),
                 Mathf.Clamp(_player.transform.position.y, -maxY, maxY),
                 -10f);
+            // A boss's cadence holds the room's centre (TrackHold eases the zoom with it).
+            if (_held > 0f) want = Vector3.Lerp(want, new Vector3(0f, 0f, -10f), Mathf.SmoothStep(0f, 1f, _held));
 
             // The follow runs on the camera's UNKICKED position, recovered by subtracting exactly
             // what was added last frame. Lerping the kicked position toward the target instead
@@ -2588,6 +2602,7 @@ namespace Convergence.Core
 
             _hazardRoot = new GameObject("Hazards").transform;
             _hazardRoot.SetParent(transform, false);
+            FloorRoot = _hazardRoot;
 
             _player = BuildPlayer(element);
 
@@ -3325,10 +3340,11 @@ namespace Convergence.Core
             // Room layout is rerolled fresh every floor, the same "a fresh room each floor" idea
             // the enemy wave already lives by - last floor's columns/fields/lava are cleared
             // first, since unlike enemies they never clear themselves out on their own.
-            // Which boss, decided once per floor before the room is built - Medusa brings her own
-            // room (a ring of pillars) and the floor's usual hazards would argue with it.
-            var bossKind = IsBossFloor(_floor) ? _planner.BossFor(_floor) : Bosses.BossKind.Cantor;
-            bool ownRoom = IsBossFloor(_floor) && bossKind == Bosses.BossKind.Medusa;
+            // Which boss, decided once per floor before the room is built - every boss brings its own
+            // room and the floor's usual hazards would argue with it: Medusa a ring of pillars, the
+            // Wreathe eight slices round a safe centre that must be open ground to step.
+            var bossKind = IsBossFloor(_floor) ? _planner.BossFor(_floor) : Bosses.BossKind.Wreathe;
+            bool ownRoom = IsBossFloor(_floor) && (bossKind == Bosses.BossKind.Medusa || bossKind == Bosses.BossKind.Wreathe);
 
             if (_hazardRoot != null)
             {
@@ -3393,8 +3409,24 @@ namespace Convergence.Core
             // closure evaluated at spawn time), so a body that trickles in three kills later still
             // places against the player's CURRENT spot rather than one frozen when the floor started.
             _spawnQueue.Clear();
+            Func<Vector2> groupAnchor = null;
+            var groupNow = Enemies.WaveGroupId.None;
+            int groupIndex = 0;
             foreach (var s in wave.Spawns)
-                _spawnQueue.Enqueue(new PendingSpawn(s.Kind, s.Elite, PlacementFor(s.Kind)));
+            {
+                var place = PlacementFor(s.Kind);
+                // A DESIGNED GROUP arrives together (Tuning.WaveGroups): one arrival point, chosen when
+                // its first member comes in, the rest round it.
+                if (s.Group != Enemies.WaveGroupId.None)
+                {
+                    if (s.Group != groupNow) { groupNow = s.Group; groupAnchor = GroupAnchor(s.Group); groupIndex = 0; }
+                    var anchor = groupAnchor;
+                    int i = groupIndex++;
+                    place = () => NearGroup(anchor(), i);
+                }
+                _spawnQueue.Enqueue(new PendingSpawn(s.Kind, s.Elite, place, s.Affix));
+            }
+            if (wave.Group != Enemies.WaveGroupId.None) Debug.Log($"[Floor] group: {wave.Group}");
 
             // The whole wave is decided: the spire rises against its cost (see TickSpire).
             _spirePool = wave.Spent;
@@ -3518,9 +3550,13 @@ namespace Convergence.Core
             // BOOSTER: gated on ACCOUNT progression, not floor depth - see Tuning.Enemy's own
             // notes. BestFloor is "how far has this character ever proven they can go", so a
             // brand-new account's early floors stay exactly as tuned.
+            // The Short Descent has its own window for it (Tuning.Waves.ShortBooster*: after the
+            // second band's kinds are met, up to the avatar).
             bool boosterEligible = _profile != null
                                  && _profile.BestFloor >= Tuning.Enemy.BoosterUnlockBestFloor
-                                 && Core.RunFormat.Depth(floor) <= Tuning.Enemy.BoosterMaxFloor;
+                                 && (Core.RunFormat.Short
+                                     ? floor >= Tuning.Waves.ShortBoosterFromFloor && floor <= Tuning.Waves.ShortBoosterToFloor
+                                     : Core.RunFormat.Depth(floor) <= Tuning.Enemy.BoosterMaxFloor);
             int seed = _planner != null ? _planner.WaveSeed(floor)
                                         : UnityEngine.Random.Range(int.MinValue, int.MaxValue);
             return Enemies.WaveComposer.Compose(floor, seed, floor % EliteEveryNFloors == 0, boosterEligible);
@@ -3537,6 +3573,27 @@ namespace Convergence.Core
             _                  => () => RandomEdgePoint(),
         };
 
+        /// <summary>A designed group's arrival point, decided once when its first member comes in:
+        /// anywhere on the floor for a group holding a kind that never walks in, else the edge.</summary>
+        Func<Vector2> GroupAnchor(Enemies.WaveGroupId id)
+        {
+            Vector2? at = null;
+            bool onFloor = Enemies.WaveGroups.PlacedOnFloor(id);
+            float min = Mathf.Max(Tuning.Enemy.TurretMinPlayerDistance,
+                                  Mathf.Max(Tuning.Enemy.GargoyleMinPlayerDistance, Tuning.Enemy.BubblesMinPlayerDistance));
+            return () => at ??= onFloor ? RandomFloorPoint(min) : RandomEdgePoint();
+        }
+
+        /// <summary>A group's member <paramref name="index"/> round its arrival point - the first on
+        /// it, the rest on a turning spiral within Tuning.WaveGroups.Spread, on standing floor.</summary>
+        static Vector2 NearGroup(Vector2 anchor, int index)
+        {
+            if (index == 0) return anchor;
+            float a = index * 2.4f, r = Tuning.WaveGroups.Spread * Mathf.Min(1f, 0.6f + 0.2f * index);
+            var p = anchor + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * r;
+            return Arena.OnFloor(p, 0.6f) ? p : Arena.NearestFloor(p, 0.6f);
+        }
+
         /// <summary>
         /// Whether the queue's next body may come on screen now: the PRESSURE of what is alive
         /// plus its own under the floor's cap (Enemies.WaveComposer.Fits). Strictly in queue
@@ -3552,10 +3609,10 @@ namespace Convergence.Core
             foreach (var e in _alive)
             {
                 if (e == null) continue;
-                pressure += Enemies.WaveComposer.Pressure(e.Kind, e.Elite);
+                pressure += Enemies.WaveComposer.Pressure(e.Kind, e.Elite, e.Affix);
                 bodies++;
             }
-            return Enemies.WaveComposer.Fits(new Enemies.WaveSpawn(next.Kind, next.Elite),
+            return Enemies.WaveComposer.Fits(new Enemies.WaveSpawn(next.Kind, next.Elite, affix: next.Affix),
                                              pressure, bodies, _floor);
         }
 
@@ -3565,7 +3622,7 @@ namespace Convergence.Core
         {
             var next = _spawnQueue.Dequeue();
             var e = EnemyFactory.Spawn(next.Position(), next.Kind, _floor, _player.transform, _enemyRoot,
-                                       elite: next.Elite);
+                                       elite: next.Elite, affix: next.Affix);
             e.RollIndex = _floorSpawns++;   // the queue's order - the seed's, not the fight's
             Harden(e);
             HookDeath(e);
@@ -4206,7 +4263,12 @@ namespace Convergence.Core
                     if (_player != null)
                     {
                         _player.Health.Heal(healAmount);
-                        Spr.Flash(_player.transform.position, 1.2f, new Color(0.45f, 0.9f, 0.55f), 0.5f);
+                        // Green motes rising round the feet past the head (the user's pick, group 4),
+                        // behind the body - unlike lifesteal's single plus over the head.
+                        var feet = Combat.ReleaseCanvas.Feet(_player.transform);
+                        var rig = _player.GetComponentInChildren<Art.Gear.ICharacterRig>() as MonoBehaviour;
+                        float height = rig != null ? Player.PlayerController.HeadTop(rig).y - feet.y + 0.2f : 1.2f;
+                        Combat.TexelFx.Motes(feet, Combat.TexelFx.Heal, height, Combat.ReleaseCanvas.UnderBody(_player.transform));
                     }
                     break;
 
@@ -4382,8 +4444,8 @@ namespace Convergence.Core
         /// <summary>
         /// Floors that hold a boss: every mini-boss interval, plus the avatar floors.
         ///
-        /// WHICH boss is Rifts.FloorPlanner.BossFor: mini-boss floors draw from a pool (the Cantor
-        /// and Medusa so far) as a seeded shuffle bag; the four avatars are all still the Cantor,
+        /// WHICH boss is Rifts.FloorPlanner.BossFor: mini-boss floors draw from a pool (the Wreathe
+        /// and Medusa so far) as a seeded shuffle bag; the four avatars are all still the Wreathe,
         /// standing in until they are their own set-pieces. A new boss is a Bosses.Boss subclass,
         /// a BossKind, and a case in Boss.Spawn.
         /// </summary>
@@ -4423,7 +4485,7 @@ namespace Convergence.Core
                 // The board hears every death, whatever caused it - a hit, a burn, a fall.
                 if (_player && _player.Board) _player.Board.OnEnemyDied(h);
                 if (_player && _player.Effects) _player.Effects.OnEnemyDied(h, Tuning.Exchange.KillWorthCap);
-                Spr.Flash(h.transform.position, 3.2f, new Color(1f, 0.95f, 0.8f), 0.9f);
+                _boss.DeathPicture();
 
                 // Cease BEFORE destroying, so the fight's coroutine and any lit slice stop on the
                 // frame it dies rather than at the end of it - Destroy is deferred, and a phrase
@@ -4561,7 +4623,11 @@ namespace Convergence.Core
                 // Spread round the tear, a little in front of it.
                 float a = (i + 0.5f) / guards * Mathf.PI * 2f;
                 var pos = Arena.NearestFloor(at + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * 1.6f, 0.8f);
-                var kind = Enemies.WaveComposer.EliteKinds[UnityEngine.Random.Range(0, Enemies.WaveComposer.EliteKinds.Length)];
+                // Only a kind the run has already introduced (it drew from every elite kind - an
+                // elite Bell could guard a floor-5 Rift before any Bell had been met).
+                var kinds = System.Array.FindAll(Enemies.WaveComposer.EliteKinds, k => Enemies.WaveComposer.Unlocked(k, _floor));
+                if (kinds.Length == 0) kinds = new[] { EnemyKind.Chaser };
+                var kind = kinds[UnityEngine.Random.Range(0, kinds.Length)];
                 var e = EnemyFactory.Spawn(pos, kind, _floor, _player.transform, _enemyRoot, elite: true);
                 e.RollIndex = RedGuardRollBase + i;
                 Harden(e);
@@ -5101,6 +5167,34 @@ namespace Convergence.Core
             }
         }
 
+        /// <summary>0 following the player .. 1 held on the room's centre, zoomed out (a boss's
+        /// cadence - <see cref="Bosses.Boss.HoldsCamera"/>). Serialized: a reload keeps the view.</summary>
+        [SerializeField] float _held;
+
+        /// <summary>Eases the hold in and out with the boss's cadence: through every size between,
+        /// unsnapped (the close view's way), snapped again at either end.</summary>
+        void TrackHold()
+        {
+            bool hold = _boss != null && _boss.HoldsCamera && !_closeView;
+            float to = hold ? 1f : 0f;
+            if (_held == to) return;
+            var zoom = _cam.GetComponent<PixelPerfectZoom>();
+            _held = Mathf.MoveTowards(_held, to, Time.unscaledDeltaTime / Tuning.Boss.HoldEaseSeconds);
+            float size = Mathf.Lerp(ArenaViewSize, Tuning.Boss.HoldViewHalfHeight, Mathf.SmoothStep(0f, 1f, _held));
+            if (zoom == null) { _cam.orthographicSize = size; return; }
+            zoom.Snap = _held <= 0f || _held >= 1f;
+            zoom.TargetSize = size;
+        }
+
+        /// <summary>Drops a held view at once - a run ending or leaving the arena.</summary>
+        void ReleaseHold()
+        {
+            if (_held <= 0f) return;
+            _held = 0f;
+            var zoom = _cam != null ? _cam.GetComponent<PixelPerfectZoom>() : null;
+            if (zoom != null) { zoom.Snap = true; zoom.TargetSize = ArenaViewSize; }
+        }
+
         /// <summary>Reads the puzzle's state once per frame and answers it ONCE.</summary>
         void TickPuzzle()
         {
@@ -5275,8 +5369,8 @@ namespace Convergence.Core
                         Combat.Bisection.At(h.transform, Tuning.Katana.Tint);
                     else if (h.LastDamage.Disintegrates && ReactiveWeaponDrawn())
                         Combat.Disintegration.At(h.transform, h.LastDamage);
-                    else
-                        Spr.Flash(h.transform.position, 0.9f, new Color(1f, 0.9f, 0.7f), 0.3f);
+                    else   // a pale wisp leaves it and rises (the user's pick, 2026-10-26)
+                        Combat.TexelFx.Wisp(Combat.ReleaseCanvas.Feet(h.transform) + Vector2.up * 0.3f, Combat.TexelFx.Bone);
                     // What it leaves on the floor - not for a body that came apart into light.
                     if (!h.LastDamage.Disintegrates || !ReactiveWeaponDrawn())
                     {
@@ -5715,6 +5809,7 @@ namespace Convergence.Core
         /// <summary>Remove everything a run owns. Safe to call when no run is running.</summary>
         void TeardownRun()
         {
+            ReleaseHold();   // a boss's held view never outlives the run
             _runToken++;
             StopAllCoroutines();   // in-flight NextFloor would spawn against a destroyed player
             _spawning = false;

@@ -250,8 +250,9 @@ namespace Convergence.Hub
         void BuildFloor()
         {
             float h = FloorTop - FloorBottom;
-            var floor = Quad(_root, "floor", _halfWidth * 2f, h,
-                             new Color(0.115f, 0.108f, 0.13f), SortingOrders.FloorBack);
+            // The room's design, texel by texel (the user's picks, group 6 - Hub/HubRoomArt).
+            var floor = Quad(_root, "floor", 1f, 1f, Color.white, SortingOrders.FloorBack);
+            floor.sprite = HubRoomArt.FloorSprite(Design, _halfWidth * 2f, h);
             floor.transform.localPosition = new Vector3(0f, (FloorTop + FloorBottom) * 0.5f, 0f);
 
             // The middle of the room is the transmutation circle. It doubles as the floor detail
@@ -298,7 +299,7 @@ namespace Convergence.Hub
             float t = Tuning.Hub.WallThickness;
             float top = FloorTop + Tuning.Hub.GalleryHeight;
             float bottom = FloorBottom - t;
-            var stone = new Color(0.20f, 0.21f, 0.26f);
+            var stone = (Color)HubArt.Stone[4];   // the coping the north wall's face is capped with
 
             // Side walls, drawn whole - the door wall gets its dark opening painted over the top.
             for (int s = -1; s <= 1; s += 2)
@@ -343,15 +344,11 @@ namespace Convergence.Hub
             float gh = Tuning.Hub.GalleryHeight;
             float mid = FloorTop + gh * 0.5f;
 
-            var face = Quad(_root, "gallery", _halfWidth * 2f, gh,
-                            new Color(0.155f, 0.16f, 0.20f), SortingOrders.FloorDetail);
-            face.transform.localPosition = new Vector3(0f, mid, 0f);
-
-            // Skirting where the wall meets the floor - the one line that stops the face and the
-            // floor reading as a single flat rectangle.
-            var skirt = Quad(_root, "skirt", _halfWidth * 2f, 0.10f,
-                             new Color(0.26f, 0.27f, 0.33f), SortingOrders.FloorDetail + 1);
-            skirt.transform.localPosition = new Vector3(0f, FloorTop, 0f);
+            // The wall's face in the room's design, a dark line where it meets the floor.
+            var face = Quad(_root, "gallery", 1f, 1f, Color.white, SortingOrders.FloorDetail);
+            face.sprite = HubRoomArt.WallSprite(Design, _halfWidth * 2f, gh);
+            face.transform.localPosition = new Vector3(0f, FloorTop, 0f);
+            _ = mid;
         }
 
         /// <summary>
@@ -644,6 +641,15 @@ namespace Convergence.Hub
         /// <summary>World bounds of the loft platform: (x0, x1, y0, y1). Backed by the north
         /// gallery wall (y1 = FloorTop) and the east wall (x1 = _halfWidth) - the one corner
         /// both already share.</summary>
+        /// <summary>How tall the loft's front face is drawn below its south edge.</summary>
+        const float LoftFaceHeight = 0.32f;
+
+        /// <summary>The room's design (Chain.RoomLayout.Design); <see cref="DevDesign"/> overrides it for testing.</summary>
+        RoomDesign Design => DevDesign ?? (RoomDesign)Mathf.Clamp(_room != null ? _room.Design : 0, 0, 5);
+
+        /// <summary>Testing: show the hub in this design (the room rebuilds on the next return to the hub).</summary>
+        public static RoomDesign? DevDesign;
+
         (float x0, float x1, float y0, float y1) LoftBounds()
             => (_halfWidth - Tuning.Hub.LoftWidth, _halfWidth, Tuning.Hub.LoftY0, FloorTop);
 
@@ -658,9 +664,11 @@ namespace Convergence.Hub
         {
             var (x0, x1, y0, y1) = LoftBounds();
             float cx = (x0 + x1) * 0.5f, cy = (y0 + y1) * 0.5f;
-            var stone = new Color(0.24f, 0.25f, 0.30f);
 
-            var top = Quad(_root, "loft-top", x1 - x0, y1 - y0, stone, SortingOrders.FloorDetail);
+            // Raised (the user's call, group 6): its top the floor's pattern a step brighter, a FRONT
+            // FACE hanging below its south edge in the wall's material, and stairs in the gap.
+            var top = Quad(_root, "loft-top", 1f, 1f, Color.white, SortingOrders.FloorDetail);
+            top.sprite = HubRoomArt.LoftTop(Design, x1 - x0, y1 - y0);
             top.transform.localPosition = new Vector3(cx, cy, 0f);
 
             // Skirt lines - the same seam BuildGallery draws at FloorTop, run along whichever
@@ -672,9 +680,9 @@ namespace Convergence.Hub
             var westSkirt = Quad(_root, "loft-skirt-w", 0.08f, y1 - y0, skirtColor, SortingOrders.FloorDetail + 1);
             westSkirt.transform.localPosition = new Vector3(x0, cy, 0f);
 
-            // south edge, split around the stair gap
-            SkirtSegment(x0, stairX0, y0, skirtColor);
-            SkirtSegment(stairX1, x1, y0, skirtColor);
+            // south edge: the riser, split around the stair gap
+            FaceSegment(x0, stairX0, y0);
+            FaceSegment(stairX1, x1, y0);
 
             // Shadow: a soft strip on the OPEN floor just outside the platform, west and south.
             var shadow = new Color(0f, 0f, 0f, 0.16f);
@@ -691,7 +699,7 @@ namespace Convergence.Hub
             {
                 float t = (i + 0.5f) / treads;
                 var tread = Quad(_root, "loft-stair", stairX1 - stairX0 - 0.1f, 0.10f,
-                                 Color.Lerp(new Color(0.115f, 0.108f, 0.13f), stone, t),
+                                 Color.Lerp(new Color(0.33f, 0.31f, 0.29f), new Color(0.58f, 0.56f, 0.52f), t),
                                  SortingOrders.FloorDetail + 2);
                 tread.transform.localPosition = new Vector3((stairX0 + stairX1) * 0.5f, y0 + t * 0.7f - 0.35f, 0f);
             }
@@ -703,10 +711,11 @@ namespace Convergence.Hub
             if (stairX0 > x0) BlockerBox(new Vector2((x0 + stairX0) * 0.5f, y0), new Vector2(stairX0 - x0, 0.08f));
             if (x1 > stairX1) BlockerBox(new Vector2((stairX1 + x1) * 0.5f, y0), new Vector2(x1 - stairX1, 0.08f));
 
-            void SkirtSegment(float a, float b, float y, Color c)
+            void FaceSegment(float a, float b, float y)
             {
                 if (b <= a) return;
-                var s = Quad(_root, "loft-skirt-s", b - a, 0.08f, c, SortingOrders.FloorDetail + 1);
+                var s = Quad(_root, "loft-face", 1f, 1f, Color.white, SortingOrders.FloorDetail + 1);
+                s.sprite = HubRoomArt.LoftFace(Design, b - a, LoftFaceHeight);
                 s.transform.localPosition = new Vector3((a + b) * 0.5f, y, 0f);
             }
             void ShadowSegment(float a, float b, float y, Color c)
@@ -733,21 +742,11 @@ namespace Convergence.Hub
             go.transform.SetParent(_root, false);
             go.transform.localPosition = at;
 
-            var body = Quad(go.transform, "body", 1.15f, 0.78f,
-                            new Color(0.34f, 0.26f, 0.18f), SortingOrders.FloorDetail + 2);
-            var lid = Quad(go.transform, "lid", 1.22f, 0.16f,
-                           new Color(0.42f, 0.33f, 0.22f), SortingOrders.FloorDetail + 3);
-            lid.transform.localPosition = new Vector3(0f, 0.38f, 0f);
-            var band = Quad(go.transform, "band", 1.15f, 0.10f,
-                            new Color(0.24f, 0.19f, 0.14f), SortingOrders.FloorDetail + 4);
-            band.transform.localPosition = new Vector3(0f, 0.06f, 0f);
+            // The banded crate (the user's pick, group 6): plank, iron bands, solid at 3/4, and
+            // depth-sorted - it stands in open floor where the player walks past it constantly.
+            var crateArt = HubFixture.Attach(go, HubArt.Crate(), new Vector2(0f, -0.32f));
+            DepthSorted.Attach(go, -0.32f, false, crateArt.Art, crateArt.RimRenderer);
 
-            // Depth-sorted, unlike the couch and the table. Those sit against the top wall where
-            // the player can barely get behind them; this stands in open floor where they walk
-            // past it constantly, and a crate that is always in front of you is not a crate.
-            DepthSorted.Attach(go, -0.32f, false, body, lid, band);
-
-            var baseColor = body.color;
             _cratePoint = HubInteractable.Attach(go, at + new Vector2(0f, 0.75f), 1.15f,
                 () => _editMode
                     ? new Prompt
@@ -770,7 +769,7 @@ namespace Convergence.Hub
                     if (_editMode) BeginCarryFixture("crate");
                     else _onOpenCollection?.Invoke();
                 },
-                on => body.color = on ? baseColor * 1.35f : baseColor);
+                on => crateArt.SetFocus(on));
             _points.Add(_cratePoint);
             RegisterMovable("crate", go.transform, Tuning.Hub.CrateFootprint, _cratePoint);
         }

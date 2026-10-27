@@ -246,7 +246,7 @@ namespace Convergence.Progression
             var near = Nearest(target, B.AquaFortisRadius);
             if (near == null) return;
             Soak(near, seconds, vulnerability, spread: false);
-            Spr.Flash(near.transform.position, 0.6f, new Color(0.45f, 0.75f, 1f, 0.6f), 0.18f, false);
+            Combat.LedgerFx.StatusBurst(near, Combat.LedgerFx.Water);
         }
 
         /// <summary>A bleed the player applies: Bleed Power on it, stacking under Orpiment.</summary>
@@ -269,7 +269,7 @@ namespace Convergence.Progression
 
             st.ApplyCongeal(B.CongelationSeconds, B.CongelationVulnerability);
             st.ClearStaggerStacks();
-            Spr.Flash(target.transform.position, 0.9f, new Color(0.62f, 0.55f, 0.48f, 0.8f), 0.3f);
+            Combat.LedgerFx.StatusBurst(target, Combat.TexelFx.Stone);
         }
 
         static Health Nearest(Health from, float radius)
@@ -368,7 +368,7 @@ namespace Convergence.Progression
                     // Passed on as it was - already strengthened, so not through Burn() again.
                     StatusEffects.Get(hp.gameObject).ApplyBurn(dps, B.CholerSeconds, gameObject);
                 }
-                Spr.Flash(at, B.CinerationRadius, new Color(1f, 0.5f, 0.15f, 0.55f), 0.3f, true);
+                Combat.LedgerFx.FireRing(at, B.CinerationRadius);
             }
         }
 
@@ -388,12 +388,13 @@ namespace Convergence.Progression
                 float fade = (hp != null ? hp.Max * B.CibationShieldFraction : _shield) / B.CibationFadeSeconds;
                 _shield = Mathf.Max(0f, _shield - fade * dt);
 
-                // The shield's readout: a pale gold ring shed at the feet while it holds.
+                // The shield's readout: the figure's outline glints gold every so often while it
+                // holds (RigRim - the user's pick, group 3, "rim glint").
                 _shieldCue -= dt;
                 if (_shieldCue <= 0f && _shield > 0f)
                 {
-                    _shieldCue = 0.45f;
-                    Spr.Pulse(transform, 0.7f, new Color(1f, 0.88f, 0.5f, 0.45f), 0.4f, true, 1.3f);
+                    _shieldCue = 1.5f;
+                    Player.RigRim.Glint(transform, Combat.LedgerFx.ShieldGold);
                 }
             }
         }

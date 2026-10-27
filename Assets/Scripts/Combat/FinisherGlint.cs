@@ -28,6 +28,11 @@ namespace Convergence.Combat
         [SerializeField] PlayerController _player;
         [SerializeField] SpriteRenderer _sr;
         float _since = -1f;
+        float _perfectAt = -99f;
+
+        /// <summary>A PERFECT press (the user's pick, 2026-10-26 - "weapon glint"): one glint in the
+        /// perfect band's green, run DOWN the weapon from tip to hilt as the strike lands.</summary>
+        public void Perfect() => _perfectAt = Time.time;
 
         public static FinisherGlint Attach(PlayerController player)
         {
@@ -43,6 +48,10 @@ namespace Convergence.Combat
                        && _player.FinisherNext && !_player.AttackLocked
                        && _player.Blade == null && !_player.Airborne && !_player.Statue;
 
+            bool perfect = weapon != null && weapon.enabled && weapon.sprite != null
+                        && Time.time - _perfectAt < Tuning.Glint.Sweep;
+            if (perfect) { Show(weapon, Time.time - _perfectAt, down: true, Tuning.StrikeTiming.Perfect); return; }
+
             if (!banked)
             {
                 _since = -1f;
@@ -52,6 +61,15 @@ namespace Convergence.Combat
 
             if (_since < 0f) _since = Time.time;
 
+            float phase = (Time.time - _since) % Tuning.Glint.Period;
+            if (phase >= Tuning.Glint.Sweep) { if (_sr != null) _sr.enabled = false; return; }
+            Show(weapon, phase, down: false, Tuning.Glint.Tint);
+        }
+
+        /// <summary>One frame of a glint <paramref name="phase"/> seconds into its sweep, up the
+        /// weapon or down it.</summary>
+        void Show(SpriteRenderer weapon, float phase, bool down, Color tint)
+        {
             if (_sr == null)
             {
                 var go = new GameObject("weapon.glint");
@@ -65,11 +83,9 @@ namespace Convergence.Combat
             }
             _sr.transform.localPosition = new Vector3(0f, 0f, -0.01f);
 
-            float phase = (Time.time - _since) % Tuning.Glint.Period;
-            if (phase >= Tuning.Glint.Sweep) { _sr.enabled = false; return; }
-
             int frame = Mathf.Min(Tuning.Glint.Frames - 1,
                                   Mathf.FloorToInt(phase / Tuning.Glint.Sweep * Tuning.Glint.Frames));
+            if (down) frame = Tuning.Glint.Frames - 1 - frame;
             var sprite = PixelSprite.Glint(weapon.sprite, frame, Tuning.Glint.Frames, Tuning.Glint.From);
             if (sprite == null) { _sr.enabled = false; return; }
 
@@ -77,7 +93,7 @@ namespace Convergence.Combat
             _sr.sharedMaterial = weapon.sharedMaterial;
             _sr.flipX = weapon.flipX;
             _sr.flipY = weapon.flipY;
-            _sr.color = Tuning.Glint.Tint;
+            _sr.color = tint;
             _sr.sortingLayerID = weapon.sortingLayerID;
             _sr.sortingOrder = weapon.sortingOrder;
             _sr.enabled = true;

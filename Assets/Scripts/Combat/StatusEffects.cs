@@ -90,6 +90,25 @@ namespace Convergence.Combat
         /// second root landing mid-root cannot shorten the first.</summary>
         public void ApplyPetrify(float duration) => _petrifyRemaining = Mathf.Max(_petrifyRemaining, duration);
 
+        // Seconds until this body may be ROOTED again by TryRoot: the root's own length plus a grace
+        // after it. Ticked with the root.
+        float _rootGrace;
+
+        /// <summary>
+        /// A root that respects a GRACE (the user's call, 2026-10-25 - two Watchers could root a
+        /// player back to back): refused while a root holds or for <paramref name="grace"/> seconds
+        /// after one ends - so a second root never extends the first either. True when it took.
+        /// The Watcher's root on the player goes through here; roots the player puts on ENEMIES
+        /// (Congelation, Pin) keep ApplyPetrify.
+        /// </summary>
+        public bool TryRoot(float duration, float grace)
+        {
+            if (_petrifyRemaining > 0f || _rootGrace > 0f) return false;
+            _petrifyRemaining = duration;
+            _rootGrace = duration + grace;
+            return true;
+        }
+
         // STONE - Medusa's gaze. Not the Gargoyle's petrify, which roots and nothing else: stone is
         // the WHOLE body - no moving, attacking, releasing or defending - drawn as a statue
         // (ICharacterRig.SetStone), and it takes less damage while it lasts (STONE SKIN). The
@@ -393,6 +412,7 @@ namespace Convergence.Combat
             }
 
             if (_petrifyRemaining > 0f) _petrifyRemaining -= dt;
+            if (_rootGrace > 0f) _rootGrace -= dt;
             if (_stoneRemaining > 0f) _stoneRemaining -= dt;
         }
     }

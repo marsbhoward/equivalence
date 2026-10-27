@@ -85,6 +85,11 @@ namespace Convergence.Combat
         /// disc throw (ThrowDisc) - see DamageInfo.IsFinisher.</summary>
         bool _isFinisher;
 
+        /// <summary>CLASH (Combat.Clash): whether this disc beats an enemy's strike, and where it
+        /// was last frame - the line it cuts enemy shots along.</summary>
+        bool _wins;
+        Vector2 _last;
+
         Vector2 _target;
         Health _seeking;
         bool _returning;
@@ -171,6 +176,9 @@ namespace Convergence.Combat
             d.NearFraction = Mathf.Clamp01(nearFraction);
             d._origin = owner.transform.position;
             d._range = Mathf.Max(0.01f, range);
+            // A Heavy art's disc beats an enemy's strike (Combat.Clash) - the art being thrown now.
+            d._wins = d._player != null && Clash.Wins(isFinisher, d._player.LastArtWeight);
+            d._last = owner.transform.position;
 
             d._sr = DiscVisual.Add(go);   // spins about its centre, not its grip
 
@@ -203,6 +211,9 @@ namespace Convergence.Combat
             DiscVisual.Centre(d._sr);
             // the Rift Disc's light-cycle wall, if the hand it left carried one
             LightCycleTrail.Follow(rig, go.transform, d._sr, SortingOrders.Fx - 2);
+            // and inside Fire's Ignite a comet of flame behind it (sized off the picture)
+            if (d._player != null && d._player.Igniting)
+                FlameTrail.Behind(go.transform, d._sr, Vector2.zero, Tuning.FireFx.TrailDiscWindow, 0f, SortingOrders.Fx - 2);
             // and Rai's arcs, likewise
             LightningArcs.Follow(rig, go.transform, d._sr, SortingOrders.Fx - 2);
             // and a weapon that casts light keeps lighting in flight
@@ -337,14 +348,32 @@ namespace Convergence.Combat
             _travel = dir;
             _seeking = Nearest(pos, dir, BounceRange, _hit, _owner);
             _target = _seeking != null ? (Vector2)_seeking.transform.position : pos + dir * BounceRange;
-            Spr.Flash(pos, 0.3f, new Color(0.45f, 0.75f, 1f, 0.7f), 0.12f, false);
+            TexelFx.Hit(pos, _element, dir);   // off the wall, the way it bounced
             return true;
         }
 
         /// <summary>One hit on <paramref name="h"/> at the disc's current damage, then the damage
         /// falls off for the next - every path's hit (the straight flight and the carom).</summary>
+        /// <summary>CLASH: an enemy shot on this frame's flight is cut. A basic's disc is spent on
+        /// it and comes home; an art's flies on (and one coming home cuts as it comes).</summary>
+        void LateUpdate()
+        {
+            Vector2 now = transform.position;
+            int cut = Clash.CutShots(_last, now, Core.Tuning.Clash.ShotCutRadius);
+            _last = now;
+            if (cut > 0 && !_isFinisher && !_returning) { _returning = true; _seeking = null; _hopsLeft = 0; }
+        }
+
         void Strike(Health h)
         {
+            // CLASH: the body's own strike is about to land - the disc is batted away and its blow
+            // is void, unless this is a Heavy art's disc. A basic's goes no further.
+            if (Clash.AtBody(h, (Vector2)h.transform.position - _travel, _wins))
+            {
+                if (!_isFinisher) _hopsLeft = 0;
+                return;
+            }
+
             _strikes++;
             bool first = _strikes == 1;
 
@@ -389,7 +418,7 @@ namespace Convergence.Combat
             _player?.Resource?.OnHitLanded(h, info);
             _player?.NotifyThrownHit(h, info, t, first);
 
-            Spr.Flash(where, 0.55f, ElementInfo.Tint(_element), 0.16f, false);
+            TexelFx.Hit(where, _element, _travel);
             _damage *= Falloff;
         }
 
@@ -558,7 +587,7 @@ namespace Convergence.Combat
                 _dir = Vector2.Reflect(_dir, wall.normal).normalized;
                 transform.position = pos;
                 _travel = _dir;
-                Spr.Flash(pos, 0.3f, ElementInfo.Tint(_element), 0.1f, false);
+                TexelFx.Hit(pos, _element, _dir);
                 _banking = false;
                 _lastHit = null;   // the wall is the something in between
                 if (_caromLeft-- <= 0) { _returning = true; _seeking = null; }

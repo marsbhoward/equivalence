@@ -121,6 +121,8 @@ namespace Convergence.Combat
         SpriteRenderer _sr;
         Color _base;
         float _flash;
+        // White for a blow; fire's colour for a fire TICK's blink (Tuning.FireFx.TickBlink).
+        Color _flashTint = Color.white;
         Rigidbody2D _rb;
 
         /// <summary>
@@ -222,14 +224,14 @@ namespace Convergence.Combat
                 if (rig != null) { rig.SetFlash(t); return; }
 
                 var sr = Renderer;
-                if (sr) sr.color = Color.Lerp(_base, Color.white, t);
+                if (sr) sr.color = Color.Lerp(_base, _flashTint, t);
 
                 // Baked pixel art cannot be tinted white - its body sprites get a white
                 // silhouette over them instead (see HitFlash). Not once dead: a killing blow
                 // hands the body to its death effect (a fall, a disintegration), and those draw
                 // their own pictures.
                 foreach (var f in Flashes)
-                    if (f != null) f.Amount = IsDead ? 0f : t;
+                    if (f != null) { f.Amount = IsDead ? 0f : t; f.Tint = _flashTint; }
             }
         }
 
@@ -319,7 +321,13 @@ namespace Convergence.Combat
             if (Floor > 0f) amount = Mathf.Min(amount, Current - Floor);
 
             Current -= amount;
-            _flash = 1f;
+            // A burn's TICK blinks the body toward orange instead of the white flash (the user's
+            // pick, 2026-10-25): weaker and shorter, and it never cuts short a blow's flash.
+            if (info.Tick && info.Element == ElementType.Fire)
+            {
+                if (_flash < Tuning.FireFx.TickBlink) { _flash = Tuning.FireFx.TickBlink; _flashTint = Tuning.FireFx.TickBlinkColour; }
+            }
+            else { _flash = 1f; _flashTint = Color.white; }
 
             // Immovable refuses ordinary knockback; Displaces overrides it, because a pull that
             // cannot pull is not a weaker pull, it is a broken finisher.
@@ -358,6 +366,7 @@ namespace Convergence.Combat
                 amount = Mathf.Max(0f, Current - 1f);
             Current -= amount;
             _flash = 1f;
+            _flashTint = Color.white;
             LastDamage = info;
             Damaged?.Invoke(info);
             if (Current <= 0f)

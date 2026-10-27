@@ -35,6 +35,11 @@ namespace Convergence.Combat
         bool _isFinisher;
         bool _crit;
 
+        /// <summary>CLASH (Combat.Clash): whether this arrow beats an enemy's strike, and where it
+        /// was last frame - the line it cuts enemy shots along.</summary>
+        bool _wins;
+        Vector2 _last;
+
         /// <summary>Gear's Splash and (bow-only) Pierce, as fractions of this arrow's hit.</summary>
         public float SplashFraction, PierceFraction;
 
@@ -96,6 +101,9 @@ namespace Convergence.Combat
             a._origin = go.transform.position;
             a._range = Mathf.Max(0.01f, range);
             a._target = target;
+            // A Heavy art's arrow beats an enemy's strike (Combat.Clash) - the art being loosed now.
+            a._wins = a._player != null && Clash.Wins(isFinisher, a._player.LastArtWeight);
+            a._last = go.transform.position;
 
             var sr = go.AddComponent<SpriteRenderer>();
             sr.sortingOrder = SortingOrders.Fx - 1;
@@ -104,22 +112,30 @@ namespace Convergence.Combat
             {
                 // The drawn bow's OWN arrow (the user's call, 2026-10-16 - DemoGear.BowKit), at the
                 // rig's scale, with a faint streak of the element behind it so the element still
-                // reads the way the plain capsule said it.
+                // reads the way the plain capsule said it - or, inside Ignite, a tail of flame.
                 sr.sprite = arrow;
                 sr.color = Color.white;
                 float scale = Core.Tuning.Player.ArenaVisualScale;
                 go.transform.localScale = new Vector3(scale, scale, 1f);
                 if (Art.Gear.SecretFire.HasMarks(arrow)) Art.Gear.KindledMarks.On(sr);
-                var streak = new GameObject("arrow-streak");
-                streak.transform.SetParent(go.transform, false);
-                var ssr = streak.AddComponent<SpriteRenderer>();
-                ssr.sprite = Spr.Capsule;
-                var tint = ElementInfo.Tint(element); tint.a = 0.35f;
-                ssr.color = tint;
-                ssr.sortingOrder = SortingOrders.Fx - 2;
                 float len = arrow.bounds.size.x;
-                streak.transform.localPosition = new Vector3(-len * 0.55f, 0f, 0f);
-                streak.transform.localScale = new Vector3(len * 1.1f, arrow.bounds.size.y * 0.5f, 1f);
+                // Inside Fire's Ignite the streak is a flame tail from the fletching instead
+                // (Combat.FlameTrail - the sword's smear, laid along the shot).
+                if (a._player != null && a._player.Igniting)
+                    FlameTrail.Behind(go.transform, sr, new Vector2(-len * 0.5f, 0f), Core.Tuning.FireFx.TrailArrowWindow,
+                                      Core.Tuning.FireFx.TrailArrowRadius, SortingOrders.Fx - 2);
+                else
+                {
+                    var streak = new GameObject("arrow-streak");
+                    streak.transform.SetParent(go.transform, false);
+                    var ssr = streak.AddComponent<SpriteRenderer>();
+                    ssr.sprite = Spr.Capsule;
+                    var tint = ElementInfo.Tint(element); tint.a = 0.35f;
+                    ssr.color = tint;
+                    ssr.sortingOrder = SortingOrders.Fx - 2;
+                    streak.transform.localPosition = new Vector3(-len * 0.55f, 0f, 0f);
+                    streak.transform.localScale = new Vector3(len * 1.1f, arrow.bounds.size.y * 0.5f, 1f);
+                }
             }
             else
             {
@@ -292,8 +308,22 @@ namespace Convergence.Combat
             Destroy(gameObject);
         }
 
+        /// <summary>CLASH: an enemy shot on this frame's flight is cut. A basic's arrow is spent on
+        /// it; an art's flies on.</summary>
+        void LateUpdate()
+        {
+            Vector2 now = transform.position;
+            int cut = Clash.CutShots(_last, now, Core.Tuning.Clash.ShotCutRadius);
+            _last = now;
+            if (cut > 0 && !_isFinisher) Destroy(gameObject);
+        }
+
         void HitBody(Health body, float scale, bool first)
         {
+            // CLASH: the body's own strike is about to land - the arrow is batted away and its blow
+            // is void, unless this is a Heavy art's arrow.
+            if (Clash.AtBody(body, (Vector2)body.transform.position - _travel, _wins)) return;
+
             // Measured against the ORIGIN (where the shot was released), not the player's live
             // position - the same rule ThrownDisc's own FarFraction/NearFraction curves use, so
             // a recoil or a dash mid-flight cannot cheapen or inflate a shot already in the air.
@@ -330,7 +360,7 @@ namespace Convergence.Combat
             _player?.NotifyThrownHit(body, info, t, first, BasicsWorth);
             OnHit?.Invoke(body, info);
 
-            Spr.Flash(where, 0.4f, ElementInfo.Tint(_element), 0.14f, false);
+            TexelFx.Hit(where, _element, _travel);
         }
     }
 }

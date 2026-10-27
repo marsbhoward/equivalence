@@ -9,12 +9,12 @@ namespace Convergence.Puzzles
     /// plays the CALL (stones light in a phrase), and the player ANSWERS by stepping the same
     /// stones in the same order. One wrong stone fails it.
     ///
-    /// Deliberately the Cantor's grammar - call, then the same notes answered in the same order -
+    /// Deliberately the Wreathe's grammar - call, then the same notes answered in the same order -
     /// met on a floor where getting it wrong costs a fight rather than a life. A player who has
     /// solved a few of these walks into floor 25 already knowing how to read the boss.
     ///
     /// The call can be replayed from the centre until the first stone is answered; after that the
-    /// player is committed. No immediate repeats in a phrase (the Cantor's rule too): two lights
+    /// player is committed. No immediate repeats in a phrase (the Wreathe's rule too): two lights
     /// on one stone in a row read as one long light.
     /// </summary>
     public class EchoPuzzle : PuzzleRoom

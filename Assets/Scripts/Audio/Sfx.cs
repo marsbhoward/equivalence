@@ -19,6 +19,8 @@ namespace Convergence.Audio
         Sing, Toll, Erupt, Blink, Enrage, Vulnerable, Seal, BossDeath,
         Rattle, GazeLook, Petrify, Push, Pull, Chip, Rubble,
         Arrive, ArriveNigredo,
+        Clash,
+        Hiss, Spit,
     }
 
     public enum Bed { None, Hub, Crypt, Deep, Abyss, Throne, Boss, Forest, Sky, Salt, Nigredo }
@@ -63,7 +65,7 @@ namespace Convergence.Audio
             => Play(sound, -1, at, gain, ambient);
 
         /// <summary>A CHOSEN variant (<paramref name="variant"/> 0 up; -1 picks at random) - the
-        /// Cantor's note for a slice is that slice's, every time.</summary>
+        /// Wreathe's note for a slice is that slice's, every time.</summary>
         public static void Play(Sound sound, int variant, Vector2? at = null, float gain = 1f, bool ambient = false)
         {
             var host = AudioHost.Get();
@@ -138,6 +140,8 @@ namespace Convergence.Audio
                 Sound.Seal => one(g.Seal), Sound.BossDeath => one(g.BossDeath), Sound.Rattle => many(g.Rattle),
                 Sound.GazeLook => one(g.GazeLook), Sound.Petrify => one(g.Petrify), Sound.Push => one(g.Push),
                 Sound.Pull => one(g.Pull), Sound.Chip => many(g.Chip), Sound.Rubble => many(g.Rubble),
+                Sound.Clash => many(g.Clash),
+                Sound.Hiss => many(g.Hiss), Sound.Spit => many(g.Spit),
                 _ => null,
             };
         }
@@ -150,7 +154,8 @@ namespace Convergence.Audio
                 Sound.ReleaseFire or Sound.ReleaseWater or Sound.ReleaseEarth or Sound.ReleaseAir => 1,
                 Sound.Charge or Sound.FuseTick or Sound.FloorClear or Sound.DoorOpen => 1,
                 Sound.Roar or Sound.Explosion or Sound.Flame or Sound.Slam => 2,
-                Sound.Sing or Sound.Toll => 8,   // one per Cantor slice - the variant IS the note
+                Sound.Sing => 16,   // the Wreathe's zones: a slice's note, 8-15 an octave down (its inner half)
+                Sound.Toll => 17,   // the same, and 16 the answer's neutral clock bell
                 Sound.Enrage or Sound.Vulnerable or Sound.Seal or Sound.BossDeath or Sound.GazeLook
                     or Sound.Petrify or Sound.Push or Sound.Pull => 1,
                 Sound.Rubble or Sound.Erupt or Sound.Blink => 3,
@@ -213,8 +218,8 @@ namespace Convergence.Audio
                     Sound.Swipe => Synth.Swipe(seed),
                     Sound.FloorClear => Synth.FloorClear(),
                     Sound.DoorOpen => Synth.DoorOpen(),
-                    Sound.Sing => Synth.Sing(Synth.SliceNote(i)),
-                    Sound.Toll => Synth.Toll(Synth.SliceNote(i)),
+                    Sound.Sing => Synth.Sing(Synth.ZoneNote(i)),
+                    Sound.Toll => Synth.Toll(i == 16 ? Synth.NeutralBell : Synth.ZoneNote(i)),
                     Sound.Erupt => Synth.Erupt(seed),
                     Sound.Blink => Synth.Blink(seed),
                     Sound.Enrage => Synth.Enrage(),
@@ -230,6 +235,9 @@ namespace Convergence.Audio
                     Sound.Rubble => Synth.Rubble(seed),
                     Sound.Arrive => Synth.Arrive(i, seed),
                     Sound.ArriveNigredo => Synth.Arrive(4, seed),
+                    Sound.Clash => Synth.Clash(seed),
+                    Sound.Hiss => Synth.SerpentHiss(seed),
+                    Sound.Spit => Synth.Spit(seed),
                     _ => new float[Synth.Rate / 10],
                 };
                 set[i] = Synth.Clip($"{s}_{i}", data);

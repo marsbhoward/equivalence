@@ -46,7 +46,6 @@ namespace Convergence.Player
             var go = new GameObject("landing.zone");
             go.transform.SetParent(player.transform, false);
             z._ring = go.AddComponent<SpriteRenderer>();
-            z._ring.sprite = Spr.ThinRing;
             z._ring.sortingOrder = SortingOrders.GroundDecal + 1;
             z._ring.enabled = false;
             return z;
@@ -60,9 +59,14 @@ namespace Convergence.Player
             _ring.enabled = radius > 0f;
             if (!_ring.enabled) return;
 
-            _ring.transform.position = _player.ImpactCentre;   // ahead of a directed leap
-            _ring.transform.localScale = Vector3.one * radius * 2f;
-            _ring.transform.localRotation = Quaternion.identity;
+            // A crisp texel ring (the user's pick, group 2 - "closing rings"; the rings closing in on
+            // it are LeapStrike's), on the floor: the landing point less the root's height.
+            _ring.sprite = Combat.TexelFx.RingSprite(radius);
+            var floor = _player.ImpactCentre + (Combat.ReleaseCanvas.Feet(_player.transform) - (Vector2)_player.transform.position);
+            _ring.transform.position = floor;
+            var s = _ring.transform.parent != null ? _ring.transform.parent.lossyScale : Vector3.one;
+            _ring.transform.localScale = new Vector3(1f / Mathf.Max(1e-4f, s.x), 1f / Mathf.Max(1e-4f, s.y), 1f);
+            _ring.transform.rotation = Quaternion.identity;
 
             float pulse = Mathf.Pow(0.5f + 0.5f * Mathf.Sin(Time.time * PulseSpeed * Mathf.PI * 2f),
                                     PulseSharpness);

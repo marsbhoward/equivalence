@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Generic;
 using UnityEngine;
+using Convergence.Art.Lighting;
 using Convergence.Combat;
 using Convergence.Core;
 using Convergence.Enemies;
@@ -8,28 +9,37 @@ using Convergence.Enemies;
 namespace Convergence.Bosses
 {
     /// <summary>
-    /// Medusa: a gaze in the middle of a ring of pillars. She NEVER attacks the player - the
-    /// whole fight is one rule, be behind a pillar when she looks, and everything else she does
+    /// Medusa: a gaze in the middle of a ring of pillars. She NEVER attacks the player directly -
+    /// the whole fight is one rule, be behind a pillar when she looks, and everything else she does
     /// exists to make keeping it hard. See <see cref="Tuning.Medusa"/> for every number.
     ///
-    ///     BREAK      a pillar shakes and shatters (and, deep enough, a PUSH or PULL lands on the
-    ///                same beat)
-    ///     GAZE       the arena fills red everywhere her gaze would reach - the pillars' shadows
-    ///                stay clear - and then she looks. Anyone in the open takes half their max
-    ///                health and turns to STONE for the window
-    ///     OPEN       she is vulnerable, capped by Boss.WindowCap like every boss. A statue
-    ///                misses it, and her adds can still hurt it (through stone skin)
-    ///     DEBRIS     falling circles; once half the ring is gone, some of them bring pillars back
+    ///     BREAK      cracks climb a pillar and it shatters (deep enough, her TAIL heaves on the same
+    ///                beat: a push or pull)
+    ///     GAZE       the red fills outward from her everywhere her gaze would reach - the pillars'
+    ///                shadows stay clear - while the scales of justice tip (the clock) and her hand
+    ///                grips the blindfold; she tears it away and LOOKS. Anyone in the open takes half
+    ///                their max health and turns to STONE for the window
+    ///     OPEN       she drops the scales and slumps, open, capped by Boss.WindowCap like every
+    ///                boss. A statue misses it, and her adds can still hurt it (through stone skin)
+    ///     DEBRIS     stones fall near the player; once half the ring is gone, some are pillars
+    ///                coming back
+    ///
+    /// The user's design (group 5, 2026-10-26): a lamia Justice - see <see cref="MedusaCanvas"/>.
+    /// Enraged, her THIRD EYE opens, and before each gaze it turns the player's pillar to GLASS:
+    /// it casts no shadow (<see cref="PillarRing.GlassMask"/>). By band she breaks the player's own
+    /// pillar (1), spits venom through the tell (2), drops stones in the tell too (3), and looks
+    /// twice a cycle (4) - <see cref="Tuning.EnemyBands"/>.
     ///
     /// THE RING IS THE AUTHORITY. Whether her gaze reaches a point is <see cref="PillarRing.Shadowed"/>,
-    /// and the red is painted from that same call, so what the player sees is what decides.
+    /// and the red is painted from that same call (<see cref="MedusaGaze"/>), so what the player
+    /// sees is what decides.
     ///
     /// Getting caught costs the WINDOW, not just health - the fight gets longer. That is a
     /// punishment no gear can buy off, and it never ends a run on its own: stone skin
     /// (Tuning.Medusa.StoneSkinBase) is sized so a full-health statue survives its adds.
     ///
-    /// Driven from one coroutine, like the Cantor (see its header). Everything she puts in the
-    /// room - ring, red, debris, adds - lives under one object Cease destroys.
+    /// Driven from one coroutine, like the Wreathe (see its header). Everything she puts in the
+    /// room - ring, red, debris, venom, adds - lives under one object Cease destroys.
     /// </summary>
     public class Medusa : Boss
     {
@@ -51,42 +61,40 @@ namespace Convergence.Bosses
         /// <summary>The ring, for tests and the HUD. Null once she is gone.</summary>
         public PillarRing Ring => _ring;
 
-        Transform _room;
-        PillarRing _ring;
-        GazeShade _shade;
-        SpriteRenderer _halo, _hair, _body, _eye;
+        [SerializeField] Transform _room;
+        [SerializeField] PillarRing _ring;
+        [SerializeField] MedusaGaze _gaze;
+        [SerializeField] MedusaFigure _figure;
+        [SerializeField] Glow _glow;
 
         // Non-readonly and re-created if null - see CLAUDE.md, Domain reload traps.
         List<EnemyController> _adds = new();
 
         bool _pushing;
-        float _hairSpin = 20f;
+        bool _caughtThisCycle;
 
-        static readonly Color Scale = new(0.34f, 0.52f, 0.40f);
-        static readonly Color Serpent = new(0.42f, 0.70f, 0.38f);
-        static readonly Color SerpentEnraged = new(0.80f, 0.38f, 0.30f);
-        static readonly Color Open = new(1f, 0.92f, 0.55f);
-        static readonly Color EyeDim = new(0.70f, 0.62f, 0.24f);
-        static readonly Color EyeLit = new(1f, 0.95f, 0.55f);
-        static readonly Color StoneDust = new(0.74f, 0.72f, 0.66f);
-        static readonly Color Warn = new(1f, 0.55f, 0.25f);
+        static readonly Color HerLight = new(0.78f, 0.92f, 0.82f);
+        static readonly Color OpenLight = new(1f, 0.86f, 0.45f);
+        static readonly Color EyeLight = new(1f, 1f, 1f);
+
+        int Band => RunFormat.EnemyBand(Floor);
+
+        /// <summary>Where her eyes are, in the world - the third eye's sight line and the look's flash.</summary>
+        Vector2 Eyes => (Vector2)transform.position + Vector2.up * ((MedusaCanvas.Base - 8) / TexelFx.Body);
 
         public static Medusa Spawn(Vector2 at, Transform target, Transform parent, int floor)
         {
             var b = CreateBody<Medusa>("boss.medusa", at, target, parent, floor, 0.6f, Tuning.Boss.Hp);
-            var t = b.transform;
 
-            b._halo = Quad(t, "halo", 3.0f, new Color(Serpent.r, Serpent.g, Serpent.b, 0.25f),
-                           SortingOrders.Fx - 3, Spr.Glow);
-            b._hair = Quad(t, "hair", 1.9f, Serpent, SortingOrders.Enemy, Spr.SegmentedRing(9));
-            b._body = Quad(t, "body", 1.2f, Scale, SortingOrders.Enemy + 1, Spr.Circle);
-            b._eye = Quad(t, "eye", 0.42f, EyeDim, SortingOrders.Enemy + 2, Spr.Circle);
+            b._figure = TexelPicture.Attach<MedusaFigure>(b.transform, "figure", Vector2.zero, 38, 10, 62, 0);
+            DepthSorted.Attach(b.gameObject, 0f, false, b._figure.GetComponent<SpriteRenderer>());
+            b._glow = Glow.Attach(b.gameObject, 3.0f, HerLight, 0.75f, 0.05f);
 
             var room = new GameObject("medusa.room");
             room.transform.SetParent(parent, false);
             b._room = room.transform;
             b._ring = PillarRing.Build(b._room, at);
-            b._shade = GazeShade.Build(b._room);
+            b._gaze = MedusaGaze.Build(b._room, b._ring, at);
 
             // Her temple comes down with her. Registered before GameBootstrap's own Died handler
             // (which Ceases and destroys her), so the pillars shatter visibly first.
@@ -110,20 +118,27 @@ namespace Convergence.Bosses
             if (_room != null) Destroy(_room.gameObject);
             _room = null;
             _ring = null;
-            _shade = null;
+            _gaze = null;
         }
 
         void OnSlain()
         {
             if (_ring == null) return;
-            for (int i = 0; i < _ring.Count; i++)
-                if (_ring.Standing(i)) Spr.Flash(_ring.SlotPosition(i), 1.4f, StoneDust, 0.6f);
+            _ring.GlassMask = 0;
             _ring.ShatterAll();
         }
 
+        /// <summary>Her own stone (the user's pick): it climbs her from the tail and she breaks into
+        /// a heap that lies there until the floor ends.</summary>
+        public override void DeathPicture()
+            => MedusaDeath.At(transform.position, _figure != null ? _figure.Look : default);
+
         void Update()
         {
-            if (_hair != null) _hair.transform.Rotate(0f, 0f, _hairSpin * Time.deltaTime);
+            if (_figure == null) return;
+            // The third eye opens at the enrage and stays open.
+            if (Enraged && _figure.Look.ThirdOpen < 1f)
+                _figure.Look.ThirdOpen = Mathf.Min(1f, _figure.Look.ThirdOpen + Time.deltaTime / 0.8f);
         }
 
         // ------------------------------------------------------------------ the fight
@@ -131,7 +146,7 @@ namespace Convergence.Bosses
         IEnumerator Fight()
         {
             int token = ++Token;
-            SetOpen(false);
+            SetOpen(0f);
 
             // The room settles before anything happens - the player arrives, in cover, and sees
             // the ring before being asked anything of it.
@@ -142,14 +157,15 @@ namespace Convergence.Bosses
             {
                 CheckEnrage(Tuning.Medusa.EnrageAt);
                 bool opening = Cycle == 0;
+                _caughtThisCycle = false;
 
-                if (Core.RunFormat.Depth(Floor) >= Tuning.Medusa.AddsFromFloor) SummonAdds();
+                if (RunFormat.Depth(Floor) >= Tuning.Medusa.AddsFromFloor) SummonAdds(token);
 
                 // The opening has no break: the player has never seen the rule, and taking their
                 // cover before the first look would teach "the ring lies" instead.
                 if (!opening)
                 {
-                    yield return Break(token);
+                    yield return Break(token, Tuning.Medusa.BreakWarnSeconds, Band >= Tuning.EnemyBands.MedusaBreaksYoursFromBand, true);
                     if (token != Token) yield break;
                 }
 
@@ -158,6 +174,15 @@ namespace Convergence.Bosses
                            : Tuning.Medusa.TelegraphSeconds;
                 yield return Gaze(token, tell);
                 if (token != Token) yield break;
+
+                // Band 4: she breaks your pillar and LOOKS AGAIN before the window opens.
+                if (!opening && Band >= Tuning.EnemyBands.MedusaLooksTwiceFromBand)
+                {
+                    yield return Break(token, Tuning.Medusa.SecondBreakWarnSeconds, true, false);
+                    if (token != Token) yield break;
+                    yield return Gaze(token, Tuning.Medusa.SecondTellSeconds);
+                    if (token != Token) yield break;
+                }
 
                 yield return Window(token);
                 if (token != Token) yield break;
@@ -174,44 +199,46 @@ namespace Convergence.Bosses
 
         // ------------------------------------------------------------------ BREAK
 
-        IEnumerator Break(int token)
+        /// <summary>Cracks climb a pillar for <paramref name="warn"/> (the clock), it shudders at
+        /// the end, and it shatters. <paramref name="yours"/>: the pillar hiding the player (band 1),
+        /// else any. <paramref name="mayPush"/>: deep enough, her tail heaves a push or pull on the
+        /// same beat.</summary>
+        IEnumerator Break(int token, float warn, bool yours, bool mayPush)
         {
             Phase = Movement.Stirring;
 
             // The push or pull lands on the same beat as the break, so the player re-reads the
             // ring and their own position at once - and with the red about to start.
-            if (Core.RunFormat.Depth(Floor) >= Tuning.Medusa.PushPullFromFloor && Target != null)
+            if (mayPush && RunFormat.Depth(Floor) >= Tuning.Medusa.PushPullFromFloor && Target != null)
                 StartCoroutine(PushPull(token, pull: Random.value < 0.5f));
 
-            int pick = RandomStanding();
+            int pick = yours && _ring != null && Target != null ? _ring.CoverOf(transform.position, ReleaseCanvas.Feet(Target)) : RandomStanding();
             var col = _ring != null ? _ring.At(pick) : null;
-            float warn = Tuning.Medusa.BreakWarnSeconds;
+            var cracks = PillarCracks.On(col);
             float t = 0f, cue = 0f;
             while (t < warn)
             {
-                // The player may break it themselves while it shakes - then there is nothing left
+                // The player may break it themselves while it cracks - then there is nothing left
                 // to break, and the warning has said all it needed to.
                 if (col == null || col.Broken) break;
 
                 t += Time.deltaTime;
+                float k = t / warn;
+                if (cracks != null) cracks.Climb = k;
+                // It shudders through the last third, by a texel.
+                col.Shake(k > 0.66f ? (Mathf.FloorToInt(Time.time * 24f) % 2 == 0 ? 1 : -1) : 0);
                 cue -= Time.deltaTime;
                 if (cue <= 0f)
                 {
                     // Faster as it goes, so how long is left reads at a glance.
-                    cue = Mathf.Lerp(0.28f, 0.09f, t / warn);
+                    cue = Mathf.Lerp(0.28f, 0.09f, k);
                     Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Chip, col.transform.position, 0.6f);
-                    Spr.Pulse(col.transform, PillarRing.PillarRadius * 2.4f,
-                              new Color(Warn.r, Warn.g, Warn.b, 0.55f), 0.22f, true, 0.25f);
                 }
                 yield return null;
                 if (token != Token) yield break;
             }
 
-            if (col != null && !col.Broken)
-            {
-                Spr.Flash(col.transform.position, 1.5f, StoneDust, 0.5f);
-                col.Break();
-            }
+            if (col != null && !col.Broken) col.Break();   // its rubble is the place's own (group 4)
 
             while (_pushing)
             {
@@ -238,34 +265,26 @@ namespace Convergence.Bosses
         /// THROUGH the ring (pillar collisions are suspended for the drag): a pull a pillar could
         /// stop would never move the player it is aimed at, who is by definition behind one.
         ///
-        /// Telegraphed by a ring rushing out from her (push) or in toward her (pull) for the
-        /// wind-up, so the direction is readable before it lands. Neither does damage - a zero
-        /// hit would still flash, wear armour and fire every Damaged listener.
+        /// Her TAIL does it (the user's call): the coil heaves twice through the wind-up and a ring
+        /// of dust rolls out across the floor (push) or is drawn in to her (pull). Neither does
+        /// damage - a zero hit would still flash, wear armour and fire every Damaged listener.
         /// </summary>
         IEnumerator PushPull(int token, bool pull)
         {
             _pushing = true;
             Convergence.Audio.Sfx.Play(pull ? Convergence.Audio.Sound.Pull : Convergence.Audio.Sound.Push, transform.position);
-            var tint = pull ? new Color(0.70f, 0.45f, 1f) : new Color(0.55f, 1f, 0.60f);
-            var wave = Quad(transform, pull ? "pull" : "push", 1f, tint, SortingOrders.Fx - 2, Spr.ThinRing);
+            float windup = Tuning.Medusa.PushPullWindupSeconds;
+            if (_room != null) DustRing.At(_room, transform.position, windup, pull);
 
-            float t = 0f, windup = Tuning.Medusa.PushPullWindupSeconds;
+            float t = 0f;
             while (t < windup)
             {
                 t += Time.deltaTime;
-                float k = Mathf.Clamp01(t / windup);
-                // Two passes of the ring in the wind-up - one reads as a pulse, two as a direction.
-                float pass = (k * 2f) % 1f;
-                float size = pull ? Mathf.Lerp(12f, 1.2f, pass) : Mathf.Lerp(1.2f, 12f, pass);
-                if (wave != null)
-                {
-                    wave.transform.localScale = Vector3.one * size;
-                    wave.color = new Color(tint.r, tint.g, tint.b, 0.75f * (1f - Mathf.Abs(pass - 0.5f)));
-                }
+                if (_figure != null) _figure.Look.Loosen = Mathf.Abs(Mathf.Sin(t / windup * Mathf.PI * 2f)) * 0.6f;
                 yield return null;
-                if (token != Token) { if (wave != null) Destroy(wave.gameObject); _pushing = false; yield break; }
+                if (token != Token) { _pushing = false; yield break; }
             }
-            if (wave != null) Destroy(wave.gameObject);
+            if (_figure != null) _figure.Look.Loosen = 0f;
 
             var pc = Target != null ? Target.GetComponent<Player.PlayerController>() : null;
             if (pc != null && pc.Health != null && !pc.Health.IsDead)
@@ -282,7 +301,7 @@ namespace Convergence.Bosses
                     float seconds = travel / speed;
                     if (pull) IgnorePillars(true);
                     pc.Dash(pull ? -dir : dir, speed, seconds);
-                    Spr.Pulse(Target, 1.1f, tint, 0.3f);
+                    TexelFx.Puff(ReleaseCanvas.Feet(Target), TexelFx.RubbleOf(true), 10, 7f, 0.4f, TexelFx.Ground);
                     yield return new WaitForSeconds(seconds + 0.06f);
                     if (pull) IgnorePillars(false);
                 }
@@ -310,8 +329,24 @@ namespace Convergence.Bosses
         IEnumerator Gaze(int token, float tell)
         {
             Phase = Movement.Gaze;
-            _shade.Invalidate();
-            _hairSpin = 60f;
+
+            // Enraged, her third eye fixes the pillar the player hides behind: it turns to glass
+            // and casts no shadow for this look.
+            if (Enraged && _ring != null && Target != null)
+            {
+                int slot = _ring.CoverOf(transform.position, ReleaseCanvas.Feet(Target));
+                if (slot >= 0)
+                {
+                    _ring.GlassMask = 1 << slot;
+                    if (_room != null) SightLine.Draw(_room, Eyes + Vector2.up * (3f / TexelFx.Body), _ring.SlotPosition(slot) + Vector2.up * 0.8f);
+                    StartCoroutine(GlassIn(token));
+                }
+            }
+
+            // Band 2: venom lobbed over the pillars at the player through the tell.
+            if (Band >= Tuning.EnemyBands.MedusaVenomFromBand) StartCoroutine(Venom(token, tell));
+            // Band 3: stones fall near the player during the tell too.
+            if (Band >= Tuning.EnemyBands.MedusaTellDebrisFromBand) StartCoroutine(TellDebris(token, tell));
 
             float t = 0f, rattle = 0f;
             while (t < tell)
@@ -327,46 +362,105 @@ namespace Convergence.Bosses
                     Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Rattle, transform.position, Mathf.Lerp(0.5f, 1f, k));
                 }
 
-                // Repaints only if a pillar broke since the last paint - the player can break
-                // their own cover mid-telegraph, and the picture must say so the frame it happens.
-                _shade.Paint(_ring, transform.position);
-
-                // Ramps rather than switching on, and beats faster as it fills: the player is
-                // reading a CLOCK, not a light.
-                float beat = Mathf.PingPong(Time.time * (2f + k * 7f), 1f) * 0.06f;
-                _shade.SetStrength(Mathf.Lerp(0.06f, 0.40f, k * k) + beat);
-                if (_eye != null) _eye.color = Color.Lerp(EyeDim, EyeLit, k);
-                _hairSpin = Mathf.Lerp(60f, 260f, k);
+                // The red fills outward (the clock); the scales tip (the clock again, on her); her
+                // hand grips the blindfold at once and holds it there (the user's pick).
+                if (_gaze != null) _gaze.Fill = k;
+                if (_figure != null)
+                {
+                    _figure.Look.Tilt = k;
+                    _figure.Look.HandUp = Mathf.Clamp01(t / 0.3f);
+                    _figure.Look.FoldDown = t >= tell - 0.12f ? 1f : 0f;
+                }
 
                 yield return null;
                 if (token != Token) yield break;
             }
 
             // She LOOKS - held for GazeHoldSeconds, so a dash's i-frames cannot step through it.
-            Spr.Flash(transform.position, 2.6f, EyeLit, 0.4f);
+            if (_gaze != null) _gaze.Look();
+            Glow.Flash(Eyes, 3.4f, EyeLight, 0.45f);
             Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.GazeLook, transform.position);
-            if (_eye != null) _eye.color = Color.white;
-            bool caught = false;
+            if (_figure != null) { _figure.Look.FoldDown = 1f; _figure.Look.EyeLit = 1f; }
             float g = 0f;
             while (g < Tuning.Medusa.GazeHoldSeconds)
             {
                 g += Time.deltaTime;
-                _shade.Paint(_ring, transform.position);
-                _shade.SetStrength(0.62f);
-                if (!caught) caught = TryCatch();
+                if (_figure != null) _figure.Look.Tears = g / 0.5f;
+                if (!_caughtThisCycle) _caughtThisCycle = TryCatch();
                 yield return null;
                 if (token != Token) yield break;
             }
 
-            for (float f = 0f; f < 0.3f; f += Time.deltaTime)
+            // The blindfold back up, the scales level, the glass stone again.
+            if (_ring != null) { _ring.GlassMask = 0; _ring.ShowGlass(0f); }
+            for (float f = 0f; f < 0.4f; f += Time.deltaTime)
             {
-                _shade.SetStrength(Mathf.Lerp(0.62f, 0f, f / 0.3f));
+                float u = f / 0.4f;
+                if (_figure != null)
+                {
+                    _figure.Look.EyeLit = 0f;
+                    _figure.Look.Tears = Mathf.Min(1f, (g + f) / 0.5f);
+                    _figure.Look.Tilt = 1f - u;
+                    _figure.Look.HandUp = 1f - u;
+                    _figure.Look.FoldDown = u > 0.5f ? 0f : 1f;
+                }
                 yield return null;
                 if (token != Token) yield break;
             }
-            _shade.SetStrength(0f);
-            if (_eye != null) _eye.color = EyeDim;
-            _hairSpin = 20f;
+            if (_figure != null) { _figure.Look.Tilt = 0f; _figure.Look.HandUp = 0f; _figure.Look.FoldDown = 0f; _figure.Look.Tears = 0f; }
+        }
+
+        IEnumerator GlassIn(int token)
+        {
+            for (float t = 0f; t < Tuning.Medusa.GlassSeconds; t += Time.deltaTime)
+            {
+                if (token != Token || _ring == null) yield break;
+                _ring.ShowGlass(t / Tuning.Medusa.GlassSeconds);
+                yield return null;
+            }
+            if (_ring != null && _ring.GlassMask != 0) _ring.ShowGlass(1f);
+        }
+
+        IEnumerator Venom(int token, float tell)
+        {
+            int n = Tuning.Medusa.VenomCount;
+            float flight = Tuning.Medusa.VenomFlightSeconds;
+            // Spread through the tell, the last landing before the look.
+            float span = Mathf.Max(0.2f, tell - flight - 0.25f), gap = span / Mathf.Max(1, n);
+            yield return new WaitForSeconds(0.25f);
+            for (int i = 0; i < n; i++)
+            {
+                if (token != Token || Target == null || _room == null) yield break;
+                var at = ReleaseCanvas.Feet(Target) + Random.insideUnitCircle * 0.5f;
+                float dmg = Tuning.Medusa.VenomDamage * FloorDifficulty.Damage(Floor);
+                VenomShot.Lob(_room, Eyes + Vector2.up * (6f / TexelFx.Body), at, Target, dmg);
+                StartCoroutine(HissPulse(token, 0.25f));
+                yield return new WaitForSeconds(gap);
+            }
+        }
+
+        IEnumerator TellDebris(int token, float tell)
+        {
+            float warn = Tuning.Medusa.DebrisWarnSeconds;
+            int n = Tuning.Medusa.TellDebrisCount;
+            float span = Mathf.Max(0.1f, tell - warn - 0.1f);
+            for (int i = 0; i < n; i++)
+            {
+                yield return new WaitForSeconds(i == 0 ? span * 0.15f : span * 0.6f / Mathf.Max(1, n - 1));
+                if (token != Token) yield break;
+                StartCoroutine(Fall(token, LoosePoint(), Tuning.Medusa.DebrisRadius, -1));
+            }
+        }
+
+        IEnumerator HissPulse(int token, float seconds)
+        {
+            for (float t = 0f; t < seconds; t += Time.deltaTime)
+            {
+                if (token != Token || _figure == null) yield break;
+                _figure.Look.Hiss = Mathf.Sin(t / seconds * Mathf.PI);
+                yield return null;
+            }
+            if (_figure != null) _figure.Look.Hiss = 0f;
         }
 
         /// <summary>
@@ -387,11 +481,12 @@ namespace Convergence.Bosses
 
             float window = Enraged ? Tuning.Medusa.WindowSecondsEnraged : Tuning.Medusa.WindowSeconds;
             // Both depth curves cancelled: on stone, adds hit like floor-1 enemies (see StoneSkinBase).
+            // Long enough to cover a second look too (band 4); the window's end ends it regardless.
             float skin = Tuning.Medusa.StoneSkinBase * FloorDifficulty.AttackInterval(Floor)
                        / Mathf.Max(1f, FloorDifficulty.Damage(Floor));
-            StatusEffects.Get(Target.gameObject).ApplyStone(window + 2f, skin);
+            StatusEffects.Get(Target.gameObject).ApplyStone(window + 2f + Tuning.Medusa.SecondTellSeconds + Tuning.Medusa.SecondBreakWarnSeconds + 1f, skin);
             Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Petrify, Target.position);
-            Spr.Flash(Target.position, 1.3f, StoneDust, 0.5f);
+            TexelFx.Dust(ReleaseCanvas.Feet(Target), MedusaCanvas.Stone, 0.6f);
             return true;
         }
 
@@ -408,7 +503,6 @@ namespace Convergence.Bosses
         {
             Phase = Movement.Open;
             OpenWindow();       // the per-window cap - see Boss.OpenWindow
-            SetOpen(true);
 
             float seconds = Enraged ? Tuning.Medusa.WindowSecondsEnraged : Tuning.Medusa.WindowSeconds;
             float t = 0f;
@@ -416,33 +510,43 @@ namespace Convergence.Bosses
             {
                 if (WindowSpent) break;
                 t += Time.deltaTime;
-                // The eye pulses faster as the window closes, as the Cantor's core does.
+                SetOpen(Mathf.Clamp01(t / 0.5f));
+                // The gem at her girdle beats faster as the window closes, as the Wreathe's heart does.
                 float k = t / seconds;
-                float beat = Mathf.PingPong(Time.time * (3f + k * 6f), 1f);
-                if (_eye != null) _eye.color = Color.Lerp(Open, Color.white, beat);
+                if (_figure != null) _figure.Look.Gem = Mathf.PingPong(Time.time * (3f + k * 6f), 1f) > 0.5f ? 2 : 1;
                 yield return null;
                 if (token != Token) yield break;
             }
 
             CloseWindow();
-            SetOpen(false);
+            if (_figure != null) _figure.Look.Gem = 0;
+            // She takes the scales back up.
+            for (float f = 0f; f < 0.4f; f += Time.deltaTime)
+            {
+                SetOpen(1f - f / 0.4f);
+                yield return null;
+                if (token != Token) yield break;
+            }
+            SetOpen(0f);
 
             // The stone covered the window and nothing past it: the statue is flesh again the
             // moment she can no longer be hit, whatever the timer said.
             EndPlayerStone();
         }
 
-        void SetOpen(bool open)
+        /// <summary>0 shut .. 1 open (the user's pick): the scales fall from her hand to the floor,
+        /// she slumps forward over them with her eyes shut; her light turns gold.</summary>
+        void SetOpen(float k)
         {
-            var hair = Enraged ? SerpentEnraged : Serpent;
-            if (_body != null) _body.color = open ? Open : Scale;
-            if (_hair != null) _hair.color = open ? Color.Lerp(hair, Open, 0.5f) : hair;
-            if (_halo != null)
+            if (_figure != null)
             {
-                var c = open ? Open : hair;
-                _halo.color = new Color(c.r, c.g, c.b, open ? 0.5f : 0.25f);
+                _figure.Look.DropScales = k;
+                _figure.Look.Bow = k;
+                _figure.Look.Sink = Mathf.RoundToInt(k * 2f);
+                _figure.Look.Limp = k * 0.6f;
+                _figure.Look.Shut = k > 0.5f;
             }
-            if (_eye != null && !open) _eye.color = EyeDim;
+            if (_glow != null) _glow.Color = Color.Lerp(HerLight, OpenLight, k);
         }
 
         // ------------------------------------------------------------------ DEBRIS
@@ -462,8 +566,8 @@ namespace Convergence.Bosses
                 for (int i = 0; i < _ring.Count; i++)
                     if (!_ring.Standing(i)) jobs.Add(i);
 
-            int loose = Core.RunFormat.Depth(Floor) >= Tuning.Medusa.AddsFromFloor ? Tuning.Medusa.DebrisCountDeep
-                                                             : Tuning.Medusa.DebrisCount;
+            int loose = RunFormat.Depth(Floor) >= Tuning.Medusa.AddsFromFloor ? Tuning.Medusa.DebrisCountDeep
+                                                                               : Tuning.Medusa.DebrisCount;
             for (int i = 0; i < loose; i++) jobs.Add(-1);
             for (int i = jobs.Count - 1; i > 0; i--)
             {
@@ -494,43 +598,23 @@ namespace Convergence.Bosses
             return Arena.Clamp(around + Random.insideUnitCircle * 3.5f, 1f);
         }
 
+        /// <summary>A warned stone (the user's pick: a hard red edge filling inward, the stone itself
+        /// seen coming down the whole time), one test at impact.</summary>
         IEnumerator Fall(int token, Vector2 at, float radius, int slot)
         {
             if (_room == null) yield break;
-            var go = new GameObject(slot >= 0 ? "medusa.pillarfall" : "medusa.debris");
-            go.transform.SetParent(_room, false);
-            go.transform.position = at;
-
-            // On the ground, over the red's layer, under every body: the circle is what the
-            // player reads to step out of, so a body standing in it has to stay visible on top.
-            var shadow = Quad(go.transform, "shadow", 0.2f, new Color(0f, 0f, 0f, 0.15f),
-                              SortingOrders.PitBase + 8, Spr.Circle);
-            var rim = Quad(go.transform, "rim", radius * 2f, new Color(Warn.r, Warn.g, Warn.b, 0.5f),
-                           SortingOrders.PitBase + 9, Spr.ThinRing);
-
             float warn = Tuning.Medusa.DebrisWarnSeconds;
-            float t = 0f;
-            while (t < warn)
-            {
-                t += Time.deltaTime;
-                float k = Mathf.Clamp01(t / warn);
-                // The shadow GROWS as the stone comes down - it fills the circle on impact.
-                if (shadow != null)
-                {
-                    shadow.transform.localScale = Vector3.one * Mathf.Lerp(0.2f, radius * 2f, k);
-                    shadow.color = new Color(0f, 0f, 0f, Mathf.Lerp(0.15f, 0.55f, k));
-                }
-                if (rim != null)
-                    rim.color = new Color(Warn.r, Warn.g, Warn.b, 0.45f + 0.4f * Mathf.PingPong(t * 6f, 1f));
-                yield return null;
-                if (token != Token) { if (go != null) Destroy(go); yield break; }
-            }
-            if (go != null) Destroy(go);
+            DebrisWarning.At(_room, at, radius, warn);
+            FallingStone.At(_room, at, warn, slot >= 0);
 
-            Spr.Flash(at, radius * 1.1f, StoneDust, 0.35f);
+            yield return new WaitForSeconds(warn);
+            if (token != Token) yield break;
+
             Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Rubble, at);
+            if (slot < 0) TexelFx.Rubble(at, TexelFx.RubbleOf(true), 0.3f, 8, 0.8f);
+            FightMarks.Crack(at, radius * 0.7f);
 
-            // One test, at impact - the Cantor's eruption rule: standing in it costs one hit, not
+            // One test, at impact - the Wreathe's beat rule: standing in it costs one hit, not
             // a hit per frame. A mechanic hit, a share of max health, mitigated through Take.
             if (Target != null && ((Vector2)Target.position - at).sqrMagnitude <= (radius + 0.25f) * (radius + 0.25f))
             {
@@ -541,7 +625,10 @@ namespace Convergence.Bosses
 
             // Debris never breaks a pillar - it only builds them.
             if (slot >= 0 && _ring != null && _ring.Refill(slot) != null)
+            {
+                TexelFx.Dust(at, TexelFx.RubbleOf(true), radius + 0.3f);
                 ShoveOut(at, PillarRing.PillarRadius + 0.45f);
+            }
         }
 
         /// <summary>A pillar that lands where the player stands leaves them at its edge, not
@@ -563,21 +650,25 @@ namespace Convergence.Bosses
         // ------------------------------------------------------------------ ADDS
 
         /// <summary>
-        /// Her only pressure. Summoned at the top of each cycle from the room's edge, never more
-        /// than MaxAdds alive. Owned by her rather than the wave: not in GameBootstrap's _alive
-        /// (she holds the floor herself), destroyed with her, and they pay a kill but never a
-        /// Rift Box - a boss that summons forever would otherwise be a box farm.
+        /// Her only pressure. At the top of each cycle from the room's edge, never more than
+        /// MaxAdds alive - and they arrive as STATUES (the user's pick): grey and still until her
+        /// crown hisses, then they crack and the stone falls away. Owned by her rather than the
+        /// wave: not in GameBootstrap's _alive (she holds the floor herself), destroyed with her,
+        /// and they pay a kill but never a Rift Box - a boss that summons forever would otherwise
+        /// be a box farm.
         /// </summary>
-        void SummonAdds()
+        void SummonAdds(int token)
         {
             if (Target == null) return;
             _adds ??= new List<EnemyController>();
             _adds.RemoveAll(a => a == null);
             int n = Mathf.Min(Tuning.Medusa.AddsPerCycle, Tuning.Medusa.MaxAdds - _adds.Count);
+            if (n <= 0) return;
 
+            var statues = new List<MedusaStatue>();
             for (int i = 0; i < n; i++)
             {
-                var kind = Core.RunFormat.Depth(Floor) >= Tuning.Medusa.RangedAddsFromFloor && Random.value < 0.4f
+                var kind = RunFormat.Depth(Floor) >= Tuning.Medusa.RangedAddsFromFloor && Random.value < 0.4f
                          ? EnemyKind.Ranged : EnemyKind.Chaser;
                 var pos = EdgePoint();
                 var e = EnemyFactory.Spawn(pos, kind, Floor, Target, transform.parent);
@@ -588,12 +679,37 @@ namespace Convergence.Bosses
                     {
                         var pc = target != null ? target.GetComponent<Player.PlayerController>() : null;
                         if (pc != null) pc.RegisterKill();
-                        Spr.Flash(dead.transform.position, 0.9f, new Color(1f, 0.9f, 0.7f), 0.3f);
+                        TexelFx.Rubble(dead.transform.position, MedusaCanvas.Stone, 0.6f, 8, 0.7f);
                         Destroy(dead.gameObject);
                     };
                 _adds.Add(e);
-                Spr.Flash(pos, 0.9f, Serpent, 0.45f);
+                statues.Add(MedusaStatue.Hold(e));
+                TexelFx.Dust(pos, MedusaCanvas.Stone, 0.7f);
             }
+            StartCoroutine(Wake(token, statues));
+        }
+
+        /// <summary>Her crown hisses; the statues crack and wake.</summary>
+        IEnumerator Wake(int token, List<MedusaStatue> statues)
+        {
+            yield return new WaitForSeconds(Tuning.Medusa.StatueHoldSeconds);
+            if (token != Token) yield break;
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Hiss, transform.position);
+            float crack = Tuning.Medusa.StatueCrackSeconds;
+            for (float t = 0f; t < crack; t += Time.deltaTime)
+            {
+                if (token != Token) yield break;
+                if (_figure != null) _figure.Look.Hiss = Mathf.Max(_figure.Look.Hiss, Mathf.Clamp01(t / 0.12f));
+                foreach (var s in statues) if (s != null) s.Crack(t / crack);
+                yield return null;
+            }
+            foreach (var s in statues) if (s != null) s.Wake();
+            for (float t = 0f; t < 0.25f; t += Time.deltaTime)
+            {
+                if (_figure != null) _figure.Look.Hiss = 1f - t / 0.25f;
+                yield return null;
+            }
+            if (_figure != null) _figure.Look.Hiss = 0f;
         }
 
         /// <summary>A point on the room's edge, the farthest of three from the player, so an add

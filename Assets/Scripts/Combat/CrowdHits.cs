@@ -42,7 +42,8 @@ namespace Convergence.Combat
                 hp.Take(new DamageInfo(dmg, element, owner));
             }
 
-            Spr.Flash(at, radius, ElementInfo.Tint(element) * new Color(1f, 1f, 1f, 0.55f), 0.16f, true);
+            // A dotted ripple out to the splash's reach (the user's pick, 2026-10-26).
+            TexelFx.Ring(at, TexelFx.RampOf(ElementInfo.Tint(element)), 0.15f, radius, 0.3f, 1.2f, dotted: true);
         }
 
         /// <summary>
@@ -74,8 +75,9 @@ namespace Convergence.Combat
                 if ((delta - dir * along).sqrMagnitude > half * half) continue;
 
                 hp.Take(new DamageInfo(dmg, element, owner) { Thrown = true });
-                Spr.Flash(e.transform.position, 0.3f, ElementInfo.Tint(element), 0.12f, false);
             }
+            // The strip it reaches, dotted (the user's pick, 2026-10-26).
+            TexelFx.Strip(from, TexelFx.RampOf(ElementInfo.Tint(element)), dir, length, half);
         }
     }
 }

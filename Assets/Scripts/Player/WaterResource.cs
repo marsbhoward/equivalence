@@ -82,8 +82,11 @@ namespace Convergence.Player
         public override float AttackSpeedPoints
             => Surging ? Grown(Mathf.Max(0f, SurgePoints - (Ledger != null ? Ledger.SurgePointsLost : 0f))) : 0f;
 
+        [SerializeField] UndertowRibbons _undertow;
+
         void Update()
         {
+            if (_undertow == null) _undertow = UndertowRibbons.Attach(this);   // Surge's picture
             if (Meter > 0f && Tier < 3)
                 Meter = Mathf.Max(0f, Meter - DecayPerSecond * Decay * Time.deltaTime);
 
@@ -96,7 +99,7 @@ namespace Convergence.Player
                 if (_surgeRemaining <= 0f)
                 {
                     _surgeRemaining = 0f;
-                    Spr.Pulse(transform, 0.8f, new Color(0.4f, 0.6f, 0.75f, 0.6f), 0.25f, true, 0.5f);
+                    TexelFx.Ring(ReleaseCanvas.Feet(transform), Tuning.ReleaseFx.Water, 0.55f, 0.05f, 0.4f, 1.2f);   // closing
                 }
             }
         }
@@ -128,13 +131,9 @@ namespace Convergence.Player
             // Reaching a tier is the only moment water's meter means anything - it is when a new
             // release becomes available. Brighter each step, brightest at the full burst.
             if (Tier <= before) return;
-            var tint = Tier switch
-            {
-                1 => new Color(0.35f, 0.65f, 1f),
-                2 => new Color(0.45f, 0.85f, 1f),
-                _ => Color.white,
-            };
-            Spr.Pulse(transform, 0.6f + Tier * 0.25f, tint, 0.25f + Tier * 0.06f, true, 1.2f);
+            // A ripple out across the floor at the feet (the user's pick, 2026-10-26 - "on the
+            // floor"), wider each tier.
+            TexelFx.Ring(ReleaseCanvas.Feet(transform), Tuning.ReleaseFx.Water, 0.12f, 0.35f + Tier * 0.12f, 0.4f, 1.2f);
         }
 
         public override bool CanRelease => Tier >= 1;
@@ -223,13 +222,20 @@ namespace Convergence.Player
             {
                 float seconds = (tier == 3 ? SurgeSecondsTier3 : SurgeSecondsTier2)
                               + (Ledger != null ? Ledger.SurgeExtraSeconds : 0f);
+                // The undertow round the body is its picture (UndertowRibbons).
                 _surgeRemaining = repeat ? Mathf.Max(0f, _surgeRemaining) + seconds * RepeatStrength : seconds;
-                Spr.Pulse(transform, 1.1f, new Color(0.5f, 0.85f, 1f), 0.35f, true, 1.4f);
             }
 
-            var c = ElementInfo.Tint(ElementType.Water);
-            Spr.Flash(transform.position, radius, c, tier == 3 ? 0.5f : 0.3f);
-            if (tier == 3) Spr.Flash(transform.position, radius * 0.6f, Color.white, 0.35f);
+            // Soak runs a ripple out to its edge; Burst flashes the sigil and spreads its rings.
+            if (tier == 3) SigilBurst.Play(ReleaseCanvas.Feet(transform), radius);
+            else if (tier == 1)
+            {
+                var bodies = new List<Vector2>();
+                foreach (var col in hits)
+                    if (col != null && col.gameObject != gameObject && col.GetComponent<Health>() is { IsDead: false } hp)
+                        bodies.Add(ReleaseCanvas.Feet(hp.transform));
+                WaterRipple.Play(ReleaseCanvas.Feet(transform), radius, bodies);
+            }
         }
 
         public override void Spill(float fraction01) => Meter = Mathf.Max(0f, Meter - fraction01);

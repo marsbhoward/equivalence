@@ -8,6 +8,8 @@ namespace Convergence.Combat
     /// <summary>
     /// What a release leaves on the ground for a few seconds (the exchange's Residue), in the
     /// element's own terms: Fire's burns, Water's soaks, Earth's slows, Air's draws enemies in.
+    /// Drawn as that element's own ground (GroundPatch - the user's pick, group 3): smouldering
+    /// coals, a rippling puddle, cracked rubble, grit drawn round inward.
     ///
     /// Statuses go through the player's own helpers (PlayerController.Burn/Soak), so the board's
     /// status power and rules reach them like any other source - see the statuses note in
@@ -20,7 +22,7 @@ namespace Convergence.Combat
         [SerializeField] float _radius, _life, _remaining, _tick;
         [SerializeField] ElementType _element;
         [SerializeField] Player.PlayerController _owner;
-        SpriteRenderer _sr;
+        [SerializeField] GroundPatch _patch;
 
         /// <summary>A FORM's field draws fainter when its slot is shared (the clutter guards).</summary>
         public float AlphaMul = 1f;
@@ -41,22 +43,15 @@ namespace Convergence.Combat
             f._life = f._remaining = Mathf.Max(0.2f, seconds);
             f._element = element;
             f._owner = owner;
-            f._sr = go.AddComponent<SpriteRenderer>();
-            f._sr.sprite = Spr.Circle;
-            f._sr.sortingOrder = SortingOrders.GroundDecal + 2;
-            go.transform.localScale = Vector3.one * f._radius * 2f;
+            f._patch = GroundPatch.Spawn(go, go.transform.position, f._radius, GroundPatch.Of(element), SortingOrders.GroundLasting);   // with the fire pools, over the pits
             f.Paint();
             return f;
         }
 
         void Paint()
         {
-            if (_sr == null) _sr = GetComponent<SpriteRenderer>();
-            if (_sr == null) return;
-            var c = ElementInfo.Tint(_element);
-            c.a = 0.32f * AlphaMul * Mathf.Clamp01(_remaining / Mathf.Max(0.01f, _life * 0.35f));
-            _sr.color = c;
-            _sr.enabled = !Hidden;
+            if (_patch == null) return;
+            _patch.Alpha = Hidden ? 0f : AlphaMul * Mathf.Clamp01(_remaining / Mathf.Max(0.01f, _life * 0.35f));
         }
 
         void Update()

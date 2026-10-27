@@ -28,13 +28,14 @@ namespace Convergence.Enemies
         /// <summary>The licks of the wind-up (true) or the gout itself (false).</summary>
         public bool Tell { get => _tell; set => _tell = value; }
 
-        public static MortarFlame Create()
+        /// <param name="range">World reach; 0 = Tuning.Enemy.MortarFlameRange (band 4 reaches further).</param>
+        public static MortarFlame Create(float range = 0f)
         {
             var go = new GameObject("mortar.flame");
             var f = go.AddComponent<MortarFlame>();
             f._sr = go.AddComponent<SpriteRenderer>();
             f._sr.sortingOrder = SortingOrders.Fx - 1;
-            f._reach = Tuning.Enemy.MortarFlameRange * TexelRig.TexelsPerUnit;
+            f._reach = (range > 0f ? range : Tuning.Enemy.MortarFlameRange) * TexelRig.TexelsPerUnit;
             f._halfAngle = Tuning.Enemy.MortarFlameHalfAngle;
             f._size = Mathf.CeilToInt(f._reach) * 2 + 6;
             return f;

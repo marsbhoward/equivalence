@@ -258,23 +258,23 @@ namespace Convergence.Rifts
         /// <summary>
         /// The mini-bosses a run draws from. LARGER THAN IT LOOKS on purpose: the pool is meant to
         /// outgrow the eight mini-boss floors (10..90 less the avatars), so each run meets a
-        /// different set. The Cantor stays in it until there are enough to replace it.
+        /// different set. The Wreathe stays in it until there are enough to replace it.
         /// </summary>
-        static readonly Bosses.BossKind[] MiniBossPool = { Bosses.BossKind.Cantor, Bosses.BossKind.Medusa };
+        static readonly Bosses.BossKind[] MiniBossPool = { Bosses.BossKind.Wreathe, Bosses.BossKind.Medusa };
 
         /// <summary>Whether a boss is drawn for the mini-boss floors (DEV: GameBootstrap.DevBosses).</summary>
         public static bool InMiniBossPool(Bosses.BossKind kind) => System.Array.IndexOf(MiniBossPool, kind) >= 0;
 
         /// <summary>
         /// Which boss holds <paramref name="floor"/>. The avatars (25/50/75/100) are still all the
-        /// Cantor - they are meant to be four set-pieces of their own. Mini-boss floors draw from
+        /// Wreathe - they are meant to be four set-pieces of their own. Mini-boss floors draw from
         /// <see cref="MiniBossPool"/> as a SHUFFLE BAG seeded by the run: every boss comes up
         /// before any repeats, the order differs per run, and a restart meets the same bosses.
         /// </summary>
         public Bosses.BossKind BossFor(int floor)
         {
             if (DevForceBoss is Bosses.BossKind forced) { DevForceBoss = null; return forced; }
-            if (IsAvatarFloor(floor)) return Bosses.BossKind.Cantor;
+            if (IsAvatarFloor(floor)) return Bosses.BossKind.Wreathe;
 
             // This floor's place among the mini-boss floors: 10 is the first, 20 the second...
             int slot = 0;

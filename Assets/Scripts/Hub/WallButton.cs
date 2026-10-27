@@ -92,9 +92,10 @@ namespace Convergence.Hub
                 var ringGo = new GameObject($"ring-{order[i]}");
                 ringGo.transform.SetParent(go.transform, false);
                 ringGo.transform.localPosition = Layout[i];
-                ringGo.transform.localScale = Vector3.one * ringSize;
+                // Lines of gold light inlaid in the stone (the user's pick, group 6): a crisp texel
+                // ring at its real size, breathing - it keeps its own colour, the thing to press.
                 b._rings[i] = ringGo.AddComponent<SpriteRenderer>();
-                b._rings[i].sprite = Spr.ThinRing;
+                b._rings[i].sprite = Combat.TexelFx.RingSprite(ringSize * 0.5f);
                 b._rings[i].sortingOrder = SortingOrders.GroundDecal + 1;
 
                 var glyphGo = new GameObject($"glyph-{order[i]}");
@@ -139,7 +140,8 @@ namespace Convergence.Hub
                 // The rings stay pure gold whatever is selected - dimming the RING would read as
                 // "three switched off", so the button always shows four real options and it is
                 // the MARK inside that says which one is chosen.
-                _rings[i].color = Color.Lerp(PureGold, Color.Lerp(PureGold, Color.white, 0.35f), lit);
+                float breath = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 3f + i);
+                _rings[i].color = Color.Lerp(PureGold, Color.white, Mathf.Max(0.12f + 0.18f * breath, lit * 0.35f));
 
                 _glyphs[i].color = active
                     ? Color.Lerp(PureGold, Color.white, Mathf.Lerp(0f, 0.45f, lit))

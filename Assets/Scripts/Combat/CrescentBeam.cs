@@ -80,7 +80,7 @@ namespace Convergence.Combat
             b._sr.sprite = Picture(b._tones);
             b._sr.sortingOrder = SortingOrders.Fx - 1;
 
-            Spr.Flash(pic.transform.position, 1.1f, Art.Gear.SecretFire.Tone(b._tones, 0), 0.2f);
+            TexelFx.Bolts(pic.transform.position, TexelFx.SecretTones(b._tones), 4);
             // Bodies standing right on top of the blade are crossed before the first frame moves it.
             b.Grow(0f);
             // It leaves from the sword's TIP, but everything between the wielder and the tip is
@@ -128,7 +128,7 @@ namespace Convergence.Combat
             if (spent || travelled >= _range)
             {
                 _done = true;
-                Spr.Flash(_sr.transform.position, 0.7f, Art.Gear.SecretFire.Tone(_tones, 1), 0.22f);
+                TexelFx.Bolts(_sr.transform.position, TexelFx.SecretTones(_tones), 3);
                 Destroy(gameObject);
             }
         }
@@ -161,9 +161,9 @@ namespace Convergence.Combat
                     Disintegrates = true,
                 };
                 hp.Take(info);
-                // A RING, not a filled disc: the hit-stop holds this frame, and a solid disc sat over
-                // the crescent for the whole freeze.
-                Spr.Flash(hp.transform.position, 0.55f, Art.Gear.SecretFire.Tone(_tones, 1), 0.2f);
+                // Lightning off the body it cut (the user's pick, group 2) - thin, so the hit-stop
+                // holding it never sits a solid shape over the crescent.
+                TexelFx.Bolts(hp.transform.position, TexelFx.SecretTones(_tones), 3);
                 _onHit?.Invoke(hp, info);
             }
         }

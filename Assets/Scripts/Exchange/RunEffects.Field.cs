@@ -23,6 +23,9 @@ namespace Convergence.Exchange
         /// <summary>Retrograde's warning is showing: a flip is coming.</summary>
         public bool InversionComing => Has("retrograde") && FightLive && _retroTimer > 0f && _retroTimer <= T.RetrogradeWarning;
 
+        /// <summary>How far through the warning, 0 to 1 (StateIcons' clock speeds up with it).</summary>
+        public float InversionWarning => InversionComing ? 1f - _retroTimer / T.RetrogradeWarning : 0f;
+
         /// <summary>
         /// The run's field effects fire only while there is a fight to fire into. Out of combat a
         /// flip or a line costs nothing worth having - walking to the door is not the test.
@@ -75,28 +78,17 @@ namespace Convergence.Exchange
         // ---------------------------------------------------------------- Retrograde
 
         /// <summary>
-        /// Every few seconds the movement inputs invert. A SKILL test, never luck: a ring closes
-        /// at the player's feet through the warning, so the flip can be played around.
+        /// Every few seconds the movement inputs invert. A SKILL test, never luck: a clock over the
+        /// head ticks backwards, quicker, through the warning (StateIcons), so the flip can be played around.
         /// </summary>
         void TickRetrograde(float dt)
         {
             _retroTimer -= dt;
-            if (_retroTimer > 0f && _retroTimer <= T.RetrogradeWarning)
-            {
-                _retroCue -= dt;
-                if (_retroCue <= 0f)
-                {
-                    float t = 1f - _retroTimer / T.RetrogradeWarning;
-                    _retroCue = Mathf.Lerp(0.16f, 0.07f, t);
-                    Spr.Pulse(_pc.transform, Mathf.Lerp(1.6f, 0.6f, t), new Color(0.75f, 0.5f, 1f, 0.35f + 0.45f * t),
-                              0.2f, true, -0.5f);
-                }
-            }
+            // The warning and the flip are drawn by StateIcons' clock (InversionWarning, InputsInverted).
             if (_retroTimer > 0f) return;
             _retroTimer = RetrogradeEvery;
             _retroCue = 0f;
             _invertedRemaining = T.RetrogradeSeconds;
-            Spr.Flash(_pc.transform.position, 1.1f, new Color(0.75f, 0.5f, 1f), 0.25f);
         }
 
         // ---------------------------------------------------------------- Projection, Ley Lines
@@ -162,7 +154,7 @@ namespace Convergence.Exchange
                 if (((Vector2)e.transform.position - from).sqrMagnitude <= T.AntipathyRadius * T.AntipathyRadius) hit.Add(hp);
             }
             foreach (var hp in hit) _pc.Stagger(hp, T.AntipathySeconds);
-            Spr.Flash(from, T.AntipathyRadius, new Color(0.75f, 0.5f, 1f, 0.5f), 0.3f);
+            LedgerFx.Force(from, LedgerFx.Violet, T.AntipathyRadius);
         }
     }
 }

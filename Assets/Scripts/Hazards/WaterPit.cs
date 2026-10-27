@@ -89,7 +89,7 @@ namespace Convergence.Hazards
 
             for (int i = 0; i < RipplePool; i++)
             {
-                var sr = PitArt.Quad(gameObject, Spr.Ring, Color.clear, Vector2.one, OrderAbove, "ripple");
+                var sr = PitArt.Quad(gameObject, Combat.TexelFx.FaintRingSprite(0.1f), Color.clear, Vector2.one, OrderAbove, "ripple");
                 _ripples.Add(new Ripple { T = sr.transform, Sr = sr });
             }
             _nextRipple = Random.Range(0f, Tuning.Hazards.WaterRippleIntervalMax);
@@ -176,7 +176,9 @@ namespace Convergence.Hazards
                 float k = r.Age / life;
                 // Eased out: a ripple leaves fast and slows as it spreads.
                 float grow = 1f - (1f - k) * (1f - k);
-                r.T.localScale = Vector3.one * Mathf.Lerp(0.15f, r.Size, grow);
+                // A faint broken ring drawn at its real size on the texel grid (the user's pick, group 4).
+                if (r.Sr != null) r.Sr.sprite = Combat.TexelFx.FaintRingSprite(Mathf.Lerp(0.15f, r.Size, grow) * 0.5f);
+                r.T.localScale = Vector3.one;
                 if (r.Sr != null) r.Sr.color = WithAlpha(RippleColor, 0.7f * (1f - k));
                 _ripples[i] = r;
             }

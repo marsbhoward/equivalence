@@ -20,13 +20,16 @@ namespace Convergence.Hub
         /// pushed from HubRoom, since Forge holds no profile state itself.</summary>
         public bool HasBoxAction { get; private set; }
 
-        SpriteRenderer _base, _hearth, _glow, _sign, _flash;
-        float _lit, _flashT;
+        [SerializeField] HubFixture _art;
+        [SerializeField] Convergence.Art.Lighting.Glow _light;
+        float _lit;
         bool _focused;
 
-        static readonly Color Stone = new(0.16f, 0.15f, 0.17f);
-        static readonly Color Ember = new(1f, 0.55f, 0.15f);
+        const float Foot = -0.4f;
 
+        /// <summary>The hearth and anvil (the user's pick, group 6): a stone hearth whose fire burns
+        /// full while there is something to do and sinks to embers otherwise; its light pools in the
+        /// dim hub. No sign or soft glow.</summary>
         public static Forge Build(Transform parent, Vector2 centre)
         {
             var go = new GameObject("forge");
@@ -35,70 +38,27 @@ namespace Convergence.Hub
 
             var f = go.AddComponent<Forge>();
             f.Anchor = centre;
-
-            f._base = Quad(go.transform, "base", 1.3f, 0.85f, Stone, 2, new Vector2(0f, 0.1f));
-
-            // The hearth: what the player is actually looking at when deciding whether a
-            // redemption is worth walking over for. Circle rather than square, matching the
-            // "impact/glow" family of shapes this project already draws everything warm with.
-            f._hearth = Quad(go.transform, "hearth", 0.5f, 0.5f, Ember, 3, new Vector2(0f, 0.32f), Spr.Circle);
-            f._glow = Quad(go.transform, "glow", 0.95f, 0.95f, Ember, 1, new Vector2(0f, 0.32f), Spr.Glow);
-
-            f._sign = Quad(go.transform, "sign", 0.9f, 0.15f, Ember, 4, new Vector2(0f, 0.82f));
-
-            f._flash = Quad(go.transform, "flash", 1.8f, 1.8f, Color.white, SortingOrders.Fx, new Vector2(0f, 0.4f));
-            f._flash.color = new Color(1f, 1f, 1f, 0f);
-
-            DepthSorted.Attach(go, -0.4f, false, f._base, f._hearth, f._glow, f._sign);
-
-            f.Apply(0f);
+            f._art = HubFixture.Attach(go, HubArt.Hearth(0, false), new Vector2(0f, Foot));
+            f._art.Animate(8, 10f, i => HubArt.Hearth(i, f != null && f.HasBoxAction));
+            f._light = Convergence.Art.Lighting.Glow.Attach(go, 2.4f, new Color(1f, 0.55f, 0.2f), 0.4f, 0.25f);
+            DepthSorted.Attach(go, Foot, false, f._art.Art, f._art.RimRenderer);
             return f;
         }
 
-        public void SetFocus(bool on) => _focused = on;
+        public void SetFocus(bool on) { _focused = on; if (_art != null) _art.SetFocus(on); }
         public void SetHasBoxAction(bool has) => HasBoxAction = has;
 
-        /// <summary>Fires on a successful redemption - feedback for the moment the item actually
-        /// exists, not a decoration that plays on approach.</summary>
-        public void Flash() => _flashT = 1f;
+        /// <summary>Fires on a successful redemption: sparks leap from the hearth - feedback for the
+        /// moment the item actually exists.</summary>
+        public void Flash()
+            => Combat.TexelFx.Spray((Vector2)transform.position + new Vector2(0f, Foot + 0.35f), Combat.TexelFx.Fire, 0.7f, 22, 0.6f);
 
         void Update()
         {
-            if (_hearth == null || _glow == null || _flash == null) return;   // half-built after a reload; wait for the room rebuild
-
+            if (_light == null) return;
             _lit = Mathf.MoveTowards(_lit, _focused ? 1f : 0f, Time.unscaledDeltaTime * 5f);
-            _flashT = Mathf.MoveTowards(_flashT, 0f, Time.unscaledDeltaTime * 2.2f);
-            Apply(_lit);
-        }
-
-        void Apply(float lit)
-        {
-            bool ready = HasBoxAction;
             float pulse = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 2.4f);
-
-            // Dim and still with nothing to redeem; a slow ember pulse once there is - the same
-            // "meter threshold needs a tell" rule the ability-feedback pass already established.
-            float hearthGlow = ready ? Mathf.Lerp(0.5f, 1f, Mathf.Max(lit, pulse)) : 0.2f;
-            _hearth.color = Color.Lerp(Ember * 0.5f, Ember, hearthGlow);
-            _glow.color = new Color(Ember.r, Ember.g, Ember.b,
-                ready ? Mathf.Lerp(0.15f, 0.4f, Mathf.Max(lit, pulse)) : 0.04f);
-            _sign.color = Color.Lerp(Ember * 0.4f, Ember, ready ? Mathf.Max(lit, 0.5f) : lit * 0.3f);
-
-            _flash.color = new Color(1f, 1f, 1f, _flashT * _flashT * 0.85f);
-        }
-
-        static SpriteRenderer Quad(Transform parent, string name, float w, float h, Color color,
-                                   int order, Vector2 offset, Sprite sprite = null)
-        {
-            var go = new GameObject(name);
-            go.transform.SetParent(parent, false);
-            go.transform.localPosition = offset;
-            go.transform.localScale = new Vector3(w, h, 1f);
-            var sr = go.AddComponent<SpriteRenderer>();
-            sr.sprite = sprite != null ? sprite : Spr.Square;
-            sr.color = color;
-            sr.sortingOrder = order;
-            return sr;
+            _light.Intensity = HasBoxAction ? Mathf.Lerp(0.7f, 1f, Mathf.Max(_lit, pulse)) : 0.35f;
         }
     }
 }

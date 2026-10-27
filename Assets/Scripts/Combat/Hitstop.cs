@@ -51,6 +51,9 @@ namespace Convergence.Combat
         /// landing one, so there's no Damaged event to hook.</summary>
         public static void TriggerParry() => Trigger(Tuning.Hitstop.ParrySeconds);
 
+        /// <summary>Called by a melee clash (Combat.Clash) - two blows meeting, neither landing.</summary>
+        public static void TriggerClash() => Trigger(Tuning.Clash.HitstopSeconds);
+
         static void Trigger(float seconds)
         {
             if (seconds <= _remaining) return;   // keep the longer freeze already running

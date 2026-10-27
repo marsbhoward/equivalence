@@ -51,6 +51,13 @@ namespace Convergence.Chain
         public bool CouchOut;
 
         /// <summary>
+        /// The room's design - floor, north wall and loft (Hub.RoomDesign, ids permanent and
+        /// APPEND-ONLY; the user's call, group 6: the designs are a hub reward pool beside the
+        /// portrait poses). 0, the Cloister, is what an old save loads as.
+        /// </summary>
+        public int Design;
+
+        /// <summary>
         /// Stand or move a standing frame. Keyed on its own <see cref="TrophyPlacement.Id"/>, NOT
         /// on the content it happens to be showing - a frame is a place in the room, and what it
         /// shows is free to change without the frame itself moving or being re-created. That is

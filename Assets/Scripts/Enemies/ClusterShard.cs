@@ -41,10 +41,10 @@ namespace Convergence.Enemies
             s._damage = damage;
             s._target = target;
 
+            // Its own small ring, the blast's edge (texel, the Heart's shockwave at a smaller size).
             s._ring = go.AddComponent<SpriteRenderer>();
-            s._ring.sprite = Spr.ThinRing;
+            s._ring.sprite = RingSprite();
             s._ring.sortingOrder = SortingOrders.Telegraph;
-            go.transform.localScale = Vector3.one * (Tuning.Enemy.ClusterRadius * 2f);
 
             // The Brimstone Heart's elite: the shard is one of its orbiting motes, flung from the
             // heart to where it will burst, drawn at scale 1 (its own GameObject, not under the
@@ -80,8 +80,7 @@ namespace Convergence.Enemies
             if (_ring != null)
             {
                 float t = 1f - Mathf.Clamp01(_fuse / Tuning.Enemy.ClusterDelay);
-                var c = BombArt.Blast;
-                _ring.color = new Color(c.r, c.g, c.b, Mathf.Lerp(0.15f, 0.85f, t));
+                _ring.color = new Color(1f, 1f, 1f, Mathf.Lerp(0.35f, 1f, t));
             }
 
             if (_fuse > 0f) return;
@@ -94,9 +93,34 @@ namespace Convergence.Enemies
                     hp.Take(new DamageInfo(_damage, ElementType.Fire, gameObject));
             }
 
-            Spr.Flash(transform.position, Tuning.Enemy.ClusterRadius, BombArt.Blast, 0.25f);
+            TexelFx.Shock(transform.position, TexelFx.Fire, TexelFx.Grey, Tuning.Enemy.ClusterRadius, 0.3f);
             if (_mote != null) Destroy(_mote.gameObject);
             Destroy(gameObject);
+        }
+
+        static Sprite _ringSprite;
+
+        /// <summary>The shard's ring: one texel of the fire ramp's orange at its blast's edge.</summary>
+        static Sprite RingSprite()
+        {
+            if (_ringSprite != null) return _ringSprite;
+            float ppu = TexelRig.TexelsPerUnit, r = Tuning.Enemy.ClusterRadius * ppu;
+            int n = Mathf.CeilToInt(r) * 2 + 3;
+            var px = new Color32[n * n];
+            float c = n / 2f;
+            for (int y = 0; y < n; y++)
+                for (int x = 0; x < n; x++)
+                {
+                    float dx = x + 0.5f - c, dy = y + 0.5f - c, d = Mathf.Sqrt(dx * dx + dy * dy);
+                    if (d <= r && d >= r - 1.2f) px[y * n + x] = Tuning.FireFx.Ramp[2];
+                }
+            var tex = new Texture2D(n, n, TextureFormat.RGBA32, false)
+            {
+                filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp, hideFlags = HideFlags.HideAndDontSave,
+            };
+            tex.SetPixels32(px);
+            tex.Apply();
+            return _ringSprite = Sprite.Create(tex, new Rect(0, 0, n, n), new Vector2(0.5f, 0.5f), ppu, 0, SpriteMeshType.FullRect);
         }
     }
 }

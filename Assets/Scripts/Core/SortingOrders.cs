@@ -31,6 +31,23 @@ namespace Convergence.Core
         /// </summary>
         public const int PitBase = -3;
 
+        // ---- the ground ladder: what lies on the floor OVER the pits and under every body ----
+        // One fixed order up from the pit band (the user's rule, group 4, 2026-10-26), so two
+        // things on the floor never draw in an arbitrary order: fixtures CUT into the floor first,
+        // then ground that LASTS, then Lightfoot's anchor, then ONE-SHOT pictures, and danger on
+        // top - nothing may cover something that hurts the player. All under DepthBase.
+
+        /// <summary>Rings you stand in, cut into the floor: the spire's ring, the transmutation circle.</summary>
+        public const int GroundCarved = PitBase + 8;
+        /// <summary>Ground that stays a while: residue, salt, fire pools, cinder ground, corpses, mire, a vortex's grit.</summary>
+        public const int GroundLasting = PitBase + 9;
+        /// <summary>Lightfoot's anchor.</summary>
+        public const int GroundAnchor = PitBase + 10;
+        /// <summary>One-shot pictures on the floor (Combat.TexelFx.Ground, the releases' canvases).</summary>
+        public const int GroundFx = PitBase + 11;
+        /// <summary>What hurts the player: damage lines, the tornado's ring, a shell's target rings.</summary>
+        public const int GroundDanger = PitBase + 12;
+
         /// <summary>
         /// Starting order for an enemy, immediately replaced by its depth once DepthSorted runs.
         /// Only the relative gaps between an enemy's own renderers still matter.

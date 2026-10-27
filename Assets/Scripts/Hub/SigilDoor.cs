@@ -43,7 +43,9 @@ namespace Convergence.Hub
         public bool Focused { get; private set; }
 
         Transform _doorL, _doorR;
-        SpriteRenderer _light, _glare, _halo, _spill, _slabL, _slabR;
+        SpriteRenderer _light, _slabL, _slabR;
+        [SerializeField] Convergence.Art.Lighting.Glow _glow;
+        internal float OpenShare => _openT;
 
         // Two renderers per mark - the left half on the left door, the right half on the right.
         // Mark i lives at [2i] and [2i+1]. NOT readonly: a domain reload cannot write back into a
@@ -107,19 +109,9 @@ namespace Convergence.Hub
                             Color.white, SortingOrders.GroundDecal + 2);
             d._light.transform.localPosition = new Vector3(0f, h * 0.5f, 0f);
 
-            // Heights are capped so the bloom stays INSIDE the wall band: at 1.45x the door the
-            // halo reached world y 5.44 against a band that ends at 5.15, so light spilled past
-            // the top of the room into the letterbox.
-            //
-            // Glare, over the slabs rather than behind them. Light that stops dead at the edge of
-            // the gap is a lit strip between two doors; light that washes over the stone either
-            // side of it is a door with something blinding behind it. Two falloffs rather than
-            // one, because a single blob has to choose between a tight hot core and a wide
-            // atmospheric bleed and neither alone reads as glare.
-            d._glare = Glow(go.transform, "glare", OpenGap * 4.5f, h * 1.06f, h * 0.5f,
-                            SortingOrders.GroundDecal + 5);
-            d._halo = Glow(go.transform, "halo", OpenGap * 11f, h * 1.15f, h * 0.5f,
-                           SortingOrders.GroundDecal + 5);
+            // No glare or halo (the user's rule, group 6): the light through the gap pools in the dim
+            // hub as a Glow, and falls out across the floor as RAYS (the user's pick).
+            d._glow = Convergence.Art.Lighting.Glow.Attach(go, 3.2f, Color.white, 0f);
 
             // Each door's ORIGIN sits on the seam, so a half-glyph pivoted at its own seam edge
             // lands exactly on the join and the whole thing slides as one piece.
@@ -162,17 +154,9 @@ namespace Convergence.Hub
                 }
             }
 
-            // ---- light spilling onto the floor at the threshold ----
-            //
-            // A ground decal, not part of the door, and tied to how far it is OPEN: a shut stone
-            // door does not leak onto the floor in front of it.
-            var spillGo = new GameObject("spill");
-            spillGo.transform.SetParent(go.transform, false);
-            spillGo.transform.localPosition = Vector3.zero;
-            spillGo.transform.localScale = new Vector3(halfW * 2.2f, halfW * 2.2f, 1f);
-            d._spill = spillGo.AddComponent<SpriteRenderer>();
-            d._spill.sprite = Spr.HalfDisc;
-            d._spill.sortingOrder = SortingOrders.GroundDecal;
+            // ---- light falling out across the floor: rays in a fan from the gap ----
+            int rays = Mathf.CeilToInt(2.4f * Combat.TexelFx.Body);
+            Combat.TexelPicture.Attach<DoorRays>(go.transform, "rays", Vector2.zero, rays, rays, 1, SortingOrders.GroundDecal);
 
             d.Apply(0f);
             return d;
@@ -240,11 +224,7 @@ namespace Convergence.Hub
             // panel rather than as light. The element is carried by the lit sigil instead, which
             // is also what keeps it readable while the doors are shut and there is no light at all.
             _light.color = new Color(1f, 1f, 1f, _openT);
-            if (_glare != null) _glare.color = new Color(1f, 1f, 1f, _openT * 0.55f);
-            if (_halo != null) _halo.color = new Color(1f, 1f, 1f, _openT * 0.26f);
-
-            if (_spill != null)
-                _spill.color = new Color(1f, 1f, 1f, _openT * Mathf.Lerp(0.22f, 0.34f, lit));
+            if (_glow != null) _glow.Intensity = _openT * Mathf.Lerp(0.8f, 1f, lit);
 
             // The slabs take a little of the light nearest the seam once it is showing.
             // Deliberately NOT tinted by the element. Warming the slabs even 10% toward the
@@ -331,24 +311,6 @@ namespace Convergence.Hub
             return Sprite.Create(tex, rect, pivot, w);
         }
 
-        /// <summary>
-        /// A soft bloom on the seam. <paramref name="centreY"/> is the DOOR's midpoint, not the
-        /// bloom's own - a glow taller than the door it belongs to would otherwise centre itself
-        /// on its own height and float above the opening.
-        /// </summary>
-        static SpriteRenderer Glow(Transform parent, string name, float w, float h, float centreY, int order)
-        {
-            var go = new GameObject(name);
-            go.transform.SetParent(parent, false);
-            go.transform.localPosition = new Vector3(0f, centreY, 0f);
-            go.transform.localScale = new Vector3(w, h, 1f);
-            var sr = go.AddComponent<SpriteRenderer>();
-            sr.sprite = Spr.Glow;
-            sr.color = new Color(1f, 1f, 1f, 0f);
-            sr.sortingOrder = order;
-            return sr;
-        }
-
         static SpriteRenderer Quad(Transform parent, string name, float w, float h, Color color, int order)
         {
             var go = new GameObject(name);
@@ -359,6 +321,32 @@ namespace Convergence.Hub
             sr.color = color;
             sr.sortingOrder = order;
             return sr;
+        }
+    }
+
+    /// <summary>The sigil door's light falling out across the floor as a fan of rays (the user's pick,
+    /// group 6), as far open as the door is.</summary>
+    public class DoorRays : Combat.TexelPicture
+    {
+        [SerializeField] SigilDoor _d;
+
+        protected override bool Draw()
+        {
+            if (_d == null) _d = GetComponentInParent<SigilDoor>();
+            float open = _d != null ? _d.OpenShare : 0f;
+            if (open <= 0.01f) return false;
+            int len = Cy;
+            var c = new Color32(255, 248, 232, 255);
+            for (int y = 1; y <= len; y++)
+            {
+                float spread = y * 0.9f + 2f;
+                for (int x = -Mathf.CeilToInt(spread); x <= spread; x++)
+                {
+                    if ((Mathf.FloorToInt((Mathf.Atan2(x, y) + 3f) * 9f) & 1) != 0) continue;
+                    Over(x, -y, c, 0.2f * open * (1f - y / (float)len));
+                }
+            }
+            return true;
         }
     }
 }

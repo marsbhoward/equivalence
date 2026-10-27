@@ -48,8 +48,6 @@ namespace Convergence.Hub
             public GameObject Root;
         }
 
-        static readonly Color Frame = new(0.30f, 0.22f, 0.26f);
-        static readonly Color Cushion = new(0.42f, 0.30f, 0.34f);
 
         /// <param name="roster">Every saved character. The active one is filtered out by the caller.</param>
         public static CharacterCouch Build(Transform parent, Vector2 centre, float width,
@@ -63,12 +61,11 @@ namespace Convergence.Hub
             int seats = Mathf.Min(MaxSeats, roster.Count + (allowNew ? 1 : 0));
             seats = Mathf.Max(seats, 1);
 
-            // Backrest sits ABOVE the cushions in world y, so the seated figures draw in front of
-            // it. In a top-down room that reading is the whole illusion of a couch.
-            Quad(go.transform, "back", width, 0.46f, Frame,
-                 SortingOrders.FloorDetail + 1, new Vector2(0f, 0.52f));
-            Quad(go.transform, "seat", width, 0.86f, Cushion,
-                 SortingOrders.FloorDetail + 2, new Vector2(0f, 0f));
+            // The wooden settle (the user's pick, group 6): high-backed oak, cushions along the
+            // seat. On a FIXED low order, under the depth band, so the seated figures always draw
+            // in front of it - the whole illusion of sitting on it.
+            c._art = HubFixture.Attach(go, HubArt.Settle(Mathf.RoundToInt(width * HubArt.Ppu)), new Vector2(0f, -0.43f),
+                                       SortingOrders.FloorDetail + 2);
 
             float pitch = width / seats;
             for (int i = 0; i < seats; i++)
@@ -84,9 +81,6 @@ namespace Convergence.Hub
                     Anchor = centre + new Vector2(x, -1.15f),
                 };
 
-                seat.Cushion = Quad(go.transform, $"cushion{i}", pitch - 0.12f, 0.72f,
-                                    Cushion * 0.86f, SortingOrders.FloorDetail + 3,
-                                    new Vector2(x, 0f));
 
                 if (profile != null)
                 {
@@ -116,11 +110,16 @@ namespace Convergence.Hub
             return c;
         }
 
+        /// <summary>Any seat focused outlines the settle.</summary>
         public void SetFocus(Seat seat, bool on)
         {
-            if (seat?.Cushion == null) return;
-            seat.Cushion.color = on ? Cushion * 1.5f : Cushion * 0.86f;
+            if (seat == null) return;
+            _focused ??= new HashSet<Seat>();
+            if (on) _focused.Add(seat); else _focused.Remove(seat);
+            if (_art != null) _art.SetFocus(_focused.Count > 0);
         }
+        [System.NonSerialized] HashSet<Seat> _focused = new();   // focus state only - a reload just clears it
+        [SerializeField] HubFixture _art;
 
         static SpriteRenderer Quad(Transform parent, string name, float w, float h, Color color,
                                    int order, Vector2 offset)

@@ -1,4 +1,5 @@
 using UnityEngine;
+using Convergence.Combat;
 using Convergence.Core;
 
 namespace Convergence.Rifts
@@ -36,7 +37,9 @@ namespace Convergence.Rifts
 
         Transform _player;
         System.Action _onTaken;
-        SpriteRenderer _glow, _box;
+        SpriteRenderer _box;
+        LootBeam _beam;
+        Convergence.Art.Lighting.Glow _light;
         float _t;
         float _life = Tuning.Boss.RiftBoxLifeSeconds;
         bool _taken;
@@ -44,7 +47,6 @@ namespace Convergence.Rifts
         /// <summary>1 when freshly dropped, 0 as it closes.</summary>
         public float Life01 => Mathf.Clamp01(_life / Mathf.Max(0.0001f, Tuning.Boss.RiftBoxLifeSeconds));
 
-        static readonly Color Violet = new(0.62f, 0.42f, 0.95f);
         static readonly Color Cyan = new(0.45f, 0.88f, 1f);
 
         /// <summary>Where the box's feet sit, so it stands centred on the drop point.</summary>
@@ -73,8 +75,10 @@ namespace Convergence.Rifts
             b._onTaken = onTaken;
             if (life > 0f) b._life = Mathf.Min(life, Tuning.Boss.RiftBoxLifeSeconds);
 
-            b._glow = Quad(go.transform, "glow", 1.5f, 1.5f, Spr.Glow,
-                           new Color(Violet.r, Violet.g, Violet.b, 0.35f), SortingOrders.Fx - 42);
+            // A beam of its light standing up from it (the user's pick, group 4 - "beam"), and a
+            // small pool of light round it in the dark; no soft glow.
+            b._beam = LootBeam.Attach(go.transform, 0f, SortingOrders.Fx - 42);
+            b._light = Convergence.Art.Lighting.Glow.Attach(go, 1.1f, Cyan, 0.8f);
 
             // The Rift box at the arena's density, standing on its feet - it is pivoted there.
             var boxGo = new GameObject("box");
@@ -86,7 +90,7 @@ namespace Convergence.Rifts
             // The Rift Blade's shards, drifting off it.
             RiftShards.Attach(boxGo.transform, 0.32f, 4, SortingOrders.Fx - 40, along: FeetY * -1f + 0.04f);
 
-            DepthSorted.Attach(go, 0f, isFixed: false, b._glow, b._box);
+            DepthSorted.Attach(go, 0f, isFixed: false, b._beam.GetComponent<SpriteRenderer>(), b._box);
             return b;
         }
 
@@ -124,10 +128,12 @@ namespace Convergence.Rifts
             var rim = Color.Lerp(Cyan, new Color(1f, 0.45f, 0.35f), urgency * urgency);
             float beat = 3f + urgency * urgency * 14f;
 
-            _glow.color = new Color(Mathf.Lerp(Violet.r, 1f, urgency * urgency),
-                                    Violet.g * (1f - urgency * 0.4f),
-                                    Violet.b * (1f - urgency * 0.5f),
-                                    (near ? 0.55f : 0.30f) + 0.10f * Mathf.Sin(_t * beat));
+            if (_beam != null)
+            {
+                _beam.Tint = rim;
+                _beam.Strength = (near ? 1f : 0.8f) + 0.2f * Mathf.Sin(_t * beat);
+            }
+            if (_light != null) _light.Color = rim;
             // The box itself runs hot as it closes (its art carries the cyan; a multiply can only
             // warm and darken it), and pulses on the same beat.
             var hot = Color.Lerp(Color.white, new Color(1f, 0.6f, 0.52f), urgency * urgency);
@@ -137,7 +143,7 @@ namespace Convergence.Rifts
             if (!near || !Controls.InteractTapped) return;
 
             _taken = true;
-            Spr.Flash(transform.position, 1.4f, Cyan, 0.35f);
+            TexelFx.BeamDrop(transform.position, TexelFx.Rift, LootBeam.Height, TexelFx.Air);
             _onTaken?.Invoke();
             Destroy(gameObject);
         }

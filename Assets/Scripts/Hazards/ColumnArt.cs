@@ -26,7 +26,7 @@ namespace Convergence.Hazards
     /// </summary>
     static partial class ColumnArt
     {
-        const float Ppu = 75f;
+        public const float Ppu = 75f;
         /// <summary>How flat a circle on the ground is drawn (its depth over its width).</summary>
         public const float Squash = 0.5f;
         /// <summary>Cracked looks per (style, size) - each spawn picks one, so a floor's damage varies.</summary>

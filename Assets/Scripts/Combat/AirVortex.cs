@@ -1,5 +1,6 @@
 using UnityEngine;
 using Convergence.Core;
+using F = Convergence.Core.Tuning.ReleaseFx;
 
 namespace Convergence.Combat
 {
@@ -17,15 +18,18 @@ namespace Convergence.Combat
     /// </summary>
     public class AirVortex : MonoBehaviour
     {
-        /// <summary>Full turns per second the outer blades spin - the entire "this is a vortex,
-        /// not a stain" cue, since the damage/pull shape alone would be invisible.</summary>
-        public const float SpinDegreesPerSecond = 260f;
-
         float _radius, _pullForce, _damageNearPerTick, _damageFarPerTick, _tickInterval;
         float _tick, _remaining, _life;
         GameObject _owner;
 
-        SpriteRenderer _blades, _core;
+        const float Ppu = Art.FloorArt.PixelsPerUnit;
+
+        // The dust devil (the user's pick, 2026-10-25): a standing funnel sorted by depth with the
+        // bodies, and grit on the ground drawn in across the pull's radius.
+        SpriteRenderer _funnel, _ground;
+        Texture2D _fTex, _gTex;
+        Color32[] _fPx, _gPx;
+        int _fw, _fh, _gw, _seed;
 
         /// <summary>
         /// Drop a vortex at a world position.
@@ -54,29 +58,8 @@ namespace Convergence.Combat
             v._owner = owner;
             v._tick = v._tickInterval;
 
-            // The outer blades: a segmented ring rather than a flat disc, because a filled circle
-            // spinning reads as nothing at all - a ring broken into arcs is what actually looks
-            // like it is turning.
-            var blades = new GameObject("blades");
-            blades.transform.SetParent(go.transform, false);
-            var bsr = blades.AddComponent<SpriteRenderer>();
-            bsr.sprite = Spr.SegmentedRing(5);
-            bsr.color = new Color(0.80f, 0.94f, 1f, 0.55f);
-            bsr.sortingOrder = SortingOrders.GroundDecal + 1;
-            blades.transform.localScale = Vector3.one * v._radius * 2f;
-            v._blades = bsr;
-
-            // A bright core at the centre - where the damage actually lives, drawn so the eye
-            // reads "worst here" without needing a number.
-            var core = new GameObject("core");
-            core.transform.SetParent(go.transform, false);
-            var csr = core.AddComponent<SpriteRenderer>();
-            csr.sprite = Spr.Circle;
-            csr.color = new Color(0.88f, 0.97f, 1f, 0.28f);
-            csr.sortingOrder = SortingOrders.GroundDecal;
-            core.transform.localScale = Vector3.one * v._radius * 0.85f;
-            v._core = csr;
-
+            v._seed = Mathf.Abs(Mathf.RoundToInt(pos.x * 37.5f) * 91 + Mathf.RoundToInt(pos.y * 37.5f) * 57) % 997;
+            v.Build();
             return v;
         }
 
@@ -91,14 +74,12 @@ namespace Convergence.Combat
                 return;
             }
 
-            if (_blades != null) _blades.transform.Rotate(0f, 0f, SpinDegreesPerSecond * dt);
-
-            // Fade out over the last stretch, the same tell FirePool uses - the vortex announces
-            // its own expiry instead of vanishing on whoever it just dragged into the middle.
-            float t = Mathf.Clamp01(_remaining / _life);
-            float fade = Mathf.Min(1f, t * 3f);
-            if (_blades != null) { var c = _blades.color; c.a = 0.55f * fade; _blades.color = c; }
-            if (_core != null)   { var c = _core.color;   c.a = 0.28f * fade; _core.color = c; }
+            // Grows up out of the floor, and dies back down over the last stretch - the same tell
+            // FirePool uses, so it announces its own expiry instead of vanishing on whoever it
+            // just dragged into the middle.
+            float open = Mathf.Clamp01((_life - _remaining) / F.DevilInSeconds)
+                       * Mathf.Min(1f, Mathf.Clamp01(_remaining / _life) * 3f);
+            Draw(open);
 
             _tick -= dt;
             if (_tick > 0f) return;
@@ -130,6 +111,100 @@ namespace Convergence.Combat
                     Displaces = true,
                 });
             }
+        }
+
+        void Build()
+        {
+            int half = Mathf.CeilToInt(F.DevilTopWidth * Ppu * 0.5f) + 4;
+            _fw = half * 2 + 1; _fh = Mathf.CeilToInt(F.DevilHeight * Ppu) + 3;
+            _funnel = Canvas("funnel", _fw, _fh, new Vector2(half / (float)_fw, 1f / _fh), out _fTex, out _fPx);
+            DepthSorted.Attach(_funnel.gameObject, 0f, false, _funnel);
+
+            int g = Mathf.CeilToInt(_radius * Ppu) + 2;
+            _gw = g * 2 + 1;
+            _ground = Canvas("ground", _gw, _gw, new Vector2(0.5f, 0.5f), out _gTex, out _gPx);
+            _ground.sortingOrder = SortingOrders.GroundLasting;
+
+            // The centre on a whole floor texel.
+            var p = transform.position;
+            transform.position = new Vector3(Mathf.Round(p.x * Ppu) / Ppu, Mathf.Round(p.y * Ppu) / Ppu, p.z);
+        }
+
+        SpriteRenderer Canvas(string name, int w, int h, Vector2 pivot, out Texture2D tex, out Color32[] px)
+        {
+            var go = new GameObject(name);
+            go.transform.SetParent(transform, false);
+            var sr = go.AddComponent<SpriteRenderer>();
+            tex = new Texture2D(w, h, TextureFormat.RGBA32, false)
+            {
+                filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp, hideFlags = HideFlags.HideAndDontSave,
+            };
+            px = new Color32[w * h];
+            sr.sprite = Sprite.Create(tex, new Rect(0, 0, w, h), pivot, Ppu, 0, SpriteMeshType.FullRect);
+            return sr;
+        }
+
+        void Draw(float open)
+        {
+            if (_fPx == null || _gPx == null) return;
+            float t = Time.time;
+            System.Array.Clear(_fPx, 0, _fPx.Length);
+            System.Array.Clear(_gPx, 0, _gPx.Length);
+
+            // The funnel: four strands winding up a cone pinched at the floor, leaning as it turns.
+            int cx = _fw / 2, h = Mathf.RoundToInt((_fh - 3) * open);
+            float top = F.DevilTopWidth * Ppu * 0.5f;
+            for (int i = 0; i < h; i++)
+            {
+                float u = i / (float)Mathf.Max(1, h);
+                float w = 1.5f + u * top, lean = Mathf.Sin(t * 2f + _seed) * i * 0.08f;
+                for (int k = 0; k < 4; k++)
+                {
+                    float a = t * F.DevilSpin + i * 0.3f + k * 1.57f + _seed;
+                    bool front = Mathf.Sin(a) > 0f;
+                    var c = ReleaseCanvas.At(F.Air, front ? 0.05f + u * 0.3f : 0.4f + u * 0.3f);
+                    c.a = (byte)(front ? 230 : 140);
+                    int x = cx + Mathf.RoundToInt(Mathf.Cos(a) * w + lean);
+                    PutF(x, i + 1, c);
+                    if (front) PutF(x + (Mathf.Cos(a) > 0f ? -1 : 1), i + 1, c);   // the near strands two texels wide
+                }
+            }
+            // Dust kicked up round its foot.
+            for (int k = 0; k < 5; k++)
+            {
+                float life = 0.6f, age = Mathf.Repeat(t + FireArt.Hash(k, _seed) * life, life), u = age / life;
+                var c = ReleaseCanvas.At(F.Stone, 0.25f + u * 0.4f);
+                c.a = (byte)(200f * open * (1f - u));
+                PutF(cx + Mathf.RoundToInt((FireArt.Hash(k, _seed, 2) - 0.5f) * 12f * (0.4f + u)), 1 + Mathf.RoundToInt(u * 5f), c);
+            }
+
+            // The ground: a dark smudge under its foot, and grit drawn in across the radius.
+            int g = _gw / 2;
+            for (int dy = -5; dy <= 5; dy++)
+                for (int dx = -5; dx <= 5; dx++)
+                    if (dx * dx + dy * dy * 4 <= 25) PutG(g + dx, g + dy, new Color32(11, 9, 12, (byte)(90 * open)));
+            float r = _radius * Ppu;
+            for (int k = 0; k < F.DevilGrit; k++)
+            {
+                float P = 0.7f, age = Mathf.Repeat(t + FireArt.Hash(k, _seed, 3) * P, P), u = age / P;
+                float a = FireArt.Hash(k, _seed, 4) * Mathf.PI * 2f - u * 4f, rr = r * (1f - u);
+                var c = ReleaseCanvas.At(F.Stone, 0.3f);
+                c.a = (byte)(220f * open);
+                PutG(g + Mathf.RoundToInt(Mathf.Cos(a) * rr), g + Mathf.RoundToInt(Mathf.Sin(a) * rr), c);
+            }
+            _fTex.SetPixels32(_fPx); _fTex.Apply();
+            _gTex.SetPixels32(_gPx); _gTex.Apply();
+        }
+
+        void PutF(int x, int y, Color32 c) { if (x >= 0 && y >= 0 && x < _fw && y < _fh) _fPx[y * _fw + x] = c; }
+        void PutG(int x, int y, Color32 c) { if (x >= 0 && y >= 0 && x < _gw && y < _gw) _gPx[y * _gw + x] = c; }
+
+        void OnDestroy()
+        {
+            if (_funnel != null && _funnel.sprite != null) Destroy(_funnel.sprite);
+            if (_ground != null && _ground.sprite != null) Destroy(_ground.sprite);
+            if (_fTex != null) Destroy(_fTex);
+            if (_gTex != null) Destroy(_gTex);
         }
     }
 }

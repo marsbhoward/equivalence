@@ -31,6 +31,7 @@ namespace Convergence.Exchange
         // which a reload keeps.
         Vector2 _anchorAt;
         float _anchorRemaining;
+        [SerializeField] GroundPatch _anchorPatch;
         [SerializeField] GameObject _anchorMark;
 
         // Lucid: every enemy seen winding up, and - once its wind-up ended - how long its attack
@@ -80,7 +81,7 @@ namespace Convergence.Exchange
             var hp = Hp;
             _shield = Has("viriditas") && hp != null ? hp.Max * T.ViriditasShield * _mods.Potency("viriditas") : 0f;
             if (_shield > 0f && _pc != null)
-                Spr.Pulse(_pc.transform, 1.1f, new Color(0.55f, 0.9f, 0.45f, 0.7f), 0.4f, true, 1.3f);
+                Player.RigRim.Glint(_pc.transform, LedgerFx.VirdisColour);
         }
 
         // ---------------------------------------------------------------- Maturation
@@ -93,7 +94,7 @@ namespace Convergence.Exchange
             while (_maturationNext <= _floorSeconds) _maturationNext += T.SouringEverySeconds;
             if (_maturationReady) return;
             _maturationReady = true;
-            Spr.Pulse(_pc.transform, 0.9f, new Color(0.85f, 0.75f, 0.35f, 0.7f), 0.3f, true, 1.2f);
+            LedgerFx.Spark(_pc);
         }
 
         /// <summary>A hit about to land (ModifyOutgoing): Maturation's readied art strips the armour
@@ -108,14 +109,14 @@ namespace Convergence.Exchange
                 if (armour != null && armour.Current > 0f)
                 {
                     armour.Strip();
-                    Spr.Flash(target.transform.position, 0.9f, new Color(0.85f, 0.75f, 0.35f, 0.7f), 0.25f, false);
+                    LedgerFx.Plates(target.transform.position);
                 }
             }
             if (h.First && _committedBank > 0f)
             {
                 damage += _committedBank;
                 _committedBank = 0f;
-                Spr.Flash(target.transform.position, 0.8f, new Color(1f, 0.45f, 0.3f, 0.7f), 0.2f, false);
+                LedgerFx.Echo(target.transform.position, _pc.transform.position);
             }
             return damage;
         }
@@ -133,7 +134,7 @@ namespace Convergence.Exchange
                 if (mk.GildedArt != _pc.ArtSerial)
                 {
                     mk.GildedArt = _pc.ArtSerial;
-                    Spr.Flash(target.transform.position, 0.8f, new Color(1f, 0.84f, 0.35f, 0.75f), 0.3f, false);
+                    LedgerFloorMark.Set(target.gameObject, LedgerFloorMark.Kind.Gild, T.GildingMarkSeconds);
                 }
             }
             if (Has("mollification"))
@@ -164,7 +165,7 @@ namespace Convergence.Exchange
             float radius = T.MollificationRadius * _pc.AreaScaleNow;
             foreach (var hp in EnemiesWithin(at, radius))
                 if (hp != from) hp.Take(new DamageInfo(damage, Element, _pc.gameObject));
-            Spr.Flash(at, radius, new Color(0.78f, 0.8f, 0.86f, 0.45f), 0.22f);
+            LedgerFx.Stuff(at, TexelFx.Steel, radius, shards: true);
         }
 
         // ---------------------------------------------------------------- Basilisk
@@ -186,7 +187,7 @@ namespace Convergence.Exchange
             if (was < T.BasiliskHoldSeconds || _gazePulse <= 0f)
             {
                 _gazePulse = 1.5f;
-                Spr.Flash(t.transform.position, 0.9f, new Color(0.62f, 0.62f, 0.58f, 0.7f), 0.3f, false);
+                LedgerFloorMark.Set(t.gameObject, LedgerFloorMark.Kind.Gaze, 1.6f);
             }
         }
 
@@ -200,7 +201,7 @@ namespace Convergence.Exchange
             if (Has("adamant") && hp != null && hp.Max > 0f && amount >= hp.Max * T.AdamantBlowShare)
             {
                 _temperedRemaining = T.AdamantSeconds;
-                if (_pc != null) Spr.Pulse(_pc.transform, 1f, new Color(0.75f, 0.8f, 0.9f, 0.7f), 0.3f, true, 1.2f);
+                if (_pc != null) LedgerFx.Spark(_pc);
             }
             // COMMITTED: a blow taken in an art's lock is banked for the next art.
             if (Has("committed") && _pc != null && _pc.AttackLocked && amount > 0f)
@@ -227,7 +228,7 @@ namespace Convergence.Exchange
             float taken = Mathf.Min(_shield, amount);
             _shield -= taken;
             if (_shield <= 0f && _pc != null)
-                Spr.Flash(_pc.transform.position, 1f, new Color(0.55f, 0.9f, 0.45f, 0.6f), 0.25f);
+                Player.RigRim.Flare(_pc.transform);
             return amount - taken;
         }
 
@@ -245,7 +246,7 @@ namespace Convergence.Exchange
             if (attacker == null || attacker.IsDead || attacker.gameObject == _pc.gameObject) return;
             float damage = broken * T.PatinaShardHitUnits * _pc.HitUnit * _mods.Potency("patina");
             attacker.Take(new DamageInfo(damage, Element, _pc.gameObject));
-            Spr.Flash(attacker.transform.position, 0.7f, new Color(0.55f, 0.75f, 0.68f, 0.75f), 0.2f, false);
+            LedgerFx.Echo(attacker.transform.position, _pc.transform.position);
         }
 
         /// <summary>PHLOGISTON: heat that faded or spilled (FireResource) flares round you.</summary>
@@ -256,7 +257,7 @@ namespace Convergence.Exchange
             float radius = T.PhlogistonRadius * _pc.AreaScaleNow;
             float dps = T.PhlogistonBurnHitUnits * _pc.HitUnit * _mods.Potency("phlogiston") * stacks;
             foreach (var hp in EnemiesWithin(at, radius)) _pc.Burn(hp, dps, T.PhlogistonBurnSeconds);
-            Spr.Flash(at, radius, new Color(1f, 0.55f, 0.2f, 0.4f), 0.22f);
+            LedgerFx.FireRing(ReleaseCanvas.Feet(_pc.transform), radius);
         }
 
         /// <summary>GALE: a streak lost to a whiff (AirResource) gusts out, if it was worth having.</summary>
@@ -266,7 +267,7 @@ namespace Convergence.Exchange
             Vector2 at = _pc.transform.position;
             float radius = T.GaleRadius * _pc.AreaScaleNow;
             Push(at, radius, T.GalePush * _mods.Potency("gale"));
-            Spr.Flash(at, radius, new Color(0.8f, 0.92f, 1f, 0.45f), 0.25f);
+            LedgerFx.ForceRound(_pc, TexelFx.Steel, radius);
         }
 
         void OnDestroy() => ClearAnchor();
@@ -281,7 +282,7 @@ namespace Convergence.Exchange
             {
                 StatusEffects.Get(attacker.gameObject)
                     .ApplySlow(T.MountainSlowSeconds * _mods.Potency("mountain"), T.MountainSlowMul);
-                Spr.Flash(attacker.transform.position, 0.8f, new Color(0.62f, 0.55f, 0.44f, 0.6f), 0.22f, false);
+                LedgerFloorMark.Set(attacker.gameObject, LedgerFloorMark.Kind.Slow, T.MountainSlowSeconds * _mods.Potency("mountain"));
             }
 
             // LUCID: an attack that landed was not dodged.
@@ -347,7 +348,7 @@ namespace Convergence.Exchange
         {
             StatusEffects.Get(hp.gameObject)
                 .ApplyExposed(T.LucidExposedSeconds, 1f + T.LucidExposed * _mods.Potency("lucid"));
-            Spr.Flash(hp.transform.position, 0.7f, new Color(1f, 0.62f, 0.18f, 0.7f), 0.25f, false);
+            LedgerFloorMark.Set(hp.gameObject, LedgerFloorMark.Kind.Exposed, T.LucidExposedSeconds);
         }
 
         // ---------------------------------------------------------------- Sealed Vessel
@@ -390,9 +391,7 @@ namespace Convergence.Exchange
                     default: _pc.Bleed(hp, dot, T.SealedVesselSeconds); break;
                 }
             }
-            var tint = ElementInfo.Tint(Element);
-            tint.a = near.Count > 0 ? 0.4f : 0.2f;
-            Spr.Flash(at, radius, tint, 0.22f);
+            LedgerFx.Stuff(at, TexelFx.RampOf(ElementInfo.Tint(Element)), radius, shards: Element == ElementType.Earth);
         }
 
         // ---------------------------------------------------------------- Lightfoot, Unshackled
@@ -404,7 +403,7 @@ namespace Convergence.Exchange
             if (Has("unshackled") && !_pc.FinisherNext)
             {
                 _pc.AdvanceChain();
-                Spr.Pulse(_pc.transform, 0.8f, new Color(1f, 0.85f, 0.45f, 0.6f), 0.2f, true, 1.2f);
+                LedgerFx.Spark(_pc);
             }
 
             // LIGHTFOOT: an anchor where you stood.
@@ -413,13 +412,10 @@ namespace Convergence.Exchange
                 ClearAnchor();
                 _anchorAt = _pc.transform.position;
                 _anchorRemaining = T.LightfootAnchorSeconds;
+                // The sigil on the floor where you stood (the user's pick, group 3).
                 var go = new GameObject("lightfoot-anchor");
                 go.transform.position = _anchorAt;
-                go.transform.localScale = Vector3.one * 0.9f;
-                var sr = go.AddComponent<SpriteRenderer>();
-                sr.sprite = Spr.ThinRing;
-                sr.color = new Color(0.72f, 0.9f, 1f, 0.8f);
-                sr.sortingOrder = SortingOrders.GroundDecal + 2;
+                _anchorPatch = GroundPatch.Spawn(go, ReleaseCanvas.Feet(_pc.transform), 0.45f, GroundPatch.Kind.Anchor, SortingOrders.GroundAnchor);
                 _anchorMark = go;
             }
         }
@@ -429,12 +425,7 @@ namespace Convergence.Exchange
             if (_anchorRemaining <= 0f) return;
             _anchorRemaining -= dt;
             if (_anchorRemaining <= 0f) { ClearAnchor(); return; }
-            if (_anchorMark != null && _anchorMark.TryGetComponent<SpriteRenderer>(out var sr))
-            {
-                var c = sr.color;
-                c.a = 0.8f * Mathf.Clamp01(_anchorRemaining / 1f);   // fades over its last second
-                sr.color = c;
-            }
+            if (_anchorPatch != null) _anchorPatch.Alpha = Mathf.Clamp01(_anchorRemaining / 1f);   // fades over its last second
         }
 
         void ClearAnchor()
@@ -482,11 +473,9 @@ namespace Convergence.Exchange
                 float t = Mathf.Clamp01(Vector2.Dot(p - from, seg) / len2);
                 if ((from + seg * t - p).sqrMagnitude <= T.LightfootCutWidth * T.LightfootCutWidth) cut.Add(hp);
             }
+            if (seg.sqrMagnitude > 0.01f) LedgerFx.Crest(from, seg.normalized, seg.magnitude, LedgerFx.Ward);
             foreach (var hp in cut)
-            {
                 hp.Take(new DamageInfo(damage, Element, _pc.gameObject));
-                Spr.Flash(hp.transform.position, 0.6f, new Color(0.72f, 0.9f, 1f, 0.7f), 0.18f, false);
-            }
         }
 
         // ---------------------------------------------------------------- Concentrate

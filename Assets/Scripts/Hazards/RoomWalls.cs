@@ -316,8 +316,9 @@ namespace Convergence.Hazards
             Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Rubble, transform.position);
             if (_room != null) _room.Open(_cells);
             foreach (var col in GetComponents<Collider2D>()) col.enabled = false;
+            // Each cell's blocks fly, in the place's own material (the user's pick, group 4).
             foreach (Transform child in transform)
-                Spr.Flash(child.position + Vector3.up * 0.5f, 0.9f, new Color(0.75f, 0.66f, 0.55f), 0.3f);
+                Combat.TexelFx.Rubble(child.position, Combat.TexelFx.RubbleOf(true), 0.9f, 6, 0.7f);
             Destroy(gameObject);
         }
     }

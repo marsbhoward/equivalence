@@ -111,7 +111,7 @@ namespace Convergence.Enemies
         /// than matching what EnemyFactory happened to also assign).
         /// </summary>
         public float TurretChargeProgress01 =>
-            Mathf.Clamp01(_turretCharge / Mathf.Max(0.0001f, Tuning.Enemy.TurretChargeDuration));
+            Mathf.Clamp01(_turretCharge / Mathf.Max(0.0001f, EyeChargeSeconds));
 
         Transform _target;
         Health _targetHealth;
@@ -131,6 +131,8 @@ namespace Convergence.Enemies
         Vector2 _aimDir;
         GameObject _telegraphVisual;
         SpriteRenderer _telegraphSr;
+        /// <summary>A shot's aim tell, texel-drawn (Combat.TellLine) - the Stinger's line, the Brute's rubble.</summary>
+        TellLine _tellLine;
 
         /// <summary>
         /// How strongly every enemy's attack telegraph is drawn - 1, or less under the run's Murk
@@ -266,7 +268,7 @@ namespace Convergence.Enemies
         /// <summary>Who a Booster is drawing breath to roar at, while it channels - it turns to it.</summary>
         public EnemyController BoosterFocus => _telegraphTimer > 0f ? _boosterCandidate : null;
 
-        int BoosterSlots => Elite ? Tuning.Enemy.BoosterEliteSlots : 1;
+        int BoosterSlots => Elite || Veteran ? Tuning.Enemy.BoosterEliteSlots : 1;
         int BoosterHeld => (_boosterTarget != null ? 1 : 0) + (_boosterTarget2 != null ? 1 : 0);
 
         /// <summary>Every slot holds a living boosted ally: the lion lies spent until one dies.</summary>
@@ -301,7 +303,7 @@ namespace Convergence.Enemies
         public EnemyController BubblesFocus => _telegraphTimer > 0f ? _bubbleCandidate : null;
 
         /// <summary>Its ally's bubble holds (and its own, if elite): it tends, doing nothing.</summary>
-        public bool BubblesTending => Kind == EnemyKind.Bubbles && _bubbleTarget != null && (!Elite || Bubbled);
+        public bool BubblesTending => Kind == EnemyKind.Bubbles && _bubbleTarget != null && (!(Elite || Veteran) || Bubbled);
 
         // ---- bubbled-recipient state (any kind, while a Bubbles' shield is holding) ----
 
@@ -366,6 +368,7 @@ namespace Convergence.Enemies
         {
             // A bomb that FELL goes off in the dark, out of reach of anything on the floor.
             if (Kind == EnemyKind.Bomb && !_fellIn) DoExplosion();
+            AffixDied();   // a Mired elite falls into a mire
         }
 
         public void SetTarget(Transform t)
@@ -438,7 +441,64 @@ namespace Convergence.Enemies
             if (_rb != null && _health.ShovedAt < Time.time) _rb.linearVelocity = Vector2.zero;
 
             RouteFlinch();
+            ReleaseToken(0f);
             return true;
+        }
+
+        /// <summary>
+        /// Whether this body's melee strike is about to land, or is landing - the moment a player's
+        /// attack reaching it CLASHES with it (Combat.Clash). The Brute: the last
+        /// Tuning.Clash.WindowSeconds of its tell, and of the wait before an elite's riposte. The
+        /// Hound: the same of its tells, and the whole of a dash until it has bitten. Every other
+        /// kind's attack is a shot, a blast or a gaze, and never clashes.
+        /// </summary>
+        public bool StrikeImminent
+        {
+            get
+            {
+                if (_health == null || _health.IsDead || Flinched) return false;
+                float w = Tuning.Clash.WindowSeconds;
+                switch (Kind)
+                {
+                    case EnemyKind.Chaser:
+                        if (_telegraphTimer > 0f && _telegraphTimer <= w) return true;
+                        float riposteIn = RiposteDueAt - Time.time;
+                        return riposteIn > 0f && riposteIn <= w;
+                    case EnemyKind.Dasher:
+                        // A dash is a blow only while it is still coming: not bitten yet, and the
+                        // player still ahead along it.
+                        if (_dasherPhase is DasherPhase.Rushing or DasherPhase.LineUp)
+                            return !_dasherBit && _target != null
+                                && Vector2.Dot((Vector2)_target.position - (Vector2)transform.position, _dasherDashDir) > 0f;
+                        return _dasherPhase is DasherPhase.Telegraph && _dasherPhaseTimer <= w;
+                    default:
+                        return false;
+                }
+            }
+        }
+
+        /// <summary>
+        /// The player's attack met this body's strike (Combat.Clash): the blow is VOID and the body
+        /// goes into the beat after an attack, as if it had swung - no reel, and armour does not
+        /// refuse it (the blows met; nothing was absorbed).
+        /// </summary>
+        public void Clashed()
+        {
+            ReleaseToken();
+            switch (Kind)
+            {
+                case EnemyKind.Chaser:
+                    CancelInvoke(nameof(Riposte));
+                    RiposteDueAt = -10f;
+                    _cooldown = AttackInterval;
+                    BeginRecover(Tuning.Enemy.ChaserRecoverSeconds);
+                    break;
+                case EnemyKind.Dasher:
+                    _dasherBit = true;
+                    if (_rb != null) _rb.linearVelocity = Vector2.zero;
+                    BeginEvade();
+                    break;
+            }
         }
 
         /// <summary>
@@ -513,12 +573,17 @@ namespace Convergence.Enemies
         /// PERMANENT, and guarded against a second application - both by the Boosted flag here and
         /// by FindBoosterCandidate refusing to target an already-boosted ally in the first place.
         /// </summary>
-        public void ApplyBoosterBuff()
+        public void ApplyBoosterBuff(float healFraction = 0f, float speedMul = 1f)
         {
             if (Boosted) return;
             Boosted = true;
 
-            if (Elite)
+            // The roar's band additions (Tuning.EnemyBands): a heal, and more speed.
+            if (healFraction > 0f && _health != null) _health.Heal(_health.Max * healFraction);
+            _lionSpeedMul = Mathf.Max(1f, speedMul);
+
+            // A VETERAN already carries its elite's move, like an elite - so it is quickened as one.
+            if (Elite || Veteran)
             {
                 _boostTempo = Tuning.Enemy.BoosterEliteTempo;
                 TelegraphDuration = Mathf.Max(Tuning.Enemy.TelegraphMinSeconds,
@@ -638,7 +703,7 @@ namespace Convergence.Enemies
             EnemyKind.Gargoyle => Elite ? Tuning.Enemy.GargoyleEliteRecoverSeconds
                                         : Tuning.Enemy.GargoyleRecoverSeconds,
             EnemyKind.Booster  => Tuning.Enemy.BoosterRecoverSeconds,
-            EnemyKind.Bubbles  => Tuning.Enemy.BubblesRecoverSeconds,
+            EnemyKind.Bubbles  => BellRecoverSeconds,
             EnemyKind.Mortar   => Tuning.Enemy.MortarRecoverSeconds,
             _                  => 0f,   // Dasher has its own Evading phase and does not use this
         };
@@ -658,6 +723,7 @@ namespace Convergence.Enemies
             EnemySurround.Tick(_target.position);
 
             if (_fellIn) return;
+            TickAffix(pos);   // a Cindered elite sheds burning ground as it moves
 
             // Before the flinch return on purpose: a body knocked into fire burns while it reels.
             TickPits(pos);
@@ -675,9 +741,11 @@ namespace Convergence.Enemies
             {
                 // On water the reel's damping is capped too, so a body knocked into a puddle
                 // skates across it rather than stopping where it was hit.
+                _lungeTimer = 0f;
                 _rb.linearVelocity = Vector2.Lerp(_rb.linearVelocity, Vector2.zero, Mathf.Min(0.35f, grip));
                 return;
             }
+            if (TickLunge()) return;
 
             // Unaware: the idle wander near home, or standing startled (the Idle partial).
             if (_unaware || _startle > 0f) { IdleMove(pos); return; }
@@ -690,6 +758,15 @@ namespace Convergence.Enemies
             // Folded into every walking speed below - kiting, evading and rushing included.
             float moveMul = statusMul * FloorPits.EnemySpeedMultiplierAt(pos);
             float speed = MoveSpeed * moveMul;
+            // The Hound walks in no faster than RushSpeedCap of the player (its DASH is its threat);
+            // at the speed cap its approach had reached 3.92 against the player's 3.7.
+            if (Kind == EnemyKind.Dasher) speed = Mathf.Min(speed, Tuning.Player.MoveSpeed * Tuning.EnemyAi.RushSpeedCap);
+            // A player who cannot walk away is hurried to, and a spent weapon art rushed
+            // (Tuning.EnemyAi.HurrySpeedMul / PunishSpeedMul).
+            float rush = Mathf.Max(RushSpeedMul(dist), _lionSpeedMul);   // a roared ally's speed (band 4) too
+            // Never past RushSpeedCap of the player's walk: the rush closes the gap, it does not
+            // erase it (at depth a Brute x1.4 was faster than the player).
+            if (rush > 1f) speed = Mathf.Max(speed, Mathf.Min(speed * rush, Tuning.Player.MoveSpeed * Tuning.EnemyAi.RushSpeedCap));
 
             Vector2 desired;
 
@@ -814,6 +891,19 @@ namespace Convergence.Enemies
             else if (Kind == EnemyKind.Mortar)
             {
                 desired = MortarSteer(to, dist, speed);
+            }
+            else if (Kind == EnemyKind.Bomb && BombCritical)
+            {
+                desired = BombCutOff(pos, dist, speed);
+            }
+            else if (Kind == EnemyKind.Chaser && _rubbleTell)
+            {
+                desired = Vector2.zero;   // planted for the throw
+            }
+            else if (Kind == EnemyKind.Chaser && ArtLoaded && !HoldsToken)
+            {
+                // The player's art is loaded: a Brute without a turn keeps its distance.
+                desired = Standoff(pos, to, dist, speed);
             }
             else
             {
@@ -1307,7 +1397,8 @@ namespace Convergence.Enemies
             if (column != null && column.Cracked) column.Break();
 
             var at = c.contactCount > 0 ? c.GetContact(0).point : (Vector2)transform.position;
-            Spr.Flash(at, 0.7f, new Color(0.85f, 0.8f, 0.7f), 0.25f);
+            // A little of the breaking stone's rubble where it hit (the user's pick, group 4).
+            Combat.TexelFx.Rubble(at, Combat.TexelFx.RubbleOf(false), 0.35f, 4, 0.45f);
 
             // A reel that punches through armour - the wall does not care about a shield. Flinch
             // routes a Dasher into its Evading beat, which it plays once the stun is over.
@@ -1364,16 +1455,34 @@ namespace Convergence.Enemies
                 if (_targetHealth == null || _targetHealth.IsDead) { CancelTelegraph(); return; }
 
                 _telegraphTimer -= dt;
-                if (_telegraphTimer <= 0f) SwingChaser();
+                if (_rubbleTell) UpdateRubbleTell();
+                if (_telegraphTimer <= 0f)
+                {
+                    if (_rubbleTell) ThrowRubble();
+                    else SwingChaser();
+                }
                 return;
             }
 
+            _rubbleCooldown -= dt;
             if (Recovering) return;
 
             _cooldown -= dt * AttackTempo;
             float dist = Vector2.Distance(transform.position, _target.position);
-            if (dist <= AttackRange && _cooldown <= 0f && _targetHealth != null && !_targetHealth.IsDead)
+            // A spent weapon art: the swing is ready at once.
+            if (PunishBegins(dist)) _cooldown = Mathf.Min(_cooldown, 0f);
+            // A loaded one: only a Brute that takes a turn from its standoff comes in.
+            if (ArtLoaded && !HoldsToken)
+            {
+                if (_cooldown <= 0f && dist <= StandoffRadius + 0.3f) TryTakeToken();
+                return;
+            }
+            if (dist <= ChaserReach && _cooldown <= 0f && _targetHealth != null && !_targetHealth.IsDead
+                && TryTakeToken())
                 BeginChaserTelegraph();
+            // Band 4: a player kiting out of reach is answered with thrown rubble.
+            else if (_targetHealth != null && !_targetHealth.IsDead && WantsRubble(dist) && TryTakeToken())
+                BeginRubbleTell();
         }
 
         /// <summary>
@@ -1405,13 +1514,17 @@ namespace Convergence.Enemies
             {
                 Invoke(nameof(Riposte), Tuning.Enemy.RiposteDelay);
                 RiposteDueAt = Time.time + Tuning.Enemy.RiposteDelay;
+                ReleaseToken(Tuning.Enemy.RiposteDelay + Tuning.AttackTokens.HoldAfterSeconds);
             }
+            else ReleaseToken();
 
             // The beat happens whether or not the swing connects, which is the point: a denied
             // chaser and a whiffing one and a landing one all read the same, so the shape means
             // "it attacked" rather than "it hit you".
             BeginRecover(Tuning.Enemy.ChaserRecoverSeconds);
 
+            // Band 1: the swing steps in to a player past its plain reach.
+            BeginLunge();
             LandMelee(1f);
         }
 
@@ -1422,7 +1535,6 @@ namespace Convergence.Enemies
             if (_health == null || _health.IsDead || Flinched) return;
             RiposteAt = Time.time;
             LandMelee(Tuning.Enemy.RiposteDamageMul);
-            Spr.Flash(transform.position, 0.8f, new Color(1f, 0.75f, 0.35f), 0.2f, false);
         }
 
         /// <summary>One melee hit. Shared by the ordinary swing and the elite's Riposte so the two
@@ -1430,7 +1542,7 @@ namespace Convergence.Enemies
         void LandMelee(float damageMul)
         {
             if (_targetHealth == null || _targetHealth.IsDead || _target == null) return;
-            if (Vector2.Distance(transform.position, _target.position) > AttackRange) return;
+            if (Vector2.Distance(transform.position, _target.position) > ChaserReach) return;
             // A spire's bubble wall stops a strike across it, as it stops the player's own.
             if (Spire.BubbleSeparates(transform.position, _target.position)) return;
 
@@ -1445,12 +1557,14 @@ namespace Convergence.Enemies
             {
                 Knockback = dir * AttackKnockback,
             });
-            Spr.Flash(_target.position, 0.6f, new Color(1f, 0.25f, 0.3f), 0.18f, false);
+            // No mark at the contact (the user's pick): the player's hit flash, the hit-stop and
+            // the camera kick say it.
         }
 
         void UpdateRanged()
         {
             float dt = Time.deltaTime;
+            ReadStrikeBar();
 
             if (_telegraphTimer > 0f)
             {
@@ -1466,12 +1580,49 @@ namespace Convergence.Enemies
 
             // Giving ground after a shot is ORDINARY behaviour, not a flinch response - see
             // Tuning.Enemy.RangedKiteSeconds. It is what a denied one routes into early.
+            _missileCooldown -= dt;
             if (Recovering) return;
+            float dist = Vector2.Distance(transform.position, _target.position);
+            bool targetAlive = _targetHealth != null && !_targetHealth.IsDead;
+
+            // THE MISSILE IS ITS DEFENCE (the user's call, 2026-10-25): a player who comes in close
+            // is answered with it - on its own cooldown, whatever the bolt's - to drive them back,
+            // and the bolts follow once they have given ground.
+            if (targetAlive && _band >= Tuning.EnemyAi.MissileFromBand && _missileCooldown <= 0f
+                && dist <= Tuning.EnemyAi.MissileTriggerRange && TryTakeToken())
+            {
+                BeginMissileTell();
+                return;
+            }
 
             _cooldown -= dt * AttackTempo;
-            float dist = Vector2.Distance(transform.position, _target.position);
-            if (dist <= AttackRange && _cooldown <= 0f && _targetHealth != null && !_targetHealth.IsDead)
+            if (dist <= AttackRange && _cooldown <= 0f && targetAlive && TryTakeToken())
                 BeginTelegraph();
+        }
+
+        [SerializeField] float _missileCooldown;
+        bool _missileTell, _leadTell;
+
+        /// <summary>
+        /// The missile's tell: the sting swells and a violet glow gathers at its tip - no line,
+        /// since the shot steers. Its own sound, so the ear knows which of the Stinger's two
+        /// attacks is coming.
+        /// </summary>
+        void BeginMissileTell()
+        {
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Hissing, transform.position);
+            _aimsLeft = _target.position.x < transform.position.x;
+            _aimDir = ((Vector2)_target.position - RangedMuzzle).normalized;
+            _telegraphTimer = Tuning.EnemyAi.MissileTellSeconds;
+            _missileTell = true;
+            _leadTell = false;
+
+            _telegraphVisual = new GameObject("ranged.missile.tell");
+            var sr = _telegraphVisual.AddComponent<SpriteRenderer>();
+            sr.sprite = Spr.Circle;
+            sr.sortingOrder = SortingOrders.Telegraph;
+            _telegraphSr = sr;
+            UpdateTelegraphVisual();
         }
 
         void BeginTelegraph()
@@ -1482,14 +1633,20 @@ namespace Convergence.Enemies
             // Aimed FROM the muzzle - the gland's sting, over the Stinger's back - so the line,
             // the flash and the bolt leave where the player is looking and still meet the target.
             _aimsLeft = _target.position.x < transform.position.x;
-            _aimDir = ((Vector2)_target.position - RangedMuzzle).normalized;
+            // LEADING (Tuning.EnemyAi.LeadEvery): every Nth shot, and an elite's every shot, is
+            // aimed where the player will be - still frozen here, still drawn as the line.
+            _missileTell = false;
+            _leadTell = NextShotLeads();
+            Vector2 aimAt = _leadTell
+                ? LeadPoint(RangedMuzzle, TelegraphDuration, ProjectileSpeed)
+                : (Vector2)_target.position;
+            _aimDir = (aimAt - RangedMuzzle).normalized;
+            if (_aimDir.sqrMagnitude < 0.01f) _aimDir = ((Vector2)_target.position - RangedMuzzle).normalized;
             _telegraphTimer = TelegraphDuration;
 
             _telegraphVisual = new GameObject("ranged.telegraph");
-            var sr = _telegraphVisual.AddComponent<SpriteRenderer>();
-            sr.sprite = Spr.Capsule;
-            sr.sortingOrder = SortingOrders.Telegraph;
-            _telegraphSr = sr;
+            _tellLine = TellLine.On(_telegraphVisual, SortingOrders.Telegraph);
+            _telegraphSr = null;
             UpdateTelegraphVisual();
         }
 
@@ -1497,21 +1654,29 @@ namespace Convergence.Enemies
         {
             if (_telegraphVisual == null) return;
 
-            float length = AttackRange;
-            float angle = Mathf.Atan2(_aimDir.y, _aimDir.x) * Mathf.Rad2Deg - 90f;
-            _telegraphVisual.transform.position = (Vector3)(RangedMuzzle + _aimDir * (length * 0.5f));
-            _telegraphVisual.transform.rotation = Quaternion.Euler(0f, 0f, angle);
-            _telegraphVisual.transform.localScale = new Vector3(Tuning.Enemy.RangedTelegraphWidth, length, 1f);
+            if (_missileTell)
+            {
+                // A swelling violet glow at the sting's tip.
+                float g = 1f - Mathf.Clamp01(_telegraphTimer / Tuning.EnemyAi.MissileTellSeconds);
+                float pulse = 0.85f + 0.15f * Mathf.Sin(Time.time * 30f);
+                _telegraphVisual.transform.position = RangedMuzzle;
+                _telegraphVisual.transform.rotation = Quaternion.identity;
+                _telegraphVisual.transform.localScale = Vector3.one * Mathf.Lerp(0.1f, 0.5f, g) * pulse;
+                _telegraphSr.color = Murk(new Color(0.55f, 0.45f, 0.95f, Mathf.Lerp(0.2f, 0.85f, g)));
+                return;
+            }
 
-            // Grows from near-invisible to solid as the shot approaches, echoing the AoE
-            // Charger's own fill-on-telegraph read.
+            // Three texels wide narrowing to one, brightening, as the shot approaches (TellLine).
             float t = 1f - Mathf.Clamp01(_telegraphTimer / TelegraphDuration);
-            _telegraphSr.color = Murk(new Color(1f, 0.55f, 0.15f, Mathf.Lerp(0.08f, 0.75f, t)));
+            var tell = _leadTell ? Tuning.EnemyAi.LeadTellColor : new Color(1f, 0.55f, 0.15f);
+            tell.a = Mathf.Lerp(0.5f, 1f, t);
+            if (_tellLine != null) _tellLine.Set(RangedMuzzle, RangedMuzzle + _aimDir * AttackRange, t, Murk(tell));
         }
 
         void CancelTelegraph()
         {
             _telegraphTimer = 0f;
+            _rubbleTell = false;
             if (_telegraphVisual != null) Destroy(_telegraphVisual);
             _telegraphVisual = null;
             _telegraphSr = null;
@@ -1534,8 +1699,34 @@ namespace Convergence.Enemies
             Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Zap, transform.position);
             FiredAt = Time.time;
             BeginRecover(Tuning.Enemy.RangedKiteSeconds);
+            bool missile = _missileTell;
             CancelTelegraph();
+            _missileTell = false;
             _cooldown = Tuning.Enemy.RangedAttackInterval;
+            ReleaseToken();
+
+            if (missile)
+            {
+                // Then it gives ground (the kite above) and its bolts come soon after.
+                _missileCooldown = Tuning.EnemyAi.MissileCooldown;
+                _cooldown = Tuning.EnemyAi.MissileFollowUpSeconds;
+                // THE MISSILE: slow, steering, bursting on contact - or when a player's attack cuts
+                // it (Combat.Clash), or at the end of its reach. Aimed at the player as it leaves.
+                var from = RangedMuzzle;
+                var dir0 = ((Vector2)_target.position - from).normalized;
+                float reach = Elite ? Tuning.EnemyAi.MissileReachElite : Tuning.EnemyAi.MissileReach;
+                var missileShot = EnemyProjectile.Launch(gameObject, _target, _targetHealth, from, dir0,
+                        Damage * Tuning.EnemyAi.MissileDamageMul, AttackKnockback,
+                        Tuning.EnemyAi.MissileSpeed, reach / Tuning.EnemyAi.MissileSpeed)
+                    .Dress(SeekerArt.Frames(), Tuning.EnemyAi.MissileHitRadius, ElementType.Fire)
+                    .Homing(Tuning.EnemyAi.MissileTurnDegPerSec);
+                // Band 4: it splits in two at half its reach.
+                if (AtBand(Tuning.EnemyBands.MissileSplitFromBand)) missileShot.SplitsAfter(
+                    reach * 0.5f / Tuning.EnemyAi.MissileSpeed, Tuning.EnemyBands.MissileSplitDegrees);
+                // Three violet sparks off the sting as it leaves (the user's pick, group 4).
+                Combat.TexelFx.Chips(from, Combat.TexelFx.Violet, -dir0, 1.4f, 3, 20f, 0.25f);
+                return;
+            }
 
             // ELITE - Volley: a spread instead of a single bolt. Fanned around the SAME frozen
             // aim the telegraph drew, so the line the player read is still the middle of what
@@ -1554,8 +1745,8 @@ namespace Convergence.Enemies
                 EnemyProjectile.Launch(gameObject, _target, _targetHealth, RangedMuzzle, dir,
                     Damage, AttackKnockback, ProjectileSpeed, ProjectileLifetime);
             }
-            Spr.Flash(RangedMuzzle, bolts > 1 ? 0.55f : 0.35f,
-                      new Color(1f, 0.55f, 0.15f), 0.15f, false);
+            // A spit of embers off the sting, along the shot.
+            TexelFx.Chips(RangedMuzzle, TexelFx.Fire, _aimDir, 1.6f, bolts > 1 ? 8 : 5, 14f, 0.25f);
         }
 
         // ---- Mortar: keep away, plant, lob a shell at where the player stood ----
@@ -1660,9 +1851,11 @@ namespace Convergence.Enemies
             }
 
             _cooldown -= dt * AttackTempo;
-            if (dist <= AttackRange && _cooldown <= 0f)
+            if (dist <= AttackRange && _cooldown <= 0f && TryTakeToken())
             {
-                bool barrage = ElitePattern == ElitePattern.Barrage && Tuning.Enemy.MortarBarrageShells > 1;
+                // An elite barrages every lob; a VETERAN on its own interval (ApplyBand).
+                bool barrage = ElitePattern == ElitePattern.Barrage && Tuning.Enemy.MortarBarrageShells > 1
+                               && (Elite || ElitePatternDue());
                 BeginMortarWindup(barrage ? MortarAction.Barrage : MortarAction.Lob, TelegraphDuration);
             }
         }
@@ -1686,7 +1879,7 @@ namespace Convergence.Enemies
             // the way it is about to burn reads from above.
             if (action == MortarAction.Flame)
             {
-                if (_flame == null) _flame = MortarFlame.Create();
+                if (_flame == null) _flame = MortarFlame.Create(FlameReach);
                 _flame.Tell = true;
             }
             UpdateMortarTelegraphVisual();
@@ -1719,6 +1912,7 @@ namespace Convergence.Enemies
                     LobShell();
                     BeginRecover(Tuning.Enemy.MortarRecoverSeconds);
                     _mortarAction = MortarAction.None;
+                    ReleaseToken();
                     break;
             }
         }
@@ -1732,6 +1926,7 @@ namespace Convergence.Enemies
             {
                 _mortarAction = MortarAction.None;
                 BeginRecover(Tuning.Enemy.MortarRecoverSeconds);
+                ReleaseToken();
             }
         }
 
@@ -1746,7 +1941,11 @@ namespace Convergence.Enemies
             var at = Arena.Clamp(_target.position, 0.3f);
             // From the drawn jaws, as the head comes up (the glob's own frame - MortarArt).
             var jaws = MortarJaws(MortarFrame.Lob, at.x - transform.position.x);
-            MortarShell.Launch(jaws, at, transform.parent, _target, Damage, MortarArt.Accent);
+            // LEADING (Tuning.EnemyAi.LeadEvery): every Nth shell, an elite's every shell, lands
+            // where the player is going. The landing ring still shows it from the moment it leaves.
+            if (NextShotLeads()) at = LeadPoint(jaws, 0f, Tuning.Enemy.MortarShellSpeed);
+            var shell = MortarShell.Launch(jaws, at, transform.parent, _target, Damage, MortarArt.Accent);
+            if (AtBand(Tuning.EnemyBands.ShellBounceFromBand)) shell.Bounces(Tuning.EnemyBands.ShellBounceDistance);
             MortarLobbedAt = Time.time;
         }
 
@@ -1759,7 +1958,7 @@ namespace Convergence.Enemies
             _flameTimer = Tuning.Enemy.MortarFlameSeconds;
             _flameTick = 0f;
 
-            if (_flame == null) _flame = MortarFlame.Create();
+            if (_flame == null) _flame = MortarFlame.Create(FlameReach);
             _flame.Tell = false;
 
             PlaceFlame();
@@ -1769,20 +1968,10 @@ namespace Convergence.Enemies
         {
             _flameTimer -= dt;
 
-            // TURNS toward the player, slowly - slower than the player can circle it at this
-            // range, so the way out of a flame is round it, not back through it.
-            if (targetAlive)
-            {
-                var want = ((Vector2)_target.position - (Vector2)transform.position).normalized;
-                if (want.sqrMagnitude > 0.0001f)
-                {
-                    float cur = Mathf.Atan2(_flameDir.y, _flameDir.x) * Mathf.Rad2Deg;
-                    float tgt = Mathf.Atan2(want.y, want.x) * Mathf.Rad2Deg;
-                    float ang = Mathf.MoveTowardsAngle(cur, tgt, Tuning.Enemy.MortarFlameTurnDegPerSec * dt)
-                              * Mathf.Deg2Rad;
-                    _flameDir = new Vector2(Mathf.Cos(ang), Mathf.Sin(ang));
-                }
-            }
+            // LOCKED to the line it was aimed along when the wind-up began (the user's call,
+            // 2026-10-25): it used to turn after the player at 70 deg/s, and at the player's speed
+            // that was a lot of damage before they could get out. Now the way out is a step to the
+            // side.
             PlaceFlame();
 
             // Ticks, not per frame - a DamageInfo every frame would be a damage number every
@@ -1815,7 +2004,7 @@ namespace Convergence.Enemies
         {
             var to = p - (Vector2)transform.position;
             float d = to.magnitude;
-            if (d > Tuning.Enemy.MortarFlameRange) return false;
+            if (d > FlameReach) return false;
             if (d < 0.3f) return true;   // point blank is inside whatever way it faces
             return Vector2.Angle(_flameDir, to) <= Tuning.Enemy.MortarFlameHalfAngle;
         }
@@ -1863,7 +2052,7 @@ namespace Convergence.Enemies
         [System.NonSerialized] public float BombThrewAt = -10f;
 
         /// <summary>Under BombCriticalFraction of its health: the self-destruct rush.</summary>
-        public bool BombCritical => _health != null && _health.Current <= _health.Max * Tuning.Enemy.BombCriticalFraction;
+        public bool BombCritical => _health != null && _health.Current <= _health.Max * HeartRushFraction;
         /// <summary>The telegraph running is the self-destruct arming, not a sweep's wind-up.</summary>
         public bool BombArming => _bombArming && _telegraphTimer > 0f;
         public bool BombGathering => !_bombArming && _telegraphTimer > 0f;
@@ -1917,6 +2106,7 @@ namespace Convergence.Enemies
             if (_cooldown > 0f || dist > Tuning.Enemy.BombSweepTriggerRange) return;
             if (HazardQuery.Query(transform.position, _target.position, gameObject, _target.gameObject) == SightResult.Blocked)
                 return;
+            if (!TryTakeToken()) return;
 
             // The wind-up: the heart swelling. Scaled with depth the way the arming is (the
             // factory scaled TelegraphDuration off the arming's own base), never under the floor.
@@ -1941,7 +2131,8 @@ namespace Convergence.Enemies
             _bombAimsLeft = _bombAim.x < 0f;
             // 0 one way, 1 the other, 2 there and back from the first side, 3 from the other.
             // A basic alternates; an elite rolls any of the four.
-            _bombPattern = Elite ? Random.Range(0, 4) : (_bombReverseNext ? 1 : 0);
+            _bombPattern = Elite || AtBand(Tuning.EnemyBands.HeartPatternsFromBand)
+                ? Random.Range(0, 4) : (_bombReverseNext ? 1 : 0);
             _bombReverseNext = !_bombReverseNext;
             _bombShotsLeft = Tuning.Enemy.BombFireballs * (_bombPattern >= 2 ? 2 : 1);
             _bombShot = 0;
@@ -1962,6 +2153,7 @@ namespace Convergence.Enemies
             {
                 _bombSpent = Tuning.Enemy.BombSpentSeconds;
                 _cooldown = AttackInterval;
+                ReleaseToken();
             }
         }
 
@@ -2029,7 +2221,8 @@ namespace Convergence.Enemies
                 }
             }
 
-            Spr.Flash(transform.position, AttackRange, BombArt.Blast, 0.35f);
+            // A hard ring of fire out to the blast's edge, grit thrown up behind it (the user's pick).
+            TexelFx.Shock(transform.position, TexelFx.Fire, TexelFx.Grey, AttackRange);
             FightMarks.Scorch(transform.position, AttackRange);
             // The shell comes apart (the user's call): its plates fly loose.
             ShellBurst.Spawn(transform.position, BombArt.Plate(EnemyLooks.Of(Kind)), transform.parent);
@@ -2061,7 +2254,7 @@ namespace Convergence.Enemies
 
             // Before the line-of-sight gate, deliberately: the mire is LOBBED, and a player
             // hiding from the beam behind a column is exactly who it is for.
-            if (Elite) TickMire();
+            if (Elite || Veteran) TickMire();
 
             var sight = _targetHealth != null && !_targetHealth.IsDead
                 ? HazardQuery.Query(transform.position, _target.position, gameObject, _target.gameObject)
@@ -2090,7 +2283,7 @@ namespace Convergence.Enemies
             // the Turret the one enemy with nothing to interrupt: a continuous effect denies
             // nothing, so a flinch landing on it did nothing the player could see. Now there is a
             // moment before it engages, and that moment is what a Medium or Heavy takes away.
-            if (_turretCharge < Tuning.Enemy.TurretChargeDuration)
+            if (_turretCharge < EyeChargeSeconds)
             {
                 _turretCharge += Time.deltaTime;
                 return;
@@ -2122,6 +2315,9 @@ namespace Convergence.Enemies
                 _overchargeUntil = Time.time + Tuning.Enemy.OverchargeSeconds;
             if (Time.time < _overchargeUntil) dmg *= Tuning.Enemy.OverchargeDamageMul;
             _targetHealth.Take(new DamageInfo(dmg, ElementType.Air, gameObject));
+            // Band 4: the beam SLOWS the player while it holds them.
+            if (AtBand(Tuning.EnemyBands.EyeSlowFromBand))
+                StatusEffects.Get(_target.gameObject).ApplySlow(Tuning.Enemy.TurretTickInterval + 0.15f, Tuning.EnemyBands.EyeSlowMul);
         }
 
         /// <summary>
@@ -2191,7 +2387,6 @@ namespace Convergence.Enemies
             // in the look's accent - the slow, its radius, its fuse and its parry unchanged.
             var accent = TurretArt.Accent(Look);
             MortarShell.LaunchMire(transform.position, at, transform.parent, _target, accent);
-            Spr.Flash(transform.position, 0.45f, accent[2], 0.15f, false);
         }
 
         /// <summary>
@@ -2288,6 +2483,7 @@ namespace Convergence.Enemies
                     {
                         _dasherPhase = DasherPhase.Spent;
                         _dasherPhaseTimer = Tuning.Enemy.DasherSpentSeconds;
+                        ReleaseToken();
                     }
                     break;
 
@@ -2304,7 +2500,8 @@ namespace Convergence.Enemies
                 default: // Approach
                     if (targetGone) return;
                     if (Vector2.Distance(transform.position, _target.position) <= Tuning.Enemy.DasherEngageRange
-                        && (Time.time >= _dasherShyUntil || NavField.ClearLine(transform.position, _target.position)))
+                        && (Time.time >= _dasherShyUntil || NavField.ClearLine(transform.position, _target.position))
+                        && TryTakeToken())
                         BeginDasherLineUp();
                     break;
             }
@@ -2349,7 +2546,7 @@ namespace Convergence.Enemies
             Vector2 pos = transform.position, player = _target.position;
             var d = player - pos;
             _dasherDashDir = d.sqrMagnitude > 1e-4f ? d.normalized : _dasherDashDir;
-            _dasherRushTarget = player + _dasherDashDir * Tuning.Enemy.DasherRushPast;
+            _dasherRushTarget = player + _dasherDashDir * HoundRushPast;
             _dasherPhase = DasherPhase.Telegraph;
             _dasherPhaseTimer = _dasherPhaseLength = TelegraphDuration;
         }
@@ -2369,6 +2566,7 @@ namespace Convergence.Enemies
         {
             Vector2 pos = transform.position;
             TryDasherBite(_dasherLastPos, pos);
+            LeaveWake(_dasherLastPos, pos);
             _dasherLastPos = pos;
             _dasherPhaseTimer -= Time.deltaTime;
             if (_dasherPhaseTimer > 0f && Vector2.Dot(_dasherRushTarget - pos, _dasherDashDir) > 0.02f) return false;
@@ -2400,7 +2598,6 @@ namespace Convergence.Enemies
                 Knockback = dir * AttackKnockback,
             });
             DasherBitAt = Time.time;
-            Spr.Flash(player, 0.45f, new Color(0.75f, 0.95f, 0.25f), 0.14f, false);
         }
 
         void BeginEvade()
@@ -2443,7 +2640,8 @@ namespace Convergence.Enemies
                 // un-happen the same way sight does.
                 if (_targetHealth == null || _targetHealth.IsDead) { CancelTelegraph(); return; }
                 var sight = HazardQuery.Query(transform.position, _target.position, gameObject, _target.gameObject);
-                if (sight == SightResult.Blocked || sight == SightResult.Nulled) { CancelTelegraph(); return; }
+                // Band 2: in its last moments the Watcher has committed - cover no longer saves you.
+                if ((sight == SightResult.Blocked || sight == SightResult.Nulled) && !WatcherCommitted) { CancelTelegraph(); return; }
 
                 _telegraphTimer -= dt;
                 if (_telegraphTimer <= 0f) ResolveGargoyleAttack();
@@ -2503,7 +2701,7 @@ namespace Convergence.Enemies
                         (_targetController == null || !_targetController.TryParry(transform.position)))
                     {
                         _targetHealth.Take(new DamageInfo(Damage, ElementType.Earth, gameObject));
-                        StatusEffects.Get(_target.gameObject).ApplyPetrify(Tuning.Enemy.GargoylePetrifySeconds);
+                        RootTarget();
                     }
                 }
                 // The slam's own picture is its cracks bursting white-hot (GargoyleCracks).
@@ -2512,16 +2710,21 @@ namespace Convergence.Enemies
 
             BeginRecover(Tuning.Enemy.GargoyleRecoverSeconds);
 
-            // The basic's root - unconditionally zero damage, per the family's own rule; nothing
-            // here ever calls Health.Take. Range is checked at resolve time rather than
-            // continuously, mirroring Bomb's own "merely leaving does not cancel it" reasoning -
-            // sight, not distance, is what this kind's telegraph actually commits to.
-            if (_targetHealth != null && !_targetHealth.IsDead &&
-                Vector2.Distance(transform.position, _target.position) <= AttackRange &&
+            // The basic's root - zero damage, per the family's own rule. Range is checked at
+            // resolve time rather than continuously, mirroring Bomb's own "merely leaving does not
+            // cancel it" reasoning - sight, not distance, is what this kind's telegraph commits to.
+            //
+            // A VETERAN (band 3) also SLAMS where it stands - its elite's move without the flight
+            // (the user's call, 2026-10-25): the cracks round its plinth (GargoyleCracks) show the
+            // ring through the tell, and a player inside it as the tell ends takes the basic's
+            // Damage (never spent before) with the root. Outside it, the root alone. No extra root.
+            float toTarget = _target != null ? Vector2.Distance(transform.position, _target.position) : float.MaxValue;
+            if (_targetHealth != null && !_targetHealth.IsDead && toTarget <= AttackRange &&
                 (_targetController == null || !_targetController.TryParry(transform.position)))
             {
-                StatusEffects.Get(_target.gameObject).ApplyPetrify(Tuning.Enemy.GargoylePetrifySeconds);
-                Spr.Flash(_target.position, 0.5f, new Color(0.62f, 0.45f, 0.95f), 0.3f, false);
+                if (Veteran && toTarget <= Tuning.Enemy.GargoyleAoeRadius)
+                    _targetHealth.Take(new DamageInfo(Damage, ElementType.Earth, gameObject));
+                RootTarget();   // the root shows as stone on the legs (StatusVisuals)
             }
         }
 
@@ -2650,7 +2853,9 @@ namespace Convergence.Enemies
             if (c == null || c.Boosted) return null;
             var hp = c.GetComponent<Health>();
             if (hp == null || hp.IsDead) return null;
-            c.ApplyBoosterBuff();
+            c.ApplyBoosterBuff(
+                AtBand(Tuning.EnemyBands.LionHealFromBand) ? Tuning.EnemyBands.LionHealFraction : 0f,
+                AtBand(Tuning.EnemyBands.LionSpeedFromBand) ? Tuning.EnemyBands.LionSpeedMul : 1f);
             if (_boosterTarget == null) _boosterTarget = c;
             else _boosterTarget2 = c;
             return c;
@@ -2693,7 +2898,7 @@ namespace Convergence.Enemies
             if (Recovering) return;
 
             // An elite renews its own bubble once it is gone - with its next blow, or alone.
-            bool needSelf = Elite && !Bubbled;
+            bool needSelf = (Elite || Veteran) && !Bubbled;
             var ally = _bubbleTarget == null ? FindBubbleCandidate() : null;
             if (ally == null && !needSelf) return;   // tending, or nobody to shield
             _bubbleCandidate = ally;
@@ -2744,7 +2949,8 @@ namespace Convergence.Enemies
             CancelTelegraph();
 
             // ELITE: a two-wall bubble (see Tuning.Enemy's own note) - the same shield, more of it.
-            int charges = Elite ? Tuning.Enemy.BubblesEliteCharges : 1;
+            int charges = (Elite ? Tuning.Enemy.BubblesEliteCharges : 1)
+                        + (AtBand(Tuning.EnemyBands.BellWallFromBand) ? 1 : 0);
             var accent = BubblesArt.AccentOf(Look);
             bool any = false;
             // Sight was held every frame of the breath; here it only has to be alive and unshielded.

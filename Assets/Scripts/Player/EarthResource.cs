@@ -88,7 +88,9 @@ namespace Convergence.Player
             if (Charge >= 0.999f && !_wasFull)
             {
                 _wasFull = true;
-                Spr.Pulse(transform, 1.6f, new Color(0.85f, 0.72f, 0.45f), 0.5f, true, 1.5f);
+                // Full: stones hop all round the feet and dust kicks up (the user's pick - on the floor).
+                TexelFx.Hop(ReleaseCanvas.Feet(transform), TexelFx.Stone, 0.42f, 10, TexelFx.Ground);
+                TexelFx.Puff(ReleaseCanvas.Feet(transform), TexelFx.Stone, 10, 10f, 0.5f, TexelFx.Ground);
             }
             else if (Charge < 0.98f)
             {
@@ -100,11 +102,13 @@ namespace Convergence.Player
             _chargeCue -= dt;
             if (_chargeCue > 0f) return;
             _chargeCue = Mathf.Lerp(0.9f, 0.28f, Charge);
-            Spr.Pulse(transform, 0.45f + Charge * 0.8f,
-                      new Color(0.7f, 0.6f, 0.38f, 0.55f), 0.34f, true, 0.9f);
+            // Small stones hopping at the feet, more of them as it charges.
+            TexelFx.Hop(ReleaseCanvas.Feet(transform), TexelFx.Stone, 0.32f, 3 + Mathf.RoundToInt(Charge * 5f), TexelFx.Ground);
         }
 
         public override bool CanRelease => Charge > 0.2f && !_quaking;
+
+        [SerializeField] FaultSigil _fault;
 
         public override void Release()
         {
@@ -152,7 +156,11 @@ namespace Convergence.Player
                 else StatusEffects.Get(hp.gameObject).ApplyStagger(T.StaggerSeconds);
             }
 
-            Spr.Flash(transform.position, radius, ElementInfo.Tint(ElementType.Earth), 0.45f);
+            // The fault sigil: the quake opens one, an aftershock where it stands lights it again.
+            var here = ReleaseCanvas.Feet(transform);   // drawn on the floor under the body
+            if (scale < 1f && _fault != null && Vector2.Distance(_fault.Centre, here) <= Tuning.ReleaseFx.QuakeReuseDistance)
+                _fault.Shock();
+            else _fault = FaultSigil.Play(here, radius);
             if (scale >= 1f) FightMarks.Crack(transform.position, radius * 0.6f);   // the quake, not its aftershocks
         }
 

@@ -50,6 +50,10 @@ namespace Convergence.Player
         public Health Health { get; private set; }
         public ElementalResource Resource { get; private set; }
 
+        /// <summary>Fire's Ignite window is open: every hit burns, and the weapon shows it in flame
+        /// (the sword's smear, the discs' and arrows' tails - Tuning.FireFx).</summary>
+        public bool Igniting => Resource is FireResource fire && fire.Igniting;
+
         StatusEffects _status;
 
         /// <summary>
@@ -519,6 +523,8 @@ namespace Convergence.Player
 
         /// <summary>What every parry shows: the freeze, the ring thrown outward, the camera
         /// shoved away from the attacker.</summary>
+        [SerializeField] StateIcons _stateIcons;
+
         void ParryTell(Vector2 attackerPosition)
         {
             Hitstop.TriggerParry();
@@ -527,8 +533,12 @@ namespace Convergence.Player
             // window is running out; a ring thrown outward on the same spot means it was spent
             // well. Two directions, two meanings - which is the only reason a second ring here
             // is not just more circles on a screen that already has several.
-            Spr.Pulse(transform, Tuning.Defense.ParryBurstRadius, Color.white,
-                      Tuning.Defense.ParryBurstSeconds, ring: true, growth: 0.9f);
+            // Sparks burst off the guard, between you and the blow (the user's pick, 2026-10-26):
+            // metal meeting metal, thrown back toward the attacker - never over the body.
+            Vector2 me = transform.position, to = attackerPosition - me;
+            var guard = me + (to.sqrMagnitude > 1e-4f ? to.normalized * 0.42f : Facing * 0.42f);
+            TexelFx.Star(guard, TexelFx.Gold, 4, 0.08f);
+            TexelFx.Chips(guard, TexelFx.Gold, to, Mathf.PI * 1.2f, 12, 34f, 0.3f);
 
             // CameraKick was already public for exactly this - see its own note. Shoved AWAY
             // from the attacker, so the frame reads as the blow being turned rather than landing.
@@ -561,9 +571,7 @@ namespace Convergence.Player
                 nearest = hp;
             }
 
-            // The parry's own tell fires whether or not the counter finds a target - the negation
-            // already happened, and the player needs to see THAT regardless of the whiff.
-            Spr.Flash(transform.position, 0.9f, Color.white, 0.25f);
+            // The parry's own sparks (ParryTell) said the negation happened, whiff or not.
 
             if (nearest == null) return;
 
@@ -573,7 +581,7 @@ namespace Convergence.Player
                 Knockback = dir * Tuning.Defense.CounterKnockback,
                 Displaces = true,
             });
-            Spr.Flash(nearest.transform.position, 0.7f, new Color(1f, 0.9f, 0.4f), 0.22f, false);
+            TexelFx.Star(nearest.transform.position, TexelFx.Gold, 3);
         }
 
         /// <summary>What one connecting hit is worth to a per-hit resource. See WeaponClasses.</summary>
@@ -787,6 +795,21 @@ namespace Convergence.Player
         /// Phase 2). Set in Dispatch before the art resolves.</summary>
         public int ArtSocket { get; private set; }
         public int ArtSerial { get; private set; }
+
+        /// <summary>
+        /// When (Time.time) the last weapon art was DONE - its lock over (a thrown weapon home, the
+        /// settle released) and its timing bar closed. The enemies that rush in read it: the moment
+        /// after an art is the opening they punish (Enemies/EnemyController.Tokens.cs).
+        /// </summary>
+        public float ArtEndedAt { get; private set; } = -10f;
+        bool _artLive;
+
+        void TickArtEnded()
+        {
+            if (!_artLive || AttackLocked || _barLive) return;
+            _artLive = false;
+            ArtEndedAt = Time.time;
+        }
         float _lastArtAt = -99f;   // Shackled shuts the defensive ability for a moment after an art
 
         /// <summary>A weapon art's lock: the ledger's (Celerity, Overcommitted) and its socket's own
@@ -857,7 +880,6 @@ namespace Convergence.Player
         /// </summary>
         public float SoakedSeconds { get; private set; }
         public bool Soaked => SoakedSeconds > 0f;
-        float _soakCue;
 
         /// <summary>Reach of the swing that will fire next - what TargetHighlight measures a
         /// sword's target against. A Grappling Hook next reaches as far as the chain flies; Impale
@@ -1089,7 +1111,6 @@ namespace Convergence.Player
 
         /// <summary>Damage multiplier applied while <see cref="ExposedSeconds"/> is running.</summary>
         float _exposedMultiplier = 1f;
-        float _exposedCue;
 
         public Vector2 Facing { get; private set; } = Vector2.right;
         public PlayerTargeting Targeting { get; private set; }
@@ -1502,12 +1523,16 @@ namespace Convergence.Player
             }
 
             var back = _haveSafe ? _lastSafe : Arena.NearestFloor(p, 0.5f);
+            // The user's pick (2026-10-26, "dust at the lip"): grit puffs up off the lip where
+            // the body went over (a lake splashes instead), and dust is thrown out round the feet
+            // where it is put back. (A white outline first: an Aegis ward turning the fall's damage flares
+            // a white outline on the same frame - the user's call to tell them apart.)
             if (Arena.ChasmIsWater) Hazards.LakeSurface.Splash(p);
-            else Spr.Flash(p, 1.0f, new Color(0.25f, 0.22f, 0.3f), 0.35f);
+            else TexelFx.Puff(edge, TexelFx.Stone, 24, 12f, 0.6f, TexelFx.Ground);
             _rb.position = back;
             transform.position = back;
             _rb.linearVelocity = Vector2.zero;
-            Spr.Flash(back, 1.1f, Color.white, 0.25f);
+            TexelFx.Dust(ReleaseCanvas.Feet(transform), TexelFx.Stone, 0.45f, 18);   // thrown out along the floor - a rising puff hid behind the legs
             // A MECHANIC hit: a share of max HP through the usual mitigation.
             if (Health) Health.Take(new DamageInfo(Health.Max * Tuning.Chasm.PlayerFallFraction, ElementType.Earth, null) { IgnoresHeat = true });
             Debug.Log($"[Chasm] the player fell at {p}, back to {back}");
@@ -1846,6 +1871,7 @@ namespace Convergence.Player
             // sticky auto-target is what makes a twin-stick arena playable on touch.
             _lockTimer -= Time.deltaTime;
             SettleRelease();
+            TickArtEnded();
 
             // A statue does nothing at all - no facing, no swing, no release. Its timers wait for
             // it, so a chain or a cooldown resumes where it was when the stone lets go.
@@ -1930,28 +1956,14 @@ namespace Convergence.Player
                 if (ExposedSeconds <= 0f) { ExposedSeconds = 0f; _exposedMultiplier = 1f; }
 
                 // A downside the player cannot see is just an unexplained death two seconds
-                // later. The beat is slow and red, and deliberately unlike anything else the
-                // character does - every other cue in the game is the element's own colour.
-                _exposedCue -= Time.deltaTime;
-                if (_exposedCue <= 0f)
-                {
-                    _exposedCue = 0.22f;
-                    Spr.Pulse(transform, 0.9f, new Color(1f, 0.25f, 0.22f, 0.5f), 0.26f, true, 0.6f);
-                }
+                // later: a cracked red shield over the head while it lasts (StateIcons).
             }
 
-            // Soaked has the same problem and the same answer, in water's colour and at a
-            // different beat: a small pale ring shed at the feet, like the wake the puddle throws.
-            if (Soaked)
-            {
-                _soakCue -= Time.deltaTime;
-                if (_soakCue <= 0f)
-                {
-                    _soakCue = Tuning.Hazards.WaterSoakCueInterval;
-                    Spr.Pulse(transform, 0.55f, new Color(0.55f, 0.82f, 1f, 0.45f), 0.4f, true, 1.4f);
-                }
-            }
-            else _soakCue = 0f;
+            // Soaked has the same problem and the same answer: a water drop beside it.
+            // And Retrograde's clock (the ledger's inversion coming, or on).
+            if (_stateIcons == null && (ExposedSeconds > 0f || Soaked
+                                        || (Effects != null && (Effects.InversionComing || Effects.InputsInverted))))
+                _stateIcons = StateIcons.Attach(this);
 
             // ---- attack ----
             //
@@ -2530,7 +2542,10 @@ namespace Convergence.Player
 
             // The strike itself says PERFECT too - in the perfect band's green, over the swing's own flash.
             if (_verdict == StrikeVerdict.Perfect)
-                Spr.Flash(transform.position, 1.3f, Tuning.StrikeTiming.Perfect, 0.24f);
+            {
+                var glint = GetComponent<Combat.FinisherGlint>();   // a missing component is not C# null in the Editor
+                if (glint != null) glint.Perfect();
+            }
 
             // The perfect streak. Anything but PERFECT breaks it now. A perfect counts once the
             // finisher CONNECTS: already, for the Flurry's cuts; on this same frame, for a swing or
@@ -2727,7 +2742,7 @@ namespace Convergence.Player
                 Suspended = null;
                 armed.Detonate();
             }
-            if (isFinisher) { LastArtWeight = step.Weight; ArtSocket = RotationIndex; ArtSerial++; _lastArtAt = Time.time; }
+            if (isFinisher) { LastArtWeight = step.Weight; ArtSocket = RotationIndex; ArtSerial++; _lastArtAt = Time.time; _artLive = true; }
 
             // The King and Queen art: both discs in a pincer - ahead of the disc paths below.
             if (step.Pincer)
@@ -3644,8 +3659,8 @@ namespace Convergence.Player
 
             SettleStrike();   // the pommel is the strike
             var range = (Art.Gear.StatPercents.Apply(BaseRange, Stats.Range) + pommel.RangeBonus) * Mods.RangeMul;
-            Spr.Flash((Vector2)transform.position + Facing * Mathf.Max(0.3f, range * 0.8f),
-                      0.32f, Color.white, 0.10f, false);
+            // A puff of dust where the pommel lands (the user's pick, group 2 - "dust and cracks").
+            TexelFx.Puff(ReleaseCanvas.Feet(transform) + Facing * Mathf.Max(0.3f, range * 0.8f), TexelFx.Stone, 10, 6f, 0.45f, TexelFx.Ground);
             ResolveArc(pommel, isFinisher, advanceCombo: false);
         }
 
@@ -3704,7 +3719,7 @@ namespace Convergence.Player
             Combat.WeaponTrail.Play(Rig, AttackMotions.SwingSeconds(swingWindow));
             SmearSwing(swingWindow, isFinisher: true);
 
-            Spr.Flash(transform.position, 1.4f, Color.white, 0.3f);
+            Impact(ReleaseCanvas.Feet(transform) + Facing * 0.7f, 1.2f);
             ResolveArc(step, isFinisher, advanceCombo: false);
         }
 
@@ -3779,7 +3794,7 @@ namespace Convergence.Player
                     Resource?.OnHitLanded(hp, info);
                     NotifyThrownHit(hp, info, 0.5f, true);
                     // A small ring, not a burst: bullet time holds it on screen ~3x as long.
-                    Spr.Flash(struckAt, 0.35f, Art.Gear.SecretFire.Tone(Art.Gear.SecretFire.Shown, 0), 0.12f);
+                    TexelFx.Bolts(struckAt, TexelFx.SecretTones(), 3);   // the Secret Fire's lightning
 
                     // The world slows; the stone goes up while the bow comes home.
                     GamePause.Slow(this, Core.Tuning.PrimaMateria.BulletTimeScale);
@@ -3792,7 +3807,7 @@ namespace Convergence.Player
             while (!caught) yield return null;
 
             Rig?.SetWeaponVisible(true);
-            Spr.Pulse(transform, 0.5f, Art.Gear.SecretFire.Tone(Art.Gear.SecretFire.Shown, 1), 0.2f);
+            if (Rig?.WeaponRenderer != null) TexelFx.Bolts(Rig.WeaponRenderer.bounds.center, TexelFx.SecretTones(), 2);
 
             if (struck != null)
             {
@@ -3952,7 +3967,7 @@ namespace Convergence.Player
                         hp.GetComponent<Enemies.EnemyController>()?.Flinch(Core.Tuning.Finisher.FlinchSeconds, heavy);
                     Resource?.OnHitLanded(hp, info);
                     NotifyThrownHit(hp, info, 0.5f, main);
-                    Spr.Flash(where, sting ? 0.45f : 0.22f, ElementInfo.Tint(element), 0.1f, false);
+                    TexelFx.Hit(where, element, (Vector2)(where - transform.position));
                 });
 
             while (swarm != null && !swarm.Home) yield return null;
@@ -4061,7 +4076,7 @@ namespace Convergence.Player
                             if (!hp.IsDead) hp.GetComponent<StatusEffects>()?.ApplyMark(Tuning.Mark.Seconds, Tuning.Mark.Multiplier, element);
                             foreach (var other in FormationNearest(hp, Tuning.Formation.MarkRadius, 99))
                                 other.GetComponent<StatusEffects>()?.ApplyMark(Tuning.Mark.Seconds, Tuning.Mark.Multiplier, element);
-                            Spr.Flash(at, Tuning.Formation.MarkRadius, new Color(0.27f, 0.67f, 0.86f, 0.6f), 0.2f, true);
+                            TexelFx.Shock(at, TexelFx.RampOf(new Color(0.27f, 0.67f, 0.86f)), TexelFx.Grey, Tuning.Formation.MarkRadius);
                         };
                         break;
                     }
@@ -4260,8 +4275,7 @@ namespace Convergence.Player
             // Untouchable in the air, as a leap is (the user's call) - from the step to the landing.
             Airborne = true;
             if (Health) Health.Immune = true;
-            Spr.Flash(transform.position + Vector3.up * Core.Tuning.KingAndQueen.JumpHeight, 0.5f,
-                      Core.Tuning.KingAndQueen.ShadowColor, 0.16f);
+            TexelFx.Bolts((Vector2)transform.position + Vector2.up * Core.Tuning.KingAndQueen.JumpHeight, TexelFx.SecretTones(), 2);
             float up = 0f, rise = Core.Tuning.KingAndQueen.ReturnSeconds;
             while ((a != null && !a.Caught) || (b != null && !b.Caught))
             {
@@ -4284,8 +4298,7 @@ namespace Convergence.Player
             {
                 a.Unite(Art.Gear.KingQueenUnion.Of(s0, s1));
                 b.Hidden = true;
-                Spr.Flash(a.transform.position + Vector3.up * held, 0.6f,
-                          Art.Gear.SecretFire.Tone(Art.Gear.SecretFire.Shown, 0), 0.18f);
+                TexelFx.Bolts((Vector2)a.transform.position + Vector2.up * held, TexelFx.SecretTones(), 4);
             }
             yield return new WaitForSeconds(Core.Tuning.KingAndQueen.HangSeconds);
 
@@ -4323,14 +4336,13 @@ namespace Convergence.Player
             {
                 relicSpirit.Remove();
                 if (Rig?.TrinketRenderer != null)
-                    Spr.Flash(Rig.TrinketRenderer.bounds.center, 0.35f, Art.Gear.SecretFire.Tone(Art.Gear.SecretFire.Shown, 1), 0.15f);
+                    TexelFx.Bolts(Rig.TrinketRenderer.bounds.center, TexelFx.SecretTones(), 2);
             }
             float radius = Core.Tuning.KingAndQueen.BlastRadius * AoeScale;
-            var tone = Art.Gear.SecretFire.Tone(Art.Gear.SecretFire.Shown, 0);
-            Spr.Flash(at, radius * 0.45f, tone, 0.2f);
-            // The scorch only at the middle - the wave carries the blast outward (a burn the whole
-            // radius drowned it).
-            Spr.GroundBurn(at, radius * 0.45f, Art.Gear.SecretFire.Tone(Art.Gear.SecretFire.Shown, 1), 0.45f);
+            // Lightning at the impact, and the scorch only at the middle - the wave carries the blast
+            // outward (a burn the whole radius drowned it).
+            TexelFx.Bolts(at, TexelFx.SecretTones(), 5);
+            FightMarks.Scorch(at, radius * 0.45f);
             Combat.CameraKick.Kick(Vector2.down, 0.18f);   // the discs come DOWN
 
             // A WAVE OF ENERGY runs out across the ground from the impact (the user's call,
@@ -4541,7 +4553,8 @@ namespace Convergence.Player
                     cue = Mathf.Lerp(0.20f, 0.06f, t);
                     var c = Color.Lerp(tint, Color.white, t * 0.7f);
                     c.a = 0.35f + t * 0.5f;
-                    Spr.Pulse(transform, Mathf.Lerp(2.2f, 0.8f, t), c, 0.22f, true, -0.35f);
+                    // A crisp ring closing in on the floor at the feet (the user's pick, group 2).
+                    TexelFx.Ring(ReleaseCanvas.Feet(transform), TexelFx.RampOf(c), Mathf.Lerp(0.75f, 0.55f, t), 0.18f, 0.22f, 1.2f);
                 }
                 yield return null;
             }
@@ -4596,8 +4609,8 @@ namespace Convergence.Player
                 var dir = new Vector2(Mathf.Cos(a), Mathf.Sin(a));
                 var tint = ElementInfo.Tint(QuintessenceElements[i]);
                 tint.a = 0.75f;
-                Spr.ReverseConeBlast(transform.position, dir, length,
-                                     length * Core.Tuning.Quintessence.ConeBaseWidthFraction * 0.5f, tint, 0.34f);
+                TexelFx.Cone(ReleaseCanvas.Feet(transform), TexelFx.RampOf(tint), dir, length,
+                             length * Core.Tuning.Quintessence.ConeBaseWidthFraction * 0.5f);
                 ResolveEcho(step, transform.position, dir, Core.Tuning.Quintessence.ConeDamageFraction);
             }
 
@@ -4640,7 +4653,7 @@ namespace Convergence.Player
             // goes pale, and a flash marks the moment of separation.
             Rig?.SetWeaponVisible(false);
             var ghost = Ghost(Core.Tuning.Separatio.SplitTint);
-            Spr.Flash(transform.position, 1.0f, Color.white, 0.18f);
+            Spark(Rig?.WeaponAnchor != null ? (Vector2)Rig.WeaponAnchor.position : (Vector2)transform.position);
 
             var facing = Facing;
             float baseAngle = Mathf.Atan2(facing.y, facing.x) * Mathf.Rad2Deg;
@@ -4664,7 +4677,22 @@ namespace Convergence.Player
             // Whole again.
             RestoreGhost(ghost);
             Rig?.SetWeaponVisible(true);
-            Spr.Flash(transform.position, 0.8f, Color.white, 0.2f);
+            Spark(Rig?.WeaponAnchor != null ? (Vector2)Rig.WeaponAnchor.position : (Vector2)transform.position);
+        }
+
+        float _echoArcAt = -1f;
+        static readonly Color32[] ShadowRamp = TexelFx.RampOf(new Color(0.46f, 0.38f, 0.66f));
+
+        /// <summary>A blade's small moment (the user's pick, group 2 - "spark"): a tiny white spark
+        /// where the steel meets.</summary>
+        static void Spark(Vector2 at, Color32[] ramp = null) => TexelFx.Star(at, ramp ?? TexelFx.Steel, 2, 0.1f);
+
+        /// <summary>A heavy art's impact (the user's pick, group 2 - "dust and cracks"): the floor
+        /// cracks where the blow lands (left as a fight mark) and dust is thrown out from it.</summary>
+        static void Impact(Vector2 floor, float size)
+        {
+            FightMarks.Crack(floor, size * 0.6f);
+            TexelFx.Puff(floor, TexelFx.Stone, 22, 7f * size, 0.7f, TexelFx.Ground);
         }
 
         /// <summary>
@@ -4749,7 +4777,7 @@ namespace Convergence.Player
 
             // Springing off the ground: a burst under the feet, so the launch has a moment of
             // contact rather than the character simply vanishing upward.
-            Spr.Flash(transform.position, radius * 0.4f, Color.white, 0.22f);
+            TexelFx.Puff(ReleaseCanvas.Feet(transform), TexelFx.Stone, 12, 6f, 0.45f, TexelFx.Ground);   // the push off the floor
 
             const float RiseSeconds = 0.28f;
             float FallSeconds = 0.14f;
@@ -4841,7 +4869,9 @@ namespace Convergence.Player
                     cue = Mathf.Lerp(0.26f, 0.07f, t);
                     var c = Color.Lerp(tint, Color.white, t * 0.6f);
                     c.a = 0.30f + t * 0.45f;
-                    Spr.Pulse(mark != null ? mark : transform, radius * Mathf.Lerp(1.15f, 0.5f, t), c, 0.28f, true, -0.5f);
+                    // Rings closing in on the landing mark, quicker as the fall nears (the user's pick).
+                    var on = (Vector2)(mark != null ? mark.position : transform.position) + (ReleaseCanvas.Feet(transform) - (Vector2)transform.position);
+                    TexelFx.Ring(on, TexelFx.RampOf(c), radius * Mathf.Lerp(1f, 0.6f, t), 0.05f, 0.28f, 1.2f);
                 }
                 yield return null;
             }
@@ -4875,8 +4905,8 @@ namespace Convergence.Player
                 SmearSwing(swingWindow, isFinisher: true);
             }
 
-            Spr.Flash(transform.position, radius * 1.1f, Color.white, 0.28f);
-            Spr.Flash(transform.position, radius * 0.55f, tint, 0.34f);
+            _ = tint;
+            Impact(ReleaseCanvas.Feet(transform), Mathf.Max(1f, radius));
             SettleStrike();   // the landing is the strike
             ResolveArc(step, isFinisher, advanceCombo: false);
         }
@@ -4965,13 +4995,13 @@ namespace Convergence.Player
             var offset = Random.insideUnitCircle * radius;
             var tint = Core.Tuning.Phantom.Tint;
 
-            Spr.Flash(transform.position + (Vector3)offset, Core.Tuning.Phantom.PoofFlashRadius, tint, 0.16f);
+            Spark((Vector2)transform.position + offset, TexelFx.RampOf(tint));
             Rig?.SetPhantomOffset(offset);
 
             float hold = AttackMotions.SwingSeconds(swingWindow) * Core.Tuning.Phantom.PoofDurationFraction;
             yield return new WaitForSeconds(hold);
 
-            Spr.Flash(transform.position, Core.Tuning.Phantom.PoofFlashRadius, tint, 0.16f);
+            Spark(transform.position, TexelFx.RampOf(tint));
             Rig?.SetPhantomOffset(Vector2.zero);
         }
 
@@ -5033,7 +5063,7 @@ namespace Convergence.Player
             // the guard meeting the mouth
             var hipAt = Rig?.TrinketRenderer != null
                 ? (Vector2)Rig.TrinketRenderer.transform.position : (Vector2)transform.position;
-            Spr.Flash(hipAt, 0.26f, tint, 0.12f, false);
+            Spark(hipAt);
 
             // ---- the bar: held sheathed until it closes, then the press is decided ----
             // Mobile and still aiming until here, like every other art's wind-up; the lock
@@ -5062,8 +5092,8 @@ namespace Convergence.Player
                 var dir = (i == 0
                     ? new Vector2(Facing.x - Facing.y, Facing.y + Facing.x)
                     : new Vector2(Facing.x + Facing.y, Facing.y - Facing.x)).normalized;
-                Spr.Slice(at, dir, CurrentRange * 0.55f, tint, 0.14f);
-                Spr.Flash(at, 0.38f, tint, 0.14f, false);
+                // The cut hangs in the air as a line (the user's pick, group 2 - "cut lines").
+                TexelFx.Cut(at, TexelFx.RampOf(tint), dir, CurrentRange * 0.4f);
                 ResolveArc(cut, isFinisher: true, advanceCombo: false);
                 yield return new WaitForSeconds(Core.Tuning.Katana.CutSeconds);
             }
@@ -5081,10 +5111,9 @@ namespace Convergence.Player
             Combat.WeaponTrail.Play(Rig, AttackMotions.SwingSeconds(swingWindow));
             SmearSwing(swingWindow, isFinisher: true);
 
-            var drawAt = (Vector2)transform.position + Facing * (CurrentRange * 0.5f);
-            Spr.Slice(drawAt, Facing, CurrentRange, Color.white, 0.24f);
-            Spr.Slice(drawAt, Facing, CurrentRange * 0.7f, tint, 0.30f);
-            Spr.Flash((Vector2)transform.position + Facing * CurrentRange, CurrentRange * 0.35f, tint, 0.20f);
+            // The draw: one level cut across the facing at the reach.
+            var drawAt = (Vector2)transform.position + Facing * (CurrentRange * 0.7f);
+            TexelFx.Cut(drawAt, TexelFx.RampOf(tint), (new Vector2(-Facing.y, Facing.x) + Facing * 0.15f).normalized, CurrentRange * 0.6f);
 
             // The bar was settled before the cuts, so all three hits land at its verdict.
             ResolveArc(step, isFinisher, advanceCombo: false);
@@ -5128,7 +5157,7 @@ namespace Convergence.Player
 
             // the crack down the seam, then the halves pulled apart
             if (Rig?.WeaponAnchor != null)
-                Spr.Flash(Rig.WeaponAnchor.position, 0.30f, Color.white, 0.14f, false);
+                Spark(Rig.WeaponAnchor.position);
             float part = Core.Tuning.SolveCoagula.PartSeconds;
             for (float t = 0f; t < part; t += Time.deltaTime)
             {
@@ -5148,7 +5177,7 @@ namespace Convergence.Player
 
             // both hilts meeting their mouths
             if (Rig?.TrinketRenderer != null)
-                Spr.Flash(Rig.TrinketRenderer.transform.position, 0.22f, tint, 0.12f, false);
+                Spark(Rig.TrinketRenderer.transform.position);
 
             // ---- the bar: held sheathed until it closes, then the press is decided ----
             for (float t = 0f; t < _sheathHold; t += Time.deltaTime)
@@ -5179,9 +5208,8 @@ namespace Convergence.Player
 
             var at = (Vector2)transform.position + dir * (distance * 0.5f + CurrentRange * 0.3f);
             float span = distance * 0.5f + CurrentRange * 0.6f;
-            Spr.Slice(at, new Vector2(dir.x - dir.y, dir.y + dir.x).normalized, span, tint, 0.18f);
-            Spr.Slice(at, new Vector2(dir.x + dir.y, dir.y - dir.x).normalized, span, tint, 0.18f);
-            Spr.Flash(at, 0.34f, tint, 0.14f, false);
+            TexelFx.Cut(at, TexelFx.RampOf(tint), new Vector2(dir.x - dir.y, dir.y + dir.x).normalized, span * 0.5f);
+            TexelFx.Cut(at, TexelFx.RampOf(tint), new Vector2(dir.x + dir.y, dir.y - dir.x).normalized, span * 0.5f);
 
             if (distance > 0.05f) Dash(dir, distance / draw, draw);
             for (float t = 0f; t < draw; t += Time.deltaTime)
@@ -5213,7 +5241,7 @@ namespace Convergence.Player
             Rig?.SetTwinHandTargets(null, null);
             // the clap: the two halves meeting as one
             if (Rig?.WeaponAnchor != null)
-                Spr.Flash(Rig.WeaponAnchor.position, 0.36f, Color.white, 0.14f, false);
+                Spark(Rig.WeaponAnchor.position);
             split?.Release();
             Rig?.SetWeaponVisible(true);
 
@@ -5223,7 +5251,7 @@ namespace Convergence.Player
             Rig?.PlayAttack(step.Motion, swingWindow, alt: false);
             Combat.WeaponTrail.Play(Rig, AttackMotions.SwingSeconds(swingWindow));
             SmearSwing(swingWindow, isFinisher: true);
-            Spr.Flash((Vector2)transform.position + Facing * (CurrentRange * 0.7f), CurrentRange * 0.3f, tint, 0.18f);
+            Impact(ReleaseCanvas.Feet(transform) + Facing * (CurrentRange * 0.7f), 1f);
 
             var slam = step.Clone();
             slam.DamageMultiplier = step.DamageMultiplier * Core.Tuning.SolveCoagula.SlamShare;
@@ -5298,7 +5326,29 @@ namespace Convergence.Player
             Health.Heal(heal);
             // The cue is for an INVESTED build: the Short Descent's flat share alone heals silently,
             // or every hit of every run would flash.
-            if (invested > 0f) Spr.Flash(transform.position, 0.6f, new Color(0.55f, 1f, 0.6f), 0.16f);
+            // A small green plus rising over the head (the user's pick, 2026-10-26), one at a time.
+            if (invested > 0f && Time.time - _lastPlusAt > 0.25f)
+            {
+                _lastPlusAt = Time.time;
+                var head = Rig is MonoBehaviour rig ? HeadTop(rig) : (Vector2)transform.position + Vector2.up;
+                TexelFx.Plus(head + Vector2.up * 0.08f, TexelFx.Heal, ReleaseCanvas.UnderBody(transform));
+            }
+        }
+
+        float _lastPlusAt = -1f;
+
+        /// <summary>The top of the drawn figure - where a plus or an icon over the head sits.</summary>
+        public static Vector2 HeadTop(MonoBehaviour rig)
+        {
+            float top = float.MinValue, x = rig.transform.position.x;
+            var held = rig as Art.Gear.ICharacterRig;
+            foreach (var r in rig.GetComponentsInChildren<SpriteRenderer>(false))
+            {
+                if (r == null || !r.enabled || r.sprite == null || r.sortingOrder >= Core.SortingOrders.StatusOverlay) continue;
+                if (held != null && (r == held.WeaponRenderer || r == held.OffhandRenderer)) continue;   // the head, not a raised blade
+                if (r.bounds.max.y > top) top = r.bounds.max.y;
+            }
+            return new Vector2(x, top == float.MinValue ? rig.transform.position.y + 1f : top);
         }
 
         /// <summary>Lifesteal still allowed this second, and when it was last topped up.</summary>
@@ -6542,7 +6592,6 @@ namespace Convergence.Player
                 if (this == null) return;
                 float radius = Tuning.Tripwire.BlastRadius * AoeScale;
                 Combat.EnergyWave.Run(blast, radius, Tuning.Tripwire.BlastCore, Tuning.Tripwire.BlastVein, Tuning.Tripwire.BlastEmber);
-                Spr.Flash(blast, radius * 0.6f, Tuning.Tripwire.BlastCore, 0.2f, false);
                 var bodies = new List<(Health hp, float d)>();
                 Enemies.EnemyRegistry.Prune();
                 foreach (var e in Enemies.EnemyRegistry.All)
@@ -6992,11 +7041,6 @@ namespace Convergence.Player
         }
 
         /// <summary>
-        /// The smear behind the blade for this swing - see Combat.SwingSmear. Greatswords only: a
-        /// disc's swing has no blade to smear, and the bow never swings. Shadow's echo figures
-        /// play their own swings and smear nothing.
-        /// </summary>
-        /// <summary>
         /// The knockback a thrown disc or an arrow carries: a HEAVY weapon art's, lengthened by
         /// Finisher Knockback, as a swing's (ResolveArc) - 0 for anything lighter or a basic. The
         /// swords' rule for every class (the user's call, 2026-10-15).
@@ -7006,10 +7050,26 @@ namespace Convergence.Player
                 ? step.Knockback * Art.Gear.StatPercents.Apply(1f, Stats.FinisherKnockback)
                 : 0f;
 
+        /// <summary>
+        /// The smear behind the blade for this swing - see Combat.SwingSmear. Greatswords only: a
+        /// disc's swing has no blade to smear, and the bow never swings. Shadow's echo figures
+        /// play their own swings and smear nothing.
+        /// </summary>
         void SmearSwing(float swingWindow, bool isFinisher)
         {
+            // Inside Ignite a disc swung in the hand smears its path in flame - both hands, since
+            // either may strike (Combat.FlameTrail; no smear outside Ignite - a disc has no blade).
+            if (Weapon == Art.Gear.WeaponClass.Disc)
+            {
+                if (!Igniting || Rig == null) return;
+                float seconds = AttackMotions.SwingSeconds(swingWindow);
+                Combat.FlameTrail.Swing(transform, Rig.WeaponRenderer, "flame.trail.main", seconds);
+                Combat.FlameTrail.Swing(transform, Rig.OffhandRenderer, "flame.trail.off", seconds);
+                return;
+            }
             if (Weapon != Art.Gear.WeaponClass.Greatsword) return;
-            Combat.SwingSmear.Play(Rig, transform, AttackMotions.SwingSeconds(swingWindow), isFinisher);
+            // Ignite's window smears in flame (Tuning.FireFx).
+            Combat.SwingSmear.Play(Rig, transform, AttackMotions.SwingSeconds(swingWindow), isFinisher, Igniting);
         }
 
         void ResolveArc(AttackStep step, bool isFinisher, bool advanceCombo = true,
@@ -7028,6 +7088,19 @@ namespace Convergence.Player
             if (step.AreaOfEffect) range *= AoeScale;
 
             GatherTargets(step, range);
+
+            // CLASH (Combat.Clash): an enemy shot inside the swing is cut out of the air. A basic
+            // is spent on it and reaches no body; a weapon art's swing carries on through.
+            bool clashed = false;
+            {
+                bool area = step.AreaOfEffect || step.PullsIn || step.ReverseCones;
+                float width = Mathf.Max(0.1f, step.StrikeWidth * Mods.StrikeWidthMul);
+                if (Combat.Clash.CutShotsInSwing(ArcOrigin, ArcFacing, range, width, area) > 0)
+                {
+                    clashed = true;
+                    if (!isFinisher) _ordered.Clear();
+                }
+            }
 
             // Captured BEFORE the resolve, because completing the finisher advances the cycle and
             // the fire it leaves belongs to the swing that made it, not to the next one.
@@ -7049,6 +7122,15 @@ namespace Convergence.Player
                 var to = dist > 0.0001f ? delta / dist : ArcFacing;
 
                 if (_swingWhiffed) break;
+
+                // CLASH: this body's own strike is about to land. The two cancel - it takes
+                // nothing and its blow is void - unless this is a Heavy art, which lands anyway.
+                if (Combat.Clash.AtBody(hp, origin, Combat.Clash.Wins(isFinisher, step.Weight)))
+                {
+                    clashed = true;
+                    if (!step.CleavesAll) break;
+                    continue;
+                }
 
                 var mods = Mods;
                 float critMul = RollCritFor(isFinisher, hp, out bool crit);
@@ -7184,7 +7266,7 @@ namespace Convergence.Player
                     if (armour != null && armour.Current > 0f && Principles.ConsumePhaseStrike())
                     {
                         armour.PierceNextHit = true;
-                        Spr.Flash(where, 0.7f, new Color(0.6f, 0.85f, 1f), 0.22f, false);
+                        Combat.LedgerFx.Plates(where);
                     }
                 }
 
@@ -7217,7 +7299,12 @@ namespace Convergence.Player
                 if (echo > 0f && !_echoing && !hp.IsDead)
                 {
                     hp.Take(new DamageInfo(dmg * echo, info.Element, gameObject) { IsFinisher = isFinisher });
-                    Spr.Flash(where, 0.42f, Core.Tuning.Shadow.Tint, 0.16f, false);
+                    // The swing's arc again in Shadow's violet, a beat behind - once a swing, not per body.
+                    if (Time.time - _echoArcAt > 0.15f)
+                    {
+                        _echoArcAt = Time.time;
+                        TexelFx.Arc(transform.position, ShadowRamp, Facing, Mathf.Max(0.8f, range * 0.7f), ReleaseCanvas.UnderBody(transform));   // under the body where it crosses it
+                    }
                 }
 
                 // The top of the heat cycle leaves a burn on everything the circle caught. Its
@@ -7278,7 +7365,7 @@ namespace Convergence.Player
             // make the weapon that summons them the fastest way to destroy itself.
             if (_arcRepeat) { }   // a later part of one swing (Carousel's turn): the swing counted once
             else if (landed && !_echoing) OnWeaponUsed?.Invoke();   // landing a hit is what wears a weapon
-            else Resource?.OnAttackMissed();
+            else if (!clashed) Resource?.OnAttackMissed();   // a clash met something: not a whiff
 
             // The cycle turns on the finisher being COMPLETED, not on it connecting. A blast that
             // caught nobody is still a blast; making heat depend on finding a target would punish
@@ -7308,7 +7395,8 @@ namespace Convergence.Player
                 // Note this reads Heat AFTER the resolve above, which has already advanced the
                 // cycle - so use the tint captured before it turned, or the ground fire is one
                 // stage ahead of the sword that made it.
-                Spr.GroundBurn(origin, range, tintAtSwing, 0.55f);
+                // A ring of fire out of the floor to the reach (the user's pick, group 2).
+                TexelFx.FlameRing(origin + (ReleaseCanvas.Feet(transform) - (Vector2)transform.position), TexelFx.RampOf(tintAtSwing), range);
             }
             else if (step.AreaOfEffect && !step.DiscCarousel && !step.Gyres)   // Carousel's discs draw their own circle; Gyre's grind its rotor
             {
@@ -7318,9 +7406,11 @@ namespace Convergence.Player
                           : ActiveMoveset != null && ActiveMoveset.Id == BloodSignatureId
                               ? Core.Tuning.Blood.Tint
                           : ElementInfo.Tint(Resource?.Element ?? ElementType.Fire);
-                Spr.Flash(origin, range * 0.9f, tint, 0.3f);
-                if (isFinisher)
-                    Spr.Flash(origin, range * 0.6f, _echoing ? tint : Color.white, 0.22f);
+                _ = tint;
+                // Dust and grit thrown out to the area's edge and settling there (the user's pick,
+                // 2026-10-26), on the floor under the strike - its origin, less the root's height.
+                var floor = origin + (ReleaseCanvas.Feet(transform) - (Vector2)transform.position);
+                TexelFx.Dust(floor, TexelFx.Stone, range);
             }
             // else: an ordinary swing (not AoE, not the heat finisher) used to draw a crescent
             // slash arc here (Spr.Slice) - a gray/white swipe over the blade's own animation.

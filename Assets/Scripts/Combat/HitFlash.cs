@@ -30,6 +30,10 @@ namespace Convergence.Combat
         /// <summary>0 = no flash, 1 = solid white. Written by Health each frame it flashes.</summary>
         [System.NonSerialized] public float Amount;
 
+        /// <summary>The flash's colour: white for a blow, fire's for a burn tick's blink. The
+        /// silhouette is white, so the renderer's colour IS the flash's.</summary>
+        [System.NonSerialized] public Color Tint = Color.white;
+
         public static HitFlash For(SpriteRenderer src)
         {
             var f = src.GetComponent<HitFlash>();
@@ -59,7 +63,7 @@ namespace Convergence.Combat
             _over.flipY = _src.flipY;
             _over.sortingLayerID = _src.sortingLayerID;
             _over.sortingOrder = _src.sortingOrder;
-            _over.color = new Color(1f, 1f, 1f, Mathf.Clamp01(Amount) * _src.color.a);
+            _over.color = new Color(Tint.r, Tint.g, Tint.b, Mathf.Clamp01(Amount) * _src.color.a);
         }
     }
 }

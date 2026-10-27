@@ -1,4 +1,5 @@
 using UnityEngine;
+using Convergence.Combat;
 using Convergence.Core;
 using Convergence.Chain;
 
@@ -17,7 +18,7 @@ namespace Convergence.Rifts
     /// The piece is rolled when it DROPS (its tier and stars belong to the floor it fell on) and
     /// only joins the carried loot when taken.
     ///
-    /// Drawn as a turning star in the tier's colour over a soft glow, one small star
+    /// Drawn as a turning star in the tier's colour under a beam of it, one small star
     /// circling it per star level - a star, not a box, so it never reads as a Rift Box or a loot
     /// box, and the stars carry the level without leaning on colour alone. Stat-rolled gear has no
     /// picture of its own to show.
@@ -29,7 +30,8 @@ namespace Convergence.Rifts
         Transform _player;
         System.Action<MintedGearRecord> _onTaken;
         MintedGearRecord _record;
-        SpriteRenderer _glow, _glint;
+        SpriteRenderer _glint;
+        LootBeam _beam;
         SpriteRenderer[] _pips;
         Color _tint;
         float _t;
@@ -57,8 +59,11 @@ namespace Convergence.Rifts
             p._tint = UI.CharacterScreen.TierColor(record.Tier);
             p._t = Random.value * 10f;   // a crowd of drops shouldn't pulse in unison
 
-            p._glow = Quad(go.transform, "glow", 1.2f, Spr.Glow,
-                           new Color(p._tint.r, p._tint.g, p._tint.b, 0.35f), SortingOrders.Fx - 42);
+            // A beam in the tier's colour (the user's pick, group 4 - "beam") and a small pool of
+            // light in the dark; no soft glow.
+            p._beam = LootBeam.Attach(go.transform, 0f, SortingOrders.Fx - 42);
+            p._beam.Tint = p._tint;
+            Convergence.Art.Lighting.Glow.Attach(go, 0.9f, p._tint, 0.7f);
             p._glint = Quad(go.transform, "glint", 0.42f, Spr.Star(), p._tint, SortingOrders.Fx - 41);
 
             int stars = Mathf.Clamp(record.UpgradeLevel, 0, 3);
@@ -68,7 +73,7 @@ namespace Convergence.Rifts
                                   new Color(1f, 0.95f, 0.75f), SortingOrders.Fx - 40);
 
             var sorted = new SpriteRenderer[2 + stars];
-            sorted[0] = p._glow; sorted[1] = p._glint;
+            sorted[0] = p._beam.GetComponent<SpriteRenderer>(); sorted[1] = p._glint;
             for (int i = 0; i < stars; i++) sorted[2 + i] = p._pips[i];
             DepthSorted.Attach(go, 0f, isFixed: false, sorted);
             return p;
@@ -85,8 +90,7 @@ namespace Convergence.Rifts
             _glint.transform.localRotation = Quaternion.Euler(0f, 0f, _t * 40f);
             float s = (near ? 0.5f : 0.42f) * (1f + 0.08f * Mathf.Sin(_t * 5f));
             _glint.transform.localScale = new Vector3(s, s, 1f);
-            _glow.color = new Color(_tint.r, _tint.g, _tint.b,
-                                    (near ? 0.55f : 0.30f) + 0.08f * Mathf.Sin(_t * 3f));
+            if (_beam != null) _beam.Strength = (near ? 1f : 0.8f) + 0.15f * Mathf.Sin(_t * 3f);
 
             for (int i = 0; i < _pips.Length; i++)
             {
@@ -98,7 +102,7 @@ namespace Convergence.Rifts
             if (!near || !Controls.InteractTapped) return;
 
             _taken = true;
-            Spr.Flash(transform.position, 1.2f, _tint, 0.35f);
+            TexelFx.BeamDrop(transform.position, TexelFx.RampOf(_tint), LootBeam.Height, TexelFx.Air);
             _onTaken?.Invoke(_record);
             Destroy(gameObject);
         }

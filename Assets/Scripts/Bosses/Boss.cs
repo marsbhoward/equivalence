@@ -7,11 +7,11 @@ namespace Convergence.Bosses
     /// <summary>Which boss a boss floor holds. Picked by Rifts.FloorPlanner.BossFor.</summary>
     /// <summary>Every boss. APPEND-ONLY: a boss's dev key is its place here counted from 1
     /// (GameBootstrap.DevBosses / DevFightBoss), so inserting one would renumber the rest.</summary>
-    public enum BossKind { Cantor, Medusa }
+    public enum BossKind { Wreathe, Medusa }
 
     /// <summary>
-    /// What every boss shares, pulled out of the Cantor when the second one arrived. A boss is a
-    /// fight driven from ONE coroutine (see Cantor's header on why), so what is shared is the
+    /// What every boss shares, pulled out of the Cantor (now the Wreathe) when the second one arrived. A boss is a
+    /// fight driven from ONE coroutine (see the Wreathe's header on why), so what is shared is the
     /// frame around it rather than any of its moves:
     ///
     ///     the body        a kinematic, uninterpolated Rigidbody2D and a Health scaled by
@@ -30,8 +30,12 @@ namespace Convergence.Bosses
         public Health Health { get; protected set; }
         public bool Enraged { get; protected set; }
 
-        /// <summary>For the HUD bar: "THE CANTOR", "MEDUSA".</summary>
+        /// <summary>For the HUD bar: "THE WREATHE", "MEDUSA".</summary>
         public abstract string DisplayName { get; }
+
+        /// <summary>While true the arena camera holds on the room's centre, zoomed out to the
+        /// whole room (Tuning.Boss.HoldViewHalfHeight) - a boss's moment that must be watched.</summary>
+        public virtual bool HoldsCamera => false;
 
         /// <summary>For the HUD bar: where the fight is, in a word.</summary>
         public abstract string PhaseLabel { get; }
@@ -48,13 +52,13 @@ namespace Convergence.Bosses
             => kind switch
             {
                 BossKind.Medusa => Medusa.Spawn(at, target, parent, floor),
-                _ => Cantor.Spawn(at, target, parent, floor),
+                _ => Wreathe.Spawn(at, target, parent, floor),
             };
 
         /// <summary>
         /// The body every boss stands on. Kinematic, and DELIBERATELY NOT INTERPOLATED: a boss
         /// that teleports would slide visibly across the room under interpolation, inventing a
-        /// path it never took (see Cantor.Spawn). A boss that walks can switch it on itself.
+        /// path it never took (see Wreathe.Spawn). A boss that walks can switch it on itself.
         /// </summary>
         protected static T CreateBody<T>(string name, Vector2 at, Transform target, Transform parent,
                                           int floor, float colliderRadius, float baseHp) where T : Boss
@@ -77,7 +81,10 @@ namespace Convergence.Bosses
             col.enabled = false;            // shut until a window opens
             b.BodyCollider = col;
 
-            var hp = go.AddComponent<Health>();
+            // [RequireComponent] already added one with the body - adding another left GetComponent
+            // (every hit's lookup) on a spare 100-HP Health the fight never reads.
+            var hp = go.GetComponent<Health>();
+            if (hp == null) hp = go.AddComponent<Health>();
             hp.Configure(baseHp * Enemies.FloorDifficulty.BossHp(b.Floor));
             hp.Immovable = true;          // nothing displaces a boss, not even a Heavy finisher
             hp.Immune = true;             // untouchable until the first window
@@ -101,6 +108,11 @@ namespace Convergence.Bosses
         }
 
         protected virtual void OnDestroy() => Cease();
+
+        /// <summary>How it dies, drawn - called as it dies, before it is destroyed (a boss draws its
+        /// own death in its own material; the soft flash is what is left for one that does not).</summary>
+        public virtual void DeathPicture()
+            => Spr.Flash(transform.position, 3.2f, new Color(1f, 0.95f, 0.8f), 0.9f);
 
         protected void CheckEnrage(float at)
         {

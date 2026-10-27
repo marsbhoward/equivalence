@@ -81,7 +81,7 @@ namespace Convergence.Player
             var ind = go.AddComponent<AimIndicator>();
             ind._player = player;
             ind._renderer = go.AddComponent<SpriteRenderer>();
-            ind._renderer.sortingOrder = SortingOrders.PitBase + 7;   // over the pits and spire lines, under bodies
+            ind._renderer.sortingOrder = SortingOrders.GroundFx;   // over the pits, under danger lines and every body
             ind._renderer.enabled = false;
             return ind;
         }
@@ -96,7 +96,7 @@ namespace Convergence.Player
                 foreach (var old in GetComponentsInChildren<SpriteRenderer>()) old.enabled = false;
                 _renderer = GetComponent<SpriteRenderer>();
                 if (_renderer == null) _renderer = gameObject.AddComponent<SpriteRenderer>();
-                _renderer.sortingOrder = SortingOrders.PitBase + 7;
+                _renderer.sortingOrder = SortingOrders.GroundFx;
             }
             if (!_player.ArtAimShown || !_player.TryArtFootprint(out var fp))
             {

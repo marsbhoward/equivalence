@@ -11,6 +11,9 @@ namespace Convergence.Enemies
     /// One small texture on the texel grid over the body's own drawn bounds, redrawn each frame on
     /// a child of the enemy's root (so it rides the body and dies with it). An overlay, above the
     /// depth band, as the circle was.
+    ///
+    /// Also an elite modifier's mark (EnemyController.Affix): the same motes in another ramp -
+    /// embers rising off a Cindered elite, drips FALLING off a Mired one.
     /// </summary>
     public class BoostedMotes : MonoBehaviour
     {
@@ -21,10 +24,13 @@ namespace Convergence.Enemies
         Texture2D _tex;
         Color[] _px;
         [SerializeField] int _w, _h;
+        // Null = the roar's green. Serialized, so a reload keeps the colour.
+        [SerializeField] Color[] _ramp;
+        [SerializeField] bool _falling;
 
-        public static void Attach(EnemyController enemy)
+        public static void Attach(EnemyController enemy, Color[] ramp = null, bool falling = false, string name = "boosted")
         {
-            if (enemy == null || enemy.GetComponentInChildren<BoostedMotes>() != null) return;
+            if (enemy == null || enemy.transform.Find(name) != null) return;
 
             // The body as drawn: the biggest renderer under the root that is not an overlay.
             Bounds body = new(enemy.transform.position, Vector3.one * 0.8f);
@@ -37,9 +43,11 @@ namespace Convergence.Enemies
             }
 
             float tpu = TexelRig.TexelsPerUnit;
-            var go = new GameObject("boosted");
+            var go = new GameObject(name);
             go.transform.SetParent(enemy.transform, false);
             var m = go.AddComponent<BoostedMotes>();
+            m._ramp = ramp;
+            m._falling = falling;
             m._w = Mathf.Clamp(Mathf.CeilToInt(body.size.x * tpu), 16, 80);
             m._h = Mathf.Clamp(Mathf.CeilToInt(body.size.y * tpu) + 12, 24, 96);
             var foot = new Vector2(body.center.x, body.min.y) - (Vector2)enemy.transform.position;
@@ -62,15 +70,15 @@ namespace Convergence.Enemies
             }
 
             System.Array.Clear(_px, 0, _px.Length);
-            var acc = BoosterArt.Accent;
+            var acc = _ramp != null && _ramp.Length >= 3 ? _ramp : BoosterArt.Accent;
             for (int i = 0; i < Motes; i++)
             {
                 float ph = ((Time.time / RiseSeconds + i / (float)Motes) % 1f + 1f) % 1f;
                 int x = Mathf.RoundToInt(2f + TexelRig.Hash(i, 1) * (_w - 4) + Mathf.Sin(ph * 6f + i) * 1.5f);
-                int y = Mathf.RoundToInt(2f + ph * (_h - 4));
+                int y = Mathf.RoundToInt(2f + (_falling ? 1f - ph : ph) * (_h - 4));
                 var c = ph < 0.5f ? acc[2] : acc[1];
                 Put(x, y, c, 1f - ph);
-                if (ph < 0.3f) Put(x, y - 1, c, 1f - ph);
+                if (ph < 0.3f) Put(x, y + (_falling ? 1 : -1), c, 1f - ph);
             }
             _tex.SetPixels(_px);
             _tex.Apply();

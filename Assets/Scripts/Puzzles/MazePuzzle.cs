@@ -494,8 +494,9 @@ namespace Convergence.Puzzles
                 if (cut == _pieceCut[i]) continue;
                 if (_pieceCut[i] == 0)
                 {
-                    var mid = (Vector2)child.position + new Vector2(0f, r.height * texel * 0.5f);
-                    Spr.Flash(mid, Mathf.Max(r.width, r.height) * texel * 0.9f, Dust, 0.35f, ring: false);
+                    // The breaking stone's dust, low along the foot as it starts down (group 4).
+                    Combat.TexelFx.Puff(child.position, Combat.TexelFx.RubbleOf(false), Mathf.Clamp(r.width / 3, 6, 16),
+                                        r.width * texel * Combat.TexelFx.Body * 0.5f, 0.6f);
                 }
                 var old = sr.sprite;
                 if (cut >= r.height) sr.enabled = false;

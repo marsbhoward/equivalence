@@ -42,19 +42,16 @@ namespace Convergence.Hub
         public string Name { get; private set; }
         public int Shown => string.IsNullOrEmpty(Name) ? 0 : 1;
 
-        SpriteRenderer _shadow, _foot, _rail, _postL, _postR, _glow, _hook;
+        SpriteRenderer _shadow;
+        [SerializeField] HubFixture _frame;
 
         /// <summary>The piece, and its off-hand twin. A DISC IS A PAIR - the character carries
         /// both anywhere the weapon is merely being looked at (see CharacterRigFactory.Paint's
         /// SetWeaponSplit), so a case showing one of a pair would be showing half a weapon.</summary>
         SpriteRenderer _main, _off;
         Vector2 _restAt;
-        float _lit;
         bool _focused;
 
-        static readonly Color Wood = new(0.30f, 0.22f, 0.16f);
-        static readonly Color WoodLit = new(0.38f, 0.29f, 0.21f);
-        static readonly Color Iron = new(0.42f, 0.44f, 0.50f);
 
         /// <summary>Footprint for placement legality and for the walk-into collider.</summary>
         public const float Radius = 0.85f;
@@ -85,20 +82,12 @@ namespace Convergence.Hub
             r._shadow = Quad(go.transform, "shadow", Width * 1.15f, Radius * 0.85f,
                              new Color(0f, 0f, 0f, 0.30f), 0, new Vector2(0f, -0.02f), Spr.Circle);
 
-            // A FRAME, not a cabinet. Two posts and a rail so the weapons hang IN it and the room
-            // shows through - a solid back panel makes gear read as printed on a board.
-            r._foot = Quad(go.transform, "foot", Width, 0.14f, Wood, 1, new Vector2(0f, 0.07f));
-            r._rail = Quad(go.transform, "rail", Width, 0.10f, Wood, 2, new Vector2(0f, 1.40f));
-            r._postL = Quad(go.transform, "post-l", 0.10f, 1.40f, Wood, 2, new Vector2(-Width * 0.5f + 0.05f, 0.72f));
-            r._postR = Quad(go.transform, "post-r", 0.10f, 1.40f, Wood, 2, new Vector2(Width * 0.5f - 0.05f, 0.72f));
-
-            // Behind the pieces, so dark gear still separates from a dark room - the same reason
-            // an easel Frame puts a glow behind its art.
-            r._glow = Quad(go.transform, "glow", Width * 1.05f, 1.5f,
-                           new Color(1f, 0.92f, 0.72f, 0f), 3, new Vector2(0f, 0.74f), Spr.Glow);
+            // The oak A-frame (the user's pick, group 6): two posts and crossbars, solid at 3/4, the
+            // weapon held upright between them - the room shows through. No soft glow behind it.
+            r._frame = HubFixture.Attach(go, HubArt.AFrame(Mathf.RoundToInt(Width * HubArt.Ppu), Mathf.RoundToInt(1.45f * HubArt.Ppu)),
+                                         Vector2.zero, 2);
 
             r._restAt = new Vector2(0f, 0.74f);
-            r._hook = Quad(go.transform, "hook", 0.07f, 0.13f, Iron, 4, new Vector2(0f, 1.34f));
 
             // The off-hand copy is drawn BELOW the main one, so a pair reads with depth rather
             // than as two flat rings - the same reasoning the rig uses putting the second disc at
@@ -112,9 +101,7 @@ namespace Convergence.Hub
 
             // Sorted from the FOOT of the posts, which is where the rack touches the floor.
             DepthSorted.Attach(go, 0f, isFixed: false,
-                               r._shadow, r._foot, r._rail, r._postL, r._postR, r._glow,
-                               r._hook, r._off, r._main);
-            r.Apply(0f);
+                               r._shadow, r._frame.Art, r._frame.RimRenderer, r._off, r._main);
             return r;
         }
 
@@ -187,19 +174,7 @@ namespace Convergence.Hub
 
         void Update()
         {
-            if (_foot == null || _glow == null) return;   // half-built after a reload; wait for the room rebuild
-            _lit = Mathf.MoveTowards(_lit, _focused ? 1f : 0f, Time.unscaledDeltaTime * 5f);
-            Apply(_lit);
-        }
-
-        void Apply(float lit)
-        {
-            var wood = Color.Lerp(Wood, WoodLit, lit);
-            _foot.color = wood;
-            _rail.color = wood;
-            _postL.color = wood;
-            _postR.color = wood;
-            _glow.color = new Color(1f, 0.92f, 0.72f, 0.08f + lit * 0.22f);
+            if (_frame != null) _frame.SetFocus(_focused);
         }
 
         /// <summary>Where the sprite's geometric centre sits relative to its pivot, taken through

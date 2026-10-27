@@ -181,12 +181,12 @@ namespace Convergence.Art.Gear
             if (!_flashed && t >= T.FlashAt)
             {
                 _flashed = true;
-                if (_relic != null) Spr.Pulse(_relic.transform, 0.45f, WithAlpha(Tone(0), 0.9f), 0.26f, true, 1.6f);
+                if (_relic != null) Combat.TexelFx.Bolts(_relic.bounds.center, Combat.TexelFx.SecretTones(), 3);
             }
             if (!_arrived && _weapon != null && t >= T.WeaponLitAt)
             {
                 _arrived = true;
-                Spr.Pulse(_weapon.transform, 0.6f, WithAlpha(Tone(1), 0.8f), 0.24f, true, 1.4f);
+                Combat.TexelFx.Bolts(_weapon.bounds.center, Combat.TexelFx.SecretTones(), 3);
             }
 
             float relicHeat = 0f;

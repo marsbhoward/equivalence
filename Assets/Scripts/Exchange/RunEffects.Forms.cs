@@ -103,7 +103,7 @@ namespace Convergence.Exchange
                         hp.Take(new DamageInfo(dmg, ElementType.Fire, _pc.gameObject));
                         if (!hp.IsDead) _pc.Burn(hp, burn, burnFor);
                     }
-                    Spr.Flash(at, radius, new Color(1f, 0.55f, 0.2f, 0.35f * s), 0.22f);
+                    LedgerFx.FireRing(ReleaseCanvas.Feet(_pc.transform), radius);
                 }
 
                 // RIPTIDE: once per art, a wave along the aim, soaking what it crosses. MAELSTROM,
@@ -119,8 +119,7 @@ namespace Convergence.Exchange
                     if (maelstrom)
                         Field("maelstrom", null, from + dir * T.RiptideLength, T.MaelstromPoolRadius, ElementType.Water,
                               T.MaelstromPoolSeconds * s, s);
-                    for (int i = 1; i <= 3; i++)
-                        Spr.Flash(from + dir * (T.RiptideLength * i / 3f), 0.6f, new Color(0.4f, 0.7f, 1f, 0.3f * s), 0.2f, false);
+                    LedgerFx.Crest(ReleaseCanvas.Feet(_pc.transform), dir, T.RiptideLength, LedgerFx.Water);
                 }
                 return;
             }
@@ -151,7 +150,7 @@ namespace Convergence.Exchange
                     near.Take(new DamageInfo(info.Amount * T.SplinterShare * s, info.Element, _pc.gameObject));
                     if (!near.IsDead)
                         _pc.Bleed(near, info.Amount * T.SplinterBleedShare * s / T.SplinterBleedSeconds, T.SplinterBleedSeconds);
-                    Spr.Flash(near.transform.position, 0.35f, new Color(0.8f, 0.15f, 0.2f, 0.6f), 0.15f, false);
+                    LedgerFx.StatusBurst(near, LedgerFx.Blood);
                 }
             }
         }
@@ -191,13 +190,8 @@ namespace Convergence.Exchange
                 if (to.magnitude < reach * 0.8f || Vector2.Dot(to.normalized, facing) < cos) continue;
                 _pc.Soak(hp, T.SpindriftSoakSeconds * s, T.SpindriftSoakVulnerability);
             }
-            // The spray, faint, along the arc's far edge: three drops, not a ring.
-            for (int i = -1; i <= 1; i++)
-            {
-                float a = i * T.SpindriftHalfAngle * 0.6f * Mathf.Deg2Rad;
-                Vector2 d = new(facing.x * Mathf.Cos(a) - facing.y * Mathf.Sin(a), facing.x * Mathf.Sin(a) + facing.y * Mathf.Cos(a));
-                Spr.Flash(at + d * (reach + T.SpindriftBeyond * 0.5f), 0.35f, new Color(0.45f, 0.75f, 1f, 0.35f * s), 0.14f, false);
-            }
+            // The spray: a crest running out past the swing's reach.
+            LedgerFx.Crest(ReleaseCanvas.Feet(_pc.transform), facing, reach + T.SpindriftBeyond, LedgerFx.Water);
         }
 
         // ---------------------------------------------------------------- class basics, stamped at the throw
@@ -289,7 +283,7 @@ namespace Convergence.Exchange
                 _pc.Bleed(hp, dps, T.LacerateSeconds);
                 if (hem && !hp.IsDead) _pc.Stagger(hp, T.HemorrhageStagger);
             }
-            Spr.Flash(_pc.transform.position, radius, new Color(0.8f, 0.12f, 0.18f, 0.3f), 0.18f);
+            LedgerFx.Stuff(_pc.transform.position, LedgerFx.Blood, radius);
         }
 
         // ---------------------------------------------------------------- the unions (Phase 3)
@@ -312,7 +306,7 @@ namespace Convergence.Exchange
             float dmg = T.SteamHitUnits * _pc.HitUnit;
             Vector2 p = target.transform.position;
             foreach (var hp in EnemiesWithin(p, T.SteamRadius)) hp.Take(new DamageInfo(dmg, ElementType.Water, _pc.gameObject));
-            Spr.Flash(p, T.SteamRadius, new Color(0.9f, 0.92f, 0.95f, 0.35f), 0.22f);
+            LedgerFx.SteamCloud(p, T.SteamRadius);
         }
 
         /// <summary>Asked by PlayerController.Stagger: CLOT cashes seconds of a bleed in at once.</summary>

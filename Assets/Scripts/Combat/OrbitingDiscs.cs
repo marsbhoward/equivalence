@@ -223,7 +223,7 @@ namespace Convergence.Combat
                 _player?.Resource?.OnHitLanded(hp, info);
                 _player?.NotifyThrownHit(hp, info, 0.5f, _first);
                 _first = false;
-                Spr.Flash(hp.transform.position, 0.45f, ElementInfo.Tint(_element), 0.14f, false);
+                TexelFx.Hit(hp.transform.position, _element, Vector2.zero);
             }
         }
 

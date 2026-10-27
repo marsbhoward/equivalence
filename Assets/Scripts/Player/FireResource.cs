@@ -45,9 +45,13 @@ namespace Convergence.Player
         public override float DamagePoints => Grown(Stacks * (Ledger != null ? Ledger.HeatPoints(T.StackDamagePoints) : T.StackDamagePoints));
         public override float AttackSpeedPoints => Stacks >= 2 ? Grown(T.HastePoints) : 0f;
 
+        // The heat's picture on the ground (scorch ring, embers, the sigil at full heat).
+        [SerializeField] HeatGround _heatGround;
+
         void Update()
         {
             float dt = Time.deltaTime;
+            if (_heatGround == null) _heatGround = HeatGround.Attach(this);
 
             // STOKE: from the third rung up, heat fades half as fast. The ledger's fade on top
             // (Leaky Vessel faster, Sealed Vessel not at all), and its floor under it: Banked
@@ -70,7 +74,8 @@ namespace Convergence.Player
                 if (_igniteRemaining <= 0f)
                 {
                     _igniteRemaining = 0f;
-                    Spr.Pulse(transform, 0.8f, new Color(1f, 0.45f, 0.2f, 0.6f), 0.25f, true, 0.5f);
+                    // A ring in its colour closing in on the floor (the user's pick, 2026-10-26).
+                    TexelFx.Ring(ReleaseCanvas.Feet(transform), TexelFx.Fire, 0.55f, 0.05f, 0.4f, 1.2f);
                 }
             }
         }
@@ -122,7 +127,7 @@ namespace Convergence.Player
                 if (hp == null || hp.IsDead) continue;
 
                 hp.Take(new DamageInfo(info.Amount * T.SplashFraction, ElementType.Fire, gameObject));
-                Spr.Flash(hp.transform.position, 0.6f, new Color(1f, 0.5f, 0.2f), 0.2f);
+                TexelFx.Ring(primary.transform.position, TexelFx.Fire, 0.15f, T.SplashRadius, 0.3f, 1.2f, dotted: true);
                 break;   // one splash target only
             }
         }
@@ -145,11 +150,12 @@ namespace Convergence.Player
 
             // No ring round the body for heat gained (the user's call, 2026-10-15: a ring on a
             // landed hit reads as "damage was done", and those are gone from every attack). The
-            // element seal's Kindling shows the heat.
+            // element seal's Kindling shows the heat, and the scorched ground under the feet
+            // grows with it - a state, held, not a pulse per hit (HeatGround).
 
-            // A release coming ready is the moment worth interrupting for, so it gets its own ring.
-            if (Stacks >= MaxStacks)
-                Spr.Pulse(transform, 1.5f, new Color(1f, 0.75f, 0.35f), 0.45f, true, 1.6f);
+            // A release coming ready is the moment worth interrupting for: the sigil emblem burns into
+            // the ground under the feet and stays until it is spent (HeatGround - it replaced a
+            // ring pulsing out from the body).
         }
 
         // ---- the release: ERUPT, or IGNITE if chosen on the board ----
@@ -182,6 +188,7 @@ namespace Convergence.Player
         void Erupt()
         {
             var origin = (Vector2)transform.position;
+            var feet = ReleaseCanvas.Feet(transform);   // where the blast is drawn, under the body
             float baseAngle = Random.value * Mathf.PI * 2f;
             float area = ReleaseAreaScale;
             float spread = T.EruptSpread * area, radius = T.PoolRadius * area;
@@ -200,12 +207,13 @@ namespace Convergence.Player
                 // for and can never use.
                 pos = Arena.NearestFloor(Arena.Clamp(pos, radius), 0.3f);
 
+                // Lit as the blast's ring of fire reaches it (EruptBlast).
                 FirePool.Spawn(pos, radius, dps, T.PoolSeconds, gameObject, transform.parent,
-                               burnScale: Player != null && Player.Board != null ? Player.Board.BurnPower : 1f);
+                               burnScale: Player != null && Player.Board != null ? Player.Board.BurnPower : 1f,
+                               delay: EruptBlast.ArrivesAt(Vector2.Distance(pos, feet), spread));
             }
 
-            Spr.Flash(transform.position, spread, new Color(1f, 0.55f, 0.2f), 0.5f);
-            Spr.Flash(transform.position, spread * 0.5f, Color.white, 0.3f);
+            EruptBlast.Play(feet, spread);
         }
 
         /// <summary>
@@ -216,8 +224,7 @@ namespace Convergence.Player
         void Ignite()
         {
             _igniteRemaining = T.IgniteSeconds;
-            Spr.Pulse(transform, 1.2f, new Color(1f, 0.5f, 0.15f), 0.4f, true, 1.5f);
-            Spr.Flash(transform.position, 1.2f, Color.white, 0.22f);
+            FlameOutline.Play(transform);
         }
 
         // ---- HUD: discrete pips, not a bar ----
@@ -272,7 +279,7 @@ namespace Convergence.Player
             if (UseSecondAbility)
             {
                 _igniteRemaining = Mathf.Max(0f, _igniteRemaining) + T.IgniteSeconds * RepeatStrength;
-                Spr.Pulse(transform, 1f, new Color(1f, 0.5f, 0.15f), 0.3f, true, 1.2f);
+                FlameOutline.Play(transform);
             }
             else Erupt();
         }

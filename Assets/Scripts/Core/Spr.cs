@@ -101,7 +101,7 @@ namespace Convergence.Core
         /// two cannot describe different tears - the rim tracing a slightly different curve from
         /// the mask is the one artefact that would give the whole effect away.
         /// </summary>
-        static float TearHalfWidth(float ny)
+        public static float TearHalfWidth(float ny)
         {
             float taper = 1f - ny * ny;
             if (taper <= 0f) return 0f;

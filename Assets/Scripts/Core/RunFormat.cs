@@ -27,13 +27,15 @@ namespace Convergence.Core
     /// format (ServiceProfileStore), and the service judges the run's boxes by its rules
     /// (web/service/src/runFormat.ts).
     ///
-    /// A static resets to Classic on a domain reload - set it again before a run if testing Short.
+    /// A static resets to the Short Descent on a domain reload - set it again before a run if testing Classic.
     /// </summary>
     public enum RunFormatId { Classic, ShortDescent }
 
     public static class RunFormat
     {
-        public static RunFormatId Current = RunFormatId.Classic;
+        // THE SHORT DESCENT IS THE PLAYERS' RUN (the user's call, 2026-10-25); Classic is internal only,
+        // reached through the dev toggle (Tuning.Testing.FormatToggle).
+        public static RunFormatId Current = RunFormatId.ShortDescent;
 
         public static bool Short => Current == RunFormatId.ShortDescent;
 
@@ -67,6 +69,20 @@ namespace Convergence.Core
         /// <summary>The depth reached by the floor BEFORE <paramref name="floor"/> - so a content
         /// threshold crossed between two floors is still met on the floor that crosses it.</summary>
         public static int DepthBefore(int floor) => floor <= 1 ? 0 : Depth(floor - 1);
+
+        /// <summary>
+        /// The ENEMY BAND a floor is in, 0-4 (Tuning.EnemyBands): one more after every mini-boss of
+        /// the Short Descent (10 / 20 / 30 / 40), Classic at the same depth (20 / 40 / 60 / 80).
+        /// Structure, so it reads the FLOOR. Enemy behaviours that arrive with depth ask this, never
+        /// the floor.
+        /// </summary>
+        public static int EnemyBand(int floor)
+        {
+            var edges = Short ? Tuning.EnemyBands.ShortEdges : Tuning.EnemyBands.ClassicEdges;
+            int band = 0;
+            foreach (int e in edges) if (floor > e) band++;
+            return band;
+        }
 
         /// <summary>An avatar's floor - its own boss, and (below the final floor) its own design boxes.</summary>
         public static bool IsAvatarFloor(int floor)

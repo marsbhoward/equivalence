@@ -35,7 +35,8 @@ namespace Convergence.Hazards
         // of the same trap: Unity cannot write to one at all, so it comes back freshly empty
         // while every tongue GameObject it used to describe is still on screen, and the fire
         // would simply stop flickering with nothing saying why.
-        [SerializeField] SpriteRenderer _bed, _crust, _bloom;
+        [SerializeField] SpriteRenderer _bed, _crust;
+        [SerializeField] PitEmbers _embers;
         [SerializeField] List<Tongue> _tongues = new();
         [SerializeField] float _phase;
         // This pit's own cadence - see Tuning.Hazards.FireCycleSecondsMin / FireBurnShareMin.
@@ -99,10 +100,11 @@ namespace Convergence.Hazards
                                     Tuning.Hazards.FireMinTongues, Tuning.Hazards.FireMaxTongues);
             for (int i = 0; i < count; i++) _tongues.Add(MakeTongue(size));
 
-            // The pit lighting what is around it. Above the bed but still inside the pit band, so
-            // it never draws over a body standing in the fire.
-            _bloom = PitArt.Quad(gameObject, Spr.Glow, Color.white,
-                                 size * Tuning.Hazards.FireBloomScale, OrderAbove, "bloom");
+            // Embers rising off it while it burns (the user's pick, group 4); no soft bloom - the
+            // pit's Glow lights the room round it. Inside the pit band, under every body.
+            int hw = Mathf.CeilToInt(size.x * 0.5f * Combat.TexelFx.Body) + 3, hh = Mathf.CeilToInt(size.y * 0.5f * Combat.TexelFx.Body);
+            _embers = Combat.TexelPicture.Attach<PitEmbers>(transform, "embers", Vector2.zero, hw, hh + 2, hh + 40, OrderAbove);
+            _embers.Size = size;
         }
 
         Tongue MakeTongue(Vector2 size)
@@ -204,7 +206,7 @@ namespace Convergence.Hazards
         /// </summary>
         bool EnsureLayers()
         {
-            if (_bed != null && _crust != null && _bloom != null) return true;
+            if (_bed != null && _crust != null) return true;
 
             _tongues ??= new List<Tongue>();
             bool tonguesLost = _tongues.Count == 0;
@@ -215,7 +217,6 @@ namespace Convergence.Hazards
                 {
                     case "coals": _bed = sr; break;
                     case "ash": _crust = sr; break;
-                    case "bloom": _bloom = sr; break;
                     case "tongue":
                         // Only when the list itself came back empty. Rediscovering on top of a
                         // list that survived would append a second entry per flame and animate
@@ -228,7 +229,7 @@ namespace Convergence.Hazards
             // A pit whose children are genuinely gone (mid-teardown) has nothing to paint and
             // must not throw trying - reported rather than guessed at, so Update can stand down
             // instead of dereferencing a null once a frame for the rest of the run.
-            return _bed != null && _crust != null && _bloom != null;
+            return _bed != null && _crust != null;
         }
 
         /// <summary>
@@ -297,9 +298,7 @@ namespace Convergence.Hazards
             ash.a = Mathf.Clamp01(1f - heat * 1.35f) * 0.94f;
             _crust.color = ash;
 
-            var bloom = Color.Lerp(new Color(1f, 0.35f, 0.1f), new Color(1f, 0.72f, 0.3f), heat);
-            bloom.a = heat * heat * Tuning.Hazards.FireBloomAlpha;   // squared: no glow at all until it is genuinely lit
-            _bloom.color = bloom;
+            if (_embers != null) _embers.Heat = heat * heat;   // squared: none until it is genuinely lit
 
             // Tongues only exist above a threshold, and they GROW into it rather than fading in
             // at full height - a flame that appears already tall reads as a light being switched
@@ -330,6 +329,31 @@ namespace Convergence.Hazards
                 c.a = lit * Mathf.Lerp(0.55f, 0.92f, flick);
                 g.Sr.color = c;
             }
+        }
+    }
+
+    /// <summary>Embers rising off a burning fire pit (the user's pick, group 4 - "embers"): sparks
+    /// born across the pit, rising and swaying, hottest at the start, as many as its heat allows.</summary>
+    public class PitEmbers : Combat.TexelPicture
+    {
+        [SerializeField] public Vector2 Size;
+        [SerializeField] public float Heat;
+
+        protected override bool Draw()
+        {
+            if (Heat <= 0.02f) return false;
+            float hw = Size.x * 0.5f * Ppu, hh = Size.y * 0.5f * Ppu;
+            int n = Mathf.Clamp(Mathf.RoundToInt(Size.x * Size.y * 6f), 8, 40);
+            for (int k = 0; k < n; k++)
+            {
+                float cyc = Age * 0.9f + Combat.FireArt.Hash(k, 1);
+                float age = Mathf.Repeat(cyc, 1f);
+                if (Combat.FireArt.Hash(k, Mathf.FloorToInt(cyc)) > Heat) continue;   // fewer as it cools
+                float x = (Combat.FireArt.Hash(k, 2, Mathf.FloorToInt(cyc)) * 2f - 1f) * hw + Mathf.Sin(age * 5f + k) * 1.5f;
+                float y = (Combat.FireArt.Hash(k, 3, Mathf.FloorToInt(cyc)) * 2f - 1f) * hh + age * 34f;
+                Over(Mathf.RoundToInt(x), Mathf.RoundToInt(y), Combat.FireArt.At(0.1f + age * 0.8f), 1f - age);
+            }
+            return true;
         }
     }
 }

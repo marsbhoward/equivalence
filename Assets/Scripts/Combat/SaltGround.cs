@@ -9,16 +9,16 @@ namespace Convergence.Combat
     ///
     /// FirePool's shape (a lingering area asked of positioning, built at runtime, faded out at
     /// the end so it never vanishes under someone using it), but ENEMIES ONLY by registry rather
-    /// than by overlap, so it can never touch the player, a column or a spire.
+    /// than by overlap, so it can never touch the player, a column or a spire. Drawn as a ring of
+    /// poured salt with grains inside (GroundPatch - the user's pick, group 3, "salt circle").
     /// </summary>
     public class SaltGround : MonoBehaviour
     {
         const float TickInterval = 0.5f;
-        const float Alpha = 0.32f;
 
         float _radius, _damagePerTick, _slow, _life, _remaining, _tick;
         GameObject _owner;
-        SpriteRenderer _sr;
+        GroundPatch _patch;
 
         public static SaltGround Spawn(Vector2 at, float radius, float damagePerSecond, float slowMultiplier,
                                        float seconds, GameObject owner)
@@ -35,13 +35,8 @@ namespace Convergence.Combat
             g._owner = owner;
             g._tick = 0f;   // the first tick lands at once - the ground is salted where it lands
 
-            var sr = go.AddComponent<SpriteRenderer>();
-            sr.sprite = Spr.Circle;
-            sr.color = new Color(0.92f, 0.94f, 0.86f, Alpha);
             // On the ground, under every body, like a fire pool: something fought over.
-            sr.sortingOrder = SortingOrders.GroundDecal + 1;
-            go.transform.localScale = Vector3.one * g._radius * 2f;
-            g._sr = sr;
+            g._patch = GroundPatch.Spawn(go, at, g._radius, GroundPatch.Kind.Salt, SortingOrders.GroundLasting);
             return g;
         }
 
@@ -51,12 +46,7 @@ namespace Convergence.Combat
             _remaining -= dt;
             if (_remaining <= 0f) { Destroy(gameObject); return; }
 
-            if (_sr != null)
-            {
-                var c = _sr.color;
-                c.a = Alpha * Mathf.Min(1f, _remaining / _life * 3f);
-                _sr.color = c;
-            }
+            if (_patch != null) _patch.Alpha = Mathf.Min(1f, _remaining / _life * 3f);
 
             _tick -= dt;
             if (_tick > 0f) return;

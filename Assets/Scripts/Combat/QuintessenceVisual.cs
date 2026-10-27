@@ -89,7 +89,7 @@ namespace Convergence.Combat
             _whole = Piece(transform, "whole", SortingOrders.Fx - 1);
             _whole.transform.localPosition = up;
             _whole.color = tint;
-            Spr.Flash(transform.position + up, 0.55f, Color.white, 0.18f);
+            TexelFx.Star(transform.position + up, TexelFx.Steel, 2, 0.1f);   // the four meeting as one
             float held = 0f;
             while (held < holdSeconds)
             {

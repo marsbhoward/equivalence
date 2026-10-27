@@ -14,7 +14,7 @@ namespace Convergence.Enemies
         /// attack pattern) is carried by EnemyController.Elite.
         /// </param>
         public static EnemyController Spawn(Vector2 pos, EnemyKind kind, int wave, Transform target, Transform parent,
-                                            bool elite = false)
+                                            bool elite = false, EliteAffix affix = EliteAffix.None)
         {
             // ONE LOOKUP, NOT NINE SWITCHES. Every per-kind value lives on the type record -
             // see EnemyTypes - so an enemy can be read as a whole and adding a property means
@@ -90,6 +90,7 @@ namespace Convergence.Enemies
             var ec = go.AddComponent<EnemyController>();
             ec.Kind = kind;
             ec.Elite = elite;
+            ec.Band = Core.RunFormat.EnemyBand(wave);   // the behaviours that arrive with depth
             ec.Look = EnemyLooks.Of(kind);
             // SPEED SCALES WITH DEPTH NOW. It never did, and that was the whole reason a
             // seasoned player felt no tension anywhere from floor 1 to floor 70: nothing could
@@ -113,6 +114,8 @@ namespace Convergence.Enemies
             // Ranged and an elite Bomb are each their own kit turned up, not one shared bonus.
             ec.ElitePattern = elite ? def.Elite : ElitePattern.None;
             ec.ElitePatternEvery = Mathf.Max(1, def.EliteEvery);
+            // What the floor's ENEMY BAND changes at spawn (Tuning.EnemyBands) - veterans' patterns.
+            ec.ApplyBand();
 
             ec.SetTarget(target);
 
@@ -163,6 +166,10 @@ namespace Convergence.Enemies
             // keeps its relative order.
             var renderers = go.GetComponentsInChildren<SpriteRenderer>(true);
             DepthSorted.Attach(go, 0f, false, renderers);
+
+            // An elite's modifier (Tuning.EliteAffixes) - after the sort, as a Bell's bubble on an
+            // ally arrives after it too.
+            ec.ApplyAffix(affix);
 
             return ec;
         }

@@ -30,7 +30,7 @@ namespace Convergence.Hazards
         const float TickSeconds = 0.2f;
         const float BodyAllowance = 0.18f;
         const float EnemyAllowance = 0.3f;
-        const int Order = SortingOrders.PitBase + 7;
+        const int Order = SortingOrders.GroundDanger;
 
         [SerializeField] Vector2[] _from, _to;
         [SerializeField] float _warning, _burn, _elapsed, _tick, _halfWidth;
@@ -38,7 +38,7 @@ namespace Convergence.Hazards
         [SerializeField] GameObject _owner;
         [SerializeField] Health _playerHealth;
         [SerializeField] Transform _player;
-        [SerializeField] SpriteRenderer[] _edge, _core;
+        [SerializeField] ProjectionPicture _pic;
         [SerializeField] Color _edgeColor, _coreColor;
 
         static readonly Color DangerEdge = new(1f, 0.25f, 0.18f);
@@ -88,40 +88,34 @@ namespace Convergence.Hazards
 
         void OnDestroy() => _live?.Remove(this);
 
+        /// <summary>One picture over every line (the user's pick, group 4 - "beam"), on the danger rung.</summary>
         void Build()
         {
-            int n = _from.Length;
-            _edge = new SpriteRenderer[n];
-            _core = new SpriteRenderer[n];
-            for (int i = 0; i < n; i++)
+            var lo = _from[0]; var hi = _from[0];
+            for (int i = 0; i < _from.Length; i++)
             {
-                var d = _to[i] - _from[i];
-                float len = d.magnitude;
-                var mid = (_from[i] + _to[i]) * 0.5f;
-                float angle = Mathf.Atan2(d.y, d.x) * Mathf.Rad2Deg;
-                _edge[i] = Quad(mid, angle, new Vector2(len, _halfWidth * 3.6f), Order, "edge");
-                _core[i] = Quad(mid, angle, new Vector2(len * 0.995f, _halfWidth * 1.2f), Order + 1, "core");
+                lo = Vector2.Min(lo, Vector2.Min(_from[i], _to[i]));
+                hi = Vector2.Max(hi, Vector2.Max(_from[i], _to[i]));
             }
-            Paint();
+            var mid = (lo + hi) * 0.5f;
+            transform.position = mid;
+            int hw = Mathf.CeilToInt((hi.x - lo.x) * 0.5f * TexelFx.Body) + 3, hh = Mathf.CeilToInt((hi.y - lo.y) * 0.5f * TexelFx.Body) + 3;
+            _pic = TexelPicture.Attach<ProjectionPicture>(transform, "lines", Vector2.zero, hw, hh, hh, Order);
         }
 
-        SpriteRenderer Quad(Vector2 at, float angle, Vector2 size, int order, string name)
-        {
-            var go = new GameObject(name);
-            go.transform.SetParent(transform, false);
-            go.transform.position = at;
-            go.transform.rotation = Quaternion.Euler(0f, 0f, angle);
-            go.transform.localScale = new Vector3(size.x, size.y, 1f);
-            var sr = go.AddComponent<SpriteRenderer>();
-            sr.sprite = Spr.Square;
-            sr.sortingOrder = order;
-            return sr;
-        }
+        // What the picture reads.
+        internal int Count => _from != null ? _from.Length : 0;
+        internal Vector2 From(int i) => _from[i];
+        internal Vector2 To(int i) => _to[i];
+        internal bool Warning => _elapsed < _warning;
+        internal float Strength => Warning ? Mathf.Lerp(0.35f, 0.85f, Mathf.Clamp01(_elapsed / _warning))
+                                           : Mathf.Clamp01((_warning + _burn - _elapsed) / 0.25f);
+        internal Color32 EdgeColour => _edgeColor;
+        internal Color32 CoreColour => _coreColor;
 
         void Update()
         {
             _elapsed += Time.deltaTime;
-            Paint();
             if (_elapsed >= _warning + _burn) { Destroy(gameObject); return; }
             if (_elapsed < _warning) return;
 
@@ -129,35 +123,6 @@ namespace Convergence.Hazards
             if (_tick > 0f) return;
             _tick = TickSeconds;
             Burn(TickSeconds);
-        }
-
-        bool Burning => _elapsed >= _warning && _elapsed < _warning + _burn;
-
-        void Paint()
-        {
-            if (_edge == null) return;
-            float a;
-            Color edge = _edgeColor, core = _coreColor;
-            if (!Burning)
-            {
-                // The warning: a thin line brightening toward the moment it burns.
-                float t = Mathf.Clamp01(_elapsed / _warning);
-                a = Mathf.Lerp(0.15f, 0.5f, t) * (0.75f + 0.25f * Mathf.Sin(_elapsed * 24f));
-                edge.a = a * 0.6f;
-                core.a = 0f;
-            }
-            else
-            {
-                float left = _warning + _burn - _elapsed;
-                a = Mathf.Clamp01(left / 0.25f);
-                edge.a = 0.85f * a;
-                core.a = 0.95f * a;
-            }
-            for (int i = 0; i < _edge.Length; i++)
-            {
-                if (_edge[i] != null) _edge[i].color = edge;
-                if (_core[i] != null) _core[i].color = core;
-            }
         }
 
         void Burn(float seconds)
@@ -226,5 +191,26 @@ namespace Convergence.Hazards
 
         /// <summary>The four headings a line may take: the room's own grain, and its diagonals.</summary>
         public static readonly float[] Headings = { 0f, 90f, 45f, 135f };
+    }
+
+    /// <summary>Projection's and Ley Lines' picture: every line as a beam (TexelPicture.Beam) -
+    /// a dotted, blinking warning, then the burn. Ley Lines burn in the player's colour.</summary>
+    public class ProjectionPicture : TexelPicture
+    {
+        [SerializeField] ProjectionLines _p;
+
+        protected override bool Draw()
+        {
+            if (_p == null) _p = GetComponentInParent<ProjectionLines>();
+            if (_p == null || _p.Count == 0) return false;
+            Vector2 o = (Vector2)transform.position + new Vector2(Cx, Cy) / Ppu;
+            Color32 edge = _p.EdgeColour, core = _p.CoreColour, hot = Lerp(core, Color.white, 0.7f);
+            for (int i = 0; i < _p.Count; i++)
+            {
+                var a = (_p.From(i) - o) * Ppu; var b = (_p.To(i) - o) * Ppu;
+                Beam(a.x, a.y, b.x, b.y, !_p.Warning, _p.Strength, edge, core, hot, Age);
+            }
+            return true;
+        }
     }
 }

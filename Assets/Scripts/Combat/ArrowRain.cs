@@ -40,11 +40,10 @@ namespace Convergence.Combat
             r._up.transform.rotation = Quaternion.Euler(0f, 0f, 90f);
 
             r._ring = r.Renderer("rain.ring", SortingOrders.GroundDecal + 3);
-            r._ring.sprite = Spr.ThinRing;
+            r._ring.sprite = TexelFx.RingSprite(radius);   // crisp, the area's edge (the user's pick, group 2)
             r._ring.color = new Color(1f, 1f, 1f, 0f);
             r._ring.transform.position = centre;
-            float ringSize = Spr.ThinRing != null ? Spr.ThinRing.bounds.size.x : 1f;
-            r._ring.transform.localScale = Vector3.one * (radius * 2f / Mathf.Max(0.01f, ringSize));
+            r._ring.transform.localScale = Vector3.one;
 
             // The drops: spread evenly in time over the rain, at points spread over the disc
             // (a sunflower spiral, turned by a random start so no two rains match).

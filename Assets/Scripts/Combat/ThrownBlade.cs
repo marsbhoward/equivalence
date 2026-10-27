@@ -50,6 +50,11 @@ namespace Convergence.Combat
         SpriteRenderer _sr;
         bool _returning;
 
+        /// <summary>CLASH (Combat.Clash): whether this blade beats an enemy's strike, and where it
+        /// was last frame - the line it cuts enemy shots along.</summary>
+        bool _wins;
+        Vector2 _last;
+
         /// <summary>Whether the return leg deals damage. Set by a recall or a wall bounce; a throw
         /// that merely reached its far point flies home without biting anything.</summary>
         bool _returnBites;
@@ -100,6 +105,11 @@ namespace Convergence.Combat
             b._onFinished = onFinished;
             b._crit = crit;
             b._scaleHit = scaleHit;
+            // Always a weapon art's: it cuts enemy shots and flies on, and a Heavy one beats an
+            // enemy's strike (Combat.Clash).
+            var thrower = owner.GetComponent<Player.PlayerController>();
+            b._wins = thrower != null && Clash.Wins(true, thrower.LastArtWeight);
+            b._last = go.transform.position;
 
             // Draw the ACTUAL equipped weapon. Falling back to a capsule only when the hand is
             // genuinely empty keeps the throw legible as "your sword left your hand".
@@ -121,7 +131,7 @@ namespace Convergence.Combat
             // A kindled blade's marks burn in flight as in the hand (SecretFire) - the Aether Greatsword.
             Art.Gear.KindledMarks.On(sr);
 
-            Spr.Flash(go.transform.position, 0.8f, ElementInfo.Tint(element), 0.22f);
+            TexelFx.Star(go.transform.position, TexelFx.Steel, 2, 0.1f);   // leaving the hand
             return b;
         }
 
@@ -139,15 +149,15 @@ namespace Convergence.Combat
 
             transform.Rotate(0f, 0f, 900f * dt);   // spin sells that it is loose, not held
 
-            // A streak behind it: a held weapon is a few dozen pixels at this camera distance, so
-            // the trail is what actually lets the eye follow a blade crossing the arena and time
-            // the recall against it.
+            // After-images behind it (the user's pick, group 2): a held weapon is a few dozen pixels
+            // at this camera distance, so the trail is what lets the eye follow a blade crossing the
+            // arena and time the recall against it.
             _trail -= dt;
             if (_trail <= 0f)
             {
-                _trail = 0.035f;
-                var c = _trailTint; c.a = 0.5f;
-                Spr.Flash(transform.position, 0.3f, c, 0.22f, false);
+                _trail = 0.05f;
+                var c = Color.Lerp(_trailTint, Color.white, 0.4f); c.a = 0.55f;
+                AfterImage.Of(_sr, c, 0.18f);
             }
 
             if (!_returning)
@@ -183,7 +193,7 @@ namespace Convergence.Combat
                 // but there is nothing more to hit.
                 else if (Vector2.Distance(_start, clamped) >= MaxDistance)
                 {
-                    Spr.Flash(transform.position, 0.5f, Color.white, 0.2f);
+                    TexelFx.Star(transform.position, TexelFx.Steel, 2, 0.1f);
                     BeginReturn();
                 }
             }
@@ -222,6 +232,9 @@ namespace Convergence.Combat
                 if (hp == null || hp.IsDead || _hitThisLeg.Contains(hp)) continue;
 
                 _hitThisLeg.Add(hp);
+                // CLASH: the body's own strike is about to land - the blade is batted off it and
+                // its blow is void, unless this is a Heavy art's blade. It flies on either way.
+                if (Clash.AtBody(hp, (Vector2)transform.position, _wins)) continue;
                 var push = ((Vector2)hp.transform.position - (Vector2)transform.position).normalized;
                 // Displaces, because the throw is a FINISHER's damage arriving somewhere else -
                 // it follows the same rule as the swing it was spent on, not the basics.
@@ -239,9 +252,16 @@ namespace Convergence.Combat
                     Crit = _crit,
                 };
                 hp.Take(info);
-                Spr.Flash(hp.transform.position, 0.55f, ElementInfo.Tint(_element), 0.2f, false);
+                TexelFx.Hit(hp.transform.position, _element, _dir);
                 _onHit?.Invoke(hp, info);
             }
+        }
+
+        void LateUpdate()
+        {
+            Vector2 now = transform.position;
+            Clash.CutShots(_last, now, Core.Tuning.Clash.ShotCutRadius);
+            _last = now;
         }
 
         void BeginReturn()
@@ -249,7 +269,7 @@ namespace Convergence.Combat
             _returning = true;
             _hitThisLeg.Clear();   // it gets to bite again on the way home
             _bodiesThisLeg = 0;    // and the falloff starts again from the first body
-            Spr.Flash(transform.position, 0.7f, ElementInfo.Tint(_element), 0.22f);
+            TexelFx.Star(transform.position, TexelFx.Steel, 2, 0.1f);
         }
 
         /// <summary>
@@ -264,7 +284,8 @@ namespace Convergence.Combat
             if (!Airborne || _returning) return;
             _returnBites = true;
             var hand = _owner != null ? (Vector2)_owner.position : (Vector2)transform.position;
-            Spr.Flash(hand, 0.7f, ElementInfo.Tint(_element), 0.22f);
+            TexelFx.Star(transform.position, TexelFx.Steel, 2, 0.1f);   // the call answered at the blade, not over you
+            _ = hand;
             BeginReturn();
         }
 
@@ -277,6 +298,7 @@ namespace Convergence.Combat
             if (!Airborne || _ownerGo == null || _owner == null) return;
 
             var from = _owner.position;
+            Player.RigGhost.Drop(_owner, new Color(0.85f, 0.88f, 0.95f, 0.6f), 0.35f);
             // Over a chasm, the player goes exactly there: the next physics step judges it as any
             // landing over the void (PlayerController.TrackSafeGround) - set down at the lip
             // inside the forgiveness, a FALL past it (the user's call, 2026-10-14: a player learns
@@ -288,9 +310,8 @@ namespace Convergence.Combat
             _owner.position = to;
             if (_ownerBody != null) _ownerBody.linearVelocity = Vector2.zero;
 
-            var tint = ElementInfo.Tint(_element);
-            Spr.Flash(from, 1.1f, tint, 0.3f);
-            Spr.Flash(to, 1.3f, Color.white, 0.28f);
+            // A fading silhouette left where you stood; you are simply there now.
+            _ = to;
 
             Finish();
         }

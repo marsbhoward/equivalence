@@ -228,7 +228,7 @@ namespace Convergence.Combat
             _turn = transform.position;
             _t = 0f;
             _side = -_side;   // home on the other side of the line - the boomerang's loop
-            Spr.Flash(transform.position, 0.55f, _trailTint, 0.2f);
+            TexelFx.Star(transform.position, TexelFx.RampOf(_trailTint), 2, 0.1f);   // the turn: a blade's small moment
         }
 
         void Catch()

@@ -20,6 +20,10 @@ namespace Convergence.Combat
     /// finisher tones, ON TOP of the WeaponTrail they already draw - so a finisher still reads as
     /// the big one (see Tuning.Smear).
     ///
+    /// Inside FIRE'S IGNITE window the smear is FLAME (the user's pick, 2026-10-25): white and
+    /// yellow at the blade, orange, then red and broken at the trailing edge, over a longer
+    /// window and more of the blade so a basic's reads too (Tuning.FireFx.Smear*).
+    ///
     /// The blade is measured off the weapon layer's own transform and sprite, AFTER the rig has
     /// posed it: the sprite's pivot is its GRIP, local +Y runs up the blade (WeaponTrail's own
     /// geometry). Samples are kept relative to the player, so a smear travels with a character
@@ -53,8 +57,9 @@ namespace Convergence.Combat
         int _size;
         float _recordUntil;
         bool _finisher;
+        bool _flame;
 
-        public static void Play(ICharacterRig rig, Transform player, float seconds, bool finisher)
+        public static void Play(ICharacterRig rig, Transform player, float seconds, bool finisher, bool flame = false)
         {
             if (rig == null || player == null || seconds <= 0f) return;
             var weapon = rig.WeaponRenderer;
@@ -70,6 +75,7 @@ namespace Convergence.Combat
 
             s._weapon = weapon;
             s._finisher = finisher;
+            s._flame = flame;
             // Cleared, never continued: between swings the arm returns toward rest, and joining
             // the last swing's end to this one's start would smear a fan across the body.
             s._count = 0;
@@ -107,6 +113,7 @@ namespace Convergence.Combat
             EnsureCanvas();
             float now = Time.time;
             float window = _finisher ? Tuning.Smear.FinisherWindow : Tuning.Smear.BasicWindow;
+            if (_flame) window = Mathf.Max(window, Tuning.FireFx.SmearWindow);
 
             if (now <= _recordUntil && _weapon != null && _weapon.enabled && _weapon.sprite != null)
                 Record(now);
@@ -174,6 +181,7 @@ namespace Convergence.Combat
         void Draw(float now, float window)
         {
             float from = _finisher ? Tuning.Smear.FinisherFrom : Tuning.Smear.BasicFrom;
+            if (_flame) from = Mathf.Min(from, Tuning.FireFx.SmearFrom);
             float to = _finisher ? Tuning.Smear.FinisherTo : Tuning.Smear.BasicTo;
             Color32 lead = _finisher ? Tuning.Smear.FinisherLead : Tuning.Smear.BasicLead;
             Color32 tail = _finisher ? Tuning.Smear.FinisherTail : Tuning.Smear.BasicTail;
@@ -201,8 +209,8 @@ namespace Convergence.Combat
 
                     float age = Mathf.Clamp01((now - s.Time) / window);
                     var colour = age <= Tuning.Smear.LeadFraction ? lead : tail;
-                    Triangle(p0, q0, q1, colour);
-                    Triangle(p0, q1, p1, colour);
+                    Triangle(p0, q0, q1, colour, _flame ? age : -1f);
+                    Triangle(p0, q1, p1, colour, _flame ? age : -1f);
                     p0 = p1; q0 = q1;
                 }
             }
@@ -222,8 +230,13 @@ namespace Convergence.Combat
             outer = s.Grip + dir * (s.Length * to);
         }
 
-        void Triangle(Vector2 a, Vector2 b, Vector2 c, Color32 colour)
+        /// <summary>Fills a triangle in <paramref name="colour"/> - or, given a FLAME age (0 new,
+        /// 1 the oldest), in the fire ramp for that age, breaking up toward the tail.</summary>
+        void Triangle(Vector2 a, Vector2 b, Vector2 c, Color32 colour, float flameAge = -1f)
         {
+            bool flame = flameAge >= 0f;
+            int frame = Mathf.FloorToInt(Time.time * 20f);
+            if (flame) colour = FireArt.At(0.18f + Mathf.Clamp01(flameAge) * 0.82f);   // yellow at the blade, never white
             float ppu = Tuning.Smear.Ppu;
             float half = _size * 0.5f;
             // World offsets to texel space; texel (i, j) has its centre at (i + 0.5, j + 0.5).
@@ -248,6 +261,7 @@ namespace Convergence.Combat
                     float w1 = ((C.x - B.x) * (P.y - B.y) - (C.y - B.y) * (P.x - B.x)) * sign;
                     float w2 = ((A.x - C.x) * (P.y - C.y) - (A.y - C.y) * (P.x - C.x)) * sign;
                     if (w0 < 0f || w1 < 0f || w2 < 0f) continue;
+                    if (flame && flameAge > 0.45f && FireArt.Hash(x, y, frame) < (flameAge - 0.45f) * 1.6f) continue;
                     _px[y * _size + x] = colour;
                 }
         }

@@ -1,4 +1,5 @@
 using UnityEngine;
+using Convergence.Combat;
 using Convergence.Core;
 
 namespace Convergence.Rifts
@@ -78,17 +79,16 @@ namespace Convergence.Rifts
         /// <summary>How close the player has to be for the Rift to offer itself.</summary>
         public const float Reach = 1.7f;
 
-        SpriteRenderer _view, _rim, _glow, _halo, _core;
+        SpriteRenderer _view;
+        RiftRim _rimPic;
         SpriteMask _mask;
         Vector3 _viewRest;
-        Transform[] _shards;
+        /// <summary>The rim's strength this frame: steady, or cut in and out while unstable.</summary>
+        internal float RimAlpha = 1f;
         Transform _player;
         float _t;
 
-        static readonly Color Violet = new(0.62f, 0.42f, 0.95f);
-        static readonly Color Cyan = new(0.45f, 0.88f, 1f);
         static readonly Color Ember = new(1f, 0.22f, 0.16f);
-        static readonly Color Wound = new(0.55f, 0.06f, 0.08f);
 
         /// <summary>Sorting orders. The view sits in its own two-order window so the mask has
         /// something narrow to cut and nothing else in the arena is touched.</summary>
@@ -103,23 +103,8 @@ namespace Convergence.Rifts
             var r = go.AddComponent<Rift>();
             r._player = player;
 
-            // Behind everything: the bloom the tear casts into the room around it. Two falloffs,
-            // for the same reason the sigil door needs two - one blob has to choose between a
-            // tight hot core and a wide atmospheric bleed, and neither alone reads as a light
-            // source with something behind it.
-            r._halo = Quad(go.transform, "halo", Width * 3.2f, Height * 1.5f, Spr.Glow,
-                           new Color(Violet.r, Violet.g, Violet.b, 0.16f), ViewOrder - 3);
-            r._glow = Quad(go.transform, "glow", Width * 1.7f, Height * 1.1f, Spr.Glow,
-                           new Color(Cyan.r, Cyan.g, Cyan.b, 0.30f), ViewOrder - 2);
-
-            // A hard white core BEHIND the view, so the parts of the room the aperture shows are
-            // lit from behind rather than being a flat photograph. Same trick the sigil door's
-            // white opening uses.
-            // Dim, and BEHIND the view rather than over it: this lights the room showing through
-            // rather than being the thing you look at. At 0.5 it drowned the hub entirely and the
-            // tear read as a white slit.
-            r._core = Quad(go.transform, "core", Width * 0.9f, Height * 0.95f, Spr.Tear,
-                           new Color(0.75f, 0.85f, 1f, 0.16f), ViewOrder - 1);
+            // No halo or bloom (the user's rule, group 4): the room's light pool round the tear -
+            // its Glow, below - is the glow. The edge is texel-drawn (RiftRim).
 
             // ---- the view through the tear ----
             var viewGo = new GameObject("view");
@@ -151,36 +136,24 @@ namespace Convergence.Rifts
 
             var maskGo = new GameObject("aperture");
             maskGo.transform.SetParent(go.transform, false);
-            maskGo.transform.localScale = new Vector3(Width, Height, 1f);
             r._mask = maskGo.AddComponent<SpriteMask>();
-            r._mask.sprite = Spr.Tear;
+            // Cut from the curve the rim is drawn on, on the same texel grid (RiftShape).
+            r._mask.sprite = RiftShape.Aperture;
             r._mask.isCustomRangeActive = true;
             r._mask.frontSortingOrder = ViewOrder + 1;
             r._mask.backSortingOrder = ViewOrder - 1;
 
-            // The lit edge, ON TOP of the view - half inside the aperture and half outside, which
-            // is what makes the boundary read as torn rather than as a cut-out.
-            r._rim = Quad(go.transform, "rim", Width, Height, Spr.TearRim,
-                          new Color(1f, 1f, 1f, 0.95f), ViewOrder + 2);
+            // The lit edge, ON TOP of the view - half on the aperture's last texel, half outside it,
+            // which is what makes the boundary read as torn rather than as a cut-out.
+            int hh = RiftShape.HalfHeight, hw = Mathf.CeilToInt(Width * 0.5f * TexelFx.Body);
+            r._rimPic = TexelPicture.Attach<RiftRim>(go.transform, "rim", Vector2.zero, hw + 14, hh + 2, hh + 16, ViewOrder + 2);
             Convergence.Art.Lighting.Glow.Attach(go, Tuning.Lighting.RiftRadius, Tuning.Lighting.RiftColor, Tuning.Lighting.RiftIntensity, 0.1f);
-
-            // Shards: slivers of the same light thrown clear of the tear, drifting. Without them
-            // the rip is a static shape - these are what say it is still happening.
-            r._shards = new Transform[7];
-            for (int i = 0; i < r._shards.Length; i++)
-            {
-                var sh = Quad(go.transform, $"shard{i}", 0.05f, 0.38f, Spr.Capsule,
-                              new Color(Cyan.r, Cyan.g, Cyan.b, 0.55f), ViewOrder + 1);
-                r._shards[i] = sh.transform;
-            }
 
             // Stands where it is torn, so the player can walk behind it like anything else.
             DepthSorted.Attach(go, -Height * 0.5f, isFixed: false,
-                               r._halo, r._glow, r._core, r._view, r._rim);
+                               r._view, r._rimPic.GetComponent<SpriteRenderer>());
 
-            var steady = new System.Collections.Generic.List<SpriteRenderer> { r._halo, r._core, r._view };
-            foreach (var sh in r._shards) steady.Add(sh.GetComponent<SpriteRenderer>());
-            r._steady = steady.ToArray();
+            r._steady = new[] { r._view };
             r._steadyRest = System.Array.ConvertAll(r._steady, x => x.color);
             return r;
         }
@@ -222,7 +195,7 @@ namespace Convergence.Rifts
             Sealed = false;
             for (int i = 0; i < _steady.Length; i++)
                 if (_steady[i] != null) _steady[i].color = _steadyRest[i];
-            Spr.Flash(transform.position, 2.6f, Cyan, 0.5f);
+            if (_rimPic != null) _rimPic.Open();   // the rim drawn again up both sides from the foot
         }
 
         /// <summary>The floor was cleared in time: the flicker stops and the tear holds.</summary>
@@ -232,7 +205,8 @@ namespace Convergence.Rifts
             Unstable = false;
             for (int i = 0; i < _steady.Length; i++)
                 if (_steady[i] != null) _steady[i].color = _steadyRest[i];
-            Spr.Flash(transform.position, 2.6f, Cyan, 0.5f);
+            RimAlpha = 1f;
+            if (_rimPic != null) _rimPic.Open();
         }
 
         /// <summary>
@@ -243,7 +217,7 @@ namespace Convergence.Rifts
         {
             Unstable = false;
             PlayerInside = false;
-            RiftImplosion.At(transform.position, 1.6f);
+            RiftImplosion.At(transform.position, 1.6f, tear: true);
             var cb = _onCollapsed;
             _onCollapsed = null;
             Destroy(gameObject);
@@ -254,36 +228,11 @@ namespace Convergence.Rifts
         {
             _t += Time.deltaTime;
 
-            // BREATHING, not pulsing. A tear is under tension - it strains and settles rather than
-            // throbbing on a beat, so the two axes breathe at different rates and never line up.
-            float bw = 1f + Mathf.Sin(_t * 1.7f) * 0.045f;
-            float bh = 1f + Mathf.Sin(_t * 1.1f + 2.1f) * 0.03f;
-            if (_mask != null) _mask.transform.localScale = new Vector3(Width * bw, Height * bh, 1f);
-            if (_rim != null) _rim.transform.localScale = new Vector3(Width * bw, Height * bh, 1f);
-
-            // Sealed, the rim throbs slow and heavy between ember and a dark wound red - a beat,
-            // unlike the open tear's quick shimmer, so the two read apart at a glance.
-            if (_rim != null)
-                _rim.color = Sealed
-                    ? Color.Lerp(new Color(Wound.r, Wound.g, Wound.b, 0.9f),
-                                 new Color(Ember.r, Ember.g, Ember.b, 1f),
-                                 0.5f + 0.5f * Mathf.Sin(_t * 1.6f))
-                    : Color.Lerp(new Color(1f, 1f, 1f, 0.7f),
-                                 new Color(Cyan.r, Cyan.g, Cyan.b, 1f),
-                                 0.5f + 0.5f * Mathf.Sin(_t * 3.3f));
-            if (_glow != null)
-            {
-                var g = Sealed ? Ember : Cyan;
-                _glow.color = new Color(g.r, g.g, g.b, 0.22f + 0.10f * Mathf.Sin(_t * (Sealed ? 1.6f : 2.2f)));
-            }
-
             // The view drifts a little inside the aperture, so the room beyond feels like a place
             // being glimpsed rather than a photograph nailed behind a hole.
             if (_view != null)
                 _view.transform.localPosition = _viewRest
                     + new Vector3(Mathf.Sin(_t * 0.5f) * 0.06f, Mathf.Sin(_t * 0.37f + 1f) * 0.05f, 0f);
-
-            DriftShards();
 
             if (Unstable)
             {
@@ -321,47 +270,7 @@ namespace Convergence.Rifts
                     var c = _steadyRest[i];
                     _steady[i].color = new Color(c.r, c.g, c.b, c.a * k);
                 }
-            if (_rim != null) { var c = _rim.color; c.a *= k; _rim.color = c; }
-            if (_glow != null) { var c = _glow.color; c.a *= k; _glow.color = c; }
-
-            // Under strain: the tear jitters wider and narrower than its resting breath.
-            float j = 1f + (Mathf.PerlinNoise(_t * rate * 0.7f, 2.1f) - 0.5f) * 0.25f;
-            if (_mask != null) _mask.transform.localScale = new Vector3(Width * j, Height, 1f);
-            if (_rim != null) _rim.transform.localScale = new Vector3(Width * j, Height, 1f);
-        }
-
-        /// <summary>
-        /// Shards orbit the tear on long ellipses and lean along their own travel, so they read as
-        /// debris caught in it rather than as decorations placed around it.
-        /// </summary>
-        void DriftShards()
-        {
-            if (_shards == null) return;
-            for (int i = 0; i < _shards.Length; i++)
-            {
-                var sh = _shards[i];
-                if (sh == null) continue;
-
-                float phase = _t * (0.35f + i * 0.07f) + i * 2.4f;
-                float rx = Width * (0.55f + 0.30f * Mathf.Sin(i * 1.7f));
-                float ry = Height * (0.35f + 0.18f * Mathf.Cos(i * 2.3f));
-                var at = new Vector3(Mathf.Cos(phase) * rx, Mathf.Sin(phase * 0.8f + i) * ry, 0f);
-                sh.localPosition = at;
-                sh.localRotation = Quaternion.Euler(0f, 0f, phase * 40f);
-            }
-        }
-
-        static SpriteRenderer Quad(Transform parent, string name, float w, float h, Sprite sprite,
-                                   Color c, int order)
-        {
-            var go = new GameObject(name);
-            go.transform.SetParent(parent, false);
-            go.transform.localScale = new Vector3(w, h, 1f);
-            var sr = go.AddComponent<SpriteRenderer>();
-            sr.sprite = sprite;
-            sr.color = c;
-            sr.sortingOrder = order;
-            return sr;
+            RimAlpha = k;
         }
     }
 }

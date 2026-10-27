@@ -44,45 +44,13 @@ namespace Convergence.Hazards
         [SerializeField] Transform _player;
         [SerializeField] Health _playerHealth;
         [SerializeField] Rigidbody2D _playerBody;
-        [SerializeField] SpriteRenderer _shadow, _rim;
-        [SerializeField] List<Band> _bands = new();
-        [SerializeField] List<Mote> _motes = new();
+        [SerializeField] TornadoGround _ground;
+        [SerializeField] TornadoFunnel _funnel;
 
-        [System.Serializable]
-        struct Band
-        {
-            public Transform T;
-            public SpriteRenderer Body, Edge;
-            public float Height, Width;
-        }
-
-        /// <summary>Something carried round the funnel: a streak of wind on a band, or dust at
-        /// the foot (<see cref="Band"/> -1).</summary>
-        [System.Serializable]
-        struct Mote
-        {
-            public Transform T;
-            public SpriteRenderer Sr;
-            public int Band;
-            public float Phase, Rate, Size;
-        }
-
-        // Enough bands that neighbours overlap into one column; at 9 they read as separate
-        // ellipses - a slinky, not a funnel.
-        const int BandCount = 13;
-        const int StreaksPerBand = 2;
-        const int DustMotes = 7;
-        /// <summary>How flat the funnel's ellipses are - a ring seen from the 3/4 camera.</summary>
-        const float Flat = 0.3f;
-
-        // The body is a mid grey, not white: the arena floors are light stone, and a white
-        // haze over them has no edge. The streaks are the white.
-        static Color Air => Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.SaltFlats) ? new(0.86f, 0.80f, 0.82f) : Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.Forest) ? new(0.27f, 0.38f, 0.20f) : new(0.66f, 0.69f, 0.76f);   // the forest's is a whirl of leaves
-        static Color Streak => Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.SaltFlats) ? new(1f, 1f, 1f) : Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.Forest) ? new(0.62f, 0.72f, 0.36f) : new(0.97f, 0.98f, 1f);   // the forest's is a whirl of leaves
-        // Lifted grit, paler and greyer than the floor - a tan dust was the floor's own colour
-        // and vanished against it.
-        static Color Dust => Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.SaltFlats) ? new(0.95f, 0.92f, 0.90f) : Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.Forest) ? new(0.42f, 0.31f, 0.17f) : new(0.86f, 0.85f, 0.82f);   // the forest's is a whirl of leaves
-        static readonly Color RimColor = new(0.86f, 0.92f, 1f);
+        /// <summary>What the pictures read each frame (Animate sets them): how much of the funnel
+        /// stands (0..1, foot first), how visible it is, how far it has unwound, the clock, and the
+        /// ring's strength.</summary>
+        internal float Built, Alpha, Unwind, Clock, RingAlpha, Gather;
 
         // A scratch list for the physics query, shared by every funnel. Not readonly, null-guarded.
         static List<Collider2D> _hits;
@@ -155,84 +123,14 @@ namespace Convergence.Hazards
 
         void Build()
         {
-            float r = Tuning.Tornado.Radius;
-
-            // GROUND: a soft shadow and the ring. Under every body and over the pit band, as
-            // the mire's patch - not depth sorted, because the ground does not stand anywhere.
-            _shadow = Layer(transform, Spr.Glow, new Vector2(r * 3.2f, r * 1.8f), SortingOrders.Enemy - 1, "shadow");
-            _rim = Layer(transform, Spr.ThinRing, Vector2.one * (r * 2f), SortingOrders.Enemy - 1, "rim");
-
-            // The FUNNEL stands, so it depth sorts at its foot and a body behind it goes behind.
-            var funnel = new GameObject("funnel").transform;
-            funnel.SetParent(transform, false);
-
-            var renderers = new List<SpriteRenderer>();
-            for (int i = 0; i < BandCount; i++)
-            {
-                float k = i / (float)(BandCount - 1);
-                var bt = new GameObject("band").transform;
-                bt.SetParent(funnel, false);
-                // Narrow foot, flaring top - eased so most of the widening happens up high.
-                float w = Mathf.Lerp(r * 0.55f, Tuning.Tornado.TopWidth, Mathf.Pow(k, 1.5f));
-                var band = new Band
-                {
-                    T = bt,
-                    Height = k * Tuning.Tornado.Height,
-                    Width = w,
-                    // Ascending orders: each band over the one below, so the flare at the top
-                    // is the part that reads as nearest the camera.
-                    // Tall enough to meet the bands above and below, so the body is continuous.
-                    Body = Layer(bt, Spr.Glow,
-                                 new Vector2(w * 1.15f, Mathf.Max(w * Flat * 1.3f, Tuning.Tornado.Height / (BandCount - 1) * 2.6f)),
-                                 i * 3, "body"),
-                    Edge = Layer(bt, Spr.Ring, new Vector2(w, w * Flat), i * 3 + 1, "edge"),
-                };
-                renderers.Add(band.Body);
-                renderers.Add(band.Edge);
-                _bands.Add(band);
-
-                for (int s = 0; s < StreaksPerBand; s++)
-                {
-                    var sr = Layer(funnel, Spr.Glow, Vector2.one, i * 3 + 2, "streak");
-                    renderers.Add(sr);
-                    _motes.Add(new Mote
-                    {
-                        T = sr.transform, Sr = sr, Band = i,
-                        Phase = s * Mathf.PI + Random.Range(-0.6f, 0.6f),
-                        // Faster near the foot, as a real funnel's wind is - and never two bands
-                        // at one rate, or the whole column turns as one rigid object.
-                        Rate = Mathf.Lerp(1.25f, 0.8f, k) * Random.Range(0.9f, 1.1f),
-                        Size = Mathf.Lerp(0.26f, 0.62f, k),
-                    });
-                }
-            }
-
-            for (int d = 0; d < DustMotes; d++)
-            {
-                var sr = Layer(funnel, Spr.Glow, Vector2.one, 0, "dust");
-                renderers.Add(sr);
-                _motes.Add(new Mote
-                {
-                    T = sr.transform, Sr = sr, Band = -1,
-                    Phase = d * Mathf.PI * 2f / DustMotes,
-                    Rate = Random.Range(0.55f, 0.8f),
-                    Size = Random.Range(0.3f, 0.5f),
-                });
-            }
-
-            DepthSorted.Attach(funnel.gameObject, 0f, false, renderers.ToArray());
-        }
-
-        static SpriteRenderer Layer(Transform parent, Sprite sprite, Vector2 size, int order, string name)
-        {
-            var go = new GameObject(name);
-            go.transform.SetParent(parent, false);
-            go.transform.localScale = new Vector3(size.x, size.y, 1f);
-            var sr = go.AddComponent<SpriteRenderer>();
-            sr.sprite = sprite;
-            sr.color = Color.clear;
-            sr.sortingOrder = order;
-            return sr;
+            // The GROUND (the hitbox ring, dust drawn in, a shadow) on the danger rung - nothing on
+            // the floor covers what hurts; the FUNNEL stands, depth sorted at its foot.
+            int g = Mathf.CeilToInt(Tuning.Tornado.Radius * TexelFx.Body) + 6;
+            _ground = TexelPicture.Attach<TornadoGround>(transform, "ground", Vector2.zero, g, g, g, SortingOrders.GroundDanger, clip: true);
+            int top = Mathf.CeilToInt(Tuning.Tornado.TopWidth * 0.5f * TexelFx.Body * 1.6f) + 8;
+            int up = Mathf.CeilToInt(Tuning.Tornado.Height * 1.25f * TexelFx.Body) + 8;
+            _funnel = TexelPicture.Attach<TornadoFunnel>(transform, "funnel", Vector2.zero, top, 3, up, 0);
+            DepthSorted.Attach(gameObject, 0f, false, _funnel.GetComponent<SpriteRenderer>());
         }
 
         // ---- the clock ----
@@ -347,99 +245,34 @@ namespace Convergence.Hazards
 
         void Animate()
         {
-            float r = Tuning.Tornado.Radius;
             float form = Tuning.Tornado.FormSeconds;
-
-            // How much of the funnel stands (0..1, bottom-up while forming) and how visible all
-            // of it is (fading while dissipating).
-            float built, alpha, unwind = 0f;
             switch (_phase)
             {
-                case Phase.Forming: built = Mathf.Clamp01(_age / form); alpha = 1f; break;
-                case Phase.Spinning: built = 1f; alpha = 1f; break;
+                case Phase.Forming: Built = Mathf.Clamp01(_age / form); Alpha = 1f; Unwind = 0f; break;
+                case Phase.Spinning: Built = 1f; Alpha = 1f; Unwind = 0f; break;
                 default:
                     float k = Mathf.Clamp01(_age / Tuning.Tornado.DissipateSeconds);
-                    built = _fadeFrom;
-                    alpha = _fadeFrom * (1f - k);
-                    unwind = k;
+                    Built = _fadeFrom; Alpha = _fadeFrom * (1f - k); Unwind = k;
                     break;
             }
-
-            // The ring: pulses while forming (the warning), steady while it can hurt, gone with
-            // the funnel. Brightest while live, so "this can hurt now" is the loudest state.
-            if (_rim != null)
+            // The ring: pulsing in while forming (the warning), steady while it can hurt, gone with
+            // the funnel - brightest while live.
+            RingAlpha = _phase switch
             {
-                float a = _phase switch
-                {
-                    Phase.Forming => Mathf.Clamp01(_age / form) * (0.35f + 0.25f * Mathf.Sin(_clock * 14f)),
-                    Phase.Spinning => 0.65f,
-                    _ => 0.3f * alpha,
-                };
-                _rim.color = WithAlpha(RimColor, a);
-            }
-            if (_shadow != null) _shadow.color = new Color(0f, 0f, 0f, 0.38f * Mathf.Max(built, 0.4f) * alpha);
-
-            // The funnel snakes: its foot stays put, its top sways - two rates, so the bend wanders.
-            for (int i = 0; i < _bands.Count; i++)
-            {
-                var b = _bands[i];
-                if (b.T == null) continue;
-                float k = i / (float)(_bands.Count - 1);
-                // Each band appears as the build passes it, the foot first.
-                float shown = Mathf.Clamp01(built * _bands.Count - i) * alpha;
-                float sway = SwayAt(k);
-                float spread = 1f + unwind * 0.6f;
-                b.T.localPosition = new Vector3(sway, b.Height * (1f + unwind * 0.25f), 0f);
-                b.T.localScale = new Vector3(spread, spread, 1f);
-                if (b.Body != null) b.Body.color = WithAlpha(Air, 0.34f * shown);
-                if (b.Edge != null) b.Edge.color = WithAlpha(Streak, (0.2f - 0.08f * k) * shown);
-            }
-
-            float spin = Tuning.Tornado.SpinDegreesPerSecond * Mathf.Deg2Rad;
-            for (int i = 0; i < _motes.Count; i++)
-            {
-                var m = _motes[i];
-                if (m.T == null) continue;
-                float a = m.Phase + _clock * spin * m.Rate;
-                float cos = Mathf.Cos(a), sin = Mathf.Sin(a);
-                // Nearer the camera on the LOWER half of the ellipse - brighter there, so the
-                // eye reads the circling as going round, not side to side.
-                float front = 0.5f - 0.5f * sin;
-
-                if (m.Band < 0)
-                {
-                    // Dust skims the ground round the foot; it gathers first while forming.
-                    float gather = _phase == Phase.Forming ? Mathf.Clamp01(_age / (form * 0.5f)) : 1f;
-                    float orbit = r * Mathf.Lerp(1.6f, 0.95f, gather) * (1f + unwind);
-                    m.T.localPosition = new Vector3(cos * orbit, sin * orbit * Flat * 1.4f + 0.05f, 0f);
-                    m.T.localScale = new Vector3(m.Size * 1.4f, m.Size * 0.7f, 1f);
-                    float da = (_phase == Phase.Dissipating ? alpha : gather) * Mathf.Lerp(0.35f, 0.75f, front);
-                    if (m.Sr != null) m.Sr.color = WithAlpha(Dust, da);
-                    continue;
-                }
-
-                if (m.Band >= _bands.Count) continue;
-                var b = _bands[m.Band];
-                float k = m.Band / (float)(_bands.Count - 1);
-                float shown = Mathf.Clamp01(built * _bands.Count - m.Band) * alpha;
-                float spread = 1f + unwind * 0.6f;
-                float hw = b.Width * 0.5f * spread;
-                m.T.localPosition = new Vector3(SwayAt(k) + cos * hw,
-                                                b.Height * (1f + unwind * 0.25f) + sin * hw * Flat, 0f);
-                // Laid along the ellipse's tangent, so a streak is wind going round.
-                float tangent = Mathf.Atan2(cos * hw * Flat, -sin * hw) * Mathf.Rad2Deg;
-                m.T.localRotation = Quaternion.Euler(0f, 0f, tangent);
-                m.T.localScale = new Vector3(m.Size, m.Size * 0.24f, 1f);
-                if (m.Sr != null) m.Sr.color = WithAlpha(Streak, Mathf.Lerp(0.2f, 0.95f, front) * shown);
-            }
+                Phase.Forming => Mathf.Clamp01(_age / form) * (0.55f + 0.3f * Mathf.Sin(_clock * 14f)),
+                Phase.Spinning => 1f,
+                _ => 0.5f * Alpha,
+            };
+            Gather = _phase == Phase.Forming ? Mathf.Clamp01(_age / (form * 0.5f)) : 1f;
+            Clock = _clock;
         }
 
-        float SwayAt(float k)
+        /// <summary>The funnel's sideways bend at height share <paramref name="k"/> (world units):
+        /// the foot stays put, the top sways on two rates.</summary>
+        internal float SwayAt(float k)
         {
             float s = Mathf.Sin(_clock * 1.3f + k * 2.2f) * 0.16f + Mathf.Sin(_clock * 0.7f + _wanderSeed) * 0.1f;
             return s * k * k;
         }
-
-        static Color WithAlpha(Color c, float a) { c.a = a; return c; }
     }
 }

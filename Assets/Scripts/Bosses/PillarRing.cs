@@ -15,8 +15,8 @@ namespace Convergence.Bosses
     /// well as by her. A broken one is simply gone - Destroy - and its slot reads empty.
     ///
     /// <see cref="Shadowed"/> is THE AUTHORITY on whether her gaze reaches a point. The red
-    /// picture (<see cref="GazeShade"/>) is painted from the same function, so the drawing and
-    /// the rule cannot disagree - the same reason the Cantor's slices test ArenaSectors.IndexAt
+    /// picture (<see cref="MedusaGaze"/>) is painted from the same function, so the drawing and
+    /// the rule cannot disagree - the same reason the Wreathe's beat tests ArenaSectors.ZoneAt
     /// rather than a collider shaped like the sprite.
     /// </summary>
     public class PillarRing : MonoBehaviour
@@ -28,6 +28,10 @@ namespace Convergence.Bosses
         Vector2 _centre;
 
         public int Count => _slots != null ? _slots.Length : 0;
+
+        /// <summary>One bit per slot her THIRD EYE sees through (enraged, the user's rule): a glass
+        /// pillar casts no shadow. Cleared after each look.</summary>
+        [SerializeField] public int GlassMask;
 
         public static PillarRing Build(Transform parent, Vector2 centre)
         {
@@ -103,10 +107,37 @@ namespace Convergence.Bosses
             float r = PillarRadius;
             for (int i = 0; i < Count; i++)
             {
-                if (!Standing(i)) continue;
+                if (!Standing(i) || (GlassMask & (1 << i)) != 0) continue;
                 if (SegmentHitsCircle(eye, point, SlotPosition(i), r)) return true;
             }
             return false;
+        }
+
+        /// <summary>The standing pillar that hides <paramref name="point"/> from the eye, or failing
+        /// that the standing pillar nearest it; -1 with none left. "Your" pillar - the one she
+        /// breaks from band 1, the one her third eye turns to glass.</summary>
+        public int CoverOf(Vector2 eye, Vector2 point)
+        {
+            float r = PillarRadius, best = float.MaxValue;
+            int near = -1;
+            for (int i = 0; i < Count; i++)
+            {
+                if (!Standing(i)) continue;
+                if ((GlassMask & (1 << i)) == 0 && SegmentHitsCircle(eye, point, SlotPosition(i), r)) return i;
+                float d = (SlotPosition(i) - point).sqrMagnitude;
+                if (d < best) { best = d; near = i; }
+            }
+            return near;
+        }
+
+        /// <summary>Show glass on every slot in <see cref="GlassMask"/>, at <paramref name="k"/> (0..1).</summary>
+        public void ShowGlass(float k)
+        {
+            for (int i = 0; i < Count; i++)
+            {
+                var c = At(i);
+                if (c != null) c.SetGlass((GlassMask & (1 << i)) != 0 ? k : 0f);
+            }
         }
 
         static bool SegmentHitsCircle(Vector2 a, Vector2 b, Vector2 c, float r)

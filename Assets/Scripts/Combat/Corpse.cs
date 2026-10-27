@@ -58,12 +58,12 @@ namespace Convergence.Combat
             c._mode = mode;
             c._radius = 0.42f;
 
+            // A heap of bones and a skull (the user's pick, group 3 - "bone heap"): dark and wet for
+            // Dead Weight's, cool ash for Ossuary's (the player's) - both apart from the Tower's
+            // warm cream decor bones, which block nothing (the user's call, 2026-10-26).
             c._sr = go.AddComponent<SpriteRenderer>();
-            c._sr.sprite = Spr.Circle;
-            c._sr.color = mode == CorpseMode.BlocksEnemies || mode == CorpseMode.Bursts
-                ? new Color(0.78f, 0.74f, 0.62f, 0.8f)      // bone: the player's
-                : new Color(0.30f, 0.16f, 0.18f, 0.75f);
-            c._sr.sortingOrder = SortingOrders.GroundDecal + 1;
+            c._sr.sprite = Heap(mode == CorpseMode.BlocksEnemies || mode == CorpseMode.Bursts);
+            c._sr.sortingOrder = SortingOrders.GroundLasting;   // over the pits - under them, a corpse in sand vanished
             go.transform.localScale = Vector3.one * 0.8f;
 
             var col = go.AddComponent<CircleCollider2D>();
@@ -158,7 +158,7 @@ namespace Convergence.Combat
                 if (((Vector2)e.transform.position - at).sqrMagnitude <= _burstRadius * _burstRadius) struck.Add(hp);
             }
             foreach (var hp in struck) hp.Take(new DamageInfo(_burstDamage, _burstElement, _burstSource));
-            Spr.Flash(at, _burstRadius, new Color(0.86f, 0.82f, 0.70f, 0.55f), 0.25f);
+            LedgerFx.Force(at, TexelFx.Bone, _burstRadius);
             _burstDamage = 0f;
             Destroy(gameObject);
         }
@@ -177,8 +177,56 @@ namespace Convergence.Combat
 
             if (_sr == null) return;
             var c = _sr.color;
-            c.a = 0.75f * Mathf.Clamp01(_life / Mathf.Max(0.01f, _total * 0.5f));
+            c.a = Mathf.Clamp01(_life / Mathf.Max(0.01f, _total * 0.5f));
             _sr.color = c;
+        }
+
+        // ---- the heap's picture: cached per palette, at body density under the 0.8 scale ----
+
+        static Sprite _boneHeap, _darkHeap;
+
+        static Sprite Heap(bool bleached)
+        {
+            var cached = bleached ? _boneHeap : _darkHeap;
+            if (cached != null) return cached;
+            static Color32 C(string h) { ColorUtility.TryParseHtmlString(h, out var c); return c; }
+            Color32[] pal = bleached
+                ? new[] { C("#dfe4ec"), C("#a9b0bd"), C("#7a8190"), C("#3a3e48") }
+                : new[] { C("#6a5a54"), C("#4a3c38"), C("#33282a"), C("#150f11") };
+            const int W = 26, H = 14;
+            var px = new Color32[W * H];
+            void Put(int x, int y, Color32 c) { if (x >= 0 && y >= 0 && x < W && y < H) px[y * W + x] = c; }
+            // Long bones laid across each other, a knuckle at each end.
+            for (int k = 0; k < 7; k++)
+            {
+                float cx = 4f + FireArt.Hash(k, 5) * 18f, cy = 2f + FireArt.Hash(k, 6) * 5f, a = FireArt.Hash(k, 7) * Mathf.PI;
+                float dx = Mathf.Cos(a) * 5f, dy = Mathf.Sin(a) * 2f;
+                for (int i = 0; i <= 10; i++)
+                {
+                    float t = i / 10f;
+                    int x = Mathf.RoundToInt(cx - dx + 2f * dx * t), y = Mathf.RoundToInt(cy - dy + 2f * dy * t);
+                    Put(x, y - 1, pal[3]); Put(x, y, pal[1]);
+                }
+                Put(Mathf.RoundToInt(cx - dx), Mathf.RoundToInt(cy - dy) + 1, pal[0]);
+                Put(Mathf.RoundToInt(cx + dx), Mathf.RoundToInt(cy + dy) + 1, pal[0]);
+            }
+            // The skull on top: a dome, two sockets, the jaw.
+            int sx = 13, sy = 6;
+            for (int y = 0; y < 5; y++)
+                for (int x = -3; x <= 3; x++)
+                    if (x * x + (y - 2) * (y - 2) * 2 <= 11) Put(sx + x, sy + y, y > 2 ? pal[0] : pal[1]);
+            for (int x = -3; x <= 3; x++) Put(sx + x, sy - 1, pal[3]);
+            Put(sx - 1, sy + 2, pal[3]); Put(sx + 1, sy + 2, pal[3]);
+            Put(sx - 1, sy, pal[2]); Put(sx + 1, sy, pal[2]); Put(sx, sy, pal[3]);
+            var tex = new Texture2D(W, H, TextureFormat.RGBA32, false)
+            {
+                filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp, hideFlags = HideFlags.HideAndDontSave,
+            };
+            tex.SetPixels32(px);
+            tex.Apply();
+            var s = Sprite.Create(tex, new Rect(0, 0, W, H), new Vector2(0.5f, 0.35f), TexelFx.Body * 0.8f, 0, SpriteMeshType.FullRect);
+            if (bleached) _boneHeap = s; else _darkHeap = s;
+            return s;
         }
     }
 }
