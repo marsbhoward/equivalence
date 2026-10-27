@@ -37,7 +37,8 @@ namespace Convergence.Hub
         {
             public string ItemId;
             public float X;
-            public SpriteRenderer Main, Off, Glow;
+            public SpriteRenderer Main, Off, Lip;
+            public Convergence.Art.Lighting.Glow Light;
             public HubInteractable Point;
         }
 
@@ -57,6 +58,7 @@ namespace Convergence.Hub
         static readonly Color Skirt = new(0.26f, 0.27f, 0.33f);
         static readonly Color Recess = new(0.115f, 0.115f, 0.145f);
         static readonly Color Shelf = new(0.24f, 0.25f, 0.30f);
+        static readonly Color LipLit = new(0.95f, 0.76f, 0.38f);
         static readonly Color Unfound = new(0.035f, 0.035f, 0.05f, 0.92f);
         static readonly Color Gold = new(0.91f, 0.73f, 0.24f);
 
@@ -198,9 +200,11 @@ namespace Convergence.Hub
                 {
                     ItemId = item.ItemId,
                     X = x,
-                    Glow = Quad(bayGo.transform, "glow", Tuning.Armoury.BayWidth, Tuning.Armoury.BayHeight,
-                                new Color(1f, 0.92f, 0.72f, 0f), SortingOrders.GroundDecal + 2,
-                                Vector2.zero, Spr.Glow),
+                    // The bay you step up to lights its shelf's lip brass and pools a small light
+                    // round the piece (group 7, the user's pick) - it was a soft glow over the bay.
+                    Lip = Quad(bayGo.transform, "lip", Tuning.Armoury.BayWidth + 0.06f, 0.02f,
+                               Shelf, SortingOrders.GroundDecal + 3, new Vector2(0f, -Tuning.Armoury.BayHeight * 0.5f + 0.02f)),
+                    Light = Convergence.Art.Lighting.Glow.Attach(bayGo, Tuning.Armoury.BayHeight * 0.75f, new Color(1f, 0.88f, 0.66f), 0f),
                     Off = Piece(bayGo.transform, "off", SortingOrders.GroundDecal + 3),
                     Main = Piece(bayGo.transform, "main", SortingOrders.GroundDecal + 4),
                 };
@@ -268,7 +272,7 @@ namespace Convergence.Hub
                 }
                 GearDisplay.ApplyEffects(bay.Main, null);
             }
-            bay.Glow.color = new Color(1f, 0.92f, 0.72f, owned ? 0.10f : 0f);
+            Focus(bay, false);
 
             // Upright and centred by GEOMETRY, not pivot - a weapon's pivot is its grip. A pair is
             // centred as a pair. See WeaponRack.Show for the same two rules measured on the rack.
@@ -386,10 +390,10 @@ namespace Convergence.Hub
 
         void Focus(Bay bay, bool on)
         {
-            if (bay?.Glow == null) return;
-            bool owned = GearOwnership.Owns(GearCatalog.Get(bay.ItemId));
-            float a = owned ? (on ? 0.28f : 0.10f) : (on ? 0.05f : 0f);
-            bay.Glow.color = new Color(1f, 0.92f, 0.72f, a);
+            if (bay?.Lip == null) return;
+            bool lit = on && GearOwnership.Owns(GearCatalog.Get(bay.ItemId));
+            bay.Lip.color = lit ? LipLit : Shelf;
+            if (bay.Light != null) bay.Light.Intensity = lit ? 0.9f : 0f;
         }
 
         void Blocker(Vector2 centre, Vector2 size)

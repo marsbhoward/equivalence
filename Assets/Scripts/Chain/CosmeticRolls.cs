@@ -38,14 +38,20 @@ namespace Convergence.Chain
         public static string DyeOf(DyeRarity rarity, Random rng = null)
             => Weighted(rng ?? Rng, s => s.Rarity == rarity ? 1 : 0);
 
-        /// <summary>A pose roll: a pose the character lacks at <see cref="Tuning.Cosmetics.PoseChance"/>,
-        /// or Gold boxes when every pose is owned.</summary>
+        /// <summary>A COLLECTIBLE roll: a pose OR a hub theme the character lacks (one roll shared by both,
+        /// the user's call - the service's cosmetics.ts rollPose) at <see cref="Tuning.Cosmetics.PoseChance"/>,
+        /// or Gold boxes when every one is owned. A theme answers as its id ("hub.study").</summary>
         public static (string pose, int gold) Pose(CharacterItems owned, Random rng = null)
         {
             rng ??= Rng;
             if (rng.NextDouble() >= Tuning.Cosmetics.PoseChance) return (null, 0);
             var lacking = new List<string>();
             foreach (var p in PoseCatalog.All) if (owned == null || !owned.HasPose(p.Id)) lacking.Add(p.Id);
+            for (int i = 1; i < Hub.HubThemes.Count; i++)
+            {
+                var id = Hub.HubThemes.Id((Hub.HubTheme)i);
+                if (owned == null || !owned.HasTheme(id)) lacking.Add(id);
+            }
             if (lacking.Count == 0) return (null, rng.Next(Tuning.Cosmetics.PoseGoldMin, Tuning.Cosmetics.PoseGoldMax + 1));
             return (lacking[rng.Next(lacking.Count)], 0);
         }

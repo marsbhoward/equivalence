@@ -17,6 +17,7 @@ namespace Convergence.Hub
     public class TerminalStation : MonoBehaviour
     {
         [SerializeField] HubFixture _art;
+        [SerializeField] HubTheme _theme;
         [SerializeField] Convergence.Art.Lighting.Glow _light;
         float _lit;
         bool _focused;
@@ -29,9 +30,12 @@ namespace Convergence.Hub
             go.transform.localPosition = centre;
 
             var t = go.AddComponent<TerminalStation>();
-            t._art = HubFixture.Attach(go, HubArt.Cabinet(0), new Vector2(0f, Foot));
-            t._art.Animate(12, 3f, HubArt.Cabinet);
-            t._light = Convergence.Art.Lighting.Glow.Attach(go, 1.2f, new Color(1f, 0.85f, 0.5f), 0.3f);
+            // Dressed in the character's terminal theme (group 8); the Cloister's is the scrying basin.
+            t._theme = HubDress.Of(HubItem.Terminal);
+            var theme = t._theme;
+            t._art = HubFixture.Attach(go, HubThemeArt.Terminal(theme, 0), new Vector2(0f, Foot));
+            t._art.Animate(HubThemeArt.TerminalFrames, HubThemeArt.TerminalFps, i => HubThemeArt.Terminal(theme, i));
+            t._light = Convergence.Art.Lighting.Glow.Attach(go, 1.2f, HubThemeArt.TerminalLight(theme), 0.3f);
             DepthSorted.Attach(go, Foot, false, t._art.Art, t._art.RimRenderer);
             return t;
         }
@@ -45,7 +49,8 @@ namespace Convergence.Hub
             // A pending write prints quickly whether or not anyone is standing here - the one piece
             // of state worth reading from across the room.
             bool pending = TxLog.PendingCount > 0;
-            _art.Animate(12, pending ? 12f : 3f, HubArt.Cabinet);
+            var theme = _theme;
+            _art.Animate(HubThemeArt.TerminalFrames, HubThemeArt.TerminalFps * (pending ? 4f : 1f), i => HubThemeArt.Terminal(theme, i));
             if (_light != null) _light.Intensity = Mathf.Lerp(0.3f, 0.6f, Mathf.Max(_lit, pending ? 1f : 0f));
         }
     }

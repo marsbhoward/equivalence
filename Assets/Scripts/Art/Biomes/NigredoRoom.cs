@@ -18,7 +18,7 @@ namespace Convergence.Art.Biomes
         static readonly Color Violet = new(0.62f, 0.42f, 0.95f), Cyan = new(0.45f, 0.88f, 1f);
 
         [SerializeField] float _strength;
-        [SerializeField] SpriteRenderer[] _rims, _views, _halos, _glows, _shards;
+        [SerializeField] SpriteRenderer[] _rims, _views, _glows, _shards;
         [SerializeField] Transform[] _tears;
         [SerializeField] Vector2[] _shardHome;
         [SerializeField] Lighting.Glow[] _crystalLights;
@@ -51,7 +51,6 @@ namespace Convergence.Art.Biomes
         {
             int n = Mathf.RoundToInt(Mathf.Lerp(T.TearsMin, T.TearsMax, s));
             _tears = new Transform[n]; _rims = new SpriteRenderer[n]; _views = new SpriteRenderer[n];
-            _halos = new SpriteRenderer[n * 2];
             var shards = new System.Collections.Generic.List<SpriteRenderer>();
             var homes = new System.Collections.Generic.List<Vector2>();
 
@@ -82,8 +81,8 @@ namespace Convergence.Art.Biomes
                 _views[i] = big ? Quad(root.transform, "stone", view, -6) : null;
 
                 float hh = (top - bottom);
-                _halos[i * 2] = Soft(root.transform, "halo", new Vector2(halfW * 6f + 10f, hh * 1.5f * Ppu) / Ppu * 1.4f, hh * 0.5f, new Color(Violet.r, Violet.g, Violet.b, 0.16f));
-                _halos[i * 2 + 1] = Soft(root.transform, "glow", new Vector2(halfW * 3f + 5f, hh * 1.1f * Ppu) / Ppu * 1.4f, hh * 0.5f, new Color(Cyan.r, Cyan.g, Cyan.b, 0.28f));
+                // No halo (group 7, the user's pick "flakes off the seam"): the seam's own light pools
+                // in the dark, and flakes peel off its sides below.
 
                 // Its own cold light, wide-cored so the whole seam is lit through the dark.
                 var g = Lighting.Glow.Attach(root, Mathf.Max(T.TearLightRadius, hh * 0.6f + 0.6f), T.TearLight, T.TearLightIntensity);
@@ -99,13 +98,14 @@ namespace Convergence.Art.Biomes
                                          Mathf.Lerp(T.StoneIntensityMin, T.StoneIntensityMax, s)).Wash = T.StoneWash;
                 }
 
-                // Shards of the same light thrown off it, drifting.
-                for (int k = 0; k < 2 + Mathf.RoundToInt(halfW / 2f); k++)
+                // Flakes of the same light peeling off its sides and drifting out a little way
+                // before they go out - the Rift rim's flakes.
+                for (int k = 0; k < 4 + Mathf.RoundToInt(halfW); k++)
                 {
-                    var sh = Quad(root.transform, "shard", ShardSprite, -6);
-                    sh.color = new Color(Cyan.r, Cyan.g, Cyan.b, 0.55f);
+                    var sh = Quad(root.transform, "flake", ShardSprite, -6);
+                    sh.color = new Color(Cyan.r, Cyan.g, Cyan.b, 0f);
                     shards.Add(sh);
-                    homes.Add(new Vector2((halfW + 4f + k * 2f) / Ppu, hh * (float)rng.NextDouble()));
+                    homes.Add(new Vector2((halfW * 0.6f + 1f) / Ppu, hh));
                 }
             }
             _shards = shards.ToArray();
@@ -273,16 +273,21 @@ namespace Convergence.Art.Biomes
                     if (_tears[i] != null) _tears[i].localScale = new Vector3(1f + 0.05f * Mathf.Sin(_t * 0.7f + i * 1.9f), 1f, 1f);
                     if (_views[i] != null) _views[i].color = new Color(1f, 1f, 1f, 0.75f + 0.25f * Mathf.Sin(_t * 1.6f));
                 }
-            if (_halos != null)
-                for (int i = 1; i < _halos.Length; i += 2)
-                    if (_halos[i] != null) _halos[i].color = new Color(Cyan.r, Cyan.g, Cyan.b, 0.24f + 0.08f * Mathf.Sin(_t * 2.2f + i));
             if (_shards != null)
                 for (int i = 0; i < _shards.Length; i++)
                 {
                     if (_shards[i] == null) continue;
+                    // home.x: the seam's half width; home.y: its height. Each flake leaves from a
+                    // fresh spot on a fresh side every cycle, drifts out 7 texels and rises 3.
                     var home = _shardHome[i];
-                    float ph = i * 1.7f;
-                    _shards[i].transform.localPosition = Snap(new Vector2(Mathf.Cos(_t * 0.6f + ph) * home.x, home.y + Mathf.Sin(_t * 0.8f + ph) * 0.1f));
+                    float period = 1.4f + Hash(i, 3) * 0.8f, cyc = _t / period + Hash(i, 4);
+                    int n = Mathf.FloorToInt(cyc);
+                    float u = cyc - n, side = Hash(i, n) > 0.5f ? 1f : -1f;
+                    var at = new Vector2(side * (home.x + u * 7f / Ppu), home.y * (0.15f + 0.7f * Hash(i * 7 + 2, n)) + u * 3f / Ppu);
+                    _shards[i].transform.localPosition = Snap(at);
+                    var c = u < 0.5f ? Cyan : Violet;
+                    bool gone = u > 0.7f && Hash(i, Mathf.FloorToInt(_t * 12f)) > 0.5f;
+                    _shards[i].color = new Color(c.r, c.g, c.b, gone ? 0f : 0.9f - u * 0.5f);
                 }
 
             // The crystals: a slow, steady pulse - never a flash, so never a tell.
@@ -335,15 +340,6 @@ namespace Convergence.Art.Biomes
             return sr;
         }
 
-        static SpriteRenderer Soft(Transform parent, string name, Vector2 size, float y, Color c)
-        {
-            var sr = Quad(parent, name, Spr.Glow, -7);
-            sr.transform.localPosition = new Vector3(0f, y, 0f);
-            var b = Spr.Glow.bounds.size;
-            sr.transform.localScale = new Vector3(size.x / b.x, size.y / b.y, 1f);
-            sr.color = c;
-            return sr;
-        }
 
         static Sprite Make(Color[] px, int w, int h)
         {
@@ -357,7 +353,7 @@ namespace Convergence.Art.Biomes
 
         static Sprite _dot, _ember, _wispL, _wispR, _shard;
         static Sprite Dot => _dot ??= Tiny(1, 1, (x, y) => Color.white);
-        static Sprite ShardSprite => _shard ??= Tiny(1, 4, (x, y) => Color.white);
+        static Sprite ShardSprite => _shard ??= Tiny(1, 2, (x, y) => Color.white);
         static Sprite Ember => _ember ??= Tiny(3, 3, (x, y) =>
             x == 1 && y == 1 ? new Color(1f, 0.55f, 0.43f) : (x == 1 || y == 1) ? new Color(0.82f, 0.18f, 0.14f) : new Color(0.55f, 0.1f, 0.09f, 0.6f));
         static Sprite WispL => _wispL ??= Tiny(3, 2, (x, y) => y == 1 ? (x < 2 ? Color.white : Color.clear) : (x > 0 ? Color.white : Color.clear));

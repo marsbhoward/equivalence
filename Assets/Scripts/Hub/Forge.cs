@@ -38,9 +38,11 @@ namespace Convergence.Hub
 
             var f = go.AddComponent<Forge>();
             f.Anchor = centre;
-            f._art = HubFixture.Attach(go, HubArt.Hearth(0, false), new Vector2(0f, Foot));
-            f._art.Animate(8, 10f, i => HubArt.Hearth(i, f != null && f.HasBoxAction));
-            f._light = Convergence.Art.Lighting.Glow.Attach(go, 2.4f, new Color(1f, 0.55f, 0.2f), 0.4f, 0.25f);
+            // Dressed in the character's forge theme (group 8); the Cloister's is the hearth and anvil.
+            var theme = HubDress.Of(HubItem.Forge);
+            f._art = HubFixture.Attach(go, HubThemeArt.Forge(theme, 0, false), new Vector2(0f, Foot));
+            f._art.Animate(HubThemeArt.ForgeFrames, HubThemeArt.ForgeFps, i => HubThemeArt.Forge(theme, i, f != null && f.HasBoxAction));
+            f._light = Convergence.Art.Lighting.Glow.Attach(go, 2.4f, HubThemeArt.ForgeLight(theme), 0.4f, 0.25f);
             DepthSorted.Attach(go, Foot, false, f._art.Art, f._art.RimRenderer);
             return f;
         }

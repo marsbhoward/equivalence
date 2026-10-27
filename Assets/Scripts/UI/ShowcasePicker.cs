@@ -33,12 +33,17 @@ namespace Convergence.UI
         Action<ShowcaseItem> _onPick;
         Func<string, bool> _isPlaced;
 
+        Action _onHub;
+        RectTransform _hubTab;
+
+        /// <param name="onHub">When given, a HUB tab opens the hub's themes (UI.HubThemeScreen).</param>
         public void Open(Transform canvas, IShowcaseSource source, Func<string, bool> isPlaced,
-                         Action<ShowcaseItem> onPick)
+                         Action<ShowcaseItem> onPick, Action onHub = null)
         {
             if (IsOpen) return;
             IsOpen = true;
             _onPick = onPick;
+            _onHub = onHub;
             _isPlaced = isPlaced;
             GamePause.Hold(this);
 
@@ -54,6 +59,14 @@ namespace Convergence.UI
             UiKit.Label(UiKit.Rect(full, "t", new Vector2(0, 1), new Vector2(1, 1),
                 new Vector2(0, -108), new Vector2(0, -48)),
                 "THE COLLECTION", 40, new Color(0.93f, 0.94f, 0.97f), TextAnchor.MiddleCenter);
+
+            _hubTab = null;
+            if (onHub != null)
+            {
+                _hubTab = UiKit.Panel(full, new Vector2(1, 1), new Vector2(1, 1), new Vector2(-260, -104), new Vector2(-60, -52),
+                                      new Color(0.22f, 0.2f, 0.14f));
+                UiKit.Label(_hubTab, "HUB  >", 24, new Color(1f, 0.86f, 0.4f), TextAnchor.MiddleCenter);
+            }
 
             int count = source?.Count ?? 0;
             UiKit.Label(UiKit.Rect(full, "s", new Vector2(0, 1), new Vector2(1, 1),
@@ -118,6 +131,7 @@ namespace Convergence.UI
             if (!IsOpen) return;
 
             _focusRects.Clear();
+            if (_hubTab != null) _focusRects.Add(_hubTab);
             foreach (var (rect, _, _) in _cells) _focusRects.Add(rect);
             Core.Controls.SetFocusCandidates(_focusRects);
 
@@ -128,6 +142,14 @@ namespace Convergence.UI
             }
 
             if (!Core.Controls.Tapped(out var at)) return;
+
+            if (_hubTab != null && RectTransformUtility.RectangleContainsScreenPoint(_hubTab, at, null))
+            {
+                var hub = _onHub;
+                Close();
+                hub?.Invoke();
+                return;
+            }
 
             foreach (var (rect, item, _) in _cells)
             {

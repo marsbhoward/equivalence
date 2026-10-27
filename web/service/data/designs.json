@@ -200,5 +200,20 @@
     { "id": "pose.leap", "name": "Leap" },
     { "id": "pose.windmill", "name": "Windmill" },
     { "id": "pose.gather", "name": "Gather" }
+  ],
+  "themes": [
+    { "id": "hub.study", "name": "Alchemist's study" },
+    { "id": "hub.observatory", "name": "Observatory" },
+    { "id": "hub.crypt", "name": "Crypt" },
+    { "id": "hub.atrium", "name": "Garden atrium" },
+    { "id": "hub.salt", "name": "Salt chamber" },
+    { "id": "hub.terrace", "name": "Sky terrace" },
+    { "id": "hub.sanctum", "name": "Nigredo sanctum" },
+    { "id": "hub.smithy", "name": "Smithy" },
+    { "id": "hub.chapel", "name": "Rubedo chapel" },
+    { "id": "hub.shore", "name": "Seashore" },
+    { "id": "hub.volcano", "name": "Volcano throne" },
+    { "id": "hub.dojo", "name": "Dojo" },
+    { "id": "hub.techlab", "name": "Tech lab" }
   ]
 }

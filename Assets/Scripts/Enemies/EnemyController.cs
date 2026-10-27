@@ -164,7 +164,7 @@ namespace Convergence.Enemies
         // it goes with the body.
         float _mireClock, _mireWindup;
         bool _mireClockStarted;
-        SpriteRenderer _mireWindupSr;
+        MireWindupFx _mireWindupFx;
 
         // A piece of a Turret's art that ROTATES to aim, if a look has one. The Tempest Eye has
         // none - its pupil is the swivel (TurretVisual) - so nothing sets this today; kept for a
@@ -2353,29 +2353,20 @@ namespace Convergence.Enemies
             _mireWindup = Tuning.Enemy.MireWindup;
         }
 
-        /// <summary>The tell: a glow in the look's accent swelling on the turret over the wind-up.</summary>
+        /// <summary>The tell: sparks in the look's accent drawn in to the lamp, which brightens in
+        /// three steps over the wind-up (MireWindupFx).</summary>
         void UpdateMireWindup()
         {
-            if (_mireWindupSr == null)
-            {
-                var go = new GameObject("turret.mire");
-                go.transform.SetParent(transform, false);
-                _mireWindupSr = go.AddComponent<SpriteRenderer>();
-                _mireWindupSr.sprite = Spr.Glow;
-                _mireWindupSr.sortingOrder = SortingOrders.Telegraph;
-            }
-            float k = 1f - Mathf.Clamp01(_mireWindup / Tuning.Enemy.MireWindup);
-            _mireWindupSr.transform.localScale = Vector3.one * Mathf.Lerp(0.6f, 1.8f, k);
-            var y = TurretArt.Accent(Look)[2];
-            _mireWindupSr.color = new Color(y.r, y.g, y.b, Mathf.Lerp(0.2f, 0.8f, k));
+            if (_mireWindupFx == null) _mireWindupFx = MireWindupFx.On(transform, TurretArt.Accent(Look));
+            _mireWindupFx.K = 1f - Mathf.Clamp01(_mireWindup / Tuning.Enemy.MireWindup);
         }
 
         void EndMireWindup()
         {
             _mireWindup = 0f;
-            if (_mireWindupSr == null) return;
-            Destroy(_mireWindupSr.gameObject);
-            _mireWindupSr = null;
+            if (_mireWindupFx == null) return;
+            Destroy(_mireWindupFx.gameObject);
+            _mireWindupFx = null;
         }
 
         /// <summary>Aimed once, at the moment it leaves - the Mortar's rule (see LobShell).</summary>

@@ -41,6 +41,10 @@ namespace Convergence.Chain
         public List<PieceDye> Dyed = new();
         public List<string> Poses = new();
         public List<string> Milestones = new();
+        /// <summary>The HUB THEMES the character has earned (Hub.HubThemes.Id - "hub.study"...), each a
+        /// whole room: floor, wall and every hub item (the user's group 7/8 calls). Untradeable, on the
+        /// avatar kill's roll shared with the poses. The Cloister is everyone's and never listed.</summary>
+        public List<string> Themes = new();
         /// <summary>Diamond boxes the SERVICE holds for the character (earned without a PFP) - a
         /// service answer only, breakable for charges like any box.</summary>
         public int HeldDiamond;
@@ -94,9 +98,45 @@ namespace Convergence.Chain
         }
 
         public bool HasPose(string pose) => Poses != null && Poses.Contains(pose);
+        public bool HasTheme(string theme) => Themes != null && Themes.Contains(theme);
+
+        /// <summary>A collectible won on the shared roll - a hub theme ("hub.*") or a pose - added to its list.</summary>
+        public void Grant(string id)
+        {
+            if (string.IsNullOrEmpty(id)) return;
+            var list = id.StartsWith("hub.") ? (Themes ??= new List<string>()) : (Poses ??= new List<string>());
+            if (!list.Contains(id)) list.Add(id);
+        }
         public bool Passed(string milestone) => Milestones != null && Milestones.Contains(milestone);
 
         public CharacterItems Copy() => UnityEngine.JsonUtility.FromJson<CharacterItems>(UnityEngine.JsonUtility.ToJson(this));
+    }
+
+    /// <summary>
+    /// How a character's hub is dressed: a THEME for the room (floor and wall) and for each hub item
+    /// (Hub.HubItem - the index), chosen apart in the crate's HUB tab. Only an OWNED theme counts:
+    /// anything else, or a slot an older save never wrote, shows the Cloister. Part of the save (the
+    /// client's to write) - ownership is what the service decides, and the hub resolves against it.
+    /// </summary>
+    [Serializable]
+    public class HubLook
+    {
+        public List<int> Items = new();
+        /// <summary>Themes won but not yet opened - the PARCEL waiting on the crate (the user's pick:
+        /// named at the run's end, and the parcel waits at home). Ids ("hub.study").</summary>
+        public List<string> Unopened = new();
+
+        /// <summary>Dress every item, the room included, in one theme.</summary>
+        public void SetAll(int theme) { for (int i = 0; i < 14; i++) Set(i, theme); }
+
+        public int Get(int item) => Items != null && item >= 0 && item < Items.Count ? Items[item] : 0;
+
+        public void Set(int item, int theme)
+        {
+            Items ??= new List<int>();
+            while (Items.Count <= item) Items.Add(0);
+            Items[item] = theme;
+        }
     }
 
     /// <summary>

@@ -110,9 +110,9 @@ namespace Convergence.Bosses
         protected virtual void OnDestroy() => Cease();
 
         /// <summary>How it dies, drawn - called as it dies, before it is destroyed (a boss draws its
-        /// own death in its own material; the soft flash is what is left for one that does not).</summary>
+        /// own death in its own material; one that does not leaves the soul wisp every body does).</summary>
         public virtual void DeathPicture()
-            => Spr.Flash(transform.position, 3.2f, new Color(1f, 0.95f, 0.8f), 0.9f);
+            => Combat.TexelFx.Wisp(transform.position, Combat.TexelFx.Bone);
 
         protected void CheckEnrage(float at)
         {

@@ -82,7 +82,8 @@ namespace Convergence.Hub
             s.Anchor = centre;
 
             s._shadow = Quad(go.transform, "shadow", 0.95f, 0.36f,
-                             new Color(0f, 0f, 0f, 0.32f), 0, new Vector2(0f, -0.50f), Spr.Circle);
+                             new Color(0f, 0f, 0f, 0.55f), 0, new Vector2(0f, -0.50f));
+            Convergence.Art.SteppedShadow.Apply(s._shadow, 0.95f, 0.36f, HubArt.Ppu);
 
             // The mannequin is drawn at the same scale the hub avatar is (ArenaVisualScale), or a
             // set on the stand reads smaller than the same set on the player standing beside it.
@@ -99,7 +100,9 @@ namespace Convergence.Hub
 
             // The plinth it stands on, so it reads as a stand rather than as a person who is not
             // moving. Same stone the trophy plinths use, for the same job.
-            s._base = HubFixture.Attach(go, HubArt.MannequinBase(), new Vector2(0f, -0.52f), 2);
+            // Dressed in the character's stand theme (group 8); the Cloister's is the iron dress form.
+            s._theme = HubDress.Of(HubItem.Stand);
+            s._base = HubFixture.Attach(go, HubThemeArt.StandBase(s._theme), new Vector2(0f, -0.52f), 2);
 
             // PrimitiveCharacterRig's own joint tree, at its own texel positions - see the header.
             // (Doubled alongside the rig's own pivots when LayoutUnit moved 37.5 -> 75.)
@@ -273,6 +276,8 @@ namespace Convergence.Hub
         /// sizes and positions the character's own placeholder body uses, so a cuirass sized
         /// against a torso still frames that torso here.
         /// </summary>
+        [SerializeField] HubTheme _theme;
+
         void DrawDummy()
         {
             // Both the position AND the size arguments are texel counts divided by the global
@@ -280,12 +285,12 @@ namespace Convergence.Hub
             // localScale directly), so both had to double when LayoutUnit did.
             // Carved wooden blocks (the user's pick, group 6), drawn at the rig's own density at the
             // same sizes - Px(n) is n of LayoutUnit 75, so half that in the body's 37.5 texels.
-            Body(RigLayer.Torso, PixelSprite.Px(0f, 10f), Vector2.one, HubArt.MannequinBlock(12, 10, false));
-            Body(RigLayer.Head, PixelSprite.Px(0f, 12f), Vector2.one, HubArt.MannequinBlock(13, 15, true));
-            Body(RigLayer.ArmBack, PixelSprite.Px(0f, -8f), Vector2.one, HubArt.MannequinBlock(4, 8, false));
-            Body(RigLayer.ArmFront, PixelSprite.Px(0f, -8f), Vector2.one, HubArt.MannequinBlock(4, 8, false));
-            Body(RigLayer.LegBack, PixelSprite.Px(0f, -8f), Vector2.one, HubArt.MannequinBlock(6, 8, false));
-            Body(RigLayer.LegFront, PixelSprite.Px(0f, -8f), Vector2.one, HubArt.MannequinBlock(6, 8, false));
+            Body(RigLayer.Torso, PixelSprite.Px(0f, 10f), Vector2.one, HubThemeArt.StandBlock(_theme, 12, 10, false));
+            Body(RigLayer.Head, PixelSprite.Px(0f, 12f), Vector2.one, HubThemeArt.StandBlock(_theme, 13, 15, true));
+            Body(RigLayer.ArmBack, PixelSprite.Px(0f, -8f), Vector2.one, HubThemeArt.StandBlock(_theme, 4, 8, false));
+            Body(RigLayer.ArmFront, PixelSprite.Px(0f, -8f), Vector2.one, HubThemeArt.StandBlock(_theme, 4, 8, false));
+            Body(RigLayer.LegBack, PixelSprite.Px(0f, -8f), Vector2.one, HubThemeArt.StandBlock(_theme, 6, 8, false));
+            Body(RigLayer.LegFront, PixelSprite.Px(0f, -8f), Vector2.one, HubThemeArt.StandBlock(_theme, 6, 8, false));
         }
 
         void Body(RigLayer layer, Vector2 at, Vector2 size, Sprite sprite)

@@ -80,14 +80,26 @@ namespace Convergence.Hub
             r.Anchor = centre;
 
             r._shadow = Quad(go.transform, "shadow", Width * 1.15f, Radius * 0.85f,
-                             new Color(0f, 0f, 0f, 0.30f), 0, new Vector2(0f, -0.02f), Spr.Circle);
+                             new Color(0f, 0f, 0f, 0.55f), 0, new Vector2(0f, -0.02f));
+            Convergence.Art.SteppedShadow.Apply(r._shadow, Width * 1.15f, Radius * 0.85f, HubArt.Ppu);
 
-            // The oak A-frame (the user's pick, group 6): two posts and crossbars, solid at 3/4, the
-            // weapon held upright between them - the room shows through. No soft glow behind it.
-            r._frame = HubFixture.Attach(go, HubArt.AFrame(Mathf.RoundToInt(Width * HubArt.Ppu), Mathf.RoundToInt(1.45f * HubArt.Ppu)),
-                                         Vector2.zero, 2);
-
-            r._restAt = new Vector2(0f, 0.74f);
+            // Dressed in the character's rack theme (group 8): the furniture behind the weapon (and any in
+            // front of it), and where it rests. The Cloister's is the stone pedestal, the blade standing
+            // point-down in its socket. The Volcano throne's is a TABLE the weapon is assembled on.
+            r._theme = HubDress.Of(HubItem.Rack);
+            var dress = HubThemeArt.Rack(r._theme);
+            if (HubThemeArt.Assembles(r._theme))
+            {
+                r._frame = HubFixture.Attach(go, HubThemeArt.AssemblySlab(0), Vector2.zero, 2);
+                r._frame.Animate(HubThemeArt.AssemblyFrames, 6f, HubThemeArt.AssemblySlab);
+                r._restAt = new Vector2(0f, 0.62f);
+            }
+            else
+            {
+                r._frame = HubFixture.Attach(go, dress.Back, Vector2.zero, 2);
+                r._restAt = dress.RestAt;
+                if (dress.Front != null) r._front = Piece(go.transform, "front", 8, Vector2.zero, dress.Front);
+            }
 
             // The off-hand copy is drawn BELOW the main one, so a pair reads with depth rather
             // than as two flat rings - the same reasoning the rig uses putting the second disc at
@@ -100,8 +112,12 @@ namespace Convergence.Hub
             col.offset = new Vector2(0f, 0.10f);
 
             // Sorted from the FOOT of the posts, which is where the rack touches the floor.
-            DepthSorted.Attach(go, 0f, isFixed: false,
-                               r._shadow, r._frame.Art, r._frame.RimRenderer, r._off, r._main);
+            r._parts = new SpriteRenderer[PartCount];
+            for (int i = 0; i < PartCount; i++) { r._parts[i] = Piece(go.transform, "part" + i, 6, r._restAt); r._parts[i].enabled = false; }
+            var sorted = new System.Collections.Generic.List<SpriteRenderer> { r._shadow, r._frame.Art, r._frame.RimRenderer, r._off, r._main };
+            if (r._front != null) sorted.Add(r._front);
+            sorted.AddRange(r._parts);
+            DepthSorted.Attach(go, 0f, isFixed: false, sorted.ToArray());
             return r;
         }
 
@@ -115,8 +131,10 @@ namespace Convergence.Hub
             var item = string.IsNullOrEmpty(itemId) ? null : GearCatalog.Get(itemId);
             var layer = GearDisplay.Represent(item);
 
-            GearDisplay.Draw(_main, layer, GearDisplay.FitScale(layer, PieceHeight));
             Name = item != null ? item.DisplayName : null;
+            if (HubThemeArt.Assembles(_theme)) { Assemble(layer); return; }
+
+            GearDisplay.Draw(_main, layer, GearDisplay.FitScale(layer, PieceHeight));
 
             // The rack is where a weapon is LOOKED at, so anything carrying its own effect carries
             // it here too - see GearDisplay.ApplyEffects.
@@ -175,6 +193,7 @@ namespace Convergence.Hub
         void Update()
         {
             if (_frame != null) _frame.SetFocus(_focused);
+            if (HubThemeArt.Assembles(_theme)) AnimateParts();
         }
 
         /// <summary>Where the sprite's geometric centre sits relative to its pivot, taken through
@@ -186,14 +205,84 @@ namespace Convergence.Hub
             return sr.transform.localRotation * new Vector2(c.x * s.x, c.y * s.y);
         }
 
-        static SpriteRenderer Piece(Transform parent, string name, int order, Vector2 at)
+        static SpriteRenderer Piece(Transform parent, string name, int order, Vector2 at, Sprite sprite = null)
         {
             var go = new GameObject(name);
             go.transform.SetParent(parent, false);
             go.transform.localPosition = at;
             var sr = go.AddComponent<SpriteRenderer>();
             sr.sortingOrder = order;
+            sr.sprite = sprite;
             return sr;
+        }
+
+        // ---- the Volcano throne's assembly table (the user's picks: turning, then settling) ----
+
+        const int PartCount = 4;
+        const float AssemblyCycle = 2.6f;
+        [SerializeField] HubTheme _theme;
+        [SerializeField] SpriteRenderer _front;
+        [SerializeField] SpriteRenderer[] _parts;
+        [SerializeField] float[] _partAlong;
+        static readonly System.Collections.Generic.Dictionary<Sprite, Sprite[]> _slices = new();
+
+        /// <summary>The weapon cut into <see cref="PartCount"/> bands along its length - pommel to tip,
+        /// whatever the weapon - each its own sprite, pivoted in its middle.</summary>
+        static Sprite[] Slices(Sprite src)
+        {
+            if (_slices.TryGetValue(src, out var got) && got != null && got[0] != null) return got;
+            var r = src.textureRect; var parts = new Sprite[PartCount];
+            for (int i = 0; i < PartCount; i++)
+            {
+                float y0 = Mathf.Floor(r.height * i / PartCount), y1 = Mathf.Floor(r.height * (i + 1) / PartCount);
+                parts[i] = Sprite.Create(src.texture, new Rect(r.x, r.y + y0, r.width, y1 - y0), new Vector2(0.5f, 0.5f), src.pixelsPerUnit, 0, SpriteMeshType.FullRect);
+            }
+            return _slices[src] = parts;
+        }
+
+        /// <summary>Lay the weapon on the table as parts, each placed by how far along it it was cut.</summary>
+        void Assemble(LayerSprite layer)
+        {
+            _main.enabled = false; _off.enabled = false;
+            bool any = layer != null && layer.Sprite != null;
+            var slices = any ? Slices(layer.Sprite) : null;
+            _partAlong ??= new float[PartCount];
+            float fit = GearDisplay.FitScale(layer, PieceHeight);
+            for (int i = 0; i < PartCount; i++)
+            {
+                var p = _parts[i];
+                if (p == null) continue;
+                p.enabled = any;
+                if (!any) continue;
+                GearDisplay.Draw(p, layer, fit);
+                p.sprite = slices[i];
+                var sc = p.transform.localScale;
+                var h = layer.Sprite.textureRect.height;
+                // Its centre's distance from the weapon's middle along its length, in world units.
+                _partAlong[i] = ((Mathf.Floor(h * i / PartCount) + Mathf.Floor(h * (i + 1) / PartCount)) * 0.5f - h * 0.5f) / layer.Sprite.pixelsPerUnit * sc.y;
+                // Laid flat: the blade-up picture turned so its tip points right.
+                p.transform.localRotation = Quaternion.Euler(0f, 0f, -90f);
+            }
+        }
+
+        void AnimateParts()
+        {
+            if (_parts == null || _partAlong == null) return;
+            float u = Mathf.Repeat(Time.unscaledTime, AssemblyCycle) / AssemblyCycle;
+            // Apart, drawn together, held a moment, then let go.
+            float k = u < 0.15f ? 0f : u < 0.7f ? (u - 0.15f) / 0.55f : u < 0.92f ? 1f : 1f - (u - 0.92f) / 0.08f;
+            float e = k * k * (3f - 2f * k), t = Time.unscaledTime;
+            float px = 1f / HubArt.Ppu;
+            for (int i = 0; i < PartCount; i++)
+            {
+                var p = _parts[i];
+                if (p == null || !p.enabled) continue;
+                float spread = (i - (PartCount - 1) * 0.5f) * 5f, lift = 8f + (i % 2) * 3f;
+                float a = t * 1.2f + i * 1.6f, r = 10f * (1f - e);
+                var off = new Vector2(Mathf.Cos(a) * r + spread * 0.3f * (1f - e), Mathf.Sin(a) * r * 0.4f + lift * (1f - e)) * px;
+                p.transform.localPosition = _restAt + new Vector2(_partAlong[i], 0f) + off;
+                p.transform.localRotation = Quaternion.Euler(0f, 0f, -90f + (1f - e) * Mathf.Sin(t * 1.4f + i) * 25f);
+            }
         }
 
         static SpriteRenderer Quad(Transform parent, string name, float w, float h,

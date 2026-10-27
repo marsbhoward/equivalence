@@ -116,7 +116,7 @@ namespace Convergence.Chain
             {
                 if (!string.IsNullOrEmpty(reward.Dye)) profile.Items.AddDye(reward.Dye, 1);
                 (reward.Pose, reward.PoseGold) = CosmeticRolls.Pose(profile.Items);
-                if (!string.IsNullOrEmpty(reward.Pose)) profile.Items.Poses.Add(reward.Pose);
+                profile.Items.Grant(reward.Pose);
             }
             else reward.Dye = null;
             Debug.Log($"[ProfileStore] floor {Rifts.RunLoot.FinalFloor,-4}  run={runId} {reward.Count} {reward.Tier}" +
@@ -136,7 +136,7 @@ namespace Convergence.Chain
                 if (rng.NextDouble() < Tuning.Cosmetics.AvatarRareDyeChance) boxes.Dye = CosmeticRolls.RareDye(rng);
                 (boxes.Pose, boxes.PoseGold) = CosmeticRolls.Pose(profile.Items, rng);
                 if (!string.IsNullOrEmpty(boxes.Dye)) profile.Items.AddDye(boxes.Dye, 1);
-                if (!string.IsNullOrEmpty(boxes.Pose)) profile.Items.Poses.Add(boxes.Pose);
+                profile.Items.Grant(boxes.Pose);
             }
             await Task.Yield();
             return boxes;

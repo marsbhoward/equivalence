@@ -64,7 +64,7 @@ namespace Convergence.Hub
             // The wooden settle (the user's pick, group 6): high-backed oak, cushions along the
             // seat. On a FIXED low order, under the depth band, so the seated figures always draw
             // in front of it - the whole illusion of sitting on it.
-            c._art = HubFixture.Attach(go, HubArt.Settle(Mathf.RoundToInt(width * HubArt.Ppu)), new Vector2(0f, -0.43f),
+            c._art = HubFixture.Attach(go, HubThemeArt.Couch(HubDress.Of(HubItem.Couch), Mathf.RoundToInt(width * HubArt.Ppu)), new Vector2(0f, -0.43f),
                                        SortingOrders.FloorDetail + 2);
 
             float pitch = width / seats;

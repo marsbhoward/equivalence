@@ -11,6 +11,8 @@ import type { FormatId } from './runFormat.js';
  *   charges    a Diamond box breaks into CHARGES_PER_BOX; one recolours one piece
  *   dyed       what each Diamond armour design wears on this character, per channel
  *   poses      portrait poses - UNTRADEABLE, never duplicated, never a token
+ *   themes     hub THEMES ("hub.study") - a whole room, floor, wall and every hub item; untradeable like
+ *              poses and on the SAME roll (the user's call, group 7: one roll shared with the poses)
  *   milestones once per character, by the floor first cleared
  *
  * Tables `character_items` (kind dye / charge / pose), `dyed_pieces`, `milestones` (db.ts 9). Every
@@ -50,6 +52,9 @@ export const chance = (p: number) => draw() < p;
 export const swatches = () => designs().swatches ?? [];
 export const isSwatch = (id: string) => swatches().some((s) => s.id === id);
 export const poses = () => designs().poses ?? [];
+export const themes = () => designs().themes ?? [];
+/** What a collectible id is: a hub theme ("hub.*") or a pose. */
+export const collectibleKind = (id: string): 'theme' | 'pose' => (id.startsWith('hub.') ? 'theme' : 'pose');
 export const dyeChannels = (piece: string): number => designs().dyeable?.[piece] ?? 0;
 
 function pickWeighted<T>(items: T[], weight: (t: T) => number): T | null {
@@ -76,10 +81,14 @@ function dyeOfRarity(rarity: DyeRarity): string | null {
 
 export interface PoseRoll { pose: string | null; gold: number }
 
-/** A pose roll (POSE_CHANCE) from the poses the character LACKS; with every pose owned, Gold. */
+/**
+ * A COLLECTIBLE roll (POSE_CHANCE) from the poses AND hub themes the character LACKS - one roll shared by
+ * both (the user's call, group 7); with every one owned, Gold. The id answered is a pose's or a theme's
+ * (collectibleKind tells them apart) - it rides the decision's `pose` field either way.
+ */
 export function rollPose(owned: Set<string>): PoseRoll {
   if (draw() >= POSE_CHANCE) return { pose: null, gold: 0 };
-  const lacking = poses().filter((p) => !owned.has(p.id));
+  const lacking = [...poses(), ...themes()].filter((p) => !owned.has(p.id));
   if (lacking.length === 0) return { pose: null, gold: POSE_GOLD_MIN + randomInt(POSE_GOLD_MAX - POSE_GOLD_MIN + 1) };
   return { pose: lacking[randomInt(lacking.length)].id, gold: 0 };
 }
@@ -106,6 +115,8 @@ export interface Items {
   charges: number;
   dyed: { piece: string; swatches: string[] }[];
   poses: string[];
+  /** The hub themes the character has earned (never the Cloister). */
+  themes: string[];
   milestones: string[];
   /** Diamond boxes the service HOLDS for the character (earned without a PFP) - breakable here. */
   heldDiamond: number;
@@ -132,12 +143,13 @@ export async function itemsOf(c: Q, owner: string, profileId: string): Promise<I
     charges: rows.find((r) => r.kind === 'charge')?.count ?? 0,
     dyed: dyed.map((d) => ({ piece: d.piece, swatches: d.swatches })),
     poses: rows.filter((r) => r.kind === 'pose').map((r) => r.item),
+    themes: rows.filter((r) => r.kind === 'theme').map((r) => r.item),
     milestones: ms.map((m) => m.milestone),
   };
 }
 
 /** Adds (or with a negative delta, takes) items, logged. Never below zero - the caller checks first. */
-export async function credit(c: Q, owner: string, profileId: string, kind: 'dye' | 'charge' | 'pose',
+export async function credit(c: Q, owner: string, profileId: string, kind: 'dye' | 'charge' | 'pose' | 'theme',
                              item: string, delta: number, reason: string) {
   if (!delta) return;
   await c.query(
@@ -156,9 +168,10 @@ export async function countOf(c: Q, owner: string, profileId: string, kind: stri
   return r.rows[0]?.count ?? 0;
 }
 
+/** Every collectible the character owns - poses and hub themes, the one roll's pool. */
 export async function posesOwned(c: Q, owner: string, profileId: string): Promise<Set<string>> {
   const r = await c.query<{ item: string }>(
-    "SELECT item FROM character_items WHERE owner = $1 AND profile_id = $2 AND kind = 'pose' AND count > 0",
+    "SELECT item FROM character_items WHERE owner = $1 AND profile_id = $2 AND kind IN ('pose', 'theme') AND count > 0",
     [owner, profileId]);
   return new Set(r.rows.map((x) => x.item));
 }

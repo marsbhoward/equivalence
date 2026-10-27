@@ -84,6 +84,11 @@ namespace Convergence.EditorTools
             for (int i = 0; i < PoseCatalog.All.Length; i++)
                 sb.Append($"    {{ \"id\": {Q(PoseCatalog.All[i].Id)}, \"name\": {Q(PoseCatalog.All[i].Name)} }}")
                   .Append(i < PoseCatalog.All.Length - 1 ? ",\n" : "\n");
+            // The hub themes, every one but the Cloister (everyone's) - on the poses' roll (group 7).
+            sb.Append("  ],\n  \"themes\": [\n");
+            for (int i = 1; i < Hub.HubThemes.Count; i++)
+                sb.Append($"    {{ \"id\": {Q(Hub.HubThemes.Id((Hub.HubTheme)i))}, \"name\": {Q(Hub.HubThemes.NameOf((Hub.HubTheme)i))} }}")
+                  .Append(i < Hub.HubThemes.Count - 1 ? ",\n" : "\n");
             sb.Append("  ]\n}\n");
 
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path)));

@@ -23,9 +23,20 @@ namespace Convergence.Progression
         /// <summary>Half the world the grid occupies, in grid units. Roots sit at 14.6.</summary>
         const float Extent = 16.5f;
 
-        public static Sprite Sheet => _sheet != null ? _sheet : _sheet = Build(256);
+        public static Sprite Sheet => _sheet != null ? _sheet : _sheet = Build(256, new Color(0.24f, 0.19f, 0.13f));
 
-        static Sprite Build(int size)
+        static System.Collections.Generic.Dictionary<Color, Sprite> _inked = new();
+
+        /// <summary>The sketch in another INK - a hub theme's table draws the board in its own (stars on
+        /// the observatory's navy, chalk on the smithy's bench).</summary>
+        public static Sprite SheetIn(Color ink)
+        {
+            _inked ??= new System.Collections.Generic.Dictionary<Color, Sprite>();
+            if (_inked.TryGetValue(ink, out var s) && s != null) return s;
+            return _inked[ink] = Build(256, ink);
+        }
+
+        static Sprite Build(int size, Color ink)
         {
             var px = new Color[size * size];
             var tex = new Texture2D(size, size, TextureFormat.RGBA32, false)
@@ -38,8 +49,6 @@ namespace Convergence.Progression
             // Ink on nothing: the paper itself is a separate sprite underneath, so this only ever
             // draws marks. Tinting a baked sheet would tint the paper along with the ink.
             for (int i = 0; i < px.Length; i++) px[i] = new Color(0f, 0f, 0f, 0f);
-
-            var ink = new Color(0.24f, 0.19f, 0.13f);
 
             foreach (var node in MasteryBoard.All)
             foreach (var id in node.Neighbours)

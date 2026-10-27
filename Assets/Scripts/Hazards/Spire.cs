@@ -261,8 +261,9 @@ namespace Convergence.Hazards
             float w = Tuning.Spire.BodyRadius * 1.5f;
             float h = Tuning.Spire.BodyHeight;
 
-            _shadow = Quad(body, Spr.Circle, new Color(0f, 0f, 0f, 0.38f),
+            _shadow = Quad(body, Spr.Circle, new Color(0f, 0f, 0f, 0.6f),
                            new Vector2(w * 1.7f, w * 0.7f), 4, "shadow");
+            Convergence.Art.SteppedShadow.Apply(_shadow, w * 1.7f, w * 0.7f, Combat.TexelFx.Body);
             _shadow.transform.localPosition = new Vector3(0f, 0.02f, 0f);
 
             // Everything that sinks hangs off one root, so sinking is one transform moving.
@@ -503,7 +504,7 @@ namespace Convergence.Hazards
             var lit = Color.Lerp(light, Color.white, 0.25f);
             SetChannel(_channelUp, mid, reach, +1f, lit);
             SetChannel(_channelDown, mid, reach, -1f, lit);
-            if (_shadow != null) _shadow.color = new Color(0f, 0f, 0f, 0.38f * ground);
+            if (_shadow != null) _shadow.color = new Color(0f, 0f, 0f, 0.6f * ground);
         }
 
         static void SetChannel(SpriteRenderer sr, float mid, float reach, float sign, Color c)

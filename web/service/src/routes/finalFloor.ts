@@ -3,7 +3,7 @@ import { internal } from '../errors.js';
 import { q, tx } from '../db.js';
 import { FinalDecision, rollFinal, weekOf, weekStarts } from '../finalFloor.js';
 import { currentRunAt, runClock, runFormatOf } from '../runProgress.js';
-import { credit, posesOwned, rollPose } from '../cosmetics.js';
+import { collectibleKind, credit, posesOwned, rollPose } from '../cosmetics.js';
 
 /**
  * The final floor's box (finalFloor.ts has the rules; the run's format names the floor), for every
@@ -78,7 +78,7 @@ export async function claimFinalFloor(req: Request, res: Response): Promise<void
         [profileId, runId, owner, week, decision.guaranteed, decision.tier, decision.count,
          decision.dye ?? null, decision.pose, decision.pose_gold]);
       if (decision.dye) await credit(c, owner, profileId, 'dye', decision.dye, 1, `final:${runId}`);
-      if (decision.pose) await credit(c, owner, profileId, 'pose', decision.pose, 1, `final:${runId}`);
+      if (decision.pose) await credit(c, owner, profileId, collectibleKind(decision.pose), decision.pose, 1, `final:${runId}`);
       return { status: 200, decision, repeat: false } as const;
     });
 

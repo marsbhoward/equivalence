@@ -34,6 +34,7 @@ namespace Convergence.Hub
 
         // NOT readonly - see SigilDoor and every other array on a MonoBehaviour in this project.
         SpriteRenderer[] _rings = new SpriteRenderer[4];
+        [SerializeField] HubTheme _theme;
         SpriteRenderer[] _glyphs = new SpriteRenderer[4];
         float _lit;
 
@@ -95,7 +96,9 @@ namespace Convergence.Hub
                 // Lines of gold light inlaid in the stone (the user's pick, group 6): a crisp texel
                 // ring at its real size, breathing - it keeps its own colour, the thing to press.
                 b._rings[i] = ringGo.AddComponent<SpriteRenderer>();
-                b._rings[i].sprite = Combat.TexelFx.RingSprite(ringSize * 0.5f);
+                // Dressed in the character's selector theme (group 8): the Cloister's rings are carved.
+                b._theme = HubDress.Of(HubItem.Selector);
+                b._rings[i].sprite = HubThemeArt.SelectorRing(b._theme, ringSize * 0.5f, i);
                 b._rings[i].sortingOrder = SortingOrders.GroundDecal + 1;
 
                 var glyphGo = new GameObject($"glyph-{order[i]}");
@@ -141,7 +144,11 @@ namespace Convergence.Hub
                 // "three switched off", so the button always shows four real options and it is
                 // the MARK inside that says which one is chosen.
                 float breath = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 3f + i);
-                _rings[i].color = Color.Lerp(PureGold, Color.white, Mathf.Max(0.12f + 0.18f * breath, lit * 0.35f));
+                // A ring of LIGHT breathes in gold; a ring of a material keeps its own colours, a
+                // little brighter while the player stands at it.
+                _rings[i].color = HubThemeArt.SelectorGlows(_theme)
+                    ? Color.Lerp(PureGold, Color.white, Mathf.Max(0.12f + 0.18f * breath, lit * 0.35f))
+                    : Color.Lerp(new Color(0.85f, 0.85f, 0.85f), Color.white, lit);
 
                 _glyphs[i].color = active
                     ? Color.Lerp(PureGold, Color.white, Mathf.Lerp(0f, 0.45f, lit))

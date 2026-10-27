@@ -30,9 +30,11 @@ namespace Convergence.Hub
 
             var m = go.AddComponent<ManualShrine>();
             m.Anchor = centre;
-            m._art = HubFixture.Attach(go, HubArt.Altar(0), new Vector2(0f, Foot));
-            m._art.Animate(6, 4f, HubArt.Altar);
-            m._light = Convergence.Art.Lighting.Glow.Attach(go, 1.6f, new Color(1f, 0.82f, 0.45f), 0.5f, 0.15f);
+            // Dressed in the character's shrine theme (group 8); the Cloister's is the altar and tome.
+            var theme = HubDress.Of(HubItem.Shrine);
+            m._art = HubFixture.Attach(go, HubThemeArt.Shrine(theme, 0), new Vector2(0f, Foot));
+            m._art.Animate(HubThemeArt.ShrineFrames, HubThemeArt.ShrineFps, i => HubThemeArt.Shrine(theme, i));
+            m._light = Convergence.Art.Lighting.Glow.Attach(go, 1.6f, HubThemeArt.ShrineLight(theme), 0.5f, 0.15f);
             DepthSorted.Attach(go, Foot, false, m._art.Art, m._art.RimRenderer);
             return m;
         }

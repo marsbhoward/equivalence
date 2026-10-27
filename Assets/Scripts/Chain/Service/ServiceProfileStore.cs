@@ -240,6 +240,7 @@ namespace Convergence.Chain.Service
             public int charges;
             public List<DyedRow> dyed = new();
             public List<string> poses = new();
+            public List<string> themes = new();
             public List<string> milestones = new();
             public int heldDiamond;
             public string error;
@@ -247,7 +248,7 @@ namespace Convergence.Chain.Service
 
         static CharacterItems ToItems(ItemsReply r)
         {
-            var items = new CharacterItems { Charges = r.charges, Poses = r.poses ?? new(), Milestones = r.milestones ?? new(), HeldDiamond = Math.Max(0, r.heldDiamond) };
+            var items = new CharacterItems { Charges = r.charges, Poses = r.poses ?? new(), Themes = r.themes ?? new(), Milestones = r.milestones ?? new(), HeldDiamond = Math.Max(0, r.heldDiamond) };
             foreach (var d in r.dyes ?? new()) if (d != null && d.count > 0) items.Dyes.Add(new DyeCount { Swatch = d.swatch, Count = d.count });
             foreach (var d in r.dyed ?? new()) if (d != null) items.Dyed.Add(new PieceDye { Piece = d.piece, Swatches = d.swatches ?? new() });
             return items;

@@ -146,7 +146,7 @@ namespace Convergence.Hub
             // wallet's own - only the frame is ours.
             _ = border;
             _wBorder = Quad("border", 1f, 1f, Color.white, SortingOrders.FloorDetail + 1, Vector2.zero,
-                            HubArt.GiltFrame(Mathf.RoundToInt(inner * HubArt.Ppu)));
+                            HubThemeArt.WallFrame(HubDress.Of(HubItem.Frames), Mathf.RoundToInt(inner * HubArt.Ppu)));
             _empty = Quad("empty", 1f, 1f, new Color(1f, 1f, 1f, 0.08f),
                           SortingOrders.FloorDetail + 3, Vector2.zero, Combat.TexelFx.RingSprite(inner * 0.17f));
 
@@ -158,14 +158,15 @@ namespace Convergence.Hub
 
         void BuildEasel(bool solid)
         {
-            _eShadow = Quad("shadow", Radius * 2.1f, Radius * 1.0f, new Color(0f, 0f, 0f, 0.30f),
-                            0, new Vector2(0f, -0.02f), Spr.Circle);
+            _eShadow = Quad("shadow", Radius * 2.1f, Radius * 1.0f, new Color(0f, 0f, 0f, 0.55f),
+                            0, new Vector2(0f, -0.02f), Spr.Square);
+            Convergence.Art.SteppedShadow.Apply(_eShadow, Radius * 2.1f, Radius * 1.0f, HubArt.Ppu);
             // A stone plinth with a gilt band, the piece standing on it under a glass bell jar (the
             // user's pick, group 6). No glow: the jar's highlight catches the dim hub's light.
             _ePlinth = Quad("plinth", 1f, 1f, Color.white, 1, new Vector2(0f, -0.02f),
-                            HubArt.Plinth(Mathf.RoundToInt(Radius * 0.85f * HubArt.Ppu), Mathf.RoundToInt(0.3f * HubArt.Ppu)));
+                            HubThemeArt.FrameStand(HubDress.Of(HubItem.Frames), Mathf.RoundToInt(Radius * 0.85f * HubArt.Ppu), Mathf.RoundToInt(0.3f * HubArt.Ppu)));
             _eGlow = Quad("jar", 1f, 1f, new Color(1f, 1f, 1f, 0.7f), 5, new Vector2(0f, 0.34f),
-                          HubArt.BellJar(Mathf.RoundToInt(Radius * 2.5f * HubArt.Ppu), Mathf.RoundToInt((ArtHeight + 0.12f) * HubArt.Ppu)));
+                          HubThemeArt.FrameCover(HubDress.Of(HubItem.Frames), Mathf.RoundToInt(Radius * 2.5f * HubArt.Ppu), Mathf.RoundToInt((ArtHeight + 0.12f) * HubArt.Ppu)));
 
             _empty = Quad("empty", 1f, 1f, new Color(1f, 1f, 1f, 0.08f), 3,
                          new Vector2(0f, 0.34f + ArtHeight * 0.5f), Combat.TexelFx.RingSprite(Radius * 0.35f));
@@ -252,7 +253,7 @@ namespace Convergence.Hub
             if (Mode == FrameMode.Easel)
             {
                 _ePlinth.color = legal ? Color.white : new Color(1f, 0.5f, 0.5f);
-                _eShadow.color = new Color(0f, 0f, 0f, legal ? 0.22f : 0.10f);
+                _eShadow.color = new Color(0f, 0f, 0f, legal ? 0.40f : 0.18f);
                 _eGlow.color = new Color(1f, 1f, 1f, legal ? 0.5f : 0.2f);
                 if (_depth != null) _depth.Apply();
             }

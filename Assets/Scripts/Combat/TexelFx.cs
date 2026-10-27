@@ -20,7 +20,7 @@ namespace Convergence.Combat
         public static int Air => SortingOrders.Fx - 1;
         public static int Ground => SortingOrders.GroundFx;
 
-        enum Kind { Chips, Star, Ring, Puff, Wisp, Plus, Shock, Dust, Strip, Hop, Swirl, Cut, Cone, Bolts, Arc, FlameRing, Spray, Wings, Rise, Crest, Mote, Rubble, FaintRing, Splash, Glint, Motes, BeamDrop, Sift }
+        enum Kind { Chips, Star, Ring, Puff, Wisp, Plus, Shock, Dust, Strip, Hop, Swirl, Cut, Cone, Bolts, Arc, FlameRing, Spray, Wings, Rise, Crest, Mote, Rubble, FaintRing, Splash, Glint, Motes, BeamDrop, Sift, Flicks }
 
         [SerializeField] Kind _kind;
         [SerializeField] Color32[] _ramp;
@@ -89,6 +89,14 @@ namespace Convergence.Combat
             int h = Mathf.CeilToInt(spread * 2f) + 4;
             var f = Make(Kind.Puff, at, h, 3, h + 10, order == int.MinValue ? Air : order, ramp, life, false);
             f._n = n; f._a = spread;
+        }
+
+        /// <summary>A footfall's two specks of grit flicked back off the heel along
+        /// <paramref name="back"/>, arcing and landing (group 7's pick).</summary>
+        public static void Flicks(Vector2 at, Color32[] ramp, Vector2 back, int order)
+        {
+            var f = Make(Kind.Flicks, at, 8, 3, 6, order, ramp, 0.3f, false);
+            f._dir = back.sqrMagnitude > 1e-6f ? back.normalized : Vector2.left;
         }
 
         /// <summary>A pale wisp leaving a body and rising, swaying.</summary>
@@ -431,6 +439,14 @@ namespace Convergence.Combat
 
                 case Kind.Puff:
                     PuffAt(0f, 0f, Age, _n, _seed, _ramp, _life, _a);
+                    return true;
+
+                case Kind.Flicks:
+                    for (int k = 0; k < 2; k++)
+                    {
+                        float v = 10f + k * 6f, lift = Mathf.Max(0f, (12f * Age - 40f * Age * Age) * (1f + k * 0.4f));
+                        Over(Mathf.RoundToInt(_dir.x * v * Age), Mathf.RoundToInt(_dir.y * v * Age * 0.6f + lift), At(_ramp, 0.2f + k * 0.2f));
+                    }
                     return true;
 
                 case Kind.Wisp:

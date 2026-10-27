@@ -47,8 +47,11 @@ namespace Convergence.Hub
 
             var b = go.AddComponent<PhotoBooth>();
             b.Anchor = centre;
-            b._art = HubFixture.Attach(go, HubArt.Mirror(0, false), new Vector2(0f, Foot));
-            b._art.Animate(8, 4f, i => HubArt.Mirror(i, b != null && b._flashT > 0.5f));
+            // Dressed in the character's booth theme (group 8); the Cloister's is the painter's easel.
+            var theme = HubDress.Of(HubItem.Booth);
+            b._art = HubFixture.Attach(go, HubThemeArt.Booth(theme, 0, false, false), new Vector2(0f, Foot));
+            b._art.Animate(HubThemeArt.BoothFrames, HubThemeArt.BoothFps,
+                           i => HubThemeArt.Booth(theme, i, b != null && b._flashT > 0.5f, b != null && b._focused));
             DepthSorted.Attach(go, Foot, false, b._art.Art, b._art.RimRenderer);
             return b;
         }

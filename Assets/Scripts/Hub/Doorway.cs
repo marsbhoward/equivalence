@@ -37,7 +37,7 @@ namespace Convergence.Hub
 
             // The raised portcullis (the user's pick, group 6): an iron-framed opening, black - it is
             // a way through - its gate drawn up into the top. On the wall's band like the sigil door.
-            d._art = HubFixture.Attach(go, HubArt.Portcullis(Mathf.RoundToInt(halfWidth * HubArt.Ppu), Mathf.RoundToInt(height * HubArt.Ppu)),
+            d._art = HubFixture.Attach(go, HubThemeArt.Doorway(HubDress.Of(HubItem.Doorway), Mathf.RoundToInt(halfWidth * HubArt.Ppu), Mathf.RoundToInt(height * HubArt.Ppu)),
                                        Vector2.zero, SortingOrders.GroundDecal + 2);
             return d;
         }

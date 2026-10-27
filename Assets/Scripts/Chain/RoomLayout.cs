@@ -51,9 +51,8 @@ namespace Convergence.Chain
         public bool CouchOut;
 
         /// <summary>
-        /// The room's design - floor, north wall and loft (Hub.RoomDesign, ids permanent and
-        /// APPEND-ONLY; the user's call, group 6: the designs are a hub reward pool beside the
-        /// portrait poses). 0, the Cloister, is what an old save loads as.
+        /// UNREAD since group 8: the room's dress moved to the CHARACTER (CharacterProfile.Hub - themes are
+        /// owned per character, the user's call). Kept so old saves load.
         /// </summary>
         public int Design;
 

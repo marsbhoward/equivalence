@@ -177,6 +177,10 @@ namespace Convergence.Chain
         /// </summary>
         public CharacterItems Items = new();
 
+        /// <summary>How this character's hub is dressed - a theme per item (<see cref="HubLook"/>),
+        /// resolved against the themes in <see cref="Items"/>. Additive: older saves show the Cloister.</summary>
+        public HubLook Hub = new();
+
         /// <summary>The portrait POSE chosen for the next PFP take (Art.Gear.PoseCatalog id), or
         /// empty for the standing pose. Only a pose in <see cref="Items"/> counts. Additive.</summary>
         public string Pose = "";

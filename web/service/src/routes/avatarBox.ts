@@ -5,7 +5,7 @@ import { tx } from '../db.js';
 import { AvatarDecision, rollAvatar } from '../avatarBoxes.js';
 import { currentRunAt, runFormatOf } from '../runProgress.js';
 import { isRolledAvatar } from '../runFormat.js';
-import { AVATAR_RARE_DYE_CHANCE, chance, credit, posesOwned, rollPose, rollRareDye } from '../cosmetics.js';
+import { AVATAR_RARE_DYE_CHANCE, chance, collectibleKind, credit, posesOwned, rollPose, rollRareDye } from '../cosmetics.js';
 
 /**
  * An avatar's boxes (avatarBoxes.ts has the rules), for every browser player - guest or wallet,
@@ -69,7 +69,7 @@ export async function claimAvatarBoxes(req: Request, res: Response): Promise<voi
          VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
         [owner, profileId, runId, floor, decision.diamond, decision.black_diamond, decision.dye, decision.pose, decision.pose_gold]);
       if (decision.dye) await credit(c, owner, profileId, 'dye', decision.dye, 1, `avatar:${runId}:${floor}`);
-      if (decision.pose) await credit(c, owner, profileId, 'pose', decision.pose, 1, `avatar:${runId}:${floor}`);
+      if (decision.pose) await credit(c, owner, profileId, collectibleKind(decision.pose), decision.pose, 1, `avatar:${runId}:${floor}`);
       return { status: 200, decision, repeat: false } as const;
     });
 

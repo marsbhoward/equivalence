@@ -31,17 +31,20 @@ namespace Convergence.Hub
             var t = go.AddComponent<GridTable>();
             int w = Mathf.RoundToInt(width * HubArt.Ppu), d = Mathf.RoundToInt(depth * HubArt.Ppu * 0.6f);
             float foot = -depth * 0.5f;
-            t._art = HubFixture.Attach(go, HubArt.MapTable(w, d), new Vector2(0f, foot));
+            // Dressed in the character's table theme (group 8); the Cloister's is the oak map table. The
+            // board's own sketch lies on whatever top the theme has, in the theme's ink.
+            var theme = HubDress.Of(HubItem.Table);
+            var top = HubThemeArt.Top(theme, w, d);
+            t._art = HubFixture.Attach(go, HubThemeArt.Table(theme, w, d), new Vector2(0f, foot));
 
-            // The sketch on the parchment, squashed to lie flat on the top.
             var sk = new GameObject("sketch");
             sk.transform.SetParent(t._art.Art.transform, false);
-            sk.transform.localPosition = new Vector3(0f, (14f + d * 0.5f) / HubArt.Ppu, 0f);
+            sk.transform.localPosition = new Vector3(top.Centre.x / HubArt.Ppu, top.Centre.y / HubArt.Ppu, 0f);
             t._sketch = sk.AddComponent<SpriteRenderer>();
-            t._sketch.sprite = Progression.GridSketch.Sheet;
+            t._sketch.sprite = theme == HubTheme.Cloister ? Progression.GridSketch.Sheet : Progression.GridSketch.SheetIn(top.Ink);
             t._sketch.sortingOrder = 3;
             var native = t._sketch.sprite != null ? (Vector2)t._sketch.sprite.bounds.size : Vector2.one;
-            float fitW = (w - 10) / HubArt.Ppu, fitH = (d - 5) / HubArt.Ppu;
+            float fitW = top.Size.x / HubArt.Ppu, fitH = top.Size.y / HubArt.Ppu;
             sk.transform.localScale = new Vector3(fitW / Mathf.Max(0.01f, native.x), fitH / Mathf.Max(0.01f, native.y), 1f);
 
             DepthSorted.Attach(go, foot, false, t._art.Art, t._art.RimRenderer, t._sketch);

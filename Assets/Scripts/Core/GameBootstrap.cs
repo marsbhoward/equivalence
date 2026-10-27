@@ -1166,7 +1166,65 @@ namespace Convergence.Core
             if (_hub == null) return;
             ShowcasePicker.Open(_canvas.transform, Hub.Showcase.Source,
                 key => _account.Room.Holds(key),
-                item => _hub?.BeginPlacement(item));
+                item => _hub?.BeginPlacement(item),
+                OpenHubThemes);
+        }
+
+        // ---- the hub's themes (group 8): chosen in the collection's HUB tab, won as parcels ----
+
+        bool _hubLookDirty;
+
+        /// <summary>The themes this character may dress its hub in: the Cloister, and every one it owns.</summary>
+        List<Hub.HubTheme> OwnedThemes()
+        {
+            var owned = new List<Hub.HubTheme> { Hub.HubTheme.Cloister };
+            for (int i = 1; i < Hub.HubThemes.Count; i++)
+            {
+                var t = (Hub.HubTheme)i;
+                if (Hub.HubRoom.DevAllThemes || (_profile?.Items?.HasTheme(Hub.HubThemes.Id(t)) ?? false)) owned.Add(t);
+            }
+            return owned;
+        }
+
+        void OpenHubThemes()
+        {
+            if (_hub == null || _profile == null) return;
+            _profile.Hub ??= new HubLook();
+            UI.HubThemeScreen.Open(_canvas.transform, _profile.Hub, OwnedThemes(),
+                (item, theme) => { _hubLookDirty = true; SaveHubLook(); },
+                () =>
+                {
+                    // Back to the collection - the room dressed anew behind it, if anything changed.
+                    if (_hubLookDirty) { _hubLookDirty = false; ShowHub(); }
+                    else OpenCollection();
+                });
+        }
+
+        /// <summary>The hub's dress is part of the character's save - written as a hub change is
+        /// (the permanent-unlock checkpoint, like an equip).</summary>
+        async void SaveHubLook()
+        {
+            try { await _store.UnlockAsync(_profile); }
+            catch (Exception e) { Debug.LogWarning($"[Hub] saving the hub's themes failed: {e.Message}"); }
+        }
+
+        /// <summary>
+        /// THE PARCEL on the crate (the user's pick): a theme won and not yet opened. Opening it names
+        /// the theme and dresses the whole room in it to try - any piece can be changed back in the
+        /// collection's HUB tab.
+        /// </summary>
+        void OpenParcel()
+        {
+            var look = _profile?.Hub;
+            if (look?.Unopened == null || look.Unopened.Count == 0) return;
+            var id = look.Unopened[0];
+            look.Unopened.RemoveAt(0);
+            if (Hub.HubThemes.TryParse(id, out var theme)) look.SetAll((int)theme);
+            SaveHubLook();
+            ShowHub();
+            ConfirmDialog.ShowNotice(_canvas.transform, Hub.HubThemes.NameOf(theme).ToUpper(),
+                "A new theme for your hub - its floor, its walls and every piece in it. The room is dressed in it now; " +
+                "change any piece back in the crate's collection, HUB tab.", "OK", null);
         }
 
         /// <summary>Open the collection from an already-placed Frame, wall-mounted or standing -
@@ -1589,6 +1647,7 @@ namespace Convergence.Core
                        OpenManual,
                        DressArmoury,
                        SaveLook);
+            _hub.OnOpenParcel = OpenParcel;
             // Open from the first frame if the player has already run today - no slide on arrival.
             _hub.HoldDoorOpen(_account != null && _account.RanToday, snap: true);
             // Stone for a new week until the selector wakes them (AccountProfile.SigilsWokenWeek).
@@ -2026,7 +2085,7 @@ namespace Convergence.Core
             // field in an undefined order and the button set flickered between them every frame.
             // Ask the room what it is doing instead.
             bool screenOpen = MasteryScreen.IsOpen || ConfirmDialog.IsOpen || FloorRewardScreen.IsOpen
-                      || TransmutationScreen.IsOpen || ShowcasePicker.IsOpen || (ExchangeScreen.IsOpen || ChoiceList.IsOpen)
+                      || TransmutationScreen.IsOpen || ShowcasePicker.IsOpen || UI.HubThemeScreen.IsOpen || (ExchangeScreen.IsOpen || ChoiceList.IsOpen)
                       || TransmuteScreen.IsOpen
                       || TxScreen.IsOpen || CharacterScreen.IsOpen || ForgeScreen.IsOpen
                       || ManualScreen.IsOpen || GearDisplayScreen.IsOpen || RiftScreen.IsOpen || StakeScreen.IsOpen
@@ -2108,7 +2167,7 @@ namespace Convergence.Core
             // Without this, a click meant for the mastery grid fell through to the element cards
             // underneath and started a run, and Esc aimed at a confirm prompt re-opened it.
             if (MasteryScreen.IsOpen || ConfirmDialog.IsOpen || FloorRewardScreen.IsOpen ||
-                TransmutationScreen.IsOpen || ShowcasePicker.IsOpen || (ExchangeScreen.IsOpen || ChoiceList.IsOpen) ||
+                TransmutationScreen.IsOpen || ShowcasePicker.IsOpen || UI.HubThemeScreen.IsOpen || (ExchangeScreen.IsOpen || ChoiceList.IsOpen) ||
                 TransmuteScreen.IsOpen ||
                 TxScreen.IsOpen || ForgeScreen.IsOpen || ManualScreen.IsOpen ||
                 GearDisplayScreen.IsOpen || RiftScreen.IsOpen || StakeScreen.IsOpen ||
@@ -2483,6 +2542,7 @@ namespace Convergence.Core
             if (MasteryScreen.IsOpen) MasteryScreen.Close();
             if (TransmutationScreen.IsOpen) TransmutationScreen.Close();
             if (ShowcasePicker.IsOpen) ShowcasePicker.Close();
+            if (UI.HubThemeScreen.IsOpen) UI.HubThemeScreen.Close();
             if (ForgeScreen.IsOpen) ForgeScreen.Close();
             if (ManualScreen.IsOpen) ManualScreen.Close();
             if (GearDisplayScreen.IsOpen) GearDisplayScreen.Close();
@@ -4799,9 +4859,23 @@ namespace Convergence.Core
 
         /// <summary>Flashes the cosmetics a decision paid (already the character's) and re-reads the
         /// character's items, so the Forge and the booth show them.</summary>
+        /// <summary>Hub themes won this run, named on the run's end (and waiting on the crate).</summary>
+        readonly List<string> _themesWon = new();
+
         void CreditCosmetics(string dyeId, string poseId, int poseGold)
         {
             var dye = Art.Gear.DyeCatalog.Get(dyeId);
+            // A HUB THEME rides the pose's roll (one roll shared by both - the user's call). It is named
+            // at the run's end and waits on the crate as a parcel, so it is not flashed here.
+            if (Hub.HubThemes.TryParse(poseId, out var wonTheme))
+            {
+                _profile?.Items?.Grant(poseId);
+                _profile.Hub ??= new HubLook();
+                if (!_profile.Hub.Unopened.Contains(poseId)) _profile.Hub.Unopened.Add(poseId);
+                _themesWon.Add(Hub.HubThemes.NameOf(wonTheme));
+                poseId = null;
+                RefreshItems();
+            }
             var pose = Art.Gear.PoseCatalog.Get(poseId);
             if (dye != null) _hud?.Flash($"RARE DYE  -  {dye.Name.ToUpper()}");
             if (pose != null) _hud?.Flash($"NEW POSE  -  {pose.Name.ToUpper()}");
@@ -6727,11 +6801,13 @@ namespace Convergence.Core
                 $"floors       {s.Floors}\n" +
                 $"kills        {s.Kills}\n" +
                 $"duration     {s.DurationSeconds:0}s\n" +
-                (_stakeLine != null ? _stakeLine + "\n" : "") + "\n" +
+                (_stakeLine != null ? _stakeLine + "\n" : "") +
+                (_themesWon.Count > 0 ? $"hub theme    {string.Join(", ", _themesWon)}  -  a parcel waits on the crate\n" : "") + "\n" +
                 $"profile      lvl {_profile.Level}   {_profile.TotalRuns} runs   best {_profile.BestKills}\n" +
                 $"checkpoint   committed to IProfileStore",
                 21, new Color(0.78f, 0.80f, 0.86f), TextAnchor.UpperLeft);
 
+            _themesWon.Clear();
             var foot = UiKit.Rect(box, "foot", new Vector2(0, 0), new Vector2(1, 0), new Vector2(0, 30), new Vector2(0, 70));
             UiKit.Label(foot, "[ R ] return to the hub", 22,
                 new Color(0.55f, 0.58f, 0.66f), TextAnchor.MiddleCenter);

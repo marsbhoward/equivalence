@@ -40,6 +40,9 @@ interface Manifest {
   dyeable?: Record<string, number>;
   /** The rolled portrait poses (PoseCatalog) - ids are permanent. */
   poses?: { id: string; name: string }[];
+  /** The HUB THEMES (Hub.HubThemes) a character can earn - each a whole room: floor, wall and every
+   *  hub item. Ids are permanent ("hub.study"); the Cloister is everyone's and never listed. */
+  themes?: { id: string; name: string }[];
 }
 
 let manifest: Manifest | null = null;

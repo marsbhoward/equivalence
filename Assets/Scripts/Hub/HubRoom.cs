@@ -105,6 +105,15 @@ namespace Convergence.Hub
         /// swap the room out from under the trophies standing in it.
         /// </summary>
         RoomLayout _room;
+        HubFixture _crateArt;
+        HubTheme _crateTheme;
+
+        /// <summary>Opens the parcel waiting on the crate (GameBootstrap.OpenParcel). Lost on a reload
+        /// and set again when the hub is next shown.</summary>
+        public System.Action OnOpenParcel;
+
+        /// <summary>A theme won and not yet opened sits on the crate as a parcel.</summary>
+        bool HasParcel => _profile?.Hub?.Unopened != null && _profile.Hub.Unopened.Count > 0;
 
         // ---- placement mode ----
         Frame _carrying;
@@ -200,6 +209,7 @@ namespace Convergence.Hub
         {
             _canvas = canvas;
             _profile = profile;
+            HubDress.Source = ThemeOf;
             _room = room ?? new RoomLayout();
             // What a Prism shows lit in here: the element the selector starts on (see Attunement).
             if (order != null && order.Length > 0) Attunement.Set(order[0]);
@@ -644,11 +654,28 @@ namespace Convergence.Hub
         /// <summary>How tall the loft's front face is drawn below its south edge.</summary>
         const float LoftFaceHeight = 0.32f;
 
-        /// <summary>The room's design (Chain.RoomLayout.Design); <see cref="DevDesign"/> overrides it for testing.</summary>
-        RoomDesign Design => DevDesign ?? (RoomDesign)Mathf.Clamp(_room != null ? _room.Design : 0, 0, 5);
+        /// <summary>The room's theme - floor, wall and loft.</summary>
+        HubTheme Design => ThemeOf(HubItem.Room);
 
-        /// <summary>Testing: show the hub in this design (the room rebuilds on the next return to the hub).</summary>
-        public static RoomDesign? DevDesign;
+        /// <summary>
+        /// The theme <paramref name="item"/> wears for this character: its choice in
+        /// <see cref="CharacterProfile.Hub"/> if the character OWNS that theme, else the Cloister.
+        /// <see cref="DevTheme"/> overrides everything (testing); <see cref="DevAllThemes"/> owns them all.
+        /// </summary>
+        public HubTheme ThemeOf(HubItem item)
+        {
+            if (DevTheme.HasValue) return DevTheme.Value;
+            int t = _profile?.Hub?.Get((int)item) ?? 0;
+            if (t <= 0 || t >= HubThemes.Count) return HubTheme.Cloister;
+            var theme = (HubTheme)t;
+            return DevAllThemes || (_profile?.Items?.HasTheme(HubThemes.Id(theme)) ?? false) ? theme : HubTheme.Cloister;
+        }
+
+        /// <summary>Testing: dress every hub item in this theme (the room rebuilds on the next return to the hub).</summary>
+        public static HubTheme? DevTheme;
+
+        /// <summary>Testing: treat every theme as owned, so a HubLook can be tried without earning it.</summary>
+        public static bool DevAllThemes;
 
         (float x0, float x1, float y0, float y1) LoftBounds()
             => (_halfWidth - Tuning.Hub.LoftWidth, _halfWidth, Tuning.Hub.LoftY0, FloorTop);
@@ -744,7 +771,16 @@ namespace Convergence.Hub
 
             // The banded crate (the user's pick, group 6): plank, iron bands, solid at 3/4, and
             // depth-sorted - it stands in open floor where the player walks past it constantly.
-            var crateArt = HubFixture.Attach(go, HubArt.Crate(), new Vector2(0f, -0.32f));
+            // Dressed in the character's crate theme (group 8); the Cloister's is the iron-bound chest.
+            var crateTheme = ThemeOf(HubItem.Crate);
+            var crateArt = HubFixture.Attach(go, HubThemeArt.Crate(crateTheme), new Vector2(0f, -0.32f));
+            _crateArt = crateArt;
+            _crateTheme = crateTheme;
+            if (HasParcel)
+            {
+                var parcelTheme = crateTheme;
+                crateArt.Animate(HubThemeArt.CrateFrames, 3f, i => HubThemeArt.Crate(parcelTheme, true, i));
+            }
             DepthSorted.Attach(go, -0.32f, false, crateArt.Art, crateArt.RimRenderer);
 
             _cratePoint = HubInteractable.Attach(go, at + new Vector2(0f, 0.75f), 1.15f,
@@ -763,16 +799,26 @@ namespace Convergence.Hub
                             : "[ E ]  pick up     [ Q ]  finish editing",
                         Accent = new Color(0.72f, 0.58f, 0.34f),
                     }
-                    : DescribeCrate(),
+                    : HasParcel ? DescribeParcel() : DescribeCrate(),
                 () =>
                 {
                     if (_editMode) BeginCarryFixture("crate");
+                    else if (HasParcel) OnOpenParcel?.Invoke();
                     else _onOpenCollection?.Invoke();
                 },
                 on => crateArt.SetFocus(on));
             _points.Add(_cratePoint);
             RegisterMovable("crate", go.transform, Tuning.Hub.CrateFootprint, _cratePoint);
         }
+
+        Prompt DescribeParcel() => new Prompt
+        {
+            Title = "A PARCEL",
+            Sub = _profile.Hub.Unopened.Count > 1 ? $"{_profile.Hub.Unopened.Count} waiting" : "on the crate",
+            Body = "Something won on a run, wrapped and waiting.",
+            Key = "[ E ]  open the parcel     [ Q ]  rearrange the room",
+            Accent = new Color(0.95f, 0.76f, 0.35f),
+        };
 
         Prompt DescribeCrate()
         {
