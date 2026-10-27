@@ -55,6 +55,12 @@ namespace Convergence.Chain
         public string BrowColour = "";
 
         /// <summary>
+        /// A face mark (BodyLook.Marks) - a scar. ADDITIVE like Brows: an older profile loads "none" and renders
+        /// exactly as before.
+        /// </summary>
+        public string Mark = "none";
+
+        /// <summary>
         /// The loadout to DRAW: transmogged art where a slot has been overridden, the real item
         /// everywhere else.
         ///

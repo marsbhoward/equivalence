@@ -1,0 +1,80 @@
+@cornrows_r7 Cornrows | round 6's turned view; from behind, the three scalp lines run from the top of the head to the nape, where the rows meet in two tails
+back 10
+.........LLLL..LLLL.........
+.......LL.LLL..LLL.LL.......
+......LLL.LLL..LLL.LLL......
+......LLL.LLL..LLL.LLL......
+......LLL.LLL..LLL.LLL......
+......LLL.LLL..LLL.LLL......
+......LLL.LLL..LLL.LLL......
+......LLL.LLL..LLL.LLL......
+......LLL.LLL..LLL.LLL......
+......LLL.LLL..LLL.LLL......
+......LLLL.LL..LL.LLLL......
+......LLLL.LL..LL.LLLL......
+......LLLLL.L..L.LLLLL......
+.......LLLL.L..L.LLLL.......
+........LLL.L..L.LLL........
+..........LLL..LLL..........
+...........LL..LL...........
+...........LL..LL...........
+............L..L............
+............L..L............
+
+@waves_r7 Waves | one arc in the turned view, the same shape as the back's: a short top stepping down twice each side
+side
+10: 7-20
+11: 6-21
+12: 6-21 K:12-15
+13: 6-21 K:10-11 K:16-17
+14: 6-21 K:9 K:18
+15: 6-21
+16: K:6-21
+17: D:7
+18: s:7
+19: d:7
+back
+10: 9-18
+11: 7-20
+12: 6-21
+13: 6-21 K:12-15
+14: 6-21 K:10-11 K:16-17
+15: 6-21 K:9 K:18
+16: 6-21 K:12-15
+17: 6-21 K:10-11 K:16-17
+18: 6-21 K:9 K:18
+19: 6-21
+20: 6-21
+21: K:6-21
+22: D:7-20
+23: s:7-20
+24: d:8-19
+
+@waves_r7b Waves | two narrower arcs stacked, each a short top stepping down once each side
+side
+10: 7-20
+11: 6-21
+12: 6-21 K:12-15
+13: 6-21 K:10-11 K:16-17
+14: 6-21 K:12-15
+15: 6-21 K:10-11 K:16-17
+16: K:6-21
+17: D:7
+18: s:7
+19: d:7
+back
+10: 9-18
+11: 7-20
+12: 6-21
+13: 6-21 K:12-15
+14: 6-21 K:10-11 K:16-17
+15: 6-21 K:9 K:18
+16: 6-21 K:12-15
+17: 6-21 K:10-11 K:16-17
+18: 6-21 K:9 K:18
+19: 6-21
+20: 6-21
+21: K:6-21
+22: D:7-20
+23: s:7-20
+24: d:8-19

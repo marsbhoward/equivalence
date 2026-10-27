@@ -60,6 +60,26 @@ namespace Convergence.Art
             }
         }
 
+        /// <summary>
+        /// Styles registered at runtime for a mock-up sheet (EditorTools.HairSheet.LoadProposals) -
+        /// never saved, gone on the next domain reload. Lets a proposed style go through the real
+        /// rig and hair pass before it is written into HairArt.
+        /// </summary>
+        static Dictionary<string, Style> _devStyles;
+
+        public static void DevAddStyle(string key, string name, HairView side, HairView back)
+        {
+            (_devStyles ??= new Dictionary<string, Style>())[key] = new Style(key, name);
+            SideArt[key] = side;
+            BackArt[key] = back;
+        }
+
+        static bool TryDevStyle(string key, out Style style)
+        {
+            style = default;
+            return _devStyles != null && key != null && _devStyles.TryGetValue(key, out style);
+        }
+
         /// <summary>The style's hair for one view, by its exact key (normalise through
         /// <see cref="HairStyle"/> first); null only for a key no style has.</summary>
         public static HairView View(string hairStyle, bool back)

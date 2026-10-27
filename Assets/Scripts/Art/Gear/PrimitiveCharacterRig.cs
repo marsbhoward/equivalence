@@ -1713,7 +1713,7 @@ namespace Convergence.Art.Gear
                     ? PixelSprite.From(BodyLook.DetailKey(_look, _glowLeftEye) + ".g" + GazeShift + cov,
                         Covered(BodyLook.HeadDetail(_look.Expression, _look.HairStyle, _look.Beard,
                                                     _look.Brows, _look.Hair, _glowLeftEye,
-                                                    gaze: GazeShift),
+                                                    gaze: GazeShift, mark: _look.Mark),
                                 BodyLook.DetailScale),
                         BodyLook.HeadPalette(skin, hair, eyes, brow),
                         pixelsPerUnit: bodyPpu * BodyLook.DetailScale)
@@ -1725,7 +1725,7 @@ namespace Convergence.Art.Gear
                     : PixelSprite.From("arena." + BodyLook.HeadKey(_look, _glowLeftEye, GazeShift) + cov,
                         Covered(BodyLook.HeadDetail(_look.Expression, _look.HairStyle, _look.Beard,
                                                     _look.Brows, _look.Hair, _glowLeftEye,
-                                                    scale: 1, gaze: GazeShift), 1),
+                                                    scale: 1, gaze: GazeShift, mark: _look.Mark), 1),
                         BodyLook.HeadPalette(skin, hair, eyes, brow),
                         pixelsPerUnit: bodyPpu);
 
@@ -1791,9 +1791,10 @@ namespace Convergence.Art.Gear
 
             // With the gaze, because the head is drawn turned (arena and menu alike) and the eye
             // is not where an unturned grid would say.
-            var coarse = BodyLook.Head(_look.Expression, _look.Beard, _look.Brows,
-                                       leftEyeGlow: true, gaze: GazeShift);
-            var box = BodyLook.FindLeftEyeBox(coarse);
+            // The eye's own place, drawn or procedural: a hand-drawn eye is lifted out of this grid, so
+            // GlowEyeBox reads its picture's placement instead.
+            var coarse = BodyLook.Head(_look.Expression, _look.Beard, _look.Brows, gaze: GazeShift);
+            var box = BodyLook.GlowEyeBox(_look.Expression, _look.Beard, _look.Brows, GazeShift);
             var glow = GlowingEye.Attach(_head);
             if (box == null) { glow.SetShown(false); return; }   // shouldn't happen; fail visible-off
 
@@ -5705,8 +5706,7 @@ namespace Convergence.Art.Gear
                     // themselves. Velocity is also the only one of the two that means anything
                     // on a straight vertical run.
                     Vector2 back = Body != null ? -Body.linearVelocity.normalized : Vector2.zero;
-                    DustPuff.Raise(transform.position + (Vector3)(back * DustAhead),
-                                   Mathf.Clamp01(speed / 6f));
+                    DustPuff.Raise(transform.position + (Vector3)(back * DustAhead), back);
                 }
                 _lastFootfall = footfall;
             }

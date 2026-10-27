@@ -191,6 +191,18 @@ namespace Convergence.Art
 
         static char Nearest(string[] g, int x, int y, char outline)
         {
+            // THE FACE'S OUTLINE FILLS WITH SKIN. A thinned 'k' texel took whatever tone was nearest, and a
+            // symbol drawn against the face's edge - Smitten's far heart, Ablaze's far flame - is nearer than
+            // the skin there: on the character screen (the only place the outline is thinned) the far heart
+            // grew two texels and bled down the cheek. Hair's 'K' keeps the nearest tone, as before.
+            if (outline == 'k')
+                for (int r = 1; r <= 6; r++)
+                for (int dy = -r; dy <= r; dy++)
+                for (int dx = -r; dx <= r; dx++)
+                {
+                    char c = PixelDetail.At(g, x + dx, y + dy);
+                    if (c is 's' or 'd' or 'b' or 'l' or 'h') return c;
+                }
             for (int r = 1; r <= 6; r++)
             for (int dy = -r; dy <= r; dy++)
             for (int dx = -r; dx <= r; dx++)

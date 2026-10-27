@@ -621,6 +621,7 @@ namespace Convergence.UI
             new() { Label = "HAIR STYLE", Styles = BodyLook.HairStyles, Get = a => a.HairStyle, Set = (a, k) => a.HairStyle = k },
             new() { Label = "HAIR COLOUR", Swatches = BodyLook.Hairs, Get = a => a.Hair, Set = (a, k) => a.Hair = k },
             new() { Label = "BEARD", Styles = BodyLook.Beards, Get = a => a.Beard, Set = (a, k) => a.Beard = k },
+            new() { Label = "MARKS", Styles = BodyLook.Marks, Get = a => string.IsNullOrEmpty(a.Mark) ? "none" : a.Mark, Set = (a, k) => a.Mark = k },
         };
 
         /// <summary>Face and skin down the left, hair down the right.</summary>

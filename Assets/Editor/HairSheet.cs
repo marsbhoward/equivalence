@@ -40,10 +40,10 @@ namespace Convergence.EditorTools
             if (old != null) Object.DestroyImmediate(old);
             var root = new GameObject(RootName);
 
+            // Named keys in the order given (proposals from LoadProposals included); else every style.
             var styles = new List<BodyLook.Style>();
-            foreach (var st in BodyLook.HairStyles)
-                if (string.IsNullOrEmpty(keys) || System.Array.IndexOf(keys.Split(','), st.Key) >= 0)
-                    styles.Add(st);
+            if (string.IsNullOrEmpty(keys)) styles.AddRange(BodyLook.HairStyles);
+            else foreach (var k in keys.Split(',')) styles.Add(BodyLook.HairStyle(k.Trim()));
             _keys.Clear();
             foreach (var st in styles) _keys.Add(st.Key);
             for (int s = 0; s < styles.Count; s++)
@@ -115,6 +115,62 @@ namespace Convergence.EditorTools
             var keys = new List<string>();
             for (int i = first; i < first + n; i++) keys.Add(_keys[i]);
             return $"{w}x{h}: " + string.Join(" ", keys);
+        }
+
+        /// <summary>
+        /// Registers proposed styles for this session (BodyLook.DevAddStyle), from a text file:
+        ///
+        ///     @key Display Name
+        ///     side.cap            then its 18 rows of 16 cells
+        ///     side.mane 44        then its rows (the number is maneTop, in texels)
+        ///     back.cap
+        ///     back.mane 44
+        ///
+        /// Rows are the HairArt format, one character per design cell. '#' starts a comment line.
+        /// Play mode, after entering it (entering resets statics). Returns the keys, comma-joined,
+        /// ready for Setup.
+        /// </summary>
+        public static string LoadProposals(string path)
+        {
+            var keys = new List<string>();
+            string key = null, name = null, part = null;
+            var parts = new Dictionary<string, List<string>>();
+            var tops = new Dictionary<string, int>();
+
+            void Flush()
+            {
+                if (key == null) return;
+                string[] Get(string p) => parts.TryGetValue(p, out var r) && r.Count > 0 ? r.ToArray() : null;
+                int Top(string p) => tops.TryGetValue(p, out var t) ? t : BodyLook.ManeHeadTop;
+                var side = new BodyLook.HairView(Get("side.cap"), Get("side.mane"), Top("side.mane"));
+                var back = new BodyLook.HairView(Get("back.cap") ?? Get("side.cap"), Get("back.mane"), Top("back.mane"));
+                BodyLook.DevAddStyle(key, name, side, back);
+                keys.Add(key);
+            }
+
+            foreach (var raw in System.IO.File.ReadAllLines(path))
+            {
+                var line = raw.Trim();
+                if (line.Length == 0 || line.StartsWith("#")) continue;
+                if (line.StartsWith("@"))
+                {
+                    Flush();
+                    var sp = line.Substring(1).Split(new[] { ' ' }, 2);
+                    key = sp[0]; name = sp.Length > 1 ? sp[1] : sp[0];
+                    parts = new Dictionary<string, List<string>>(); tops = new Dictionary<string, int>();
+                    part = null;
+                }
+                else if (line.StartsWith("side.") || line.StartsWith("back."))
+                {
+                    var sp = line.Split(' ');
+                    part = sp[0];
+                    parts[part] = new List<string>();
+                    if (sp.Length > 1) tops[part] = int.Parse(sp[1]);
+                }
+                else if (part != null) parts[part].Add(line);
+            }
+            Flush();
+            return string.Join(",", keys);
         }
 
         public static string Teardown()
