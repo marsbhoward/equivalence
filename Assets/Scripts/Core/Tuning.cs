@@ -4760,6 +4760,9 @@ namespace Convergence.Core
         {
             /// <summary>Distance from centre to each side wall. Doors are mounted on these.</summary>
             public const float HalfWidth = 8f;
+            /// <summary>Half the width the hub's camera must always show: the room as drawn reaches
+            /// +-8.23 (its walls past HalfWidth), plus a sliver of the dark round it.</summary>
+            public const float ViewHalfWidth = 8.4f;
 
             /// <summary>How dark the hub is where no light reaches (the user's pick, group 6 - "light
             /// dimness"): enough that the forge, the candles and the door each light their own pool.</summary>

@@ -2040,7 +2040,7 @@ namespace Convergence.Core
             // Back to the game's own zoom - the armoury is the one room that changes it.
             _armouryView = false;
             var zoom = _cam.GetComponent<PixelPerfectZoom>();
-            if (zoom != null) zoom.TargetSize = CameraSize;
+            if (zoom != null) zoom.TargetSize = HubViewSize;
 
             _cam.transform.rotation = Quaternion.Euler(Tuning.Hub.CameraTiltDegrees, 0f, 0f);
             _cam.transform.position = new Vector3(
@@ -2385,7 +2385,19 @@ namespace Convergence.Core
                 SetHubCamera();
             }
             if (_armouryView) TrackArmouryCamera(snap: false);
+            else
+            {
+                // Every frame, like the armoury's, so a window resized or made fullscreen in the
+                // hub reframes at once. PixelPerfectZoom only recomputes when this changes.
+                var zoom = _cam.GetComponent<PixelPerfectZoom>();
+                if (zoom != null) zoom.TargetSize = HubViewSize;
+            }
         }
+
+        /// <summary>The game's zoom, opened just enough that the whole room fits across a window
+        /// narrower than 16:9 - a laptop's 16:10 fullscreen cut both walls off. Height-led like
+        /// every other view, so a wide window is unchanged.</summary>
+        float HubViewSize => Mathf.Max(CameraSize, Tuning.Hub.ViewHalfWidth / Mathf.Max(0.5f, _cam.aspect));
 
         void TrackArmouryCamera(bool snap)
         {

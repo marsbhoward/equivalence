@@ -1,4 +1,5 @@
 import type { Request, Response } from 'express';
+import { getAddressDetails } from '@lucid-evolution/lucid';
 import { internal } from '../errors.js';
 import { assetNameText, assetsAt, resolveImage } from '../blockfrost.js';
 import { cachedAssetInfo } from '../assetCache.js';
@@ -28,9 +29,16 @@ import { cachedAssetInfo } from '../assetCache.js';
  * not give you two of the component.
  */
 export async function components(req: Request, res: Response) {
-  const address = String(req.query.address ?? '');
-  if (!address) {
+  const given = String(req.query.address ?? '');
+  if (!given) {
     res.status(400).json({ error: 'address required' });
+    return;
+  }
+  // A CIP-30 wallet hands the game its address in HEX; Blockfrost only takes bech32, and a hex
+  // one came back as a 502 the game reads as "keep the old list" - an empty crate.
+  const address = bech32Of(given);
+  if (!address) {
+    res.status(400).json({ error: 'bad address' });
     return;
   }
 
@@ -63,3 +71,11 @@ export async function components(req: Request, res: Response) {
 }
 
 const MAX_ASSETS = 60;
+
+function bech32Of(address: string): string {
+  try {
+    return getAddressDetails(address).address.bech32;
+  } catch {
+    return '';
+  }
+}
