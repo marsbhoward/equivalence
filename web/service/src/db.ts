@@ -27,6 +27,13 @@ export function db(): pg.Pool {
 
 export const hasDatabase = () => !!process.env.DATABASE_URL;
 
+/** Closes the pool - the last step of a clean shutdown (lifecycle.ts). */
+export async function closeDb(): Promise<void> {
+  const p = pool;
+  pool = null;
+  if (p) await p.end();
+}
+
 /** One statement, rows back. */
 export async function q<T extends pg.QueryResultRow = pg.QueryResultRow>(
   text: string,
@@ -288,6 +295,17 @@ const MIGRATIONS: string[] = [
     epoch         INTEGER NOT NULL,
     bumped_at     TIMESTAMPTZ NOT NULL DEFAULT now()
   );
+  `,
+  // 11 - pause switches (switches.ts), and an extraction's boxes DEFERRED while minting is paused:
+  // judged and recorded at the commit, minted when minting resumes.
+  `
+  CREATE TABLE switches (
+    name          TEXT PRIMARY KEY,
+    paused        BOOLEAN NOT NULL,
+    message       TEXT NOT NULL DEFAULT '',
+    changed_at    TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+  ALTER TABLE run_progress ADD COLUMN deferred JSONB;
   `,
 ];
 

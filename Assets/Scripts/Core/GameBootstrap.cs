@@ -501,6 +501,10 @@ namespace Convergence.Core
                     Tuning.Testing.DemoWalletServiceUrl, Tuning.Testing.DemoWalletAddress);
 
             ConfirmDialog = gameObject.AddComponent<UI.ConfirmDialog>();
+            // "Reconnecting" through an outage, and what the service has paused (Chain/Service).
+            gameObject.AddComponent<UI.ServiceBanner>();
+            Chain.Service.ServiceClient.Outdated -= OfferReload;
+            Chain.Service.ServiceClient.Outdated += OfferReload;
 
             // The on-screen controls get their OWN canvas at a lower sort order than the screens,
             // so a modal always draws over them - and they are hidden while one is open anyway,
@@ -1685,6 +1689,7 @@ namespace Convergence.Core
         async System.Threading.Tasks.Task ShowHubAsync()
         {
             _state = State.Hub;
+            _ = Chain.Service.ServiceStatus.RefreshAsync();   // the banner's paused features, in the background
             Convergence.Audio.Ambience.Set(Convergence.Audio.Bed.Hub);
             // Dim (the user's pick, group 6): every fixture's light pools in it, as the arena's do.
             Convergence.Art.Lighting.LightField.SetPlace(Tuning.Hub.Dimness, new Color(0.04f, 0.035f, 0.05f));
@@ -2578,8 +2583,32 @@ namespace Convergence.Core
         {
             // async void swallows exceptions into the sync context, where Unity reports them with
             // useless line numbers from the state machine. Catch here so failures are legible.
-            try { await StartRunAsync(element, stake, insured); }
+            try
+            {
+                // New runs PAUSED on the service (web/service/src/switches.ts): asked fresh, so a
+                // run is never started only for its first save to be refused.
+                await Chain.Service.ServiceStatus.RefreshAsync(force: true);
+                if (Chain.Service.ServiceStatus.Runs != null)
+                {
+                    ConfirmDialog?.ShowNotice(_canvas.transform, "RUNS PAUSED", Chain.Service.ServiceStatus.Runs, "OK");
+                    return;
+                }
+                await StartRunAsync(element, stake, insured);
+            }
             catch (Exception e) { Debug.LogError($"[Convergence] StartRun failed: {e}"); }
+        }
+
+        /// <summary>The service no longer talks to this build (ServiceClient.Outdated) - the page
+        /// reloads into the new one. A run in progress is kept by the service and offered again.</summary>
+        void OfferReload()
+        {
+            if (ConfirmDialog == null || _canvas == null) return;
+            ConfirmDialog.Close();
+            ConfirmDialog.ShowNotice(_canvas.transform, "THE GAME HAS BEEN UPDATED",
+                "Reload to keep playing.", "Reload", () =>
+                {
+                    if (Chain.Web.WebChainBridge.Available) _ = Chain.Web.WebChainBridge.Call("reload");
+                });
         }
 
         /// <summary>

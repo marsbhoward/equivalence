@@ -25,10 +25,15 @@ import { hasDatabase, migrate } from './db.js';
 import { playRouter } from './play.js';
 import { activatePlay, putPlayFile, rollbackPlay } from './routes/playUpload.js';
 import { LIMITS, overall, perIdentity, perIp } from './rateLimit.js';
+import { shutDownCleanly, track } from './lifecycle.js';
+import { clientBuild, requireOpen, setSwitch, status, whenReopened } from './switches.js';
+import { releaseDeferred } from './routes/player.js';
 
 const app = express();
 // Behind Railway's proxy: req.ip is the player's address (the guest rate limit reads it), not the proxy's.
 app.set('trust proxy', 1);
+// First: in-flight requests are counted, and turned away while shutting down (lifecycle.ts).
+app.use(track);
 app.use(cors);
 // Every response names the nonce a session proof must carry (session.ts).
 app.use(sendProofNonce);
@@ -67,8 +72,14 @@ app.use('/saves', express.json({ limit: '512kb', verify: keepRaw }));
 app.use(express.json({ verify: keepRaw }));
 
 app.get('/health', (_req, res) => {
-  res.json({ ok: true });
+  // The deployment answering - scripts/deploy.sh waits for it to change.
+  res.json({ ok: true, deployment: process.env.RAILWAY_DEPLOYMENT_ID ?? 'local' });
 });
+
+// What is paused, and the oldest game build served (switches.ts) - the game reads it in the hub.
+app.get('/status', publicRead, status);
+// A game build older than the service supports is told to reload (426) - only on the game's routes.
+for (const prefix of ['/saves', '/write', '/auth', '/boxes']) app.use(prefix, clientBuild);
 
 /**
  * Proves the READ path end to end: the key works, Blockfrost answers, and the chain is moving.
@@ -110,6 +121,8 @@ app.get('/service/address', publicRead, async (_req, res) => {
 
 app.post('/op/mint-design', mintDesign);
 app.post('/op/split-funds', splitFunds);
+// Pause one feature without taking the server down (switches.ts, scripts/switch.mjs).
+app.post('/op/switches', setSwitch);
 // Testnet only (404 on mainnet) - a stand-in character for the PFP gate. See devCharacter.ts.
 app.post('/op/dev/mint-character', devMintCharacter);
 // Testnet only (404 on mainnet) - an avatar's boxes set by hand, for the smoke test (routes/avatarBox.ts).
@@ -123,10 +136,12 @@ app.post('/auth/signout-everywhere', sessionIp, requireSession, signOutEverywher
 
 // The connector's /write/<kind> convention (equivalence-chain.ts `write()`).
 app.use('/write', requireSession, perIdentity('write', LIMITS.write));
-app.post('/write/begin-run', beginRun);
+app.post('/write/begin-run', requireOpen('runs'), beginRun);
 // The two that spend the service wallet's ADA, tighter still.
 app.post('/write/commit-run', perIdentity('commit', LIMITS.commit), commitRun);
-const opening = perIdentity('open', LIMITS.open);
+// Everything that goes to the chain at a player's request stops while `minting` is paused.
+// Extraction (commit-run) is not refused - it defers (routes/player.ts).
+const opening = [perIdentity('open', LIMITS.open), requireOpen('minting')];
 app.post('/write/open-boxes', opening, openBoxes);
 app.post('/write/open-boxes/submit', opening, submitOpen);
 // Dyes as tokens and box tokens into charges (routes/dyes.ts) - every one spends the service's ADA.
@@ -142,7 +157,7 @@ app.get('/img/:unit', perIp('img', LIMITS.img), blockfrostPublic, getImage);
 // The portrait (routes/pfp.ts): reads are public, takes are the player's and pay inside the tx.
 app.get('/pfp/:profileId', publicRead, blockfrostPublic, readPortrait);
 app.get('/pfp/:profileId/status', publicRead, blockfrostPublic, portraitStatus);
-const portrait = perIdentity('pfp', LIMITS.open);
+const portrait = [perIdentity('pfp', LIMITS.open), requireOpen('minting')];
 app.post('/write/pfp/mint', portrait, mintPortrait);
 app.post('/write/pfp/update', portrait, updatePortrait);
 app.post('/write/pfp/renew', portrait, renewPortrait);
@@ -151,6 +166,9 @@ app.post('/write/pfp/submit', portrait, submitPortrait);
 // Saves (routes/saves.ts): every browser player's characters and hub room, guest or wallet.
 app.post('/guest', newGuest);
 app.use('/saves', requireIdentity, perIdentity('saves', LIMITS.saves));
+// `saves` paused: read-only. `runs` paused: no run-start save, so no new run.
+app.use('/saves', requireOpen('saves', req => req.method !== 'GET'));
+app.put('/saves/characters/:profileId', requireOpen('runs', req => req.body?.reason === 'run-start'));
 app.get('/saves/characters', roster);
 app.get('/saves/characters/:profileId', loadCharacter);
 app.put('/saves/characters/:profileId', saveCharacter);
@@ -198,7 +216,14 @@ const port = Number(process.env.PORT ?? 8787);
 // The schema is brought up to date BEFORE the first request is served. Without DATABASE_URL the
 // saves routes answer 503 and everything else runs as it always has.
 (hasDatabase() ? migrate() : Promise.resolve()).then(
-  () => app.listen(port, () => console.log(`[equivalence-service] listening on :${port}`)),
+  () => {
+    const server = app.listen(port, () => console.log(`[equivalence-service] listening on :${port}`));
+    shutDownCleanly(server);
+    // Extractions deferred while minting was paused mint when it reopens - and at start-up, in case
+    // a restart cut a release short.
+    whenReopened(name => { if (name === 'minting') void releaseDeferred().then(n => n && console.log(`[deferred] released ${n} run(s)`)); });
+    void releaseDeferred().catch(e => console.error('[deferred] release at start-up failed:', e));
+  },
   (e) => {
     console.error('[equivalence-service] database migration failed:', e);
     process.exit(1);

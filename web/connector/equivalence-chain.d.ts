@@ -50,6 +50,9 @@ export interface EquivalenceChain {
    *  and the wallet lets the site in without a popup, else ''. Never prompts. */
   resume(args: {}): Promise<string>;
 
+  /** Reloads the page - the service said this build is too old (426). */
+  reload(args: {}): void;
+
   /** 'true' when this browser holds a session for the address that still holds - proveOwnership
    *  will then resolve without the wallet. */
   remembered(args: { accountId: string }): Promise<string>;

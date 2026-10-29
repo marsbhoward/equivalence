@@ -35,12 +35,46 @@ namespace Convergence.Chain.Service
 
         public const int TimeoutSeconds = 30;
 
+        /// <summary>
+        /// This build's place in the service's compatibility line (X-Client-Build). The service
+        /// answers 426 to anything older than its MIN_CLIENT_BUILD (web/service/src/switches.ts) and
+        /// the game reloads the page. BUMP IT, and the connector's CLIENT_BUILD with it, whenever a
+        /// change means an older page can no longer talk to the service.
+        /// </summary>
+        public const int ClientBuild = 1;
+
+        /// <summary>The service said this build is too old - raised once; the game offers a reload.</summary>
+        public static event Action Outdated;
+        static bool _outdated;
+
+        /// <summary>Raises <see cref="Outdated"/> once - a 426, or /status naming a newer minimum.</summary>
+        public static void ReportOutdated()
+        {
+            if (_outdated) return;
+            _outdated = true;
+            Outdated?.Invoke();
+        }
+
+        /// <summary>Requests waiting out an outage right now (a deploy, a restart) - the game shows
+        /// "reconnecting" while this is above zero.</summary>
+        public static int Reconnecting { get; private set; }
+
+        /// <summary>
+        /// How long a request keeps trying through an outage before it is reported as failed.
+        /// Two minutes: a deploy stops the old container before the new one boots and migrates
+        /// (the volume cannot be mounted twice), which is well under a minute.
+        /// </summary>
+        const float OutageSeconds = 120f;
+
         public struct Reply
         {
             /// <summary>HTTP status; 0 when nothing came back (offline, refused, timed out).</summary>
             public long Status;
             public string Body;
             public string Error;
+            /// <summary>Answered by the service itself (it names X-Proof-Nonce on every response) -
+            /// false for a proxy's error page while no container is up.</summary>
+            public bool FromService;
             public bool Ok => Status >= 200 && Status < 300;
             public bool NotFound => Status == 404;
             public override string ToString() => Ok ? $"{Status}" : $"{Status} {Error} {Body}";
@@ -50,7 +84,53 @@ namespace Convergence.Chain.Service
         public static Task<Reply> Put(string path, string json, string token) => Send("PUT", path, json, token);
         public static Task<Reply> Post(string path, string json, string token) => Send("POST", path, json, token);
 
-        public static Task<Reply> Send(string method, string path, string json, string token)
+        /// <summary>
+        /// One request, carried through an OUTAGE: while the service is down for a deploy or a
+        /// restart it is asked again with a growing wait, and the game shows "reconnecting". A
+        /// refusal the service itself made (a paused feature, a bad request) is never retried.
+        /// </summary>
+        public static async Task<Reply> Send(string method, string path, string json, string token)
+        {
+            float started = Time.realtimeSinceStartup;
+            float wait = 1f;
+            bool counted = false;
+            try
+            {
+                while (true)
+                {
+                    var r = await SendOnce(method, path, json, token);
+                    if (r.Status == 426 && r.Body != null && r.Body.Contains("client_outdated")) ReportOutdated();
+                    if (!Transient(method, path, r) || Time.realtimeSinceStartup - started > OutageSeconds) return r;
+                    if (!counted) { counted = true; Reconnecting++; Debug.LogWarning($"[Service] {method} {path}: {r} - waiting out the outage"); }
+                    // Yielded, not Task.Delay: WebGL has no threads for a timer.
+                    float until = Time.realtimeSinceStartup + wait;
+                    while (Time.realtimeSinceStartup < until) await Task.Yield();
+                    wait = Mathf.Min(wait * 2f, 15f);
+                }
+            }
+            finally
+            {
+                if (counted) Reconnecting--;
+            }
+        }
+
+        /// <summary>
+        /// An outage, not an answer: nothing came back, or a gateway error with no service behind
+        /// it, or the service saying it is restarting. NOTHING CAME BACK is ambiguous for a write -
+        /// it may have landed - so it is retried only where doing it twice changes nothing: reads,
+        /// saves (PUT, whole snapshots), and the claims the service decides once. Spending charges
+        /// or breaking a box is never repeated blind.
+        /// </summary>
+        static bool Transient(string method, string path, Reply r)
+        {
+            if (r.Status == 0)
+                return method != "POST" || !(path.Contains("/recolour") || path.Contains("/break-box"));
+            if (r.Status == 502 || r.Status == 503 || r.Status == 504)
+                return !r.FromService || (r.Body != null && r.Body.Contains("\"code\":\"restarting\""));
+            return false;
+        }
+
+        static Task<Reply> SendOnce(string method, string path, string json, string token)
         {
             // A WALLET session is bound to a key only the browser connector holds (web/service/src/
             // session.ts) - every request it authorises must be signed there, so it goes out through
@@ -73,6 +153,7 @@ namespace Convergence.Chain.Service
                     req.SetRequestHeader("Content-Type", "application/json");
                 }
                 if (!string.IsNullOrEmpty(token)) req.SetRequestHeader("Authorization", "Bearer " + token);
+                req.SetRequestHeader("X-Client-Build", ClientBuild.ToString());
             }
             catch (Exception e)
             {
@@ -84,6 +165,7 @@ namespace Convergence.Chain.Service
             {
                 var reply = new Reply
                 {
+                    FromService = !string.IsNullOrEmpty(req.GetResponseHeader("X-Proof-Nonce")),
                     Status = req.responseCode,
                     Body = req.downloadHandler?.text ?? "",
                     Error = req.result == UnityWebRequest.Result.Success ? null : req.error,
@@ -95,7 +177,7 @@ namespace Convergence.Chain.Service
         }
 
         [Serializable]
-        class SignedReply { public long status; public string body; public string error; }
+        class SignedReply { public long status; public string body; public string error; public bool service; }
 
         static async Task<Reply> SendSigned(string method, string path, string json)
         {
@@ -108,6 +190,7 @@ namespace Convergence.Chain.Service
                 bool ok = r.status >= 200 && r.status < 300;
                 return new Reply
                 {
+                    FromService = r.service,
                     Status = r.status,
                     Body = r.body ?? "",
                     Error = ok ? null : (string.IsNullOrEmpty(r.error) ? $"HTTP {r.status}" : r.error),

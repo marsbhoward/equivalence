@@ -80,6 +80,7 @@ ${bodyHash}`;
   var walletKey = "";
   var _a;
   var SERVICE = (_a = window.EQUIVALENCE_SERVICE) != null ? _a : "/api";
+  var CLIENT_BUILD = "1";
   async function send(path, init = {}, retried = false) {
     var _a2, _b, _c, _d;
     const url = new URL(`${SERVICE}${path}`, location.href);
@@ -89,6 +90,7 @@ ${bodyHash}`;
       ...init,
       headers: {
         "content-type": "application/json",
+        "x-client-build": CLIENT_BUILD,
         ...session ? { authorization: `Bearer ${session}`, "x-session-proof": await proof(method, url, body) } : {},
         ...(_b = init.headers) != null ? _b : {}
       }
@@ -104,8 +106,17 @@ ${bodyHash}`;
     return r;
   }
   async function service(path, init) {
+    var _a2, _b, _c, _d;
     const r = await send(path, init);
-    if (!r.ok) throw new Error(`${path} -> ${r.status} ${await r.text().catch(() => r.statusText)}`);
+    if (!r.ok) {
+      const text = await r.text().catch(() => r.statusText);
+      let said = "";
+      try {
+        said = (_d = (_c = (_a2 = JSON.parse(text)) == null ? void 0 : _a2.message) != null ? _c : (_b = JSON.parse(text)) == null ? void 0 : _b.error) != null ? _d : "";
+      } catch {
+      }
+      throw new Error(said && typeof said === "string" ? said : `${path} -> ${r.status} ${text}`);
+    }
     return r;
   }
   var heldAt = 0;
@@ -210,13 +221,16 @@ ${bodyHash}`;
         await connector.disconnect({});
       }
     },
+    reload() {
+      location.reload();
+    },
     async remembered({ accountId }) {
       return await sessionHolds(accountId) ? "true" : "";
     },
     async request({ method, path, body }) {
       try {
         const r = await send(path, { method, ...body ? { body } : {} });
-        return JSON.stringify({ status: r.status, body: await r.text() });
+        return JSON.stringify({ status: r.status, body: await r.text(), service: !!r.headers.get("x-proof-nonce") });
       } catch (e) {
         return JSON.stringify({ status: 0, body: "", error: e.message });
       }

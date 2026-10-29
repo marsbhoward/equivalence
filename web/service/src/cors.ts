@@ -30,7 +30,7 @@ export function cors(req: Request, res: Response, next: NextFunction) {
     // allow-header to another, which is a hole that only appears once something sits in front.
     res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,HEAD,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Session-Proof');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Session-Proof, X-Client-Build');
     // The nonce a session proof must name (session.ts) - readable cross-origin only if exposed.
     res.setHeader('Access-Control-Expose-Headers', 'X-Proof-Nonce');
     res.setHeader('Access-Control-Max-Age', '600');

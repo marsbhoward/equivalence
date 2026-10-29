@@ -136,6 +136,10 @@ let walletKey = '';
  */
 const SERVICE = (window as any).EQUIVALENCE_SERVICE ?? '/api';
 
+/** This build's place in the service's compatibility line - kept equal to ServiceClient.ClientBuild
+ *  (Assets/Scripts/Chain/Service/ServiceClient.cs); bump both together. */
+const CLIENT_BUILD = '1';
+
 /** A request to the service, signed with the session key whenever there is a session. Retried
  *  once when the service says the proof's nonce or clock was stale - it has just named fresh ones. */
 async function send(path: string, init: RequestInit = {}, retried = false): Promise<Response> {
@@ -146,6 +150,7 @@ async function send(path: string, init: RequestInit = {}, retried = false): Prom
     ...init,
     headers: {
       'content-type': 'application/json',
+      'x-client-build': CLIENT_BUILD,
       ...(session ? { authorization: `Bearer ${session}`, 'x-session-proof': await proof(method, url, body) } : {}),
       ...(init.headers ?? {}),
     },
@@ -163,7 +168,14 @@ async function send(path: string, init: RequestInit = {}, retried = false): Prom
 
 async function service(path: string, init?: RequestInit): Promise<Response> {
   const r = await send(path, init);
-  if (!r.ok) throw new Error(`${path} -> ${r.status} ${await r.text().catch(() => r.statusText)}`);
+  if (!r.ok) {
+    // The rejection's message is what the player reads (ChainException) - the service's own words
+    // when it gave any (a paused feature names why), the raw status otherwise.
+    const text = await r.text().catch(() => r.statusText);
+    let said = '';
+    try { said = JSON.parse(text)?.message ?? JSON.parse(text)?.error ?? ''; } catch { /* not JSON */ }
+    throw new Error(said && typeof said === 'string' ? said : `${path} -> ${r.status} ${text}`);
+  }
   return r;
 }
 
@@ -292,6 +304,11 @@ export const connector: EquivalenceChain = {
     }
   },
 
+  reload() {
+    // The service no longer talks to this build (426) - the player said reload.
+    location.reload();
+  },
+
   async remembered({ accountId }) {
     // Whether proveOwnership will need the wallet at all - the game only announces the signature
     // step when it is really coming.
@@ -304,7 +321,9 @@ export const connector: EquivalenceChain = {
     // reads the status itself, exactly as it does for its own requests.
     try {
       const r = await send(path, { method, ...(body ? { body } : {}) });
-      return JSON.stringify({ status: r.status, body: await r.text() });
+      // `service`: answered by the service itself, not a proxy's error page - ServiceClient retries
+      // only the latter through an outage.
+      return JSON.stringify({ status: r.status, body: await r.text(), service: !!r.headers.get('x-proof-nonce') });
     } catch (e) {
       return JSON.stringify({ status: 0, body: '', error: (e as Error).message });
     }

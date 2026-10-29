@@ -15,6 +15,7 @@ import { avatarDecisions } from '../avatarBoxes.js';
 import { pfpGate } from './mintDesign.js';
 import { milestoneBoxes } from './items.js';
 import { db } from '../db.js';
+import { isPaused } from '../switches.js';
 
 /**
  * The PLAYER's writes - called by the browser build through the connector, authorised by a
@@ -58,6 +59,7 @@ interface ProgressRow {
   held: Partial<Record<BoxTier, number>> | null;
   hash: string | null;
   format: string;
+  deferred: Partial<Record<BoxTier, number>> | null;
 }
 
 export async function beginRun(req: Request, res: Response): Promise<void> {
@@ -122,6 +124,65 @@ async function mintBoxes(address: string, counts: Partial<Record<BoxTier, number
   });
 }
 
+/** The deposit is reclaimed per box when they are opened - split across tiers by count. */
+async function recordDeposit(address: string, minted: Partial<Record<BoxTier, number>>, deposit: number) {
+  const total = Object.values(minted).reduce((a, b) => a + (b ?? 0), 0);
+  if (total <= 0) return;
+  await transact((f) => {
+    for (const tier of BOX_TIERS) {
+      const n = minted[tier] ?? 0;
+      if (!n) continue;
+      const pool = ((f.deposits[address] ??= {})[tier] ??= { lovelace: 0, boxes: 0 });
+      pool.lovelace += Math.floor((deposit * n) / total);
+      pool.boxes += n;
+    }
+    return { result: null };
+  });
+}
+
+/**
+ * Mints every extraction DEFERRED while minting was paused - called when the `minting` switch
+ * reopens, and at start-up (a release a restart cut short). One run at a time, each claimed the way
+ * a commit claims it; a mint that was submitted but not recorded leaves its run marked in flight,
+ * as a commit does - stuck for a look by hand rather than minted twice. Stops if minting pauses again.
+ */
+let releasing: Promise<number> | null = null;
+export function releaseDeferred(): Promise<number> {
+  return releasing ??= (async () => {
+    let n = 0;
+    await Promise.resolve();   // so `releasing` is set before the finally below can clear it
+    try {
+      if (!hasDatabase() || await isPaused('minting')) return 0;
+      const rows = await q<{ owner: string; profile_id: string; run_id: string; deferred: Partial<Record<BoxTier, number>> }>(
+        'SELECT owner, profile_id, run_id, deferred FROM run_progress WHERE deferred IS NOT NULL AND NOT minting');
+      for (const r of rows) {
+        if (await isPaused('minting')) break;
+        const key = [r.owner, r.profile_id, r.run_id];
+        const claimed = await q(
+          `UPDATE run_progress SET minting = true
+            WHERE owner = $1 AND profile_id = $2 AND run_id = $3 AND deferred IS NOT NULL AND NOT minting RETURNING 1`, key);
+        if (!claimed.length) continue;
+        let submitted = false;
+        try {
+          const { hash, deposit } = await mintBoxes(r.owner, r.deferred);
+          submitted = true;
+          await q(`UPDATE run_progress SET minting = false, minted = $4, deferred = NULL, hash = $5
+                    WHERE owner = $1 AND profile_id = $2 AND run_id = $3`, [...key, r.deferred, hash]);
+          await recordDeposit(r.owner, r.deferred, deposit);
+          n++;
+          console.log(`[deferred] minted ${JSON.stringify(r.deferred)} for ${r.profile_id} run ${r.run_id}: ${hash}`);
+        } catch (e) {
+          console.error(`[deferred] ${r.profile_id} run ${r.run_id} failed${submitted ? ' AFTER submitting - left marked in flight' : ''}:`, e);
+          if (!submitted) await q('UPDATE run_progress SET minting = false WHERE owner = $1 AND profile_id = $2 AND run_id = $3', key).catch(() => {});
+        }
+      }
+      return n;
+    } finally {
+      releasing = null;
+    }
+  })();
+}
+
 export async function commitRun(req: Request, res: Response): Promise<void> {
   const address = res.locals.address as string;
   const { profileId, summary } = (req.body ?? {}) as Record<string, string>;
@@ -147,7 +208,7 @@ export async function commitRun(req: Request, res: Response): Promise<void> {
     const claim = await tx(async (c) => {
       const r = await c.query<ProgressRow>(
         `SELECT reached, cleared, EXTRACT(EPOCH FROM now() - started_at)::float AS elapsed,
-                minting, committed_at, minted, held, hash, format
+                minting, committed_at, minted, held, hash, format, deferred
            FROM run_progress WHERE owner = $1 AND profile_id = $2 AND run_id = $3 FOR UPDATE`,
         [address, profileId, runId]);
       const row = r.rows[0];
@@ -164,7 +225,7 @@ export async function commitRun(req: Request, res: Response): Promise<void> {
     if (claim.status === 'repeat')
       return void res.json({
         hash: claim.row.hash ?? `ledger:run-end:${runId}`,
-        minted: claim.row.minted ?? {}, held: claim.row.held ?? {}, repeat: true,
+        minted: claim.row.minted ?? {}, held: claim.row.held ?? {}, deferred: claim.row.deferred ?? {}, repeat: true,
       });
 
     // From here on the run is marked in flight. Any failure BEFORE a mint is submitted releases it,
@@ -186,39 +247,33 @@ export async function commitRun(req: Request, res: Response): Promise<void> {
       const any = Object.keys(allowed).length > 0;
       const mintable = any && (await pfpGate(address, (await characterUnits(profileId)).user)) === null;
 
+      // MINTING PAUSED (switches.ts): judged and recorded now, minted when minting resumes
+      // (releaseDeferred) - a pause never costs a player what the run earned.
+      const defer = mintable && await isPaused('minting');
+
       let hash = `ledger:run-end:${runId}`;
       let deposit = 0;
-      if (mintable) {
+      if (mintable && !defer) {
         ({ hash, deposit } = await mintBoxes(address, allowed));
         submitted = true;
       }
-      const minted = mintable ? allowed : {};
+      if (defer) hash = `deferred:run-end:${runId}`;
+      const minted = mintable && !defer ? allowed : {};
       const held = any && !mintable ? allowed : {};
+      const deferred = defer ? allowed : null;
 
       await tx(async (c) => {
         await c.query(
-          `UPDATE run_progress SET minting = false, committed_at = now(), minted = $4, held = $5, hash = $6
+          `UPDATE run_progress SET minting = false, committed_at = now(), minted = $4, held = $5, hash = $6, deferred = $7
             WHERE owner = $1 AND profile_id = $2 AND run_id = $3`,
-          [address, profileId, runId, minted, held, hash]);
+          [address, profileId, runId, minted, held, hash, deferred]);
         for (const [tier, n] of Object.entries(held))
           await c.query('INSERT INTO held_boxes (owner, profile_id, run_id, tier, count) VALUES ($1, $2, $3, $4, $5)',
             [address, profileId, runId, tier, n]);
       });
 
-      // The deposit is reclaimed per box when they are opened - split across tiers by count.
-      const total = Object.values(minted).reduce((a, b) => a + (b ?? 0), 0);
-      if (total > 0)
-        await transact((f) => {
-          for (const tier of BOX_TIERS) {
-            const n = minted[tier] ?? 0;
-            if (!n) continue;
-            const pool = ((f.deposits[address] ??= {})[tier] ??= { lovelace: 0, boxes: 0 });
-            pool.lovelace += Math.floor((deposit * n) / total);
-            pool.boxes += n;
-          }
-          return { result: null };
-        });
-      res.json({ hash, minted, held, clamped, repeat: false });
+      await recordDeposit(address, minted, deposit);
+      res.json({ hash, minted, held, deferred: deferred ?? {}, clamped, repeat: false });
     } catch (e) {
       if (!submitted)
         await q('UPDATE run_progress SET minting = false WHERE owner = $1 AND profile_id = $2 AND run_id = $3',
