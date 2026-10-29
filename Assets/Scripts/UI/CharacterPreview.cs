@@ -47,6 +47,11 @@ namespace Convergence.UI
         public void Build(ElementType element, int width = 512, int height = 720)
         {
             _fittedLook = null;
+            // The instance outlives the screen that opened it, so a close-up from the last visit
+            // must not be what the next one opens on.
+            _view = View.Body;
+            _steps = 0;
+            _pan = Vector2.zero;
             _holder = new GameObject("preview-character");
             _holder.transform.position = new Vector3(Origin, Origin, 0f);
             _rig = CharacterRigFactory.Build(_holder, element, 0);
@@ -248,6 +253,7 @@ namespace Convergence.UI
             // the mastery board: pan' = pan*k + focus*(1-k), where k is the ratio of the two
             // scales. Writing it as `pan -= focus * (k-1)` is only correct while the pan is zero.
             var before = FocusOffset(focus01);
+            _view = null;
             _steps = want;
             var after = FocusOffset(focus01);
             _pan += before - after;
@@ -275,15 +281,97 @@ namespace Convergence.UI
             if (_cam == null || _rt == null || _rt.height < 2) return;
             float worldPerPixel = 2f * HalfHeight / _rt.height;
             _pan -= deltaPixels * worldPerPixel;
+            if (deltaPixels.sqrMagnitude > 0f) _view = null;
             ApplyView();
         }
 
         /// <summary>Back to the whole character.</summary>
         public void ResetView()
         {
+            _view = View.Body;
             _steps = _fitSteps;
             _pan = Vector2.zero;
             ApplyView();
+        }
+
+        // ---------------------------------------------------------------- framed views
+        //
+        // The fitted frame is the right answer for gear and the wrong one for a face: the
+        // transmutation circle's SALT page edits eyes, brows and hair a few texels across, and at
+        // the fit (which has to hold a greatsword) they are a smudge at the top of the panel.
+        // Wheel zoom reaches them, but only if the player knows to try - so the screen can also
+        // just ASK for the head.
+
+        public enum View { Body, Bust, Face }
+
+        /// <summary>The framing in force, or null once the player has zoomed or dragged it
+        /// themselves - a hand-placed view is left where they put it.</summary>
+        View? _view = View.Body;
+
+        public View? CurrentView => _view;
+
+        /// <summary>
+        /// Frame the whole figure, the head and shoulders, or the face alone.
+        ///
+        /// Measured off the head pivot's own renderers (skin, hair, helm), not a fraction of the
+        /// fitted bounds: those bounds include the weapon, and a greatsword twice the body's height
+        /// would put "the top fifth" somewhere up the blade.
+        /// </summary>
+        public void Frame(View view)
+        {
+            _view = view;
+            if (_cam == null || _fitSteps <= 0) return;
+            if (view == View.Body || !HeadBounds(out var head))
+            {
+                _steps = _fitSteps;
+                _pan = Vector2.zero;
+                ApplyView();
+                return;
+            }
+
+            // BUST hangs the frame from the crown down past the shoulders - about two more heads
+            // below the chin - so a long mane or a beard reads against the collar it sits on.
+            var region = head;
+            if (view == View.Bust)
+            {
+                float h = head.size.y;
+                region.SetMinMax(new Vector3(head.min.x - h * 0.6f, head.min.y - h * 2f, head.min.z),
+                                 new Vector3(head.max.x + h * 0.6f, head.max.y, head.max.z));
+            }
+
+            const float Margin = 1.15f;
+            float half = Mathf.Max(region.extents.y, region.extents.x / Mathf.Max(Aspect, 0.01f)) * Margin;
+            _steps = Mathf.Clamp(StepsFor(half), _fitSteps, _fitSteps * MaxZoomMultiple);
+            _pan = (Vector2)(region.center - _bounds.center);
+            ApplyView();
+        }
+
+        /// <summary>Everything drawn off the rig's head pivot. False on a rig without one, which
+        /// then simply stays on the whole figure.</summary>
+        bool HeadBounds(out Bounds bounds)
+        {
+            bounds = default;
+            var head = _rig?.Transform != null ? FindChild(_rig.Transform, "head") : null;
+            if (head == null) return false;
+
+            bool any = false;
+            foreach (var sr in head.GetComponentsInChildren<SpriteRenderer>())
+            {
+                if (sr == null || !sr.enabled || sr.sprite == null) continue;
+                if (any) bounds.Encapsulate(sr.bounds); else { bounds = sr.bounds; any = true; }
+            }
+            return any;
+        }
+
+        static Transform FindChild(Transform root, string name)
+        {
+            if (root.name == name) return root;
+            foreach (Transform c in root)
+            {
+                var hit = FindChild(c, name);
+                if (hit != null) return hit;
+            }
+            return null;
         }
 
         /// <summary>
@@ -356,7 +444,11 @@ namespace Convergence.UI
             _steps = _steps <= 0 || atFit
                 ? _fitSteps
                 : Mathf.Clamp(_steps, _fitSteps, _fitSteps * MaxZoomMultiple);
-            ApplyView();
+
+            // A named framing follows the head through the refit: a new hairstyle or helm moves
+            // what "the face" covers, and the frame it was asked for should still be on it.
+            if (_view is View.Bust or View.Face) Frame(_view.Value);
+            else ApplyView();
         }
 
         /// <summary>The even pixels-per-texel a given half-height corresponds to.</summary>

@@ -150,6 +150,7 @@ namespace Convergence.UI
             _highlight = _touchPick = _shownTooltip = null;
             _preview.Build(_element, (int)PreviewW, (int)PreviewH);
             BuildChrome(canvas);
+            if (_tab == Tab.Salt) _preview.Frame(BodyCategories[Mathf.Clamp(_bodyCat, 0, BodyCategories.Length - 1)].View);
             BuildPage();
         }
 
@@ -172,6 +173,7 @@ namespace Convergence.UI
             _cells.Clear();
             _tabs.Clear();
             _root = null;
+            _previewRect = null;
             _page = null;
             _tooltip = null;
         }
@@ -224,13 +226,15 @@ namespace Convergence.UI
             irt.anchorMin = Vector2.zero; irt.anchorMax = Vector2.one;
             irt.offsetMin = new Vector2(8, 8); irt.offsetMax = new Vector2(-8, -8);
             imgGo.GetComponent<RawImage>().raycastTarget = false;
-            _preview.MatchTo(imgGo.GetComponent<RawImage>(), _full.GetComponentInParent<Canvas>());
+            _previewRect = irt;
+            _canvas = _full.GetComponentInParent<Canvas>();
+            _preview.MatchTo(imgGo.GetComponent<RawImage>(), _canvas);
 
             var foot = UiKit.Rect(_full, "foot", new Vector2(0, 0), new Vector2(1, 0),
                 new Vector2(0, 34), new Vector2(0, 74));
             UiKit.Hint(foot,
-                "point at a slot to read it, click to change    -    [ESC] or [E] to leave the circle    -    changes are saved as you make them",
-                "tap a slot to read it, tap again to change    -    BACK to leave the circle    -    changes are saved as you make them",
+                "point at a slot to read it, click to change    -    scroll or drag the figure to look closer    -    [ESC] or [E] to leave the circle",
+                "tap a slot to read it, tap again to change    -    pinch or drag the figure to look closer    -    BACK to leave the circle",
                 17, new Color(0.42f, 0.45f, 0.53f), TextAnchor.MiddleCenter,
                 UI.GamepadGlyphs.Navigate + " to read a slot, " + UI.GamepadGlyphs.Confirm + " to change    -    "
                 + UI.GamepadGlyphs.Cancel + " to leave the circle    -    changes are saved as you make them");
@@ -603,11 +607,14 @@ namespace Convergence.UI
             /// <summary>Replaces the panel's heading when the row needs to say something about
             /// itself (three faces paint their own eyes; brows can follow the hair).</summary>
             public Func<Appearance, string> Note;
+            /// <summary>How close the preview comes when this category is chosen.</summary>
+            public CharacterPreview.View View = CharacterPreview.View.Face;
         }
 
         static readonly BodyCategory[] BodyCategories =
         {
-            new() { Label = "SKIN", Swatches = BodyLook.Skins, Get = a => a.Skin, Set = (a, k) => a.Skin = k },
+            new() { Label = "SKIN", Swatches = BodyLook.Skins, Get = a => a.Skin, Set = (a, k) => a.Skin = k,
+                    View = CharacterPreview.View.Body },
             // Three faces paint their own eyes, and a swatch that silently does nothing is worse
             // than one that says so.
             new() { Label = "EYES", Swatches = BodyLook.Eyes, Get = a => a.Eyes, Set = (a, k) => a.Eyes = k,
@@ -618,9 +625,12 @@ namespace Convergence.UI
             // reads as deliberate rather than as an oversight.
             new() { Label = "BROW COLOUR", Swatches = BodyLook.BrowSwatches, Get = a => a.BrowColour, Set = (a, k) => a.BrowColour = k,
                     Note = a => string.IsNullOrEmpty(a.BrowColour) ? "BROW COLOUR    (matching hair)" : "BROW COLOUR" },
-            new() { Label = "HAIR STYLE", Styles = BodyLook.HairStyles, Get = a => a.HairStyle, Set = (a, k) => a.HairStyle = k },
-            new() { Label = "HAIR COLOUR", Swatches = BodyLook.Hairs, Get = a => a.Hair, Set = (a, k) => a.Hair = k },
-            new() { Label = "BEARD", Styles = BodyLook.Beards, Get = a => a.Beard, Set = (a, k) => a.Beard = k },
+            new() { Label = "HAIR STYLE", Styles = BodyLook.HairStyles, Get = a => a.HairStyle, Set = (a, k) => a.HairStyle = k,
+                    View = CharacterPreview.View.Bust },
+            new() { Label = "HAIR COLOUR", Swatches = BodyLook.Hairs, Get = a => a.Hair, Set = (a, k) => a.Hair = k,
+                    View = CharacterPreview.View.Bust },
+            new() { Label = "BEARD", Styles = BodyLook.Beards, Get = a => a.Beard, Set = (a, k) => a.Beard = k,
+                    View = CharacterPreview.View.Bust },
             new() { Label = "MARKS", Styles = BodyLook.Marks, Get = a => string.IsNullOrEmpty(a.Mark) ? "none" : a.Mark, Set = (a, k) => a.Mark = k },
         };
 
@@ -645,7 +655,41 @@ namespace Convergence.UI
                 BodyIcon(i, x, RowTop(row));
             }
 
+            ViewButtons(cx);
             BuildBodyPanel(cx + inner + Icon + 60f, 900f);
+        }
+
+        /// <summary>
+        /// BODY / BUST / FACE under the figure's feet - SALT's bottom row is otherwise empty.
+        /// Choosing a category already frames what it changes; these are for looking at the
+        /// result from further back, or closer, without hunting for the scroll wheel.
+        /// </summary>
+        void ViewButtons(float cx)
+        {
+            (string Name, CharacterPreview.View View)[] views =
+            {
+                ("BODY", CharacterPreview.View.Body),
+                ("BUST", CharacterPreview.View.Bust),
+                ("FACE", CharacterPreview.View.Face),
+            };
+            float w = (PreviewW - IconGap * (views.Length - 1)) / views.Length;
+            float left = cx - PreviewW * 0.5f, top = BottomRowTop;
+            for (int i = 0; i < views.Length; i++)
+            {
+                var v = views[i].View;
+                float x = left + i * (w + IconGap);
+                var frame = UiKit.Panel(_page, Centre, Centre, new Vector2(x, top - Icon), new Vector2(x + w, top),
+                    new Color(0.18f, 0.19f, 0.24f, 1f));
+                var well = UiKit.Panel(frame, Vector2.zero, Vector2.one, new Vector2(4, 4), new Vector2(-4, -4),
+                    new Color(0.085f, 0.095f, 0.13f, 1f));
+                UiKit.Label(UiKit.Rect(well, "l", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero),
+                    views[i].Name, 18, Ink, TextAnchor.MiddleCenter);
+
+                var border = frame.GetComponent<Image>();
+                _hits.Add(new Hit { Rect = frame, OnClick = () => { _preview.Frame(v); Refresh(); } });
+                _refresh.Add(() => border.color = _preview.CurrentView == v
+                    ? new Color(1f, 0.92f, 0.6f) : new Color(0.18f, 0.19f, 0.24f));
+            }
         }
 
         void BodyIcon(int index, float x, float top)
@@ -668,7 +712,12 @@ namespace Convergence.UI
                     "", 16, Ink, TextAnchor.MiddleCenter);
 
             var border = frame.GetComponent<Image>();
-            _hits.Add(new Hit { Rect = frame, OnClick = () => { _bodyCat = index; BuildPage(); } });
+            _hits.Add(new Hit { Rect = frame, OnClick = () =>
+            {
+                _bodyCat = index;
+                _preview.Frame(cat.View);
+                BuildPage();
+            } });
             _refresh.Add(() =>
             {
                 var look = _profile().Look;
@@ -868,6 +917,58 @@ namespace Convergence.UI
             return null;
         }
 
+        /// <summary>
+        /// The preview's own gesture, the same as the character screen's: scroll or pinch to
+        /// zoom, drag to pan, a tap to go back to the whole figure.
+        /// </summary>
+        void PreviewGesture()
+        {
+            if (_previewRect == null) return;
+
+            var at = Core.Controls.PointerPosition;
+            bool over = RectTransformUtility.RectangleContainsScreenPoint(_previewRect, at, null);
+            var before = _preview.CurrentView;
+
+            float notches = Core.Controls.Zoom;
+            if (over && Mathf.Abs(notches) > 0.001f) _preview.Zoom(notches, Normalised(at));
+
+            if (Core.Controls.Pinching) _previewDrag = false;
+            else if (over && Core.Controls.Tapped(out var down)) { _previewDrag = true; _dragFrom = down; _dragMoved = false; }
+            if (!Core.Controls.PointerHeld(out _)) _previewDrag = false;
+
+            if (_previewDrag)
+            {
+                var d = Core.Controls.PointerDelta;
+                if (d.sqrMagnitude > 0.01f)
+                {
+                    _dragMoved |= (at - _dragFrom).sqrMagnitude > TapSlop;
+                    float scale = _canvas != null ? _canvas.scaleFactor : 1f;
+                    _preview.PanBy(d * scale);
+                }
+            }
+
+            if (over && Core.Controls.PointerReleased && !_dragMoved
+                && (at - _dragFrom).sqrMagnitude <= TapSlop)
+                _preview.ResetView();
+
+            // SALT's view buttons light the framing in force; a hand-placed view lights none.
+            if (_preview.CurrentView != before) foreach (var r in _refresh) r();
+        }
+
+        Vector2 Normalised(Vector2 screenPoint)
+        {
+            RectTransformUtility.ScreenPointToLocalPointInRectangle(_previewRect, screenPoint, null, out var local);
+            var r = _previewRect.rect;
+            return new Vector2(Mathf.Clamp01((local.x - r.xMin) / Mathf.Max(1f, r.width)),
+                               Mathf.Clamp01((local.y - r.yMin) / Mathf.Max(1f, r.height)));
+        }
+
+        RectTransform _previewRect;
+        Canvas _canvas;
+        bool _previewDrag, _dragMoved;
+        Vector2 _dragFrom;
+        const float TapSlop = 400f;
+
         void Update()
         {
             if (!IsOpen) return;
@@ -889,6 +990,8 @@ namespace Convergence.UI
                 if (h.Rect != null) _focusRects.Add(h.Rect);
             Core.Controls.SetFocusCandidates(_focusRects);
 
+            PreviewGesture();
+
             if (Core.Controls.Tapped(out var at))
             {
                 foreach (var (rect, tab) in _tabs)
@@ -898,6 +1001,8 @@ namespace Convergence.UI
                     {
                         _tab = tab;
                         _touchPick = null;
+                        if (tab == Tab.Salt) _preview.Frame(BodyCategories[Mathf.Clamp(_bodyCat, 0, BodyCategories.Length - 1)].View);
+                        else _preview.ResetView();
                         BuildPage();
                     }
                     return;
@@ -912,8 +1017,10 @@ namespace Convergence.UI
                     hitSomething = true;
                     break;
                 }
-                // A tap on nothing puts a touch highlight away.
-                if (!hitSomething) _touchPick = null;
+                // A tap on nothing puts a touch highlight away - but the figure is not nothing: a
+                // drag or pinch to look closer at a slot's piece should not lose its stats.
+                if (!hitSomething && !RectTransformUtility.RectangleContainsScreenPoint(_previewRect, at, null))
+                    _touchPick = null;
                 if (!IsOpen || PickerOpen) return;
             }
 
