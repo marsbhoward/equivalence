@@ -8,7 +8,7 @@ namespace Convergence.UI
     /// <summary>
     /// The settings menu - from the hub with Escape (keyboard) or Start (gamepad), see
     /// <see cref="Controls.SettingsTapped"/>, and mid-run from the pause menu's top ring (closing
-    /// it returns there). One entry today: CONTROLLER CONFIGURATION, which
+    /// it returns there). Volumes, FULLSCREEN, and CONTROLLER CONFIGURATION, which
     /// hands off to <see cref="ControlsScreen"/> the same closes-this-opens-that way
     /// <see cref="PauseScreen"/> hands off to CHARACTER/INVENTORY/END RUN - it never nests,
     /// GameBootstrap owns the wiring back.
@@ -26,7 +26,8 @@ namespace Convergence.UI
         int _openedFrame = -1;
 
         System.Action _onControls, _onClosed;
-        RectTransform _controlsRect, _closeRect;
+        RectTransform _controlsRect, _closeRect, _fullscreenRect;
+        Text _fullscreenText;
         // The three volume dials: a tap on a row's left half turns it down a step, the right half
         // up; a pad's A clicks the centre, which steps UP and wraps past full to silent.
         RectTransform _masterRect, _effectsRect, _ambienceRect;
@@ -55,7 +56,8 @@ namespace Convergence.UI
             GamePause.Release(this);
             if (_root) Destroy(_root);
             _root = null;
-            _controlsRect = _closeRect = null;
+            _controlsRect = _closeRect = _fullscreenRect = null;
+            _fullscreenText = null;
             _masterRect = _effectsRect = _ambienceRect = null;
             _masterText = _effectsText = _ambienceText = null;
             _onControls = _onClosed = null;
@@ -83,7 +85,7 @@ namespace Convergence.UI
                 new Color(0.02f, 0.02f, 0.035f, 0.88f));
 
             UiKit.Label(UiKit.Rect(full, "t", new Vector2(0.5f, 1), new Vector2(0.5f, 1),
-                new Vector2(-320, -150), new Vector2(320, -70)),
+                new Vector2(-320, -120), new Vector2(320, -50)),
                 "SETTINGS", 40, new Color(0.90f, 0.91f, 0.96f), TextAnchor.MiddleCenter);
 
             var bg = new Color(0.10f, 0.12f, 0.17f, 1f);
@@ -96,9 +98,16 @@ namespace Convergence.UI
             _ambienceText = _ambienceRect.GetComponentInChildren<Text>();
             RefreshVolumes();
 
-            _controlsRect = Row(full, 1, "CONTROLLER CONFIGURATION",
+            // In a browser, Unity holds the request until the next input event (the tap's own
+            // release), the only moment a page may go fullscreen; a pad's A is not one, so from a
+            // pad it lands on the next key or click.
+            _fullscreenRect = Row(full, 1, "", bg, fg);
+            _fullscreenText = _fullscreenRect.GetComponentInChildren<Text>();
+            RefreshFullscreen();
+
+            _controlsRect = Row(full, 2, "CONTROLLER CONFIGURATION",
                 new Color(0.10f, 0.12f, 0.17f, 1f), new Color(0.86f, 0.89f, 0.96f));
-            _closeRect = Row(full, 2, "CLOSE",
+            _closeRect = Row(full, 3, "CLOSE",
                 new Color(0.10f, 0.12f, 0.17f, 1f), new Color(0.86f, 0.89f, 0.96f));
 
             UiKit.Hint(UiKit.Rect(full, "h", new Vector2(0, 0), new Vector2(1, 0),
@@ -110,8 +119,8 @@ namespace Convergence.UI
 
         static RectTransform Row(RectTransform parent, int index, string label, Color bg, Color fg)
         {
-            const float w = 520f, h = UiKit.TouchTarget, gap = 24f;
-            float top = -20f;   // five rows centred under the title
+            const float w = 520f, h = UiKit.TouchTarget, gap = 12f;
+            float top = 51f;   // six rows between the title and the hint
             float y = top - index * (h + gap);
             var rt = UiKit.Panel(parent, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
                 new Vector2(-w * 0.5f, y - h * 0.5f), new Vector2(w * 0.5f, y + h * 0.5f), bg);
@@ -128,8 +137,11 @@ namespace Convergence.UI
 
             _focus.Clear();
             _focus.Add(_masterRect); _focus.Add(_effectsRect); _focus.Add(_ambienceRect);
-            _focus.Add(_controlsRect); _focus.Add(_closeRect);
+            _focus.Add(_fullscreenRect); _focus.Add(_controlsRect); _focus.Add(_closeRect);
             Controls.SetFocusCandidates(_focus);
+
+            // The browser (or Escape there) changes it too, and a request lands a beat later.
+            RefreshFullscreen();
 
             // Escape closes this too, but that is GameBootstrap's call, not this Update's - see
             // its own settings block for why. Escape drives both SettingsTapped (open) and
@@ -141,6 +153,7 @@ namespace Convergence.UI
             if (Hit(_masterRect, p)) { Audio.Volume.Master = Step(Audio.Volume.Master, _masterRect, p); RefreshVolumes(); return; }
             if (Hit(_effectsRect, p)) { Audio.Volume.Effects = Step(Audio.Volume.Effects, _effectsRect, p); RefreshVolumes(); Audio.Sfx.Play(Audio.Sound.HitLight); return; }
             if (Hit(_ambienceRect, p)) { Audio.Volume.Ambience = Step(Audio.Volume.Ambience, _ambienceRect, p); RefreshVolumes(); return; }
+            if (Hit(_fullscreenRect, p)) { Screen.fullScreen = !Screen.fullScreen; return; }
             if (Hit(_controlsRect, p)) { var cb = _onControls; cb?.Invoke(); return; }
         }
 
@@ -161,6 +174,12 @@ namespace Convergence.UI
             if (_masterText != null) _masterText.text = Line("MASTER", Audio.Volume.Master);
             if (_effectsText != null) _effectsText.text = Line("EFFECTS", Audio.Volume.Effects);
             if (_ambienceText != null) _ambienceText.text = Line("AMBIENCE", Audio.Volume.Ambience);
+        }
+
+        void RefreshFullscreen()
+        {
+            var line = Screen.fullScreen ? "FULLSCREEN   ON" : "FULLSCREEN   OFF";
+            if (_fullscreenText != null && _fullscreenText.text != line) _fullscreenText.text = line;
         }
 
         static string Line(string name, float v) => $"<   {name}  {Mathf.RoundToInt(v * 100)}%   >";
