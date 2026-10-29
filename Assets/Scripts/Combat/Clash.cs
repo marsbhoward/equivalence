@@ -21,6 +21,14 @@ namespace Convergence.Combat
     /// Mortar shells are lobbed over everything and are not cut (the user's call). Only the
     /// player's own attacks clash - enemies never cancel each other.
     /// </summary>
+    /// <summary>A body that is not an EnemyController but whose blows clash all the same (Icarus): its
+    /// strike's last Tuning.Clash.WindowSeconds, and what a clash does to it.</summary>
+    public interface IClashes
+    {
+        bool StrikeImminent { get; }
+        void Clashed();
+    }
+
     public static class Clash
     {
         /// <summary>Whether a player attack beats an enemy's strike rather than cancelling with
@@ -38,9 +46,18 @@ namespace Convergence.Combat
         {
             if (body == null || body.IsDead) return false;
             var enemy = body.GetComponent<Enemies.EnemyController>();
-            if (enemy == null || !enemy.StrikeImminent) return false;
-
-            enemy.Clashed();
+            if (enemy != null)
+            {
+                if (!enemy.StrikeImminent) return false;
+                enemy.Clashed();
+            }
+            else
+            {
+                // A boss whose blows clash (Icarus): the same rule, asked through IClashes.
+                var duel = body.GetComponent<IClashes>();
+                if (duel == null || !duel.StrikeImminent) return false;
+                duel.Clashed();
+            }
             Vector2 at = body.transform.position;
             var d = at - from;
             float len = d.magnitude;

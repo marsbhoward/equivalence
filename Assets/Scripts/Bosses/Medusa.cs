@@ -77,7 +77,6 @@ namespace Convergence.Bosses
         static readonly Color OpenLight = new(1f, 0.86f, 0.45f);
         static readonly Color EyeLight = new(1f, 1f, 1f);
 
-        int Band => RunFormat.EnemyBand(Floor);
 
         /// <summary>Where her eyes are, in the world - the third eye's sight line and the look's flash.</summary>
         Vector2 Eyes => (Vector2)transform.position + Vector2.up * ((MedusaCanvas.Base - 8) / TexelFx.Body);

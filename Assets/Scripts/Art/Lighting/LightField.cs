@@ -53,6 +53,9 @@ namespace Convergence.Art.Lighting
 
         public static float Darkness => _field != null ? _field._darkness : 0f;
 
+        /// <summary>The place's shade colour, as last set - so a fight can lift the dark without changing its colour.</summary>
+        public static Color Shade => _field != null ? _field._shade : Color.black;
+
         static LightField Get()
         {
             if (_field != null) return _field;

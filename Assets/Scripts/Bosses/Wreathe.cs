@@ -80,7 +80,7 @@ namespace Convergence.Bosses
             // NOT INTERPOLATED (Boss.CreateBody): it TELEPORTS, and a slide would hand the player a
             // path pointing at where it is going.
             var b = CreateBody<Wreathe>("boss.wreathe", at, target, parent, floor, 0.55f, Tuning.Boss.Hp);
-            b._band = RunFormat.EnemyBand(b.Floor);
+            b._band = b.Band;
             b._figure = TexelPicture.Attach<WreatheFigure>(b.transform, "figure", Vector2.zero, 34, 6, 64, 0);
             b._figure.Look.Prelude = -1f;
             DepthSorted.Attach(b.gameObject, 0f, false, b._figure.GetComponent<SpriteRenderer>());

@@ -2118,6 +2118,329 @@ namespace Convergence.Core
         }
 
         /// <summary>
+        /// Viriditas, the third mini-boss - see <see cref="Bosses.Viriditas"/> and BOSSES.md. A beetle
+        /// knight in a grove of saplings (the user's design, 2026-10-27, mixed from their outline and
+        /// two Eternal Hero bosses):
+        ///
+        ///     STOMPS   it walks at the player and stomps a CONE aimed at them; saplings inside grow
+        ///              into TREES, the player inside is hurt. Hittable throughout
+        ///     ROLL     it curls into its seed and HOMES, faster and faster, until it breaks
+        ///              HitsToStop of the grove: a tree gives nothing (two = VULNERABLE), a sapling
+        ///              raises its damage. Reaching the player first: the GRAB, then the WARD
+        ///     BLOOM    enraged (and from band 4 always): a lotus opens over it and pollen fills the
+        ///              room - only a tree's shadow is safe. Then it pauses
+        ///
+        /// It is never immune, so Tuning.Boss.WindowCap is spent per CYCLE rather than per window.
+        /// Its mechanic hits are shares of max HP like every boss's, times its POWER (1 at the start,
+        /// the user's "mid power", +PowerPerSapling for each sapling it rolls into, capped).
+        /// </summary>
+        public static class Viriditas
+        {
+            public const float Hp = 840f;    // the shared base, through FloorDifficulty.BossHp
+            public const float EnrageAt = 0.35f;
+
+            // ---- the grove: Glaciron's layout (the user's screenshots), trimmed to 19 ----
+
+            /// <summary>Saplings per diagonal column, bottom left to top right; neighbouring columns
+            /// interlock. 3-4-5-4-3 = 19 (the user's pick).</summary>
+            public static readonly int[] GroveColumns = { 3, 4, 5, 4, 3 };
+            /// <summary>Between neighbours along a column, before the room's stretch.</summary>
+            public const float GroveSpacing = 3.2f;
+            /// <summary>The lattice is drawn on a square then stretched to the room's wider shape.</summary>
+            public const float GroveStretchX = 1.35f, GroveStretchY = 0.85f;
+            /// <summary>A tree's trunk: solid to the player, the roll's target, and its shadow from
+            /// the Bloom. Saplings are not solid.</summary>
+            public const float TreeRadius = 0.5f;
+            public const float SaplingRadius = 0.3f;
+            public const float GrowSeconds = 0.45f;
+
+            // ---- the stomps ----
+
+            public const int Stomps = 3;
+            /// <summary>Band 1 on: 1 to 4 at random (the user's outline).</summary>
+            public const int RandomStompsMin = 1, RandomStompsMax = 4;
+            /// <summary>Slow on purpose: it is leading the player round the grove, not chasing.</summary>
+            public const float WalkSpeed = 1.4f;
+            /// <summary>It walks until the player is this close, or for WalkMaxSeconds.</summary>
+            public const float StompReach = 2.6f;
+            public const float WalkMaxSeconds = 2.4f;
+            /// <summary>The cone: aimed where the player stands, tracking them through the tell and
+            /// LOCKED for the last AimLockSeconds - so stepping out is possible.</summary>
+            public const float ConeLength = 3.8f;
+            public const float ConeHalfAngleDegrees = 34f;
+            public const float StompTellSeconds = 0.95f;
+            public const float AimLockSeconds = 0.35f;
+            public const float StompFraction = 0.12f;
+            public const float StompGapSeconds = 0.45f;
+
+            // ---- the roll ----
+
+            public const float CurlSeconds = 0.55f;
+            /// <summary>The ball's radius - what touches a tree, a sapling or the player.</summary>
+            public const float BallRadius = 0.65f;
+            /// <summary>It starts as fast as the player (Tuning.Player.MoveSpeed) and quickly speeds up
+            /// (the user's call), turning toward them the whole time.</summary>
+            public const float RollAccel = 2.6f;
+            public const float RollMaxSpeed = 8.5f;
+            public const float RollTurnDegrees = 200f;
+            public const int HitsToStop = 2;
+            public const int HitsToStopEnraged = 3;
+            /// <summary>Staggered by every hit, tree or sapling (the user's rule); it rolls on at
+            /// the starting speed.</summary>
+            public const float StaggerSeconds = 0.5f;
+            public const float BounceDistance = 0.6f;
+            /// <summary>A roll that has found nothing by now is over, as a catch would be (the ward)
+            /// but without the damage - it cannot run forever round a player who never stands still.</summary>
+            public const float RollMaxSeconds = 14f;
+
+            // ---- the catch (Glaciron's grab, the user's pick) ----
+
+            /// <summary>Big damage (the user's call) - but it never raises its POWER.</summary>
+            public const float CatchFraction = 0.35f;
+            public const float GrabSeconds = 1.0f;
+            public const float ThrowDistance = 3f;
+            public const float ThrowSpeed = 12f;
+
+            // ---- power, ward, vulnerable ----
+
+            public const float PowerPerSapling = 0.1f;
+            public const float PowerCap = 1.6f;
+            /// <summary>Two flowers open in its seams per sapling (the user's pick), to the cap.</summary>
+            public const int FlowersPerSapling = 2;
+            /// <summary>Damage it takes while the beetles cover it, until the next roll; never stacked.</summary>
+            public const float WardTaken = 0.1f;
+            /// <summary>Two trees stopped the roll: it takes this much for VulnerableSeconds.</summary>
+            public const float VulnerableTaken = 1.5f;
+            public const float VulnerableSeconds = 4f;
+            public const int TreesForVulnerable = 2;
+            /// <summary>The breath after a roll that did not open it.</summary>
+            public const float RecoverSeconds = 1.2f;
+
+            // ---- the sap ----
+
+            /// <summary>Sap where a sapling or tree broke: spreads to SapGrowth x its first size over
+            /// SapSpreadSeconds and ticks until the grove regrows (the user's call).</summary>
+            public const float SapRadius = 0.7f;
+            public const float SapGrowth = 2f;
+            public const float SapGrowthBand = 3f;
+            public const float SapSpreadSeconds = 3f;
+            public const float SapTickSeconds = 0.5f;
+            /// <summary>Chip damage (flat, times FloorDifficulty.Damage) - a Tick, so it blinks.</summary>
+            public const float SapTickDamage = 3f;
+
+            // ---- the Bloom (enraged; Mechanar's nuke) ----
+
+            public const float BloomTellSeconds = 2.4f;
+            /// <summary>Held, like Medusa's look, so a dash's i-frames cannot step through it.</summary>
+            public const float BloomHoldSeconds = 0.45f;
+            public const float BloomFraction = 0.6f;
+            /// <summary>After the Bloom it must pause (the user's rule) - vulnerable or not.</summary>
+            public const float PauseSeconds = 1.6f;
+
+            // ---- the grove regrows: the enrage, and the fallback ----
+
+            public const float RegrowSeconds = 2.2f;
+
+            // ---- adds (band 3: beetles crawl out of each broken tree) ----
+
+            public const int MaxAdds = 3;
+        }
+
+        /// <summary>
+        /// Mercurius (the user's design, 2026-10-28 - BOSSES.md): a bullet hell of water holding up bronze.
+        /// One limb a phase unwinds into the sequence's pattern; a recovery decides whether it grows back.
+        /// Distances in world units, times in seconds. The room is Arena.HalfExtents (12 x 7 each side).
+        /// </summary>
+        public static class Mercurius
+        {
+            public const float Hp = 840f;    // the shared base, through FloorDifficulty.BossHp
+
+            // ---- one phase ----
+
+            public const float GatherSeconds = 1.0f;
+            public const float PatternSeconds = 9f;
+            public const float RecoverySeconds = 3f;
+            /// <summary>Band 2 on (Tuning.EnemyBands.MercuriusShortRecoveryFromBand): a second shorter.</summary>
+            public const float RecoveryShorter = 1f;
+            /// <summary>Hit it for this share of its max health in a recovery and the limb stays gone.</summary>
+            public const float KeepLostFraction = 0.10f;
+            /// <summary>Below this share it is the skull alone - its last window, always.</summary>
+            public const float SkullAt = 0.10f;
+            /// <summary>Bronze pieces circling back in a recovery; one is knocked away per share of
+            /// KeepLostFraction dealt.</summary>
+            public const int Pieces = 6;
+            /// <summary>A regrown limb adds one to the next pattern's density; this many at most.</summary>
+            public const int DenseCap = 2;
+
+            // ---- the repulse: too close as a phase begins ----
+
+            public const float RepulseRadius = 3f;
+            public const float RepulseSpeed = 12f;
+
+            // ---- the cap: stagger, sink, surface far from the player ----
+
+            public const float StaggerSeconds = 0.6f;
+            public const float SinkSeconds = 0.9f;
+            public const float UnderSeconds = 0.8f;
+            public const float SurfaceSeconds = 0.9f;
+            /// <summary>Where it may surface: the farthest point from the player inside this share of the
+            /// room's half extents, so no pattern starts from a corner (the user's "no cheese").</summary>
+            public const float SurfaceZone = 0.42f;
+
+            // ---- projectiles: chip damage, flat x FloorDifficulty.Damage; nothing cuts them ----
+
+            public const float ShotDamage = 5f;
+            public const float ShotRadius = 0.16f;
+            /// <summary>The player's body for a shot's touch, from the body's centre.</summary>
+            public const float PlayerRadius = 0.22f;
+            /// <summary>After a shot lands, the next lands no sooner than this - a stream never shreds.</summary>
+            public const float HurtGraceSeconds = 0.3f;
+            /// <summary>Where shots leave from: the swirl round its body, centred this far above its feet.</summary>
+            public const float SwirlRadius = 1.0f, OriginUp = 0.9f;
+
+            // BEADS: a turning spiral; ride the gap between two arms
+            public const int BeadArms = 3;
+            public const float BeadTurn = 1.0f, BeadTurnPerLimb = 0.15f;   // radians a second
+            public const float BeadSpeed = 3.6f, BeadEvery = 0.08f;
+
+            // SHARDS: a ring flies out, sticks, flies back; the next is turned half a gap
+            public const int ShardRing = 14, ShardRingPerLimb = 2, ShardDense = 4;
+            public const float ShardSpeed = 8f, ShardReach = 6.5f, ShardStuckSeconds = 0.9f, ShardEvery = 2.7f;
+
+            // HOOPS: rings spreading out, one gap each, turned from the last
+            public const int HoopRing = 32, HoopGap = 4;
+            public const float HoopSpeed = 2.8f, HoopEvery = 1.25f, HoopEveryPerLimb = 0.1f, HoopTurnDegrees = 50f;
+
+            // CRESCENTS: arcs aimed where the player stands; step past the end
+            public const float CrescentHalfDegrees = 35f, CrescentHalfPerLimb = 4f;
+            public const float CrescentSpeed = 4.2f, CrescentEvery = 1.1f, CrescentEveryPerLimb = 0.08f, CrescentStep = 0.22f;
+
+            // BONES: chains sweep round like clock hands, each missing a bone at its own distance
+            public const float ChainTurn = 1.9f, ChainTurnPerLimb = 0.2f;   // radians a second
+            public const float BoneEvery = 0.3f, BoneFrom = 0.9f, ChainReach = 15f;
+            /// <summary>Each chain's hole, on the bone grid (BoneFrom + k x BoneEvery); bones within
+            /// HoleHalf of it are missing, leaving room for the player's body with some to spare.</summary>
+            public static readonly float[] HoleAt = { 2.4f, 4.5f, 6.3f };
+            public const float HoleHalf = 0.66f;
+            public const float ChainGrowSeconds = 0.4f;
+
+            // ---- the tide (band 1 on): a ring from its body to the walls, parried ----
+
+            public const float TideFraction = 0.30f;
+            public const float TideSpeed = 6f;
+            /// <summary>Its depth: at TideSpeed it takes Thickness / Speed to pass a point - longer than
+            /// a dash's i-frames, so only the parry answers it (the user's rule).</summary>
+            public const float TideThickness = 2f;
+            public const float TideTellSeconds = 0.8f;
+            /// <summary>When in a pattern it comes: one tide, or two (band 4) - at least 5 s apart, the
+            /// longest chest-ability cooldown.</summary>
+            public const float TideAt = 3.5f, TideFirstAt = 1.2f, TideSecondAt = 6.4f;
+        }
+
+        /// <summary>
+        /// Icarus (the user's design, 2026-10-28 - BOSSES.md "Icarus"): a sword duellist in the Malenia
+        /// mould. Never immune but at the cap; heals on every blow that lands; strings near, the lunge far,
+        /// the well on a clock. Distances in world units, times in seconds (at 1x - the enrage divides them).
+        /// </summary>
+        public static class Icarus
+        {
+            public const float Hp = 840f;    // the shared base, through FloorDifficulty.BossHp
+            public const float EnrageAt = 0.35f;
+            /// <summary>The enrage (the user's pick): EVERYTHING this much faster.</summary>
+            public const float EnragedSpeed = 1.3f;
+
+            /// <summary>The 30% cap (Boss.WindowCap) counts over ANY stretch this long (the user's pick).</summary>
+            public const float CapSeconds = 12f;
+            /// <summary>He heals this share of HIS max health for every blow that lands on the player
+            /// (all the way back to full - the user's pick). A parried or clashed blow heals nothing.</summary>
+            public const float HealFraction = 0.02f;
+
+            public const float WalkSpeed = 1.9f;      // the player walks 3.7
+            public const float PlayerRadius = 0.22f;
+
+            // ---- strings ----
+
+            /// <summary>A blow lands on the player within this reach, inside BlowArcDegrees of where it was aimed.</summary>
+            public const float BlowReach = 2.3f, BlowArcDegrees = 80f;
+            /// <summary>Chip damage, flat x FloorDifficulty.Damage (the Boss base's rule).</summary>
+            public const float BlowDamage = 9f;
+            public const float WindSeconds = 0.28f, StrikeSeconds = 0.1f, FollowSeconds = 0.14f, BlowGapSeconds = 0.12f;
+            /// <summary>HELD BLOWS (the user's pick): raised and held before they fall, so they can't be counted.</summary>
+            public const float HeldWindSeconds = 0.95f, HeldChance = 0.35f;
+            /// <summary>How far each blow steps him in.</summary>
+            public const float StepPerBlow = 0.25f;
+            /// <summary>Blows in a string, drawn from these; band 1 on adds one (EnemyBands.IcarusLongerStringsFromBand).</summary>
+            public static readonly int[] StringBlows = { 2, 3, 3, 4 };
+            public const float PauseSeconds = 1.0f;
+            /// <summary>A clashed blow ends the string: he reels this long.</summary>
+            public const float ClashedSeconds = 0.55f;
+            /// <summary>A parried blow throws him back this long.</summary>
+            public const float ParriedSeconds = 0.5f;
+
+            // ---- the lunge: he rises, a wide circle follows you, locks, he dives into it ----
+
+            /// <summary>Past this he lunges (the user's pick: near strings, far the lunge).</summary>
+            public const float FarRange = 5.5f, LungeCooldown = 4f;
+            public const float RiseSeconds = 0.55f, LiftUnits = 1.3f;
+            /// <summary>The long tell (1.4 s), the circle LOCKING 0.3 s before the dive.</summary>
+            public const float LungeTellSeconds = 1.4f, LockBeforeSeconds = 0.3f, DiveSeconds = 0.24f;
+            /// <summary>WIDE (the user's pick): about three of the player's widths across.</summary>
+            public const float LungeRadius = 0.9f;
+            public const float MissRecoverSeconds = 0.8f;
+            /// <summary>CAUGHT - impaled and lifted: this share of the player's max health over CaughtBlows
+            /// (a mechanic hit, mitigated), each blow healing him; then flung.</summary>
+            public const float CaughtFraction = 0.5f, CaughtSeconds = 1.8f;
+            public const int CaughtBlows = 4;
+            public const float ThrowSpeed = 9f, ThrowDistance = 3f;
+            /// <summary>A PARRY of the dive: a stun - vulnerable, no extra damage (the user's rule) - and every
+            /// stun ENDS IN THE FAN.</summary>
+            public const float StunSeconds = 1.5f;
+
+            // ---- the fan (bands 3 and 4; and the end of every stun) ----
+
+            /// <summary>The tell: the wing GLINTS this long, then the fan stands this long - a hit that lands
+            /// in it is fanned away.</summary>
+            public const float GlintSeconds = 0.3f, FanSeconds = 0.45f;
+            /// <summary>The fan blows the player back (no damage), and a held blow follows.</summary>
+            public const float FanReach = 2.8f, BlowBackSpeed = 9f, BlowBackDistance = 2.4f, FollowWindSeconds = 0.55f;
+            /// <summary>An arrow or a disc fanned back at the player: a bolt this fast, chip damage.</summary>
+            public const float FannedShotSpeed = 8f;
+
+            // ---- the dance (band 2): three dives in a flurry, closing in ----
+
+            public static readonly float[] DanceTells = { 1.1f, 0.8f, 0.55f };
+            public static readonly float[] DanceRadii = { 1f, 0.8f, 0.65f };
+            /// <summary>Where through each dive's tell its circle locks (later each time).</summary>
+            public static readonly float[] DanceLockAt = { 0.7f, 0.8f, 0.9f };
+            public const float DanceSpringSeconds = 0.3f;
+            /// <summary>Every this many far moves is the dance (band 4: every DanceEveryTwice).</summary>
+            public const int DanceEvery = 3, DanceEveryTwice = 2;
+
+            // ---- the well: the blade's star opens over the middle and pulls ----
+
+            public const float WellEvery = 25f, WellSeconds = 6f, StarRiseSeconds = 0.6f;
+            /// <summary>The pull: just under walking speed - walk out slowly, a dash gains ground. Band 3 on
+            /// pulls harder (EnemyBands.IcarusHarderWellFromBand).</summary>
+            public const float PullSpeed = 3.0f, PullSpeedHard = 3.4f;
+            /// <summary>Stones torn from the walls: every one costs the same (the user's pick - simply more near
+            /// the middle), a mechanic hit.</summary>
+            public const float StoneEvery = 0.12f, StoneFlightSeconds = 1.6f, StoneRadius = 0.18f, StoneFraction = 0.04f, StoneGraceSeconds = 0.35f;
+            public const float StarHeight = 0.6f;
+
+            // ---- the room ----
+
+            /// <summary>The north wall's fallen stretch: real sky, this far either side of the middle.</summary>
+            public const float OpenHalf = 4.8f;
+            /// <summary>The room comes apart as his HP falls: 0 at (1 - DecayFrom), 1 at its end (DecaySpan on).
+            /// It follows the LOWEST he has been, so it never rebuilds.</summary>
+            public const float DecayFrom = 0.15f, DecaySpan = 0.75f;
+            /// <summary>How far the floor's edge crumbles in, at most (inside the walls' colliders).</summary>
+            public const float EdgeBite = 0.45f;
+            public const float ShaftRadius = 5f, ShaftIntensity = 0.6f;
+        }
+
+
+        /// <summary>
         /// The gear stake - see <see cref="Chain.GearStake"/>. The floor a staked piece's run must
         /// clear before extracting pays out its matching piece, by the stake's star level.
         ///
@@ -5672,6 +5995,15 @@ namespace Convergence.Core
             public static readonly int[] ShortEdges = { 10, 20, 30, 40 };
             public static readonly int[] ClassicEdges = { 20, 40, 60, 80 };
 
+            /// <summary>Mini-bosses in the Short Descent (RunFormat.BossBand, the user's calls): through
+            /// this floor a boss fights at the enemy band; after it, the enemy band +1, or +2 (once a run)
+            /// at BossBandTwoChance, never above ShortBossCapBelowTop; from ShortBossTopFrom always the
+            /// top band. The avatar floors band their own way.</summary>
+            public const int ShortBossPlainThrough = 10;
+            public const int ShortBossTopFrom = 40;
+            public const int ShortBossCapBelowTop = 3;
+            public const float BossBandTwoChance = 0.5f;
+
             // ---- the Wreathe (the user's picks, group 5) - each ADDS to the bands before it ----
 
             /// <summary>Band 1: its voice LEADS the player (Tuning.Boss.VoiceLeadMax).</summary>
@@ -5693,6 +6025,32 @@ namespace Convergence.Core
             public const int MedusaVenomFromBand = 2;
             public const int MedusaTellDebrisFromBand = 3;
             public const int MedusaLooksTwiceFromBand = 4;
+
+            /// <summary>Viriditas (the user's pick, "the grove fights back"): from band 1 it stomps
+            /// 1 to 4 times at random; from 2 sap spreads to three times its size; from 3 beetles
+            /// crawl out of each broken tree; from 4 the Bloom comes every cycle, enraged or not.</summary>
+            public const int ViriditasRandomStompsFromBand = 1;
+            public const int ViriditasThickSapFromBand = 2;
+            public const int ViriditasAddsFromBand = 3;
+            public const int ViriditasBloomAlwaysFromBand = 4;
+
+            /// <summary>Mercurius (the user's pick, "tide first"): from band 1 a ring of tide in every
+            /// pattern, to parry; from 2 the recovery is a second shorter; from 3 it may switch to
+            /// another sequence at a regroup; from 4 two tides a pattern.</summary>
+            public const int MercuriusTideFromBand = 1;
+            public const int MercuriusShortRecoveryFromBand = 2;
+            public const int MercuriusSwitchFromBand = 3;
+            public const int MercuriusTwoTidesFromBand = 4;
+
+            /// <summary>Icarus (the user's pick, "the dance"): from band 1 strings a blow longer; from 2 the
+            /// dance (three dives, closing in); from 3 the well pulls harder and he FANS in every pause; from 4
+            /// the dance twice as often and a fan mid-string once a string.</summary>
+            public const int IcarusLongerStringsFromBand = 1;
+            public const int IcarusDanceFromBand = 2;
+            public const int IcarusFanFromBand = 3;
+            public const int IcarusHarderWellFromBand = 3;
+            public const int IcarusDanceTwiceFromBand = 4;
+            public const int IcarusFanMidStringFromBand = 4;
 
             // ---- band 1: they aim (leading shots and the missile: Tuning.EnemyAi) ----
 

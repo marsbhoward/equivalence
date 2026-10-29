@@ -71,6 +71,31 @@ namespace Convergence.Core
         public static int DepthBefore(int floor) => floor <= 1 ? 0 : Depth(floor - 1);
 
         /// <summary>
+        /// The band a MINI-BOSS fights at (the user's calls, 2026-10-28). Classic: the enemy band. The Short
+        /// Descent: floor 10 keeps the enemy band (0, the plain first meeting); later mini-boss floors take
+        /// the enemy band +1, or +2 at BossBandTwoChance - but +2 ONCE a run at most - capped at
+        /// ShortBossCapBelowTop; from ShortBossTopFrom (floor 40) always the top band. So floor 20 is 2 or
+        /// 3, floor 30 is 3. Seeded from the RUN's seed, so a restart meets the same. The AVATAR floors
+        /// (25, 50) are a different kind of boss with their own banding, still to come: the enemy band.
+        /// </summary>
+        public static int BossBand(int floor, int runSeed)
+        {
+            int band = EnemyBand(floor);
+            if (!Short || IsAvatarFloor(floor)) return band;
+            int top = Tuning.EnemyBands.ShortEdges.Length;
+            if (floor >= Tuning.EnemyBands.ShortBossTopFrom) return top;
+            if (floor <= Tuning.EnemyBands.ShortBossPlainThrough) return band;
+            // +2 once a run: an earlier mini-boss floor that rolled it spends it
+            bool spent = false;
+            for (int f = Tuning.EnemyBands.ShortBossPlainThrough + 1; f < floor; f++)
+                if (f % Tuning.Boss.RiftInterval == 0 && !IsAvatarFloor(f) && RollsTwo(f, runSeed)) spent = true;
+            int step = !spent && RollsTwo(floor, runSeed) ? 2 : 1;
+            return System.Math.Min(Tuning.EnemyBands.ShortBossCapBelowTop, band + step);
+        }
+
+        static bool RollsTwo(int floor, int runSeed) => Combat.FireArt.Hash(runSeed, floor, 53) < Tuning.EnemyBands.BossBandTwoChance;
+
+        /// <summary>
         /// The ENEMY BAND a floor is in, 0-4 (Tuning.EnemyBands): one more after every mini-boss of
         /// the Short Descent (10 / 20 / 30 / 40), Classic at the same depth (20 / 40 / 60 / 80).
         /// Structure, so it reads the FLOOR. Enemy behaviours that arrive with depth ask this, never

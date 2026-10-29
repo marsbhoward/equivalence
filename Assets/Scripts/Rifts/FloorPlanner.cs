@@ -229,6 +229,9 @@ namespace Convergence.Rifts
         /// rooms - and so a boon can show the next floor's roster before the player gets there.</summary>
         public int WaveSeed(int floor) => unchecked(Seed * 7907 + floor * 104729 + 3);
 
+        /// <summary>Seeds a boss's own draws (Mercurius's sequence), so a restart meets the same fight.</summary>
+        public int BossSeed(int floor) => unchecked(Seed * 9973 + floor * 1299709 + 17);
+
         /// <summary>The seed of the deal offered after <paramref name="floor"/>'s clear - so a
         /// restart meets the same deals, and Oracle can show the next one truthfully.</summary>
         public int DealSeed(int floor) => unchecked(Seed * 3557 + floor * 69313 + 13);
@@ -260,7 +263,7 @@ namespace Convergence.Rifts
         /// outgrow the eight mini-boss floors (10..90 less the avatars), so each run meets a
         /// different set. The Wreathe stays in it until there are enough to replace it.
         /// </summary>
-        static readonly Bosses.BossKind[] MiniBossPool = { Bosses.BossKind.Wreathe, Bosses.BossKind.Medusa };
+        static readonly Bosses.BossKind[] MiniBossPool = { Bosses.BossKind.Wreathe, Bosses.BossKind.Medusa, Bosses.BossKind.Viriditas, Bosses.BossKind.Mercurius, Bosses.BossKind.Icarus };
 
         /// <summary>Whether a boss is drawn for the mini-boss floors (DEV: GameBootstrap.DevBosses).</summary>
         public static bool InMiniBossPool(Bosses.BossKind kind) => System.Array.IndexOf(MiniBossPool, kind) >= 0;

@@ -7,7 +7,7 @@ namespace Convergence.Bosses
     /// <summary>Which boss a boss floor holds. Picked by Rifts.FloorPlanner.BossFor.</summary>
     /// <summary>Every boss. APPEND-ONLY: a boss's dev key is its place here counted from 1
     /// (GameBootstrap.DevBosses / DevFightBoss), so inserting one would renumber the rest.</summary>
-    public enum BossKind { Wreathe, Medusa }
+    public enum BossKind { Wreathe, Medusa, Viriditas, Mercurius, Icarus }
 
     /// <summary>
     /// What every boss shares, pulled out of the Cantor (now the Wreathe) when the second one arrived. A boss is a
@@ -40,18 +40,38 @@ namespace Convergence.Bosses
         /// <summary>For the HUD bar: where the fight is, in a word.</summary>
         public abstract string PhaseLabel { get; }
 
+        /// <summary>For the HUD bar: true dims it and names <see cref="PhaseLabel"/>, false lights it
+        /// gold and reads OPEN. Immunity for a boss that has windows; a boss that can always be hit
+        /// (Viriditas) reads shut except while it is truly open to be punished.</summary>
+        public virtual bool ReadsShut => Health != null && Health.Immune;
+
         protected Transform Target;
         protected Collider2D BodyCollider;
         protected int Floor = 1;
+
+        /// <summary>The band it fights at - RunFormat.BossBand, rolled once from the floor and its seed
+        /// at spawn (a plain int, so a domain reload keeps it). Bosses read this, never the enemy band.</summary>
+        [SerializeField] protected int Band;
 
         /// <summary>Bumped by Cease; every coroutine compares the value it started with and quits
         /// once it changes. A plain int, so a domain reload leaves it intact.</summary>
         protected int Token;
 
+        /// <summary>The seed the next spawned boss draws its fight from (FloorPlanner.BossSeed) - set by
+        /// GameBootstrap just before <see cref="Spawn"/>, so a restart meets the same fight.</summary>
+        public static int NextSeed;
+
+        /// <summary>The band the next spawned boss fights at (RunFormat.BossBand, from the run's seed) - set
+        /// with <see cref="NextSeed"/>. Below 0: the floor's enemy band.</summary>
+        public static int NextBand = -1;
+
         public static Boss Spawn(BossKind kind, Vector2 at, Transform target, Transform parent, int floor)
             => kind switch
             {
                 BossKind.Medusa => Medusa.Spawn(at, target, parent, floor),
+                BossKind.Viriditas => Viriditas.Spawn(at, target, parent, floor),
+                BossKind.Mercurius => Mercurius.Spawn(at, target, parent, floor),
+                BossKind.Icarus => Icarus.Spawn(at, target, parent, floor),
                 _ => Wreathe.Spawn(at, target, parent, floor),
             };
 
@@ -75,6 +95,7 @@ namespace Convergence.Bosses
             var b = go.AddComponent<T>();
             b.Target = target;
             b.Floor = Mathf.Max(1, floor);
+            b.Band = NextBand >= 0 ? NextBand : RunFormat.EnemyBand(b.Floor);
 
             var col = go.AddComponent<CircleCollider2D>();
             col.radius = colliderRadius;

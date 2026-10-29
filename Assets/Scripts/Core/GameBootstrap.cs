@@ -2273,7 +2273,7 @@ namespace Convergence.Core
 
                 if (_boss != null && _boss.Health != null)
                     _hud?.SetBoss(_boss.Health.Current / Mathf.Max(1f, _boss.Health.Max), _boss.DisplayName,
-                                  _boss.PhaseLabel, _boss.Enraged, _boss.Health.Immune);
+                                  _boss.PhaseLabel, _boss.Enraged, _boss.ReadsShut);
                 else _hud?.SetBoss(-1f, null, null, false, false);
 
                 // A BOSS HOLDS ITS FLOOR ON ITS OWN. It is not in _alive (see the field), so
@@ -3404,7 +3404,9 @@ namespace Convergence.Core
             // room and the floor's usual hazards would argue with it: Medusa a ring of pillars, the
             // Wreathe eight slices round a safe centre that must be open ground to step.
             var bossKind = IsBossFloor(_floor) ? _planner.BossFor(_floor) : Bosses.BossKind.Wreathe;
-            bool ownRoom = IsBossFloor(_floor) && (bossKind == Bosses.BossKind.Medusa || bossKind == Bosses.BossKind.Wreathe);
+            bool ownRoom = IsBossFloor(_floor) && (bossKind == Bosses.BossKind.Medusa || bossKind == Bosses.BossKind.Wreathe
+                                                   || bossKind == Bosses.BossKind.Viriditas || bossKind == Bosses.BossKind.Mercurius
+                                                   || bossKind == Bosses.BossKind.Icarus);
 
             if (_hazardRoot != null)
             {
@@ -4522,6 +4524,8 @@ namespace Convergence.Core
             // Spawned at the centre so the fight opens where it will later be vulnerable - the
             // middle of the room has to mean one thing all fight, and the player should have seen
             // it there once before being asked to run to it.
+            Bosses.Boss.NextSeed = _planner != null ? _planner.BossSeed(_floor) : _floor;
+            Bosses.Boss.NextBand = Core.RunFormat.BossBand(_floor, _planner != null ? _planner.Seed : 0);
             _boss = Bosses.Boss.Spawn(kind, Vector2.zero, _player.transform, _enemyRoot, _floor);
             // A boss fights at the heat of its arrival, to the end (SHORT-DESCENT.md).
             Clock.LockHeat();

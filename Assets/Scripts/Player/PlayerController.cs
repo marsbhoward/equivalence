@@ -1444,6 +1444,21 @@ namespace Convergence.Player
         /// be worse than no recoil. Input is ignored for the duration; a dash you can steer out of
         /// is not displacement, it is a speed boost.
         /// </summary>
+        /// <summary>
+        /// A PULL for this physics step and a moment after (a boss's well): <paramref name="velocity"/>
+        /// rides on top of the walk outside its blend, paid back for the body's damping like a leap's
+        /// carry, so the stick still steers and walking against it slowly wins. Set every frame by the
+        /// puller; it lapses on its own a tenth of a second after the last call. A dash ignores it.
+        /// </summary>
+        public void PullFor(Vector2 velocity)
+        {
+            _pull = velocity;
+            _pullUntil = Time.time + 0.1f;
+        }
+
+        Vector2 _pull, _pullPut;
+        float _pullUntil;
+
         public void Dash(Vector2 direction, float speed, float seconds)
         {
             if (direction.sqrMagnitude < 0.0001f || seconds <= 0f) return;
@@ -2141,6 +2156,7 @@ namespace Convergence.Player
 
             if (_dashSeconds > DashEpsilon)
             {
+                _pullPut = Vector2.zero;
                 _rb.linearVelocity = _dashVelocity;
                 _dashSeconds -= Time.fixedDeltaTime;
                 if (_dashSeconds <= DashEpsilon)
@@ -2201,10 +2217,11 @@ namespace Convergence.Player
             // is carried exactly the leap's distance and the stick steers as it always does. Last
             // step's carry is taken off first; on the landing step it simply is not put back.
             float damp = 1f + Time.fixedDeltaTime * _rb.linearDamping;
-            var walked = _rb.linearVelocity - _leapCarryPut / damp;
+            var walked = _rb.linearVelocity - (_leapCarryPut + _pullPut) / damp;
             walked = Vector2.Lerp(walked, target, Mathf.Min(IsMoving ? WalkBlend : stopBlend, grip));
             _leapCarryPut = Airborne ? _leapCarry * damp : Vector2.zero;
-            _rb.linearVelocity = walked + _leapCarryPut;
+            _pullPut = Time.time < _pullUntil ? _pull * damp : Vector2.zero;
+            _rb.linearVelocity = walked + _leapCarryPut + _pullPut;
             HoldChasmEdge();
 
             Effects?.Tick(Time.fixedDeltaTime, IsMoving, Resource?.Fill01 ?? 0f);
