@@ -221,6 +221,29 @@ namespace Convergence.Core
             return built;
         }
 
+        /// <summary>
+        /// A disc and a ring that STRETCH into a pill: 9-sliced at their middles, so the corners
+        /// stay true semicircles whatever the width. The on-screen GEAR / MENU / BACK buttons.
+        /// A sliced border is half the texture, so an Image showing one wants
+        /// pixelsPerUnitMultiplier = 100 / (its height) for the ends to be exact half-circles -
+        /// see <see cref="PillMultiplier"/>.
+        /// </summary>
+        public static Sprite PillFill => _pillFill ??= Sliced(Circle);
+        public static Sprite PillRing => _pillRing ??= Sliced(ThinRing);
+        static Sprite _pillFill, _pillRing;
+
+        /// <summary>The Image.pixelsPerUnitMultiplier that makes a pill's ends round at
+        /// <paramref name="height"/> canvas units (canvas reference 100 units per pixel unit).</summary>
+        public static float PillMultiplier(float height) => 100f / Mathf.Max(1f, height);
+
+        static Sprite Sliced(Sprite s)
+        {
+            var t = s.texture;
+            float h = t.width * 0.5f;
+            return Sprite.Create(t, new Rect(0, 0, t.width, t.height), new Vector2(0.5f, 0.5f), t.width,
+                                 0, SpriteMeshType.FullRect, new Vector4(h, h, h, h));
+        }
+
         /// <summary>Rounded bar - the placeholder rig's limbs and torso.</summary>
         public static Sprite Capsule => _capsule ??= Build(64, (x, y, c) =>
         {

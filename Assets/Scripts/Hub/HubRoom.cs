@@ -1964,11 +1964,14 @@ namespace Convergence.Hub
 
             if (point == null || point.Describe == null)
             {
+                // In reach but with nothing to say still takes USE - only its name is missing.
+                Core.Controls.InteractTarget = point == null ? null : "";
                 _card.gameObject.SetActive(false);
                 return;
             }
 
             var prompt = point.Describe();
+            Core.Controls.InteractTarget = prompt.Title ?? "";
             _promptAccent.color = prompt.Accent;
             _promptTitle.color = prompt.Accent;
             _promptTitle.text = prompt.Title;
@@ -2066,6 +2069,7 @@ namespace Convergence.Hub
         public void Teardown()
         {
             CloseInspect();
+            Core.Controls.InteractTarget = null;
             if (_promptPanel != null) Destroy(_promptPanel.gameObject);
             if (_root != null) Destroy(_root.gameObject);
             _promptPanel = null;

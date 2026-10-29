@@ -124,6 +124,16 @@ namespace Convergence.UI
             public bool DragAims;
             public Vector2 DownAt, At;
             public bool Aiming;
+
+            /// <summary>Where it sits at medium size, right-handed - Relayout scales and mirrors
+            /// from these (<see cref="HudPrefs"/>).</summary>
+            public Vector2 Anchor, Offset;
+            /// <summary>A rounded bar rather than a disc: the screen buttons in the top corner.</summary>
+            public bool Pill;
+            /// <summary>A line over the button naming what it would act on - USE's fixture
+            /// (<see cref="Controls.InteractTarget"/>). Null for every other button.</summary>
+            public Text Tag;
+            public System.Func<string> TagText;
         }
 
         /// <summary>How far, in screen pixels as a fraction of the screen's height, a finger on a
@@ -165,57 +175,64 @@ namespace Convergence.UI
 
             // ---- actions ----
             //
-            // The three combat buttons stand off each other by more than the sum of their radii
-            // plus RingPad, so no ring ever overlaps a neighbour's disc. That is a layout rule
-            // rather than a taste one: two rings crossing read as a single ring at a wrong
-            // radius, and a player with a thumb over half of it cannot tell which is which.
-            Button("ATTACK", ActionR, BottomRight, new Vector2(-250f, 250f), Controls.Context.Arena,
+            // The combat buttons stand off each other by more than the sum of their radii plus
+            // RingPad, so no ring ever overlaps a neighbour's disc. That is a layout rule rather
+            // than a taste one: two rings crossing read as a single ring at a wrong radius, and a
+            // player with a thumb over half of it cannot tell which is which.
+            //
+            // THE THUMB ARC (the user's sign-off, 2026-10-29): everything the right thumb reaches
+            // for mid-fight sits on one arc around ATTACK at the same reach, so the thumb pivots
+            // from ATTACK to the others instead of hunting for each - see ThumbArc.
+            Button("ATTACK", ActionR, BottomRight, Home, Controls.Context.Arena,
                    v => Controls.VirtualAttack = v, null,
                    progress: () => Controls.AttackProgress01?.Invoke() ?? 1f,
                    key: "LMB", pad: () => GamepadGlyphs.Attack, held: () => Controls.AttackHeld,
                    dragAims: true);
-            Button("ABILITY", AbilityR, BottomRight, new Vector2(-490f, 420f), Controls.Context.Arena,
+            Button("ABILITY", AbilityR, BottomRight, ThumbArc(64f, AbilityReach), Controls.Context.Arena,
                    v => Controls.VirtualRelease = v, () => Controls.ReleaseReady != null && Controls.ReleaseReady(),
                    progress: () => Controls.ReleaseProgress01?.Invoke() ?? 0f,
                    key: "RMB", pad: () => GamepadGlyphs.Release, held: () => Controls.ReleaseHeld);
-            // The chest's defensive ability. Below ABILITY and clear of ATTACK's own radius -
+            // The chest's defensive ability. Low on the arc, clear of ATTACK's own radius -
             // shares Alt with the hub's crate-edit toggle, since the two contexts never overlap.
-            Button("GUARD", AbilityR, BottomRight, new Vector2(-490f, 120f), Controls.Context.Arena,
+            Button("GUARD", AbilityR, BottomRight, ThumbArc(10f, AbilityReach), Controls.Context.Arena,
                    v => Controls.VirtualAlt = v, () => Controls.GuardReady != null && Controls.GuardReady(),
                    progress: () => Controls.GuardProgress01?.Invoke() ?? 1f,
                    key: "Q", pad: () => GamepadGlyphs.Guard, held: () => Controls.GuardHeld);
-            Button("GEAR", SmallR, TopRight, new Vector2(-120f, -120f), Controls.Context.Arena,
-                   v => Controls.VirtualLoadout = v, null,
-                   key: "C", pad: () => GamepadGlyphs.Menu, held: () => Controls.LoadoutHeld);
-            Button("MENU", SmallR, TopRight, new Vector2(-290f, -120f), Controls.Context.Arena,
-                   v => Controls.VirtualCancel = v, null,
-                   key: "ESC", pad: () => GamepadGlyphs.Menu, held: () => Controls.CancelHeld);
+            Pill("GEAR", PillW, TopRight, new Vector2(-120f, -86f), Controls.Context.Arena,
+                 v => Controls.VirtualLoadout = v,
+                 key: "C", pad: () => GamepadGlyphs.Menu, held: () => Controls.LoadoutHeld);
+            Pill("MENU", PillW, TopRight, new Vector2(-290f, -86f), Controls.Context.Arena,
+                 v => Controls.VirtualCancel = v,
+                 key: "ESC", pad: () => GamepadGlyphs.Menu, held: () => Controls.CancelHeld);
 
-            Button("USE", ActionR, BottomRight, new Vector2(-250f, 250f), Controls.Context.Hub,
-                   v => Controls.VirtualInteract = v, null,
-                   key: "E", pad: () => GamepadGlyphs.Interact, held: () => Controls.InteractHeld);
+            // USE names what it would use, and dims when nothing is in reach - USE that "did
+            // nothing" in the hub was, as often as not, USE with nothing in front of it.
+            Button("USE", ActionR, BottomRight, Home, Controls.Context.Hub,
+                   v => Controls.VirtualInteract = v, () => Controls.InteractTarget != null,
+                   key: "E", pad: () => GamepadGlyphs.Interact, held: () => Controls.InteractHeld,
+                   tag: () => Controls.InteractTarget);
             // A showcase Frame's "look closer", on the VirtualSecondAbility input - the arena no
             // longer claims it (a chosen second ability fires from ABILITY instead). Doing
             // nothing when nothing with art is focused, same as USE does when nothing is.
-            Button("VIEW", SmallR, BottomRight, new Vector2(-470f, 250f), Controls.Context.Hub,
+            Button("VIEW", SmallR, BottomRight, ThumbArc(38f, SmallReach), Controls.Context.Hub,
                    v => Controls.VirtualSecondAbility = v, null,
                    key: "R", pad: () => GamepadGlyphs.SecondAbility, held: () => Controls.SecondAbilityHeld);
-            Button("GEAR", SmallR, TopRight, new Vector2(-120f, -120f), Controls.Context.Hub,
-                   v => Controls.VirtualLoadout = v, null,
-                   key: "C", pad: () => GamepadGlyphs.Loadout, held: () => Controls.LoadoutHeld);
+            Pill("GEAR", PillW, TopRight, new Vector2(-120f, -86f), Controls.Context.Hub,
+                 v => Controls.VirtualLoadout = v,
+                 key: "C", pad: () => GamepadGlyphs.Loadout, held: () => Controls.LoadoutHeld);
 
             // Placing a trophy is its own set, because it is the one state with THREE answers -
             // put it down, send it back to the crate, put it back where it was. Two of those
             // cannot share a button without one of them becoming undiscoverable.
-            Button("PLACE", ActionR, BottomRight, new Vector2(-250f, 250f), Controls.Context.Placing,
+            Button("PLACE", ActionR, BottomRight, Home, Controls.Context.Placing,
                    v => Controls.VirtualInteract = v, null,
                    key: "E", pad: () => GamepadGlyphs.Interact, held: () => Controls.InteractHeld);
-            Button("CRATE", SmallR, BottomRight, new Vector2(-470f, 400f), Controls.Context.Placing,
+            Button("CRATE", SmallR, BottomRight, ThumbArc(38f, SmallReach), Controls.Context.Placing,
                    v => Controls.VirtualAlt = v, null,
                    key: "Q", pad: () => GamepadGlyphs.Alt, held: () => Controls.AltHeld);
-            Button("CANCEL", SmallR, TopRight, new Vector2(-120f, -120f), Controls.Context.Placing,
-                   v => Controls.VirtualCancel = v, null,
-                   key: "ESC", pad: () => GamepadGlyphs.Cancel, held: () => Controls.CancelHeld);
+            Pill("CANCEL", PillW + 20f, TopRight, new Vector2(-130f, -86f), Controls.Context.Placing,
+                 v => Controls.VirtualCancel = v,
+                 key: "ESC", pad: () => GamepadGlyphs.Cancel, held: () => Controls.CancelHeld);
 
             // ONE back button for every modal, and it does exactly what Escape does.
             //
@@ -226,8 +243,8 @@ namespace Convergence.UI
             // It is not shown for a screen that must be answered - a floor reward mid-choice, an
             // offer that cannot be refused - because a button that does nothing is worse than no
             // button. See FloorRewardScreen.CanDismiss.
-            Button("BACK", SmallR, TopRight, new Vector2(-120f, -120f), Controls.Context.Modal,
-                   v => Controls.VirtualCancel = v, null);
+            Pill("BACK", PillW, TopRight, new Vector2(-120f, -86f), Controls.Context.Modal,
+                 v => Controls.VirtualCancel = v);
 
             _mode = Controls.Screen;
             Relayout();
@@ -235,6 +252,23 @@ namespace Convergence.UI
 
         static readonly Vector2 BottomRight = new(1f, 0f);
         static readonly Vector2 TopRight = new(1f, 1f);
+
+        /// <summary>ATTACK's spot - and USE's and PLACE's, which stand in for it - from the
+        /// bottom-right corner. The thumb arc is measured from here.</summary>
+        static readonly Vector2 Home = new(-250f, 250f);
+        const float AbilityReach = 290f, SmallReach = 270f;
+
+        /// <summary>A point on the thumb arc round <see cref="Home"/>: 0 degrees straight left of
+        /// it, 90 straight above, <paramref name="reach"/> canvas units out.</summary>
+        static Vector2 ThumbArc(float degrees, float reach)
+        {
+            float a = degrees * Mathf.Deg2Rad;
+            return Home + new Vector2(-Mathf.Cos(a), Mathf.Sin(a)) * reach;
+        }
+
+        /// <summary>The corner pills: a full thumb wide, a little under one tall, so two fit
+        /// beside the wave counter (Hud) without touching it.</summary>
+        const float PillW = 150f, PillH = 80f;
 
         static RectTransform Disc(Transform parent, string name, float radius, Sprite sprite, Color color)
         {
@@ -256,7 +290,8 @@ namespace Convergence.UI
                     System.Func<bool> visible = null,
                     System.Func<float> progress = null,
                     string key = null, System.Func<string> pad = null,
-                    System.Func<bool> held = null, bool dragAims = false)
+                    System.Func<bool> held = null, bool dragAims = false,
+                    System.Func<string> tag = null)
         {
             var go = new GameObject("btn." + label.ToLower(), typeof(Image));
             go.transform.SetParent(_root, false);
@@ -309,12 +344,92 @@ namespace Convergence.UI
                 krt.offsetMin = Vector2.zero; krt.offsetMax = Vector2.zero;
             }
 
+            // The tag rides above the ring, gold like every other "this is what it will do" line
+            // in the hub's prompts, and wide enough for a fixture's whole name.
+            Text tagText = null;
+            if (tag != null)
+            {
+                tagText = UiKit.Label(rt, "", 22, TagLive, TextAnchor.LowerCenter);
+                var grt = (RectTransform)tagText.transform;
+                grt.anchorMin = grt.anchorMax = new Vector2(0.5f, 1f);
+                grt.offsetMin = new Vector2(-180f, RingPad + 10f);
+                grt.offsetMax = new Vector2(180f, RingPad + 46f);
+                UiKit.Legible(tagText);
+            }
+
             _buttons.Add(new Btn
             {
                 Rect = rt, Ring = ringRt.GetComponent<Image>(), Arc = arc, Fill = fill, Label = text,
                 Key = keyText, Keyboard = key, Pad = pad, Held = held,
                 Show = show, Set = set, Enabled = enabled, Visible = visible, Progress = progress,
-                DragAims = dragAims,
+                DragAims = dragAims, Anchor = anchor, Offset = offset, Tag = tagText, TagText = tag,
+            });
+        }
+
+        static readonly Color TagLive = new(0.85f, 0.71f, 0.35f, 0.95f);
+        static readonly Color TagDim = new(0.85f, 0.71f, 0.35f, 0.40f);
+
+        /// <summary>
+        /// A screen button in the top corner: a rounded bar with the same fill, outline and
+        /// labels as the discs, and no meter - none of them has a cooldown. The ring stands
+        /// <see cref="RingPad"/> outside it like a disc's, so every button's edge reads the same.
+        /// </summary>
+        void Pill(string label, float width, Vector2 anchor, Vector2 offset, Controls.Context show,
+                  System.Action<bool> set,
+                  string key = null, System.Func<string> pad = null, System.Func<bool> held = null)
+        {
+            var go = new GameObject("btn." + label.ToLower(), typeof(Image));
+            go.transform.SetParent(_root, false);
+            var rt = (RectTransform)go.transform;
+            rt.anchorMin = rt.anchorMax = anchor;
+            rt.pivot = new Vector2(0.5f, 0.5f);
+            rt.anchoredPosition = offset;
+            rt.sizeDelta = new Vector2(width, PillH);
+
+            var fill = go.GetComponent<Image>();
+            fill.sprite = Spr.PillFill;
+            fill.type = Image.Type.Sliced;
+            fill.pixelsPerUnitMultiplier = Spr.PillMultiplier(PillH);
+            fill.color = new Color(1f, 1f, 1f, 0.10f);
+            fill.raycastTarget = false;
+
+            // Sized as Ring sizes a disc's: ThinRing's band sits at 0.92 of the slice, so the rect
+            // is grown until the band lands RingPad outside the bar.
+            float h = (PillH + 2f * RingPad) / 0.92f;
+            var ringGo = new GameObject("ring.track", typeof(Image));
+            ringGo.transform.SetParent(rt, false);
+            var ringRt = (RectTransform)ringGo.transform;
+            ringRt.anchorMin = ringRt.anchorMax = ringRt.pivot = new Vector2(0.5f, 0.5f);
+            ringRt.sizeDelta = new Vector2(width + (h - PillH), h);
+            var ring = ringGo.GetComponent<Image>();
+            ring.sprite = Spr.PillRing;
+            ring.type = Image.Type.Sliced;
+            ring.pixelsPerUnitMultiplier = Spr.PillMultiplier(h);
+            ring.color = new Color(1f, 1f, 1f, 0.30f);
+            ring.raycastTarget = false;
+
+            var text = UiKit.Label(rt, label, 22, new Color(1f, 1f, 1f, 0.75f), TextAnchor.MiddleCenter);
+            var trt = (RectTransform)text.transform;
+            trt.anchorMin = Vector2.zero; trt.anchorMax = Vector2.one;
+            trt.offsetMin = Vector2.zero; trt.offsetMax = Vector2.zero;
+
+            // Off touch the key sits to the label's right rather than under it - a pill has no
+            // lower third to put it in.
+            Text keyText = null;
+            if (key != null)
+            {
+                trt.offsetMax = new Vector2(-26f, 0f);
+                keyText = UiKit.Label(rt, key, 15, new Color(1f, 1f, 1f, 0.5f), TextAnchor.MiddleRight);
+                var krt = (RectTransform)keyText.transform;
+                krt.anchorMin = Vector2.zero; krt.anchorMax = Vector2.one;
+                krt.offsetMin = new Vector2(0f, 0f); krt.offsetMax = new Vector2(-18f, 0f);
+            }
+
+            _buttons.Add(new Btn
+            {
+                Rect = rt, Ring = ring, Arc = null, Fill = fill, Label = text,
+                Key = keyText, Keyboard = key, Pad = pad, Held = held,
+                Show = show, Set = set, Anchor = anchor, Offset = offset, Pill = true,
             });
         }
 
@@ -344,41 +459,77 @@ namespace Convergence.UI
 
         void HomeStick()
         {
-            _stickBase.anchoredPosition = new Vector2(StickHome, StickHome);
+            // Left-handed, the stick rests in the bottom-RIGHT corner; the base is still anchored
+            // bottom-left, so that is the root's width in from it.
+            float x = HudPrefs.LeftHanded ? _root.rect.width - StickHome : StickHome;
+            _stickBase.anchoredPosition = new Vector2(x, StickHome);
             _stickKnob.anchoredPosition = _stickBase.anchoredPosition;
         }
 
+        /// <summary>Whether a stick is drawn this frame - see <see cref="Controls.StickShown"/>.</summary>
+        bool _stickShown;
+
         void Relayout()
         {
-            bool touch = Controls.TouchMode;
+            bool touch = Controls.OverlayTouch;
             // Off touch the buttons are readouts, and a modal's BACK reads nothing a screen's
-            // own "[ESC] to close" does not already say.
-            bool on = _mode != Controls.Context.Hidden && (touch || _mode != Controls.Context.Modal);
+            // own "[ESC] to close" does not already say. OFF in HUD & TOUCH takes them all down.
+            bool on = _mode != Controls.Context.Hidden && HudPrefs.OnScreen != HudPrefs.Overlay.Off
+                      && (touch || _mode != Controls.Context.Modal);
 
             // No stick over a modal: there is nothing to steer, and it would sit on top of the
             // screen's own controls. Its finger is freed with it, so a drag on the mastery board
             // is a drag on the board. No stick off touch at all - WASD has nothing to show.
-            bool stick = on && touch && _mode != Controls.Context.Modal;
-            _stickBase.gameObject.SetActive(stick);
-            _stickKnob.gameObject.SetActive(stick);
+            _stickShown = on && touch && _mode != Controls.Context.Modal;
+
+            // In a run with the WHEEL layout the HUD's rotation wheel is drawn as the stick (Hud),
+            // so this file's plain ring and knob stand down - the stick itself still works the same.
+            bool wheel = _mode == Controls.Context.Arena && HudPrefs.Current == HudPrefs.Layout.Wheel;
+            _stickBase.gameObject.SetActive(_stickShown && !wheel);
+            _stickKnob.gameObject.SetActive(_stickShown && !wheel);
+
+            bool left = HudPrefs.LeftHanded;
+            _stickZone.anchorMin = left ? new Vector2(1f - StickZoneWidth, 0f) : Vector2.zero;
+            _stickZone.anchorMax = left ? Vector2.one : new Vector2(StickZoneWidth, 1f);
+
+            // SIZE scales each button about its own centre and its distance from the corner alike,
+            // so the gaps the layout rule above depends on scale with them. LEFT-HANDED mirrors the
+            // bottom corner only: GEAR and MENU stay top-right, where mirrored they would sit on
+            // the run clock.
+            float scale = HudPrefs.ButtonScale;
+            bool hints = !touch && HudPrefs.KeyHints;
             foreach (var b in _buttons)
             {
+                bool mirror = left && b.Anchor.y < 0.5f;
+                b.Rect.anchorMin = b.Rect.anchorMax = mirror ? new Vector2(1f - b.Anchor.x, b.Anchor.y) : b.Anchor;
+                b.Rect.anchoredPosition = new Vector2(mirror ? -b.Offset.x : b.Offset.x, b.Offset.y) * scale;
+                b.Rect.localScale = new Vector3(scale, scale, 1f);
                 b.Rect.gameObject.SetActive(on && b.Show == _mode && (b.Visible == null || b.Visible()));
-                if (b.Key != null) b.Key.gameObject.SetActive(!touch);
+                if (b.Key != null) b.Key.gameObject.SetActive(hints);
+                // A pill's key sits beside its name, so the name makes room only while it shows.
+                if (b.Pill && b.Key != null)
+                    ((RectTransform)b.Label.transform).offsetMax = new Vector2(hints ? -26f : 0f, 0f);
             }
+            HomeStick();
         }
 
         // ---------------------------------------------------------------- tick
 
         int _stickFinger = -1;
         int _freeFinger = -1;
-        bool _lastTouchMode;
+        bool _lastOverlay, _lastDevice;
+        int _lastPrefs = -1;
 
         void Update()
         {
-            if (_lastTouchMode != Controls.TouchMode || _mode != Controls.Screen)
+            // Re-laid out on what it shows changing - the device, the context, a setting - and on
+            // nothing else, since Relayout touches every button.
+            if (_lastOverlay != Controls.OverlayTouch || _lastDevice != Controls.TouchMode
+                || _mode != Controls.Screen || _lastPrefs != HudPrefs.Version)
             {
-                _lastTouchMode = Controls.TouchMode;
+                _lastOverlay = Controls.OverlayTouch;
+                _lastDevice = Controls.TouchMode;
+                _lastPrefs = HudPrefs.Version;
                 _mode = Controls.Screen;
                 Relayout();
             }
@@ -386,24 +537,26 @@ namespace Convergence.UI
             Controls.FreeTaps.Clear();
             Controls.FreePointer = null;
             Controls.ClaimedPrimary = false;
+            UpdateTags();
 
             var screen = Touchscreen.current;
-            if (screen == null || _mode == Controls.Context.Hidden || !Controls.TouchMode)
+            if (screen == null || _mode == Controls.Context.Hidden || !Controls.OverlayTouch)
             {
                 if (screen != null) Pinch(screen.touches);
                 if (screen != null) CollectFreeTaps(screen, claimNothing: true);
                 ReleaseAll();
                 _seen.Clear();
-                if (_mode != Controls.Context.Hidden && !Controls.TouchMode)
+                if (_mode != Controls.Context.Hidden && HudPrefs.OnScreen != HudPrefs.Overlay.Off
+                    && !Controls.TouchMode)
                 {
                     Click();
                     PaintReadouts();
                 }
                 else ReleaseClick();
+                PublishStick();
                 return;
             }
 
-            ReleaseClick();
             var touches = screen.touches;
             bool stickStillDown = false;
 
@@ -502,6 +655,37 @@ namespace Convergence.UI
                 b.Set(pressedNow);
                 Paint(b, down);
             }
+
+            // ALWAYS on a machine with a touchscreen AND a mouse: the overlay is drawn as touch
+            // controls, and a click on one still presses it.
+            if (!Controls.TouchMode)
+            {
+                Click();
+                if (_clicked != null) Paint(_clicked, true);
+            }
+            else ReleaseClick();
+            PublishStick();
+        }
+
+        /// <summary>The stick's state for the HUD's wheel (<see cref="Controls.StickBase"/>).</summary>
+        void PublishStick()
+        {
+            Controls.StickBase = _stickBase.anchoredPosition;
+            Controls.StickKnob = _stickKnob.anchoredPosition;
+            Controls.StickShown = _stickShown;
+        }
+
+        /// <summary>USE's line: the fixture in reach, or NOTHING IN REACH dimmed.</summary>
+        void UpdateTags()
+        {
+            foreach (var b in _buttons)
+            {
+                if (b.Tag == null || !b.Rect.gameObject.activeSelf) continue;
+                string t = b.TagText();
+                string line = t == null ? "NOTHING IN REACH" : t.ToUpperInvariant();
+                if (b.Tag.text != line) b.Tag.text = line;
+                b.Tag.color = t == null ? TagDim : TagLive;
+            }
         }
 
         HashSet<int> _seen = new(), _seenNow = new();
@@ -545,10 +729,15 @@ namespace Convergence.UI
                 b.Rect.GetWorldCorners(_corners);
                 // Screen-space overlay: world corners ARE screen pixels.
                 Vector2 centre = (_corners[0] + _corners[2]) * 0.5f;
-                float disc = (_corners[2].x - _corners[0].x) * 0.5f;          // screen pixels
-                float ring = disc * (1f + RingPad / (b.Rect.rect.width * 0.5f)); // RingPad is canvas units
-                float reach = ring * HitSlop;
-                float d = Vector2.Distance(centre, screenPoint);
+                float halfH = (_corners[2].y - _corners[0].y) * 0.5f;           // screen pixels
+                float pad = halfH * RingPad / (b.Rect.rect.height * 0.5f);      // RingPad is canvas units
+                float reach = (halfH + pad) * HitSlop;
+                // A disc is measured from its centre; a pill from the line through its middle,
+                // which is a capsule - its round ends are exactly the drawn ends.
+                float run = b.Pill ? (_corners[2].x - _corners[0].x) * 0.5f - halfH : 0f;
+                var along = screenPoint - centre;
+                along.x = Mathf.Sign(along.x) * Mathf.Max(0f, Mathf.Abs(along.x) - run);
+                float d = along.magnitude;
                 if (d <= reach && d < bestD) { bestD = d; best = b; }
             }
             return best;

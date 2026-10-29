@@ -101,27 +101,40 @@ namespace Convergence.UI
 
             _player = player;
 
-            // ---------- the element's seal, health and armour, bottom-left of centre ----------
+            // ---------- the element's seal, health and armour, bottom centre ----------
             // One piece: the seal, its build-up drawn round it, and the health and armour
-            // crescents hugging its right side with the numbers beside them. Low and left of centre
-            // so the numbers sit where the eye already goes mid-fight; the seal's effects may run
-            // off the bottom edge, which is only the screen's edge.
+            // crescents hugging its right side with the numbers beside them. Low and central, so
+            // the numbers sit where the eye already goes mid-fight and clear of both thumbs on a
+            // phone; the seal's effects may run off the bottom edge, which is only the screen's
+            // edge. Where exactly, and where the wheel goes, is Place's - it follows HUD & TOUCH.
             float sealSize = ElementSeal.Size * ElementSeal.UnitsPerTexel;
-            var sealCentre = new Vector2(-432, 150);
-            var sealRt = UiKit.Rect(canvas, "seal", new Vector2(0.5f, 0), new Vector2(0.5f, 0),
-                sealCentre - Vector2.one * sealSize * 0.5f, sealCentre + Vector2.one * sealSize * 0.5f);
-            ElementSeal.Build(sealRt, player.Resource);
-            _crescents = HealthCrescents.Build(sealRt);
+            _sealRt = UiKit.Rect(canvas, "seal", new Vector2(0.5f, 0), new Vector2(0.5f, 0),
+                -Vector2.one * sealSize * 0.5f, Vector2.one * sealSize * 0.5f);
+            ElementSeal.Build(_sealRt, player.Resource);
+            _crescents = HealthCrescents.Build(_sealRt);
 
-            // The weapon art wheel, meshed to the seal's left as the crescents hug its right.
-            // It carries everything about what the attack button does: the art that fires next,
-            // the chain's basics, the rotation, and the perfect streak.
+            // The weapon art wheel, meshed to the seal's left as the crescents hug its right - or,
+            // in the WHEEL layout, in the stick's corner (Place). It carries everything about what
+            // the attack button does: the art that fires next, the chain's basics, the rotation,
+            // and the perfect streak.
             float wheelSize = RotationWheel.Size * RotationWheel.UnitsPerTexel;
-            float wheelX = sealCentre.x - (ElementSeal.RimR + RotationWheel.OuterR + 4f) * ElementSeal.UnitsPerTexel;
-            var wheelCentre = new Vector2(wheelX, sealCentre.y);
-            var wheelRt = UiKit.Rect(canvas, "wheel", new Vector2(0.5f, 0), new Vector2(0.5f, 0),
-                wheelCentre - Vector2.one * wheelSize * 0.5f, wheelCentre + Vector2.one * wheelSize * 0.5f);
-            RotationWheel.Build(wheelRt, player);
+            _wheelRt = UiKit.Rect(canvas, "wheel", new Vector2(0.5f, 0), new Vector2(0.5f, 0),
+                -Vector2.one * wheelSize * 0.5f, Vector2.one * wheelSize * 0.5f);
+            _wheel = RotationWheel.Build(_wheelRt, player);
+
+            // The stick's knob, when the wheel IS the stick: its hub, bronze and see-through, so
+            // the chain's lamps still show under the thumb. Above the wheel, which this canvas
+            // draws over the touch overlay's own knob.
+            var knobGo = new GameObject("wheel.knob", typeof(Image));
+            knobGo.transform.SetParent(canvas, false);
+            _knob = (RectTransform)knobGo.transform;
+            _knob.anchorMin = _knob.anchorMax = Vector2.zero;
+            _knob.sizeDelta = Vector2.one * WheelKnobR * 2f;
+            var knobImg = knobGo.GetComponent<Image>();
+            knobImg.sprite = Spr.Circle;
+            knobImg.color = new Color(0.79f, 0.57f, 0.31f, 0.38f);
+            knobImg.raycastTarget = false;
+            Place();
 
             // ---------- the hourglass, top-left (the Short Descent's run clock) ----------
             // Top-left is the one clear corner: the boss bar holds the top centre, wave and GEAR /
@@ -142,7 +155,7 @@ namespace Convergence.UI
 
             var controls = UiKit.Rect(canvas, "controls", new Vector2(0.5f, 0), new Vector2(0.5f, 0),
                 new Vector2(-420, 10), new Vector2(420, 36));
-            UiKit.Legible(UiKit.Hint(controls,
+            _hint = UiKit.Legible(UiKit.Hint(controls,
                 "WASD move    -    LMB / SPACE attack    -    RMB / E element ability    -    [Q] guard    -    [C] loadout    -    ESC pause / leave",
                 "stick to move    -    ATTACK    -    ABILITY    -    GUARD    -    GEAR for your loadout    -    MENU to leave the run",
                 15, new Color(0.45f, 0.48f, 0.56f), TextAnchor.LowerCenter,
@@ -379,6 +392,62 @@ namespace Convergence.UI
 
         RectTransform _puzzlePanel;
         Text _puzzleTitle, _puzzleBody;
+
+        // ---------------------------------------------------------------- placement
+
+        RectTransform _sealRt, _wheelRt, _knob;
+        RotationWheel _wheel;
+        Text _hint;
+
+        /// <summary>The seal's centre from bottom centre, per layout. CENTRED puts the whole
+        /// cluster - wheel, seal, numbers - about the middle; WHEEL has no wheel in it, so the
+        /// seal and its numbers alone are centred.</summary>
+        static readonly Vector2 SealCentred = new(-60f, 150f), SealAlone = new(-150f, 150f);
+
+        /// <summary>How much bigger the wheel draws as the stick: its teeth (OuterR, 78 units)
+        /// then reach the stick's travel (TouchControls.StickRadius, 150) to within a few units.</summary>
+        const float WheelStickScale = 2f;
+        const float WheelKnobR = 64f;
+
+        /// <summary>
+        /// Where the seal and the wheel sit, read every frame, since the device in hand, the
+        /// layout chosen for it and the stick under the thumb can all change at any moment. Cheap:
+        /// a handful of RectTransform writes.
+        ///
+        /// WHEEL: in the stick's corner, its centre on <see cref="Controls.StickBase"/> - the
+        /// stick's home, or wherever the thumb summoned it - and its hub following the knob while
+        /// a stick is drawn. With no stick (keys and pad, the overlay off) it rests at the home.
+        /// </summary>
+        void Place()
+        {
+            if (_sealRt == null) return;
+            bool corner = HudPrefs.Current == HudPrefs.Layout.Wheel;
+            _sealRt.anchoredPosition = corner ? SealAlone : SealCentred;
+
+            if (corner)
+            {
+                _wheelRt.anchorMin = _wheelRt.anchorMax = Vector2.zero;
+                _wheelRt.anchoredPosition = Controls.StickBase;
+                _wheel.SetScale(WheelStickScale);
+            }
+            else
+            {
+                _wheelRt.anchorMin = _wheelRt.anchorMax = new Vector2(0.5f, 0f);
+                float gap = (ElementSeal.RimR + RotationWheel.OuterR + 4f) * ElementSeal.UnitsPerTexel;
+                _wheelRt.anchoredPosition = SealCentred - new Vector2(gap, 0f);
+                _wheel.SetScale(1f);
+            }
+
+            bool knob = corner && Controls.StickShown;
+            if (_knob.gameObject.activeSelf != knob) _knob.gameObject.SetActive(knob);
+            if (knob) _knob.anchoredPosition = Controls.StickKnob;
+
+            // The key-hint line under the cluster says what the on-screen buttons already say.
+            bool hint = !Controls.OverlayTouch;
+            if (_hint != null && _hint.gameObject.activeSelf != hint) _hint.gameObject.SetActive(hint);
+        }
+
+        void LateUpdate() => Place();
 
         public void SetFloorInfo(int floor, int alive, int kills, int gearOnFloor = 0)
         {

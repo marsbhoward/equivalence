@@ -196,6 +196,7 @@ namespace Convergence.Core
         public UI.PauseScreen PauseScreen { get; private set; }
         public UI.SettingsScreen SettingsScreen { get; private set; }
         public UI.ControlsScreen ControlsScreen { get; private set; }
+        public UI.HudSettingsScreen HudSettingsScreen { get; private set; }
         public UI.InventoryScreen InventoryScreen { get; private set; }
         public UI.ExchangeScreen ExchangeScreen { get; private set; }
         public UI.TransmuteScreen TransmuteScreen { get; private set; }
@@ -473,6 +474,7 @@ namespace Convergence.Core
             PauseScreen = gameObject.AddComponent<UI.PauseScreen>();
             SettingsScreen = gameObject.AddComponent<UI.SettingsScreen>();
             ControlsScreen = gameObject.AddComponent<UI.ControlsScreen>();
+            HudSettingsScreen = gameObject.AddComponent<UI.HudSettingsScreen>();
             InventoryScreen = gameObject.AddComponent<UI.InventoryScreen>();
             ExchangeScreen = gameObject.AddComponent<UI.ExchangeScreen>();
             TransmuteScreen = gameObject.AddComponent<UI.TransmuteScreen>();
@@ -2154,7 +2156,7 @@ namespace Convergence.Core
                 ManualScreen == null || GearDisplayScreen == null || RiftScreen == null ||
                 StakeScreen == null ||
                 PauseScreen == null || SettingsScreen == null || ControlsScreen == null ||
-                InventoryScreen == null) return;
+                HudSettingsScreen == null || InventoryScreen == null) return;
 
             // ONE owner for which buttons are on screen. The room could set this itself while
             // carrying a trophy, and did at first - but then two Updates were writing the same
@@ -2166,6 +2168,7 @@ namespace Convergence.Core
                       || TxScreen.IsOpen || CharacterScreen.IsOpen || ForgeScreen.IsOpen
                       || ManualScreen.IsOpen || GearDisplayScreen.IsOpen || RiftScreen.IsOpen || StakeScreen.IsOpen
                       || PauseScreen.IsOpen || SettingsScreen.IsOpen || ControlsScreen.IsOpen
+                      || HudSettingsScreen.IsOpen
                       || InventoryScreen.IsOpen || UI.EndingScreen.IsOpen;
             bool modal = screenOpen || (_hub != null && _hub.Blocking);
 
@@ -2248,7 +2251,7 @@ namespace Convergence.Core
                 TxScreen.IsOpen || ForgeScreen.IsOpen || ManualScreen.IsOpen ||
                 GearDisplayScreen.IsOpen || RiftScreen.IsOpen || StakeScreen.IsOpen ||
                 PauseScreen.IsOpen || SettingsScreen.IsOpen || ControlsScreen.IsOpen ||
-                InventoryScreen.IsOpen) return;
+                HudSettingsScreen.IsOpen || InventoryScreen.IsOpen) return;
 
             // Loadout screen. From the HUB it opens on its own key. MID-RUN it lives behind the
             // pause menu (opened in the Playing branch below), so the same key there only closes
@@ -2628,6 +2631,7 @@ namespace Convergence.Core
               : PauseScreen == null       ? "PauseScreen"
               : SettingsScreen == null    ? "SettingsScreen"
               : ControlsScreen == null    ? "ControlsScreen"
+              : HudSettingsScreen == null ? "HudSettingsScreen"
               : InventoryScreen == null   ? "InventoryScreen"
               : Mastery == null           ? "Mastery"
               : null;
@@ -2667,6 +2671,7 @@ namespace Convergence.Core
             if (PauseScreen.IsOpen) PauseScreen.Close();
             if (SettingsScreen.IsOpen) SettingsScreen.Close();
             if (ControlsScreen.IsOpen) ControlsScreen.Close();
+            if (HudSettingsScreen.IsOpen) HudSettingsScreen.Close();
             if (InventoryScreen.IsOpen) InventoryScreen.Close();
             HideHub();
             if (_arenaRoot) _arenaRoot.gameObject.SetActive(true);
@@ -5951,7 +5956,20 @@ namespace Convergence.Core
         void OpenSettings()
             => SettingsScreen.Open(_canvas.transform, OpenControlsScreen,
                                    _state == State.Playing ? OpenPauseMenu : null,
-                                   Chain.Web.ChainWallet.Available ? OpenWalletMenu : null);
+                                   Chain.Web.ChainWallet.Available ? OpenWalletMenu : null,
+                                   OpenHudSettings);
+
+        /// <summary>HUD &amp; TOUCH, the same closes-this-opens-that hand-off as
+        /// <see cref="OpenControlsScreen"/>.</summary>
+        void OpenHudSettings()
+        {
+            if (SettingsScreen.IsOpen) SettingsScreen.Close();
+            HudSettingsScreen.Open(_canvas.transform, () =>
+            {
+                HudSettingsScreen.Close();
+                OpenSettings();
+            });
+        }
 
         /// <summary>
         /// Closes SettingsScreen and opens ControlsScreen; ControlsScreen's own BACK button closes

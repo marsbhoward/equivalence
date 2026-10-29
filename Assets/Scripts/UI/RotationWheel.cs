@@ -134,6 +134,30 @@ namespace Convergence.UI
             return w;
         }
 
+        /// <summary>
+        /// Draw the wheel <paramref name="scale"/> times its own size, its two lines of text
+        /// kept at theirs - the WHEEL layout's stick (Hud), where its rim has to reach the stick's
+        /// travel. An integer, so the texels stay square. The name keeps its bottom edge and the
+        /// streak its right edge, so both still sit just clear of the bigger rim.
+        /// </summary>
+        public void SetScale(float scale)
+        {
+            if (_rt == null || Mathf.Approximately(_rt.localScale.x, scale)) return;
+            _rt.localScale = new Vector3(scale, scale, 1f);
+            KeepSize(_name, new Vector2(0.5f, 0f), scale);
+            KeepSize(_streak, new Vector2(1f, 0.5f), scale);
+        }
+
+        static void KeepSize(Text t, Vector2 pivot, float scale)
+        {
+            if (t == null) return;
+            var rt = (RectTransform)t.transform;
+            Vector2 min = rt.offsetMin, max = rt.offsetMax;
+            rt.pivot = pivot;
+            rt.offsetMin = min; rt.offsetMax = max;   // a pivot change moves the rect; put it back
+            rt.localScale = new Vector3(1f / scale, 1f / scale, 1f);
+        }
+
         static void Shadowed(Text t)
         {
             var o = t.gameObject.AddComponent<UnityEngine.UI.Outline>();

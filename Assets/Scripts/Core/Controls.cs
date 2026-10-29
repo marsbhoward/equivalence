@@ -211,6 +211,37 @@ namespace Convergence.Core
         /// <summary>Force the overlay on for testing on a desktop. Null returns to auto.</summary>
         public static bool? TouchModeOverride;
 
+        /// <summary>
+        /// Whether the on-screen stick and buttons are drawn as TOUCH controls (rather than as
+        /// readouts, or not at all): <see cref="TouchMode"/>, unless the player has chosen ALWAYS
+        /// or OFF in HUD &amp; TOUCH (<see cref="HudPrefs.OnScreen"/>). Kept apart from TouchMode
+        /// itself, which still answers "which device is in hand" - the prompts, the HUD layout
+        /// and the mouse's aim all want that, whatever the overlay is doing.
+        /// </summary>
+        public static bool OverlayTouch => HudPrefs.OnScreen switch
+        {
+            HudPrefs.Overlay.Off => false,
+            HudPrefs.Overlay.Always => true,
+            _ => TouchMode,
+        };
+
+        /// <summary>
+        /// Where the movement stick is, for the HUD's rotation wheel to sit on when it IS the stick
+        /// (<see cref="HudPrefs.Layout.Wheel"/>). In the overlay's canvas units from the bottom-left
+        /// corner; written by TouchControls every frame. <see cref="StickShown"/> is false while no
+        /// stick is drawn (keys and pad, the overlay off, a modal), and then the wheel rests at
+        /// <see cref="StickBase"/>, which still holds the stick's home.
+        /// </summary>
+        public static Vector2 StickBase, StickKnob;
+        public static bool StickShown;
+
+        /// <summary>
+        /// What USE would act on right now, by name, or null when nothing is in reach - the hub's
+        /// focused fixture (HubRoom.SetFocus). The overlay prints it over USE and dims the button
+        /// without it, which is the only way a touch player can tell "out of reach" from "broken".
+        /// </summary>
+        public static string InteractTarget;
+
         static bool _started;
 
         static void Start()

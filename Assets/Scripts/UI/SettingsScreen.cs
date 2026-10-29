@@ -8,7 +8,8 @@ namespace Convergence.UI
     /// <summary>
     /// The settings menu - from the hub with Escape (keyboard) or Start (gamepad), see
     /// <see cref="Controls.SettingsTapped"/>, and mid-run from the pause menu's top ring (closing
-    /// it returns there). Volumes, FULLSCREEN, WALLET (the browser build), and CONTROLLER CONFIGURATION, which
+    /// it returns there). Volumes, FULLSCREEN, WALLET (the browser build), HUD &amp; TOUCH
+    /// (<see cref="HudSettingsScreen"/>), and CONTROLLER CONFIGURATION, which
     /// hands off to <see cref="ControlsScreen"/> the same closes-this-opens-that way
     /// <see cref="PauseScreen"/> hands off to CHARACTER/INVENTORY/END RUN - it never nests,
     /// GameBootstrap owns the wiring back.
@@ -25,8 +26,8 @@ namespace Convergence.UI
         // ConfirmDialog and PauseScreen.
         int _openedFrame = -1;
 
-        System.Action _onControls, _onClosed, _onWallet;
-        RectTransform _controlsRect, _closeRect, _fullscreenRect, _walletRect;
+        System.Action _onControls, _onClosed, _onWallet, _onHud;
+        RectTransform _controlsRect, _closeRect, _fullscreenRect, _walletRect, _hudRect;
         Text _fullscreenText, _walletText;
         // The three volume dials: a tap on a row's left half turns it down a step, the right half
         // up; a pad's A clicks the centre, which steps UP and wraps past full to silent.
@@ -40,12 +41,13 @@ namespace Convergence.UI
         /// <paramref name="onWallet"/> (the browser build only) shares FULLSCREEN's row: connect, or
         /// sign out - closes-this-opens-that, like CONTROLLER CONFIGURATION.</summary>
         public void Open(Transform canvas, System.Action onControls, System.Action onClosed = null,
-                         System.Action onWallet = null)
+                         System.Action onWallet = null, System.Action onHud = null)
         {
             if (IsOpen) return;
             IsOpen = true;
             _openedFrame = Time.frameCount;
             _onControls = onControls;
+            _onHud = onHud;
             _onClosed = onClosed;
             _onWallet = onWallet;
 
@@ -60,11 +62,11 @@ namespace Convergence.UI
             GamePause.Release(this);
             if (_root) Destroy(_root);
             _root = null;
-            _controlsRect = _closeRect = _fullscreenRect = _walletRect = null;
+            _controlsRect = _closeRect = _fullscreenRect = _walletRect = _hudRect = null;
             _fullscreenText = _walletText = null;
             _masterRect = _effectsRect = _ambienceRect = null;
             _masterText = _effectsText = _ambienceText = null;
-            _onControls = _onClosed = _onWallet = null;
+            _onControls = _onClosed = _onWallet = _onHud = null;
         }
 
         /// <summary>Closes and hands back to whoever opened it (Escape, or CLOSE).</summary>
@@ -116,8 +118,15 @@ namespace Convergence.UI
             _fullscreenText = _fullscreenRect.GetComponentInChildren<Text>();
             RefreshFullscreen();
 
-            _controlsRect = Row(full, 2, "CONTROLLER CONFIGURATION",
-                new Color(0.10f, 0.12f, 0.17f, 1f), new Color(0.86f, 0.89f, 0.96f));
+            // CONTROLLER CONFIGURATION shares its row with HUD & TOUCH: both are "how the game is
+            // played on this device", and the screen has no seventh row to give either.
+            if (_onHud == null)
+                _controlsRect = Row(full, 2, "CONTROLLER CONFIGURATION", bg, fg);
+            else
+            {
+                _controlsRect = Row(full, 2, "CONTROLLER", bg, fg, half: -1);
+                _hudRect = Row(full, 2, "HUD & TOUCH", bg, fg, half: 1);
+            }
             _closeRect = Row(full, 3, "CLOSE",
                 new Color(0.10f, 0.12f, 0.17f, 1f), new Color(0.86f, 0.89f, 0.96f));
 
@@ -152,7 +161,9 @@ namespace Convergence.UI
             _focus.Add(_masterRect); _focus.Add(_effectsRect); _focus.Add(_ambienceRect);
             _focus.Add(_fullscreenRect);
             if (_walletRect != null) _focus.Add(_walletRect);
-            _focus.Add(_controlsRect); _focus.Add(_closeRect);
+            _focus.Add(_controlsRect);
+            if (_hudRect != null) _focus.Add(_hudRect);
+            _focus.Add(_closeRect);
             Controls.SetFocusCandidates(_focus);
 
             // The browser (or Escape there) changes it too, and a request lands a beat later.
@@ -171,6 +182,7 @@ namespace Convergence.UI
             if (Hit(_fullscreenRect, p)) { Screen.fullScreen = !Screen.fullScreen; return; }
             if (Hit(_walletRect, p)) { var cb = _onWallet; Close(); cb?.Invoke(); return; }
             if (Hit(_controlsRect, p)) { var cb = _onControls; cb?.Invoke(); return; }
+            if (Hit(_hudRect, p)) { var cb = _onHud; cb?.Invoke(); return; }
         }
 
         /// <summary>Left of the row's middle steps down; the middle and right step up, wrapping
