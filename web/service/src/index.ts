@@ -5,11 +5,12 @@ import { devMintCharacter } from './routes/devCharacter.js';
 import { splitFunds } from './routes/splitFunds.js';
 import { components } from './routes/components.js';
 import { getArt, postArt } from './routes/art.js';
+import { getImage } from './routes/img.js';
 import { networkInfo } from './blockfrost.js';
 import { cors } from './cors.js';
 import { requireWriteToken } from './writeAuth.js';
 import { serviceAddress } from './chain.js';
-import { challenge, prove, requireSession } from './session.js';
+import { challenge, prove, requireSession, sendProofNonce, sessionStatus, signOutEverywhere } from './session.js';
 import { beginRun, boxes, commitRun } from './routes/player.js';
 import { openBoxes, submitOpen } from './routes/openBoxes.js';
 import { graduate, loadAccount, loadCharacter, roster, saveAccount, saveCharacter } from './routes/saves.js';
@@ -29,13 +30,17 @@ const app = express();
 // Behind Railway's proxy: req.ip is the player's address (the guest rate limit reads it), not the proxy's.
 app.set('trust proxy', 1);
 app.use(cors);
+// Every response names the nonce a session proof must carry (session.ts).
+app.use(sendProofNonce);
 
 // RATE LIMITS (rateLimit.ts) - per IP here, ahead of authentication and of the body parsers, so a
 // flood is refused before a signature, a database read or a 512 kB body is spent on it. The
 // per-identity limits sit behind each route's authentication, below.
 const publicRead = perIp('public', LIMITS.publicRead);
 const blockfrostPublic = overall('blockfrost-public', LIMITS.blockfrostPublic);
-app.use('/auth', perIp('auth', LIMITS.auth));
+// Logins are the tight bucket; checking or ending a session already holds one and costs a MAC.
+const login = perIp('auth', LIMITS.auth);
+const sessionIp = perIp('session-ip', LIMITS.sessionIp);
 app.use('/write', perIp('write-ip', LIMITS.writeIp));
 app.use('/boxes', perIp('write-ip', LIMITS.writeIp));
 app.use('/saves', perIp('saves-ip', LIMITS.savesIp));
@@ -54,8 +59,12 @@ app.post('/op/art', express.json({ limit: '16mb' }), postArt);
 app.put('/op/play/:build/file', express.raw({ type: '*/*', limit: '256mb' }), putPlayFile);
 // Saves carry a whole CharacterProfile - ~12 KB today, growing with gear and history - so they get
 // room past the default 100 kB, mounted before it for the same reason.
-app.use('/saves', express.json({ limit: '512kb' }));
-app.use(express.json());
+// A session proof signs the body's exact bytes (session.ts), so the parsers keep them.
+const keepRaw = (req: express.Request, _res: express.Response, buf: Buffer) => {
+  (req as express.Request & { rawBody?: Buffer }).rawBody = buf;
+};
+app.use('/saves', express.json({ limit: '512kb', verify: keepRaw }));
+app.use(express.json({ verify: keepRaw }));
 
 app.get('/health', (_req, res) => {
   res.json({ ok: true });
@@ -107,8 +116,10 @@ app.post('/op/dev/mint-character', devMintCharacter);
 app.post('/op/dev/avatar-box', devDecideAvatarBoxes);
 
 // Player auth: a one-time challenge, signed with CIP-30 signData (no fee), traded for a session.
-app.get('/auth/challenge', challenge);
-app.post('/auth/prove', prove);
+app.get('/auth/challenge', login, challenge);
+app.post('/auth/prove', login, prove);
+app.get('/auth/session', sessionIp, requireSession, sessionStatus);
+app.post('/auth/signout-everywhere', sessionIp, requireSession, signOutEverywhere);
 
 // The connector's /write/<kind> convention (equivalence-chain.ts `write()`).
 app.use('/write', requireSession, perIdentity('write', LIMITS.write));
@@ -126,6 +137,8 @@ app.post('/write/break-boxes', opening, breakBoxTokens);
 app.post('/write/break-boxes/submit', opening, submitBurn);
 app.get('/boxes/:profileId', requireSession, perIdentity('boxes', LIMITS.boxes), boxes);
 app.get('/art/:artKey', getArt);
+// A wallet token's picture, fetched once, shrunk and cached (routes/img.ts).
+app.get('/img/:unit', perIp('img', LIMITS.img), blockfrostPublic, getImage);
 // The portrait (routes/pfp.ts): reads are public, takes are the player's and pay inside the tx.
 app.get('/pfp/:profileId', publicRead, blockfrostPublic, readPortrait);
 app.get('/pfp/:profileId/status', publicRead, blockfrostPublic, portraitStatus);
@@ -160,6 +173,16 @@ app.put('/saves/runs/:profileId', saveRun);
 app.put('/saves/runs/:profileId/beat', beatRun);
 app.post('/saves/runs/:profileId/claim', claimRun);
 app.post('/saves/runs/:profileId/end', endRun);
+
+// Where the page's Content-Security-Policy reports what it blocked (play.ts) - logged, trimmed.
+app.post('/csp-report', perIp('csp', LIMITS.csp),
+  express.json({ type: ['application/csp-report', 'application/reports+json', 'application/json'], limit: '16kb' }),
+  (req, res) => {
+    const r = (req.body?.['csp-report'] ?? req.body ?? {}) as Record<string, unknown>;
+    console.warn(`[csp] blocked ${String(r['blocked-uri'] ?? r.blockedURL ?? '?').slice(0, 200)} ` +
+      `(${String(r['violated-directive'] ?? r.effectiveDirective ?? '?').slice(0, 60)})`);
+    res.sendStatus(204);
+  });
 
 app.post('/op/play/:build/activate', activatePlay);
 app.post('/op/play/rollback', rollbackPlay);

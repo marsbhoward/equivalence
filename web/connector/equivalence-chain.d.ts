@@ -46,6 +46,21 @@ export interface EquivalenceChain {
 
   disconnect(args: {}): void | Promise<void>;
 
+  /** A quiet reconnect at boot - `{"wallet","address"}` JSON when a remembered session still holds
+   *  and the wallet lets the site in without a popup, else ''. Never prompts. */
+  resume(args: {}): Promise<string>;
+
+  /** 'true' when this browser holds a session for the address that still holds - proveOwnership
+   *  will then resolve without the wallet. */
+  remembered(args: { accountId: string }): Promise<string>;
+
+    /** Ends every session of the connected address at the service, then disconnects here. */
+  signOutEverywhere(args: {}): Promise<void>;
+
+  /** A service request signed with the session key - the game's saves once a wallet is signed in.
+   *  Resolves `{"status","body"}` JSON whatever the status; status 0 when nothing came back. */
+  request(args: { method: string; path: string; body?: string }): Promise<string>;
+
   /**
    * The service SESSION `proveOwnership` obtained, or "" before a proof. C# hands it to the save
    * store (ServiceIdentity) so the guest's saves can graduate onto the wallet and every save after

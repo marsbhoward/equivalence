@@ -1,7 +1,8 @@
 import type { Request, Response } from 'express';
 import { getAddressDetails } from '@lucid-evolution/lucid';
 import { internal } from '../errors.js';
-import { assetNameText, assetsAt, resolveImage } from '../blockfrost.js';
+import { assetNameText, assetsAt } from '../blockfrost.js';
+import { imagePath } from './img.js';
 import { cachedAssetInfo } from '../assetCache.js';
 
 /**
@@ -23,7 +24,8 @@ import { cachedAssetInfo } from '../assetCache.js';
  *     Collection  the metadata's own collection if it declares one, else the policy id
  *     Slot        `slot` from the metadata, naming a rig slot ("Head", "Weapon"); empty means
  *                 display-only art, which is the common case for arbitrary wallet contents
- *     ImageUrl    resolved to something a browser can actually fetch - ipfs:// is not
+ *     ImageUrl    `/img/<unit>?v=..` on this service (routes/img.ts) - never the gateway itself;
+ *                 the page may only talk to its own origin
  *
  * QUANTITY IS IGNORED and every unit appears once. These are art, and holding two of a token does
  * not give you two of the component.
@@ -57,7 +59,8 @@ export async function components(req: Request, res: Response) {
         Title: String(m.name ?? assetNameText(a!.asset_name) ?? ''),
         Collection: String(m.collection ?? a!.policy_id),
         Slot: String(m.slot ?? ''),
-        ImageUrl: resolveImage(m.image),
+        // Our own /img route, never the gateway itself (routes/img.ts) - the page may only talk to us.
+        ImageUrl: imagePath(a!.asset, m),
       };
     });
 

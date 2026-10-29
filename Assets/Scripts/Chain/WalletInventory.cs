@@ -101,6 +101,7 @@ namespace Convergence.Chain
                     : JsonUtility.FromJson<ComponentList>(json);
 
                 _owned = parsed?.items ?? new List<OwnedComponent>();
+                Absolutise(_owned, Service.ServiceClient.BaseUrl);
                 Debug.Log($"[Chain] wallet holds {_owned.Count} component(s)");
             }
             catch (Exception e)
@@ -127,6 +128,16 @@ namespace Convergence.Chain
         /// GameBootstrap's own testing branch keeps it something that has to be turned on, not
         /// something a native build could stumble into.
         /// </summary>
+        /// <summary>The service names pictures by its own path (/img/..., web/service/src/routes/img.ts)
+        /// - the page may only fetch from its own origin. A texture request needs the whole URL.</summary>
+        static void Absolutise(List<OwnedComponent> items, string serviceUrl)
+        {
+            if (items == null || string.IsNullOrEmpty(serviceUrl)) return;
+            var root = serviceUrl.TrimEnd('/');
+            foreach (var c in items)
+                if (!string.IsNullOrEmpty(c.ImageUrl) && c.ImageUrl.StartsWith("/")) c.ImageUrl = root + c.ImageUrl;
+        }
+
         public static async Task RefreshFromServiceAsync(string serviceUrl, string address)
         {
             _owned ??= new List<OwnedComponent>();
@@ -150,6 +161,7 @@ namespace Convergence.Chain
 
             var parsed = JsonUtility.FromJson<ComponentList>(req.downloadHandler.text);
             _owned = parsed?.items ?? new List<OwnedComponent>();
+            Absolutise(_owned, serviceUrl);
             Debug.Log($"[Chain] wallet holds {_owned.Count} component(s), read from {serviceUrl}");
             Changed?.Invoke();
         }

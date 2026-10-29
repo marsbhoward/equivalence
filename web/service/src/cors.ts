@@ -29,8 +29,10 @@ export function cors(req: Request, res: Response, next: NextFunction) {
     // Tells caches the response varies by origin. Without it a proxy can serve one origin's
     // allow-header to another, which is a hole that only appears once something sits in front.
     res.setHeader('Vary', 'Origin');
-    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,HEAD,OPTIONS');
-    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization');
+    res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PUT,HEAD,OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Session-Proof');
+    // The nonce a session proof must name (session.ts) - readable cross-origin only if exposed.
+    res.setHeader('Access-Control-Expose-Headers', 'X-Proof-Nonce');
     res.setHeader('Access-Control-Max-Age', '600');
   }
 

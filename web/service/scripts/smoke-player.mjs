@@ -13,6 +13,7 @@
 // Testnet only. The operator step reads ./.write-token; nothing secret is printed.
 import { readFileSync } from 'node:fs';
 import { Blockfrost, Lucid, generatePrivateKey } from '@lucid-evolution/lucid';
+import { sessionClient } from './session-client.mjs';
 
 const url = process.argv[2] ?? 'https://equivalence-service-production.up.railway.app';
 const bfKey = process.env.BLOCKFROST_API_KEY;
@@ -27,7 +28,13 @@ const profileId = `smoke-${Date.now()}`;
 const runId = `run-${Date.now()}`;
 console.log('player', address.slice(0, 24) + '...', 'profile', profileId);
 
-async function call(path, { method = 'GET', body, auth } = {}) {
+// The player's session is key-bound (src/session.ts): its requests go through the signing client.
+const player = await sessionClient(url);
+async function call(path, opts = {}) {
+  if (opts.auth && opts.auth === player.session) return player.call(path, opts);
+  return plain(path, opts);
+}
+async function plain(path, { method = 'GET', body, auth } = {}) {
   const r = await fetch(url + path, {
     method,
     headers: { 'Content-Type': 'application/json', ...(auth ? { Authorization: `Bearer ${auth}` } : {}) },
@@ -42,14 +49,11 @@ const step = (name, r) => console.log(`${name.padEnd(22)} ${r.status} ${JSON.str
 const hex = (s) => Buffer.from(s, 'utf8').toString('hex');
 
 // 1. log in
-const ch = await call(`/auth/challenge?address=${address}`);
-step('challenge', ch);
-const sig = await lucid.wallet().signMessage(address, hex(ch.json.message));
-const replay = { address, nonce: ch.json.nonce, ...sig };
-const proved = await call('/auth/prove', { method: 'POST', body: replay });
+const proved = await player.login(lucid, address);
 step('prove', proved);
-step('prove (replayed)', await call('/auth/prove', { method: 'POST', body: replay }));
-const session = proved.json.session;
+const sig = { nonce: proved.challenge.nonce };
+step('prove (replayed)', await call('/auth/prove', { method: 'POST', body: { address, ...sig, signature: 'x', key: 'x' } }));
+const session = player.session;
 
 // 2. refusals before anything exists
 step('open, no PFP', await call('/write/open-boxes', { method: 'POST', auth: session, body: { profileId, tier: 'Diamond' } }));

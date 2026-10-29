@@ -52,13 +52,16 @@
        the page's own origin. A page hosted anywhere else names the service's full URL here and is
        added to the service's ALLOWED_ORIGINS. -->
   <script>window.EQUIVALENCE_SERVICE = "";</script>
-  <script src="connector/equivalence-chain.js" onerror="console.warn('[Equivalence] no chain connector; running on local storage')"></script>
+  <!-- No onerror="" here: the page's Content-Security-Policy (web/service/src/play.ts) runs no inline
+       handlers. A missing connector is reported by the script below instead. -->
+  <script src="connector/equivalence-chain.js"></script>
 
   <!-- Unity 2020+ template variables (triple braces). The old percent-sign form is not replaced
        any more - it shipped literally until 2026-10-13, unnoticed because the project built with
        Unity's default template. -->
   <script src="Build/{{{ LOADER_FILENAME }}}"></script>
   <script>
+    if (!window.EquivalenceChain) console.warn('[Equivalence] no chain connector; running on local storage');
     createUnityInstance(document.querySelector("#unity-canvas"), {
       dataUrl: "Build/{{{ DATA_FILENAME }}}",
       frameworkUrl: "Build/{{{ FRAMEWORK_FILENAME }}}",

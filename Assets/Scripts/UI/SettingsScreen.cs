@@ -8,7 +8,7 @@ namespace Convergence.UI
     /// <summary>
     /// The settings menu - from the hub with Escape (keyboard) or Start (gamepad), see
     /// <see cref="Controls.SettingsTapped"/>, and mid-run from the pause menu's top ring (closing
-    /// it returns there). Volumes, FULLSCREEN, and CONTROLLER CONFIGURATION, which
+    /// it returns there). Volumes, FULLSCREEN, WALLET (the browser build), and CONTROLLER CONFIGURATION, which
     /// hands off to <see cref="ControlsScreen"/> the same closes-this-opens-that way
     /// <see cref="PauseScreen"/> hands off to CHARACTER/INVENTORY/END RUN - it never nests,
     /// GameBootstrap owns the wiring back.
@@ -25,9 +25,9 @@ namespace Convergence.UI
         // ConfirmDialog and PauseScreen.
         int _openedFrame = -1;
 
-        System.Action _onControls, _onClosed;
-        RectTransform _controlsRect, _closeRect, _fullscreenRect;
-        Text _fullscreenText;
+        System.Action _onControls, _onClosed, _onWallet;
+        RectTransform _controlsRect, _closeRect, _fullscreenRect, _walletRect;
+        Text _fullscreenText, _walletText;
         // The three volume dials: a tap on a row's left half turns it down a step, the right half
         // up; a pad's A clicks the centre, which steps UP and wraps past full to silent.
         RectTransform _masterRect, _effectsRect, _ambienceRect;
@@ -36,14 +36,18 @@ namespace Convergence.UI
         readonly List<RectTransform> _focus = new();
 
         /// <summary><paramref name="onClosed"/> runs after CLOSE or <see cref="Dismiss"/> - mid-run
-        /// it is the pause menu this was opened from; from the hub, nothing.</summary>
-        public void Open(Transform canvas, System.Action onControls, System.Action onClosed = null)
+        /// it is the pause menu this was opened from; from the hub, nothing.
+        /// <paramref name="onWallet"/> (the browser build only) shares FULLSCREEN's row: connect, or
+        /// sign out - closes-this-opens-that, like CONTROLLER CONFIGURATION.</summary>
+        public void Open(Transform canvas, System.Action onControls, System.Action onClosed = null,
+                         System.Action onWallet = null)
         {
             if (IsOpen) return;
             IsOpen = true;
             _openedFrame = Time.frameCount;
             _onControls = onControls;
             _onClosed = onClosed;
+            _onWallet = onWallet;
 
             GamePause.Hold(this);
             Build(canvas);
@@ -56,11 +60,11 @@ namespace Convergence.UI
             GamePause.Release(this);
             if (_root) Destroy(_root);
             _root = null;
-            _controlsRect = _closeRect = _fullscreenRect = null;
-            _fullscreenText = null;
+            _controlsRect = _closeRect = _fullscreenRect = _walletRect = null;
+            _fullscreenText = _walletText = null;
             _masterRect = _effectsRect = _ambienceRect = null;
             _masterText = _effectsText = _ambienceText = null;
-            _onControls = _onClosed = null;
+            _onControls = _onClosed = _onWallet = null;
         }
 
         /// <summary>Closes and hands back to whoever opened it (Escape, or CLOSE).</summary>
@@ -101,7 +105,14 @@ namespace Convergence.UI
             // In a browser, Unity holds the request until the next input event (the tap's own
             // release), the only moment a page may go fullscreen; a pad's A is not one, so from a
             // pad it lands on the next key or click.
-            _fullscreenRect = Row(full, 1, "", bg, fg);
+            if (_onWallet == null) _fullscreenRect = Row(full, 1, "", bg, fg);
+            else
+            {
+                _fullscreenRect = Row(full, 1, "", bg, fg, half: -1);
+                _walletRect = Row(full, 1, "", bg, fg, half: 1);
+                _walletText = _walletRect.GetComponentInChildren<Text>();
+                _walletText.text = Chain.Web.ChainWallet.Connected ? "WALLET" : "CONNECT WALLET";
+            }
             _fullscreenText = _fullscreenRect.GetComponentInChildren<Text>();
             RefreshFullscreen();
 
@@ -117,13 +128,15 @@ namespace Convergence.UI
                 GamepadGlyphs.Cancel + " to close");
         }
 
-        static RectTransform Row(RectTransform parent, int index, string label, Color bg, Color fg)
+        /// <summary>A full-width row, or its left (<paramref name="half"/> -1) or right (1) half.</summary>
+        static RectTransform Row(RectTransform parent, int index, string label, Color bg, Color fg, int half = 0)
         {
             const float w = 520f, h = UiKit.TouchTarget, gap = 12f;
             float top = 51f;   // six rows between the title and the hint
             float y = top - index * (h + gap);
+            float x0 = half > 0 ? gap * 0.5f : -w * 0.5f, x1 = half < 0 ? -gap * 0.5f : w * 0.5f;
             var rt = UiKit.Panel(parent, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-                new Vector2(-w * 0.5f, y - h * 0.5f), new Vector2(w * 0.5f, y + h * 0.5f), bg);
+                new Vector2(x0, y - h * 0.5f), new Vector2(x1, y + h * 0.5f), bg);
             UiKit.Label(rt, label, 22, fg, TextAnchor.MiddleCenter);
             return rt;
         }
@@ -137,7 +150,9 @@ namespace Convergence.UI
 
             _focus.Clear();
             _focus.Add(_masterRect); _focus.Add(_effectsRect); _focus.Add(_ambienceRect);
-            _focus.Add(_fullscreenRect); _focus.Add(_controlsRect); _focus.Add(_closeRect);
+            _focus.Add(_fullscreenRect);
+            if (_walletRect != null) _focus.Add(_walletRect);
+            _focus.Add(_controlsRect); _focus.Add(_closeRect);
             Controls.SetFocusCandidates(_focus);
 
             // The browser (or Escape there) changes it too, and a request lands a beat later.
@@ -154,6 +169,7 @@ namespace Convergence.UI
             if (Hit(_effectsRect, p)) { Audio.Volume.Effects = Step(Audio.Volume.Effects, _effectsRect, p); RefreshVolumes(); Audio.Sfx.Play(Audio.Sound.HitLight); return; }
             if (Hit(_ambienceRect, p)) { Audio.Volume.Ambience = Step(Audio.Volume.Ambience, _ambienceRect, p); RefreshVolumes(); return; }
             if (Hit(_fullscreenRect, p)) { Screen.fullScreen = !Screen.fullScreen; return; }
+            if (Hit(_walletRect, p)) { var cb = _onWallet; Close(); cb?.Invoke(); return; }
             if (Hit(_controlsRect, p)) { var cb = _onControls; cb?.Invoke(); return; }
         }
 
@@ -178,7 +194,7 @@ namespace Convergence.UI
 
         void RefreshFullscreen()
         {
-            var line = Screen.fullScreen ? "FULLSCREEN   ON" : "FULLSCREEN   OFF";
+            var line = Screen.fullScreen ? "FULLSCREEN  ON" : "FULLSCREEN  OFF";
             if (_fullscreenText != null && _fullscreenText.text != line) _fullscreenText.text = line;
         }
 

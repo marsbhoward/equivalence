@@ -128,9 +128,15 @@ export const overall = (name: string, limit: Limit) => limiter(name, limit, () =
 export const LIMITS = {
   // ---- before authentication (per IP)
   auth: { burst: 10, perMinute: 30 },
+  /** /auth/session and signing out (session.ts) - every page load asks once or twice. */
+  sessionIp: { burst: 30, perMinute: 120 },
   publicRead: { burst: 20, perMinute: 60 },
   components: { burst: 10, perMinute: 20 },
   art: { burst: 60, perMinute: 120 },
+  /** Wallet pictures (routes/img.ts) - a crate opening asks for up to 24 at once. */
+  img: { burst: 60, perMinute: 240 },
+  /** CSP violation reports (play.ts) - a page can fire a burst; nothing past this is worth logging. */
+  csp: { burst: 20, perMinute: 30 },
   writeIp: { burst: 30, perMinute: 60 },
   savesIp: { burst: 300, perMinute: 900 },
   // ---- after authentication (per identity)

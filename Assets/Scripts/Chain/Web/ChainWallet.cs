@@ -62,15 +62,25 @@ namespace Convergence.Chain.Web
             }
         }
 
+        /// <summary>The two things a first connect asks the wallet for, told to the game before each
+        /// so it can say what the popup is about to ask (CIP-30 has no way to ask for both at once).</summary>
+        public enum Step { Access, Sign, Done }
+
         /// <summary>
         /// Authorise, prove, and load what the wallet owns. Returns the address, or empty if the
         /// player declined - which is an ordinary thing to do and leaves the game exactly as it
-        /// was, still playable on the local record.
+        /// was, still playable on the local record. <paramref name="onStep"/> hears each wallet
+        /// popup before it opens; a session this browser already holds for the address skips the
+        /// signature, and its step is never announced.
         /// </summary>
-        public static async Task<string> ConnectAsync(string walletKey)
+        public static async Task<string> ConnectAsync(string walletKey, Action<Step> onStep = null)
         {
             try
             {
+                // Switching wallets: the old one signs out here first, so its session and key go.
+                if (Connected) await DisconnectAsync(everywhere: false);
+
+                onStep?.Invoke(Step.Access);
                 var address = await WebChainBridge.Call("connect", new ChainArgs { wallet = walletKey });
                 Address = address ?? "";
                 Proven = false;
@@ -78,7 +88,9 @@ namespace Convergence.Chain.Web
 
                 if (Connected)
                 {
+                    if (!await RememberedAsync()) onStep?.Invoke(Step.Sign);
                     await ProveAsync();
+                    onStep?.Invoke(Step.Done);
                     await WalletInventory.RefreshAsync();
                     Debug.Log($"[Chain] connected {walletKey}: {Short(Address)} (proven={Proven})");
                 }
@@ -90,9 +102,51 @@ namespace Convergence.Chain.Web
             {
                 Debug.LogWarning($"[Chain] connect({walletKey}) refused or failed: {e.Message}");
                 Address = ""; Proven = false; Session = "";
+                onStep?.Invoke(Step.Done);
                 Changed?.Invoke();
                 return "";
             }
+        }
+
+        [Serializable]
+        class Resumed { public string wallet; public string address; }
+
+        /// <summary>
+        /// A QUIET reconnect at boot: the wallet signed in on an earlier visit, its session still
+        /// holds, and the wallet already lets the site in - so no popup at all. Returns the address,
+        /// or empty, in which case the player connects at the booth as usual.
+        /// </summary>
+        public static async Task<string> ResumeAsync()
+        {
+            if (!Available) return "";
+            try
+            {
+                var json = await WebChainBridge.Call("resume");
+                var r = string.IsNullOrEmpty(json) ? null : JsonUtility.FromJson<Resumed>(json);
+                if (r == null || string.IsNullOrEmpty(r.address)) return "";
+                Address = r.address;
+                Session = await WebChainBridge.Call("session") ?? "";
+                Proven = !string.IsNullOrEmpty(Session);
+                if (!Proven) { Address = ""; return ""; }
+                await WalletInventory.RefreshAsync();
+                Debug.Log($"[Chain] resumed {r.wallet}: {Short(Address)}");
+                Changed?.Invoke();
+                return Address;
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[Chain] resume failed: {e.Message}");
+                Address = ""; Proven = false; Session = "";
+                return "";
+            }
+        }
+
+        /// <summary>Whether this browser already holds a session for the connected address - the
+        /// signature step is skipped, so the game does not announce it.</summary>
+        static async Task<bool> RememberedAsync()
+        {
+            try { return await WebChainBridge.Call("remembered", new ChainArgs { accountId = Address }) == "true"; }
+            catch { return false; }
         }
 
         /// <summary>
@@ -126,13 +180,18 @@ namespace Convergence.Chain.Web
             }
         }
 
-        public static async void Disconnect()
+        /// <summary>
+        /// Signs out. Here: the remembered session and the key it is bound to are dropped, so it
+        /// cannot be used again. <paramref name="everywhere"/>: the service ends every session of
+        /// this address first, on every device.
+        /// </summary>
+        public static async Task DisconnectAsync(bool everywhere)
         {
+            try { await WebChainBridge.Call(everywhere ? "signOutEverywhere" : "disconnect"); }
+            catch (Exception e) { Debug.LogWarning($"[Chain] {(everywhere ? "sign out everywhere" : "disconnect")}: {e.Message}"); }
             Address = ""; Proven = false; Session = "";
             WalletInventory.Clear();
             Changed?.Invoke();
-            try { await WebChainBridge.Call("disconnect"); }
-            catch (Exception e) { Debug.LogWarning($"[Chain] disconnect: {e.Message}"); }
         }
 
         /// <summary>An address is 100+ characters; the hub has room for neither end of it.</summary>

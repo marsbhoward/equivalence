@@ -546,11 +546,23 @@ namespace Convergence.Core
                 : _player.Blade != null && _player.Blade.Airborne ? 1f
                 : _player.Resource != null ? _player.Resource.Fill01 : 0f;
 
+            // A wallet signed in on an earlier visit comes back QUIETLY - no popup - before anything
+            // loads, so the hub opens on the wallet's characters rather than flashing the guest's.
+            string resumed = "";
+            if (StoreFactory.UsingService && Chain.Web.ChainWallet.Available)
+            {
+                resumed = await Chain.Web.ChainWallet.ResumeAsync();
+                if (!string.IsNullOrEmpty(resumed) &&
+                    await Chain.Service.ServiceIdentity.AttachWalletAsync(resumed, Chain.Web.ChainWallet.Session)
+                        == Chain.Service.ServiceIdentity.Graduation.Failed)
+                    resumed = "";
+            }
+
             _profile = await _store.LoadAsync(await _store.DefaultProfileIdAsync());
 
             // No wallet is connected, so the account is the local one. Connecting a wallet later
             // means loading by its address, and adopting this record if that address has none.
-            _account = await _accounts.LoadAsync(AccountProfile.LocalId);
+            _account = await _accounts.LoadAsync(string.IsNullOrEmpty(resumed) ? AccountProfile.LocalId : resumed);
 
             // Saved loadouts store the slot as an int, so any reshuffle of GearSlot re-points them
             // at the wrong slot. Prune anything whose item no longer belongs where it sits.
@@ -1336,16 +1348,75 @@ namespace Convergence.Core
         {
             bool last = i == wallets.Length - 1;
             ConfirmDialog.Show(_canvas.transform, $"CONNECT {wallets[i].ToUpperInvariant()}?",
-                "The wallet signs a message proving the address - no fee, and nothing moves. If it has no " +
-                "characters of its own, this browser's characters and room move onto it.",
+                "Your wallet asks twice: once to let Equivalence see your address, then to sign a message " +
+                "proving it is yours. Signing is free and is not a transaction - nothing moves. This browser " +
+                "remembers it afterwards. If the wallet has no characters of its own, this browser's " +
+                "characters and room move onto it.",
                 "Connect", last ? "Not now" : "Another wallet",
                 async () =>
                 {
-                    var address = await Chain.Web.ChainWallet.ConnectAsync(wallets[i]);
+                    var address = await Chain.Web.ChainWallet.ConnectAsync(wallets[i], WalletStep);
                     if (!string.IsNullOrEmpty(address)) ConnectWallet(address);
                     _hub?.RefreshBooth();
                 },
                 last ? null : () => OfferWallet(wallets, i + 1));
+        }
+
+        /// <summary>What the wallet's popup is about to ask, said in the game first - an unexplained
+        /// popup reads as something going wrong, and a signature request reads as a payment.</summary>
+        void WalletStep(Chain.Web.ChainWallet.Step step)
+        {
+            if (ConfirmDialog == null) return;
+            ConfirmDialog.Close();
+            switch (step)
+            {
+                case Chain.Web.ChainWallet.Step.Access:
+                    ConfirmDialog.ShowNotice(_canvas.transform, "STEP 1 OF 2",
+                        "Allow Equivalence in your wallet's window. It shares your address, nothing else.", "OK");
+                    break;
+                case Chain.Web.ChainWallet.Step.Sign:
+                    ConfirmDialog.ShowNotice(_canvas.transform, "STEP 2 OF 2",
+                        "Sign the message in your wallet's window. It proves the address is yours - free, " +
+                        "and not a transaction.", "OK");
+                    break;
+            }
+        }
+
+        /// <summary>The settings menu's WALLET entry: connect, or sign out of the one connected.
+        /// Hub only - changing wallets mid-run would move the run's saves to another account.</summary>
+        void OpenWalletMenu()
+        {
+            if (ConfirmDialog == null || ConfirmDialog.IsOpen) return;
+            if (_state != State.Hub)
+            {
+                ConfirmDialog.ShowNotice(_canvas.transform, "WALLET", "Change wallets from the hub.", "OK",
+                    OpenPauseMenu);
+                return;
+            }
+            if (!Chain.Web.ChainWallet.Connected) { BeginConnectWallet(); return; }
+            ConfirmDialog.ShowChoice(_canvas.transform, "WALLET",
+                $"Signed in as {Chain.Web.ChainWallet.Short(Chain.Web.ChainWallet.Address)}. Disconnect signs " +
+                "this browser out. Sign out everywhere also ends this wallet's sessions on every other device.",
+                "Sign out everywhere", "Disconnect", "Cancel",
+                () => DisconnectWallet(everywhere: true),
+                () => DisconnectWallet(everywhere: false));
+        }
+
+        /// <summary>Back to this browser's guest: its characters and room, as they were left.</summary>
+        async void DisconnectWallet(bool everywhere)
+        {
+            await Chain.Web.ChainWallet.DisconnectAsync(everywhere);
+            Chain.Service.ServiceIdentity.DetachWallet();
+            if (_state == State.Hub)
+            {
+                await BecomeAsync(await _store.DefaultProfileIdAsync(), force: true);
+                _account = await _accounts.LoadAsync(AccountProfile.LocalId);
+                ShowHub();
+            }
+            _hub?.RefreshBooth();
+            ConfirmDialog?.ShowNotice(_canvas.transform, "SIGNED OUT",
+                everywhere ? "This wallet is signed out on every device." : "This browser is signed out of the wallet.",
+                "OK");
         }
 
         /// <summary>
@@ -5850,7 +5921,8 @@ namespace Convergence.Core
         /// pause menu - through Controller Configuration and back as well.</summary>
         void OpenSettings()
             => SettingsScreen.Open(_canvas.transform, OpenControlsScreen,
-                                   _state == State.Playing ? OpenPauseMenu : null);
+                                   _state == State.Playing ? OpenPauseMenu : null,
+                                   Chain.Web.ChainWallet.Available ? OpenWalletMenu : null);
 
         /// <summary>
         /// Closes SettingsScreen and opens ControlsScreen; ControlsScreen's own BACK button closes

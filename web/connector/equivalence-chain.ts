@@ -36,6 +36,97 @@ let address = '';
  *  must never reach a browser. */
 let session = '';
 
+// ---- the session key ------------------------------------------------------------------------------
+//
+// A wallet session is BOUND to a P-256 key made here and never exportable (web/service/src/session.ts):
+// every request the session authorises is signed with it, so the session token alone - which is
+// kept in localStorage so a reload or a later visit does not ask the wallet again - is useless
+// anywhere but this browser. The key lives in IndexedDB as a CryptoKey object, which the browser
+// stores without ever handing script the private half.
+
+const KEY_DB = 'equivalence-keys';
+const STORED = 'equivalence.wallet';
+
+type Stored = { wallet: string; address: string; session: string; expiresAt: number };
+
+function idb<T>(mode: IDBTransactionMode, run: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const open = indexedDB.open(KEY_DB, 1);
+    open.onupgradeneeded = () => open.result.createObjectStore('keys');
+    open.onerror = () => reject(open.error);
+    open.onsuccess = () => {
+      const tx = open.result.transaction('keys', mode);
+      const req = run(tx.objectStore('keys'));
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+      tx.oncomplete = () => open.result.close();
+    };
+  });
+}
+
+let keyPair: CryptoKeyPair | null = null;
+
+/** This browser's session key, made on first use. */
+async function sessionKey(): Promise<CryptoKeyPair> {
+  if (keyPair) return keyPair;
+  const kept = await idb<CryptoKeyPair | undefined>('readonly', s => s.get('session')).catch(() => undefined);
+  if (kept?.privateKey && kept.publicKey) return (keyPair = kept);
+  const made = await crypto.subtle.generateKey({ name: 'ECDSA', namedCurve: 'P-256' }, false, ['sign', 'verify']);
+  await idb('readwrite', s => s.put(made, 'session')).catch(() => undefined);
+  return (keyPair = made);
+}
+
+/** A new key next sign-in - signing out drops the old one, which ends its session here for good. */
+async function dropKey() {
+  keyPair = null;
+  await idb('readwrite', s => s.delete('session')).catch(() => undefined);
+}
+
+/** The public half as the service names it: `<x>.<y>`, base64url. */
+async function publicName(): Promise<string> {
+  const jwk = await crypto.subtle.exportKey('jwk', (await sessionKey()).publicKey);
+  return `${jwk.x}.${jwk.y}`;
+}
+
+const b64url = (buf: ArrayBuffer) =>
+  btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+
+/** The nonce the service last named (every response carries X-Proof-Nonce), and its clock's offset. */
+let proofNonce = '';
+let clockOffset = 0;
+
+/** X-Session-Proof for one request: METHOD \n url \n ts \n nonce \n sha256(body). */
+async function proof(method: string, url: URL, body: string): Promise<string> {
+  const ts = String(Date.now() + clockOffset);
+  const bodyHash = b64url(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(body)));
+  const signed = `${method.toUpperCase()}\n${url.pathname}${url.search}\n${ts}\n${proofNonce}\n${bodyHash}`;
+  const sig = await crypto.subtle.sign({ name: 'ECDSA', hash: 'SHA-256' }, (await sessionKey()).privateKey,
+    new TextEncoder().encode(signed));
+  return `${ts}.${proofNonce}.${b64url(sig)}`;
+}
+
+function remember(wallet: string, expiresAt: number) {
+  try {
+    localStorage.setItem(STORED, JSON.stringify({ wallet, address, session, expiresAt } satisfies Stored));
+  } catch { /* storage blocked: this visit still works, the next one asks again */ }
+}
+
+function recalled(): Stored | null {
+  try {
+    const s = JSON.parse(localStorage.getItem(STORED) ?? 'null') as Stored | null;
+    return s && s.session && s.address && s.expiresAt > Date.now() + 60_000 ? s : null;
+  } catch {
+    return null;
+  }
+}
+
+function forget() {
+  try { localStorage.removeItem(STORED); } catch { /* nothing to remove */ }
+}
+
+/** Which wallet is connected - remembered alongside the session, for a quiet reconnect. */
+let walletKey = '';
+
 /**
  * Where the service lives. Read off a global rather than import.meta, because this bundles to an
  * IIFE loaded by a plain <script> tag before the Unity instance boots - import.meta.env is empty
@@ -45,18 +136,57 @@ let session = '';
  */
 const SERVICE = (window as any).EQUIVALENCE_SERVICE ?? '/api';
 
-async function service(path: string, init?: RequestInit): Promise<Response> {
-  const r = await fetch(`${SERVICE}${path}`, {
+/** A request to the service, signed with the session key whenever there is a session. Retried
+ *  once when the service says the proof's nonce or clock was stale - it has just named fresh ones. */
+async function send(path: string, init: RequestInit = {}, retried = false): Promise<Response> {
+  const url = new URL(`${SERVICE}${path}`, location.href);
+  const method = (init.method ?? 'GET').toUpperCase();
+  const body = typeof init.body === 'string' ? init.body : '';
+  const r = await fetch(url, {
     ...init,
     headers: {
       'content-type': 'application/json',
-      ...(session ? { authorization: `Bearer ${session}` } : {}),
-      ...(init?.headers ?? {}),
+      ...(session ? { authorization: `Bearer ${session}`, 'x-session-proof': await proof(method, url, body) } : {}),
+      ...(init.headers ?? {}),
     },
   });
+  const nonce = r.headers.get('x-proof-nonce');
+  if (nonce) proofNonce = nonce;
+  const date = Date.parse(r.headers.get('date') ?? '');
+  if (!Number.isNaN(date)) clockOffset = date - Date.now();
+  if (r.status === 401 && session && !retried) {
+    const code = (await r.clone().json().catch(() => ({})))?.code;
+    if (code === 'proof_nonce' || code === 'proof_clock' || code === 'proof_missing') return send(path, init, true);
+  }
+  return r;
+}
+
+async function service(path: string, init?: RequestInit): Promise<Response> {
+  const r = await send(path, init);
   if (!r.ok) throw new Error(`${path} -> ${r.status} ${await r.text().catch(() => r.statusText)}`);
   return r;
 }
+
+/** Whether the remembered session for this address still holds, asked of the service - and the
+ *  answer trusted for half a minute, since a connect asks twice (remembered, then proveOwnership). */
+let heldAt = 0;
+async function sessionHolds(forAddress: string): Promise<boolean> {
+  const kept = recalled();
+  if (!kept || !sameAddress(kept.address, forAddress)) return false;
+  session = kept.session;
+  if (Date.now() - heldAt < 30_000) return true;
+  const r = await send('/auth/session').catch(() => null);
+  if (r?.ok) { heldAt = Date.now(); return true; }
+  heldAt = 0;
+  // Expired, signed out elsewhere, or made with a key this browser no longer has.
+  session = '';
+  if (r && r.status === 401) forget();
+  return false;
+}
+
+/** CIP-30 hands out hex; the service answers bech32. Compared by asking nothing: both are stored
+ *  as the wallet gave them, and a mismatch only costs one extra signature. */
+const sameAddress = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
 /** Hex-encode for CIP-30 signData, which takes a hex payload rather than raw text. */
 const hex = (s: string) =>
@@ -83,14 +213,44 @@ export const connector: EquivalenceChain = {
     const unused = used.length ? [] : await api!.getUnusedAddresses();
     address = used[0] ?? unused[0] ?? '';
     if (!address) throw new Error('wallet authorised but exposed no address');
+    walletKey = wallet;
     return address;
+  },
+
+  async resume() {
+    // A QUIET reconnect at boot: only when a session is remembered, the wallet already lets this
+    // site in (isEnabled - no popup), the wallet still shows the same address, and the service
+    // still honours the session. Anything less resolves '' and the player connects as usual.
+    const kept = recalled();
+    if (!kept) return '';
+    const provider = (window as any).cardano?.[kept.wallet];
+    if (!provider || typeof provider.isEnabled !== 'function') return '';
+    if (!(await provider.isEnabled().catch(() => false))) return '';
+    try {
+      api = await provider.enable();
+      const used = await api!.getUsedAddresses();
+      const unused = used.length ? [] : await api!.getUnusedAddresses();
+      const now = used[0] ?? unused[0] ?? '';
+      if (!now || !sameAddress(now, kept.address)) { api = null; return ''; }
+      if (!(await sessionHolds(now))) { api = null; return ''; }
+      address = now;
+      walletKey = kept.wallet;
+      return JSON.stringify({ wallet: kept.wallet, address });
+    } catch {
+      api = null;
+      return '';
+    }
   },
 
   async proveOwnership({ accountId }) {
     if (!api) throw new Error('no wallet connected');
+    // A session this browser already holds for this address - no second popup.
+    if (await sessionHolds(accountId)) return 'remembered';
+    session = '';
     // The NONCE comes from the service, never from here - a nonce the client chose would let a
     // captured signature be replayed. One nonce, one attempt, five minutes.
-    const ch = await service(`/auth/challenge?address=${encodeURIComponent(accountId)}`);
+    const ch = await service(`/auth/challenge?address=${encodeURIComponent(accountId)}` +
+      `&key=${encodeURIComponent(await publicName())}`);
     const { nonce, message } = await ch.json();
 
     // signData, NOT signTx. No fee, no UTxO, nothing to approve beyond "yes this is my address".
@@ -103,15 +263,51 @@ export const connector: EquivalenceChain = {
       method: 'POST',
       body: JSON.stringify({ address: accountId, nonce, ...sig }),
     });
-    session = (await proved.json()).session ?? '';
+    const issued = await proved.json();
+    session = issued.session ?? '';
     if (!session) throw new Error('the service issued no session');
+    remember(walletKey, Number(issued.expiresAt) || Date.now());
     return sig.signature;
   },
 
-  disconnect() {
+  async disconnect() {
+    // Signing out HERE: the remembered session and the key it is bound to both go, so the
+    // session cannot be used again even if a copy of the token survives somewhere.
     api = null;
     address = '';
     session = '';
+    walletKey = '';
+    heldAt = 0;
+    forget();
+    await dropKey();
+  },
+
+  async signOutEverywhere() {
+    // Every session of this address, on every device, ends at the service - then this one here,
+    // whether or not the service answered (a failed call must not leave this browser signed in).
+    try {
+      if (session) await service('/auth/signout-everywhere', { method: 'POST', body: '{}' });
+    } finally {
+      await connector.disconnect({});
+    }
+  },
+
+  async remembered({ accountId }) {
+    // Whether proveOwnership will need the wallet at all - the game only announces the signature
+    // step when it is really coming.
+    return (await sessionHolds(accountId)) ? 'true' : '';
+  },
+
+  async request({ method, path, body }) {
+    // The game's own saves (ServiceClient) once a wallet is signed in: they must carry the session
+    // key's proof, and only this side holds the key. Never rejects on an HTTP status - the game
+    // reads the status itself, exactly as it does for its own requests.
+    try {
+      const r = await send(path, { method, ...(body ? { body } : {}) });
+      return JSON.stringify({ status: r.status, body: await r.text() });
+    } catch (e) {
+      return JSON.stringify({ status: 0, body: '', error: (e as Error).message });
+    }
   },
 
   session() {

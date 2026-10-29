@@ -2,7 +2,7 @@ import type { NextFunction, Request, Response } from 'express';
 import { internal } from './errors.js';
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import { q } from './db.js';
-import { sessionAddress } from './session.js';
+import { bearer, verifySession } from './session.js';
 
 /**
  * WHO A SAVE BELONGS TO - a guest, or a proven wallet.
@@ -80,8 +80,7 @@ export async function newGuest(req: Request, res: Response): Promise<void> {
  * (the key every save is stored under) and `res.locals.kind` ('guest' | 'wallet').
  */
 export async function requireIdentity(req: Request, res: Response, next: NextFunction) {
-  const header = req.headers.authorization ?? '';
-  const token = header.startsWith('Bearer ') ? header.slice(7) : '';
+  const token = bearer(req);
   try {
     const gid = token ? guestId(token) : null;
     if (gid) {
@@ -94,11 +93,13 @@ export async function requireIdentity(req: Request, res: Response, next: NextFun
       res.locals.guestId = gid;
       return next();
     }
-    const address = token ? sessionAddress(token) : null;
-    if (address) {
-      res.locals.owner = address;
+    if (token) {
+      const v = await verifySession(req, token);
+      if ('refused' in v) return void res.status(401).json({ error: v.refused, code: v.code });
+      res.locals.owner = v.address;
       res.locals.kind = 'wallet';
-      res.locals.address = address;
+      res.locals.address = v.address;
+      res.locals.sessionExpires = v.expiresAt;
       return next();
     }
   } catch (e) {

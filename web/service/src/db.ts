@@ -280,6 +280,15 @@ const MIGRATIONS: string[] = [
     ADD COLUMN pose      TEXT,
     ADD COLUMN pose_gold INTEGER NOT NULL DEFAULT 0;
   `,
+  // 10 - signing out everywhere (session.ts): a session carries its address's epoch, and bumping
+  // the epoch ends every session issued before it.
+  `
+  CREATE TABLE session_epochs (
+    address       TEXT PRIMARY KEY,
+    epoch         INTEGER NOT NULL,
+    bumped_at     TIMESTAMPTZ NOT NULL DEFAULT now()
+  );
+  `,
 ];
 
 /** Applies every migration not yet applied. Called once at start-up. */

@@ -52,6 +52,12 @@ namespace Convergence.Chain.Service
 
         public static Task<Reply> Send(string method, string path, string json, string token)
         {
+            // A WALLET session is bound to a key only the browser connector holds (web/service/src/
+            // session.ts) - every request it authorises must be signed there, so it goes out through
+            // the connector. A guest token is a plain bearer and stays here.
+            if (!string.IsNullOrEmpty(token) && token == Web.ChainWallet.Session && Web.WebChainBridge.Available)
+                return SendSigned(method, path, json);
+
             var tcs = new TaskCompletionSource<Reply>();
             UnityWebRequest req;
             try
@@ -86,6 +92,31 @@ namespace Convergence.Chain.Service
                 tcs.SetResult(reply);
             };
             return tcs.Task;
+        }
+
+        [Serializable]
+        class SignedReply { public long status; public string body; public string error; }
+
+        static async Task<Reply> SendSigned(string method, string path, string json)
+        {
+            try
+            {
+                var raw = await Web.WebChainBridge.Call("request",
+                    new Web.ChainArgs { method = method, path = path, body = json ?? "" });
+                var r = JsonUtility.FromJson<SignedReply>(raw ?? "");
+                if (r == null) return new Reply { Status = 0, Error = "no reply from the connector" };
+                bool ok = r.status >= 200 && r.status < 300;
+                return new Reply
+                {
+                    Status = r.status,
+                    Body = r.body ?? "",
+                    Error = ok ? null : (string.IsNullOrEmpty(r.error) ? $"HTTP {r.status}" : r.error),
+                };
+            }
+            catch (Exception e)
+            {
+                return new Reply { Status = 0, Error = e.Message };
+            }
         }
 
         /// <summary>A JSON string literal - JsonUtility cannot serialise a bare string.</summary>
