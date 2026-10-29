@@ -496,7 +496,7 @@ namespace Convergence.Core
             // Editor testing only - see WalletInventory.RefreshFromServiceAsync's own note. Awaited
             // here rather than fired and forgotten, so the crate and gallery already show the real
             // holdings the first time the hub itself is built rather than popping in a frame later.
-            if (!Tuning.Testing.DemoShowcase && !string.IsNullOrEmpty(Tuning.Testing.DemoWalletAddress))
+            if (Application.isEditor && !Tuning.Testing.DemoShowcase && !string.IsNullOrEmpty(Tuning.Testing.DemoWalletAddress))
                 await WalletInventory.RefreshFromServiceAsync(
                     Tuning.Testing.DemoWalletServiceUrl, Tuning.Testing.DemoWalletAddress);
 

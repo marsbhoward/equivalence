@@ -13,7 +13,7 @@ namespace Convergence.EditorTools
     /// </summary>
     public static class WebBuild
     {
-        public const string OutputDir = "Build/Web";
+        public const string OutputDir = "Builds/WebGL";   // what CHAIN.md's upload step reads
 
         [MenuItem("Convergence/Build for Web")]
         public static string BuildWeb()
@@ -56,8 +56,12 @@ namespace Convergence.EditorTools
             // Brotli is roughly a third the size of gzip and the download is the first thing a
             // player experiences. It needs the server to send Content-Encoding: br - if you are
             // serving from something that will not, switch to Gzip or the build will not load.
+            // No fallback: the service (web/service/src/play.ts) sends the headers, and a fallback
+            // ships a slower JS decompressor nobody needs.
             PlayerSettings.WebGL.compressionFormat = WebGLCompressionFormat.Brotli;
-            PlayerSettings.WebGL.decompressionFallback = true;
+            PlayerSettings.WebGL.decompressionFallback = false;
+            // Content-hash names, which play.ts caches for a year.
+            PlayerSettings.WebGL.nameFilesAsHashes = true;
 
             PlayerSettings.WebGL.dataCaching = true;
 
@@ -85,7 +89,7 @@ namespace Convergence.EditorTools
             PlayerSettings.allowedAutorotateToLandscapeRight = true;
 
             AssetDatabase.SaveAssets();
-            return "web settings applied: template=Equivalence, brotli, 512/2048 MB, landscape only";
+            return "web settings applied: template=Equivalence, brotli (no fallback), hashed names, 512/2048 MB, landscape only";
         }
     }
 }
