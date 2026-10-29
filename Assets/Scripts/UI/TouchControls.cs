@@ -11,11 +11,13 @@ namespace Convergence.UI
     /// The on-screen controls: a movement stick on the left, actions on the right.
     ///
     /// The action buttons are drawn on EVERY device, not only touch - one HUD, so a player who
-    /// moves between a phone and a desk finds the same picture. Off touch they are READOUTS: no
-    /// stick, nothing claims input, each carries the key (or pad button) that fires it, and it
-    /// lights while that key is held. The cooldown rings mean the same thing either way. Modals
-    /// keep their BACK button to touch, where it is the only way out; a keyboard has Escape and
-    /// every screen already says so.
+    /// moves between a phone and a desk finds the same picture. Off touch there is no stick, each
+    /// button carries the key (or pad button) that fires it and lights while that key is held -
+    /// and it is still CLICKABLE: a left click on one presses it, exactly as a finger would. A
+    /// button that is drawn but ignores the pointer reads as broken, not as a readout (the user's
+    /// call, 2026-10-29). The cooldown rings mean the same thing either way. Modals keep their
+    /// BACK button to touch, where it is the only way out; a keyboard has Escape and every screen
+    /// already says so.
     ///
     /// Runs at a negative execution order so the state it writes into <see cref="Controls"/> is
     /// already correct before any Update reads it. Order between runtime-built MonoBehaviours is
@@ -66,6 +68,16 @@ namespace Convergence.UI
         /// </summary>
         const float RingPad = 12f;
 
+        /// <summary>
+        /// How far past its drawn ring a button still takes a press, as a multiple of the ring's
+        /// radius. A thumb lands where it MEANT to, give or take its own width, and the drawn
+        /// disc is smaller than the pad of a thumb on a phone - so a press just off the edge
+        /// counted for nothing, and USE in the corner was a target to aim at rather than to hit.
+        /// Overlaps are settled by distance (<see cref="ButtonAt"/>), so the slop never steals a
+        /// press from the neighbour it was nearer.
+        /// </summary>
+        const float HitSlop = 1.25f;
+
         RectTransform _root, _stickBase, _stickKnob, _stickZone;
         readonly List<Btn> _buttons = new();
 
@@ -99,6 +111,9 @@ namespace Convergence.UI
             /// element has built, needs to disappear entirely rather than sit permanently dim.</summary>
             public System.Func<bool> Visible;
             public int Finger = -1;
+            /// <summary>A tap that went down and up between two frames - pressed for exactly
+            /// one frame, see <see cref="TouchControls.Update"/>.</summary>
+            public bool Pulse;
 
             /// <summary>
             /// Whether dragging this button AIMS a weapon art (ATTACK only - the user's call,
@@ -378,10 +393,17 @@ namespace Convergence.UI
                 if (screen != null) Pinch(screen.touches);
                 if (screen != null) CollectFreeTaps(screen, claimNothing: true);
                 ReleaseAll();
-                if (_mode != Controls.Context.Hidden && !Controls.TouchMode) PaintReadouts();
+                _seen.Clear();
+                if (_mode != Controls.Context.Hidden && !Controls.TouchMode)
+                {
+                    Click();
+                    PaintReadouts();
+                }
+                else ReleaseClick();
                 return;
             }
 
+            ReleaseClick();
             var touches = screen.touches;
             bool stickStillDown = false;
 
@@ -390,16 +412,28 @@ namespace Convergence.UI
             // arena and the hub never do, so this costs a distance check.
             Pinch(touches);
 
+            _seenNow.Clear();
             foreach (var t in touches)
             {
                 var phase = t.phase.ReadValue();
-                bool down = phase == UnityEngine.InputSystem.TouchPhase.Began;
+                int id = t.touchId.ReadValue();
                 bool active = phase is UnityEngine.InputSystem.TouchPhase.Began
                                     or UnityEngine.InputSystem.TouchPhase.Moved
                                     or UnityEngine.InputSystem.TouchPhase.Stationary;
-                if (!active) continue;
+                if (!active)
+                {
+                    if (phase == UnityEngine.InputSystem.TouchPhase.Ended) QuickTap(t, id);
+                    continue;
+                }
+                _seenNow.Add(id);
 
-                int id = t.touchId.ReadValue();
+                // A finger is NEW the first frame this file sees its id, not only on a Began
+                // phase. A mobile browser does not reliably deliver one: a second finger landing
+                // while the first steers can arrive already Moved (its touchstart and first
+                // touchmove landing in one frame), and a finger that was never seen down was a
+                // finger nothing could ever claim - the stick worked, and the button under the
+                // other thumb did not.
+                bool down = phase == UnityEngine.InputSystem.TouchPhase.Began || !_seen.Contains(id);
                 var pos = t.position.ReadValue();
 
                 // ---- the stick keeps the finger it started with, wherever it goes ----
@@ -428,7 +462,7 @@ namespace Convergence.UI
                     continue;
                 }
 
-                var pressed = _buttons.Find(b => b.Rect.gameObject.activeSelf && Inside(b.Rect, pos));
+                var pressed = ButtonAt(pos);
                 if (pressed != null)
                 {
                     pressed.Finger = id;
@@ -455,17 +489,72 @@ namespace Convergence.UI
             }
 
             if (!stickStillDown) DropStick();
+            (_seen, _seenNow) = (_seenNow, _seen);
 
             foreach (var b in _buttons)
             {
                 bool down = b.Finger >= 0 && StillDown(touches, b.Finger);
                 if (!down) b.Finger = -1;
+                down |= b.Pulse;
+                b.Pulse = false;
                 bool pressedNow = down;
                 if (b.DragAims) pressedNow = DragAim(b, down);
                 b.Set(pressedNow);
                 Paint(b, down);
             }
         }
+
+        HashSet<int> _seen = new(), _seenNow = new();
+        readonly Dictionary<int, double> _quickTapped = new();
+
+        /// <summary>
+        /// A finger that went down AND up between two frames - a quick tap on a phone that is
+        /// busy drawing. It is never seen active, so without this it pressed nothing at all. It
+        /// presses for one frame instead: the button under it (its <see cref="Btn.Pulse"/>), or
+        /// a free tap for the screens. Keyed on the touch's start time as well as its id, since
+        /// the phase can read Ended for more than one frame and ids are reused.
+        /// </summary>
+        void QuickTap(TouchControl t, int id)
+        {
+            double start = t.startTime.ReadValue();
+            if (_quickTapped.TryGetValue(id, out var was) && was == start) return;
+            _quickTapped[id] = start;
+            // An ordinary release - its owner already saw it down. Recorded all the same, so the
+            // frame after, when its id has left _seen, does not take it for a quick tap.
+            if (_seen.Contains(id)) return;
+
+            var pos = t.position.ReadValue();
+            var b = ButtonAt(pos);
+            if (b != null) { b.Pulse = true; b.DownAt = b.At = pos; b.Aiming = false; }
+            else Controls.FreeTaps.Add(pos);
+        }
+
+        /// <summary>
+        /// The shown button a press at <paramref name="screenPoint"/> belongs to, or null: the
+        /// NEAREST whose disc, grown by <see cref="HitSlop"/>, contains the point. A circle, not
+        /// the button's square rect - the corners of the rect are not part of the button, and
+        /// they were where a thumb aiming between two buttons landed.
+        /// </summary>
+        Btn ButtonAt(Vector2 screenPoint)
+        {
+            Btn best = null;
+            float bestD = float.MaxValue;
+            foreach (var b in _buttons)
+            {
+                if (!b.Rect.gameObject.activeInHierarchy) continue;
+                b.Rect.GetWorldCorners(_corners);
+                // Screen-space overlay: world corners ARE screen pixels.
+                Vector2 centre = (_corners[0] + _corners[2]) * 0.5f;
+                float disc = (_corners[2].x - _corners[0].x) * 0.5f;          // screen pixels
+                float ring = disc * (1f + RingPad / (b.Rect.rect.width * 0.5f)); // RingPad is canvas units
+                float reach = ring * HitSlop;
+                float d = Vector2.Distance(centre, screenPoint);
+                if (d <= reach && d < bestD) { bestD = d; best = b; }
+            }
+            return best;
+        }
+
+        static readonly Vector3[] _corners = new Vector3[4];
 
         /// <summary>
         /// A drag-aiming button's frame (see Btn.DragAims): it reports pressed exactly while the
@@ -523,6 +612,38 @@ namespace Convergence.UI
             return false;
         }
 
+        Btn _clicked;
+
+        /// <summary>
+        /// Off touch, the left mouse button presses whichever shown button it went down on, and
+        /// holds it until it lets go - wherever the pointer has wandered, as a finger does. While
+        /// it does, <see cref="Controls.MouseClaimed"/> keeps the same click from also being a
+        /// swing or a press on what is underneath; that includes the frame it lets go, or the
+        /// release would arrive at a screen as the end of a click it never saw begin. After
+        /// <see cref="ReleaseAll"/>, which has just cleared every virtual input.
+        /// </summary>
+        void Click()
+        {
+            var mouse = Mouse.current;
+            if (mouse == null || Controls.MouseIsGhost) { ReleaseClick(); return; }
+
+            if (_clicked != null && !_clicked.Rect.gameObject.activeInHierarchy) _clicked = null;
+            if (_clicked == null && mouse.leftButton.wasPressedThisFrame)
+                _clicked = ButtonAt(mouse.position.ReadValue());
+            if (_clicked == null) { Controls.MouseClaimed = false; return; }
+
+            bool held = mouse.leftButton.isPressed;
+            _clicked.Set(held);
+            Controls.MouseClaimed = true;
+            if (!held) _clicked = null;
+        }
+
+        void ReleaseClick()
+        {
+            _clicked = null;
+            Controls.MouseClaimed = false;
+        }
+
         void ReleaseAll()
         {
             DropStick();
@@ -530,7 +651,8 @@ namespace Convergence.UI
         }
 
         /// <summary>
-        /// Off touch: each shown button lit while its key is held, labelled with the key for the
+        /// Off touch: each shown button lit while its key is held (or it is clicked - the click is
+        /// written into the same virtual input its key's union reads), labelled with the key for the
         /// device in hand. Read every frame rather than on a mode change, because a pad button
         /// can be rebound from the controls screen mid-session. After <see cref="ReleaseAll"/>,
         /// so the virtual inputs it just cleared are not read back as held.

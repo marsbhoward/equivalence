@@ -50,6 +50,16 @@ namespace Convergence.Core
         public static bool VirtualAlt;
 
         /// <summary>
+        /// True while the left mouse button is on one of the overlay's buttons - set by
+        /// TouchControls from the press until the frame it lets go. The overlay's buttons are
+        /// clickable as well as tappable (the user's call, 2026-10-29: they are drawn on every
+        /// device, so a click on one that did nothing read as the button being broken), and a
+        /// click that pressed a button is THAT button's: it must not also swing (LMB is attack)
+        /// or land on whatever screen sits under it.
+        /// </summary>
+        public static bool MouseClaimed;
+
+        /// <summary>
         /// Which set of on-screen buttons is up.
         ///
         /// Data on this static rather than a method on the overlay, so anything that changes what
@@ -155,6 +165,27 @@ namespace Convergence.Core
 
         static bool _touchMode;
         static bool _gamepadMode;
+
+        /// <summary>
+        /// How long after the last finger a mouse event is taken for the browser's echo of that
+        /// finger rather than a real mouse.
+        ///
+        /// A mobile browser follows every TAP with emulated mousemove/mousedown/mouseup at the
+        /// same point, for pages that only listen to the mouse - and the game's web build hears
+        /// them. Read as a real mouse they switched the overlay off after every tap (the mouse
+        /// "spoke last"), dropped whatever the other thumb was holding, and arrived as a click
+        /// of their own: a phantom swing, or a second press on the screen under the finger.
+        /// </summary>
+        const float GhostMouseSeconds = 0.6f;
+
+        static float _touchSeenAt = -999f;
+
+        /// <summary>Whether a mouse event now is most likely a browser's echo of a touch -
+        /// see <see cref="GhostMouseSeconds"/>. Never true on a device with no touchscreen.</summary>
+        public static bool MouseIsGhost
+        {
+            get { DetectDevice(); return Time.unscaledTime - _touchSeenAt < GhostMouseSeconds; }
+        }
 
         /// <summary>
         /// Whether to draw on-screen controls.
@@ -398,10 +429,12 @@ namespace Convergence.Core
             _deviceFrame = Time.frameCount;
             if (!_started) Start();
 
+            var touch = Touchscreen.current;
+            if (ActiveTouches(touch) > 0) _touchSeenAt = Time.unscaledTime;
+
             if (TouchModeOverride.HasValue) { _touchMode = TouchModeOverride.Value; return; }
 
-            var touch = Touchscreen.current;
-            var mouse = Mouse.current;
+            var mouse = Time.unscaledTime - _touchSeenAt < GhostMouseSeconds ? null : Mouse.current;
             var kb = Keyboard.current;
             var pad = Gamepad.current;
 
@@ -451,6 +484,13 @@ namespace Convergence.Core
 
             DetectDevice();
 
+            // A mouse button that pressed an overlay button, or that is a touch's echo, is no
+            // action and no click - see MouseClaimed and GhostMouseSeconds. The mouse still
+            // aims and hovers; only its buttons are withheld.
+            bool ghost = MouseIsGhost;
+            bool mouseLeft = mouse != null && !ghost && !MouseClaimed;
+            bool mouseRight = mouse != null && !ghost;
+
             Pinching = ActiveTouches(touch) >= 2;
 
             // ---- movement ----
@@ -471,7 +511,7 @@ namespace Convergence.Core
             _aim = aim.sqrMagnitude > AimDeadzone * AimDeadzone ? aim.normalized : (Vector2?)null;
             if (mouse != null && mouse.delta.ReadValue().sqrMagnitude > 1f) _mouseMovedAt = Time.unscaledTime;
             if (_aim == null && !_touchMode && !_gamepadMode && mouse != null && AimOriginScreen.HasValue
-                && ((Time.frameCount - _artAimShownFrame <= 1 && mouse.leftButton.isPressed) || Time.unscaledTime - _mouseMovedAt < MouseAimIdleSeconds))
+                && ((Time.frameCount - _artAimShownFrame <= 1 && mouseLeft && mouse.leftButton.isPressed) || Time.unscaledTime - _mouseMovedAt < MouseAimIdleSeconds))
             {
                 Vector2 fromBody = mouse.position.ReadValue() - AimOriginScreen.Value;
                 if (fromBody.sqrMagnitude > MouseAimMinPixels * MouseAimMinPixels) _aim = fromBody.normalized;
@@ -506,14 +546,14 @@ namespace Convergence.Core
                    && !(menuLive && (b == confirmBtn || b == cancelBtn));
 
             Edge(ref _attack, ref _attackPrev,
-                 (mouse != null && mouse.leftButton.isPressed) || (kb != null && kb.spaceKey.isPressed)
+                 (mouseLeft && mouse.leftButton.isPressed) || (kb != null && kb.spaceKey.isPressed)
                  || World(attackBtn)
                  || VirtualAttack);
 
             // The element release. Its own pad button, never Interact's: on keyboard both still
             // ride E, but on a pad the ability is a trigger and the A button is the action.
             Edge(ref _release, ref _releasePrev,
-                 (mouse != null && mouse.rightButton.isPressed)
+                 (mouseRight && mouse.rightButton.isPressed)
                  || (kb != null && (kb.eKey.isPressed || kb.leftShiftKey.isPressed))
                  || World(abilityBtn)
                  || VirtualRelease);
@@ -612,9 +652,9 @@ namespace Convergence.Core
                 _gamepadCursor = RectCenter(_focused);
 
             // ---- pointer: a mouse click, a finger tap and a gamepad's cursor click are the same event ----
-            bool mouseDown = mouse != null && mouse.leftButton.wasPressedThisFrame;
-            bool mouseHeld = mouse != null && mouse.leftButton.isPressed;
-            bool mouseUp = mouse != null && mouse.leftButton.wasReleasedThisFrame;
+            bool mouseDown = mouseLeft && mouse.leftButton.wasPressedThisFrame;
+            bool mouseHeld = mouseLeft && mouse.leftButton.isPressed;
+            bool mouseUp = mouseLeft && mouse.leftButton.wasReleasedThisFrame;
 
             bool fingerDown = FreeTaps.Count > 0;
             bool fingerHeld = FreePointer.HasValue;
