@@ -21,8 +21,8 @@ namespace Convergence.Chain
         /// <summary>
         /// Every placed piece of showcase art - a <see cref="Convergence.Hub.Frame"/>, standing
         /// as an easel or mounted on the wall. One list for both: a Frame decides which it is
-        /// from its own (X, Y) at rebuild time (see HubRoom.ModeFor), so there is nothing here that could
-        /// disagree with what actually got drawn. This field used to hold only floor pieces, with
+        /// from its own (X, Y) and Stand at rebuild time (see HubRoom.ModeFor), so there is nothing
+        /// here that could disagree with what actually got drawn. This field used to hold only floor pieces, with
         /// wall art in a separate <c>WallFrames</c> list keyed by slot index rather than position
         /// - that list is gone now that a wall frame is a placement like any other and can be
         /// picked back up and moved, same as an easel.
@@ -62,15 +62,15 @@ namespace Convergence.Chain
         /// shows is free to change without the frame itself moving or being re-created. That is
         /// also what lets two frames show the same piece: nothing here dedupes by content key.
         /// </summary>
-        public void PlaceTrophy(string id, string key, float x, float y)
+        public void PlaceTrophy(string id, string key, float x, float y, bool stand = false, int turn = 0)
         {
             foreach (var t in Trophies)
             {
                 if (t.Id != id) continue;
-                t.Key = key; t.X = x; t.Y = y;
+                t.Key = key; t.X = x; t.Y = y; t.Stand = stand; t.Turn = turn;
                 return;
             }
-            Trophies.Add(new TrophyPlacement { Id = id, Key = key, X = x, Y = y });
+            Trophies.Add(new TrophyPlacement { Id = id, Key = key, X = x, Y = y, Stand = stand, Turn = turn });
         }
 
         public void RemoveTrophy(string id) => Trophies.RemoveAll(t => t.Id == id);
@@ -182,6 +182,17 @@ namespace Convergence.Chain
 
         public string Key;
         public float X, Y;
+
+        /// <summary>
+        /// Stood on the floor even against a wall it could hang on. Additive, false on older saves,
+        /// which is exactly the old rule: hung where there is wall, standing everywhere else
+        /// (HubRoom.ModeFor).
+        /// </summary>
+        public bool Stand;
+
+        /// <summary>Quarter turns of the art, anticlockwise (0-3) - for a piece drawn on its side, meant
+        /// to be seen landscape. Additive, 0 on older saves.</summary>
+        public int Turn;
     }
 
     [Serializable]

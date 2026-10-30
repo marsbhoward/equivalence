@@ -3,7 +3,7 @@ using Convergence.Core;
 
 namespace Convergence.Hub
 {
-    /// <summary>Which way a Frame is currently standing. Never stored - see the class note.</summary>
+    /// <summary>Which way a Frame is currently standing. Never stored itself - see the class note.</summary>
     public enum FrameMode { Easel, Wall }
 
     /// <summary>
@@ -14,12 +14,13 @@ namespace Convergence.Hub
     /// room - wearing two different classes, two different placement systems, and two different
     /// prompts. Only one of them could be picked back up and moved.
     ///
-    /// MODE IS DERIVED FROM POSITION, NEVER STORED. Set down against the gallery wall, a Frame
-    /// reads as mounted; set down anywhere else on the floor, it reads as a freestanding easel.
-    /// HubRoom.ModeFor is the one place that rule lives, and it runs both while a piece is being
-    /// carried (so the ghost previews the shape it will actually take) and again on load (so a
-    /// saved (X, Y) always means the same thing it meant when it was placed) - there is nothing
-    /// here that could disagree with what gets drawn.
+    /// MODE IS DERIVED, NEVER STORED. Set down against the north wall a Frame hangs on it, unless
+    /// the player chose to STAND it (TrophyPlacement.Stand - any frame may hang or stand, the user's
+    /// call, 2026-10-29); anywhere else on the floor it stands. HubRoom.ModeFor is the one place
+    /// that rule lives, and it runs both while a piece is being carried (so the ghost previews the
+    /// shape it will actually take) and again on load (so a saved placement always means the same
+    /// thing it meant when it was placed) - there is nothing here that could disagree with what
+    /// gets drawn. Its art may be turned a quarter either way (Turn), for a piece meant landscape.
     ///
     /// This is also most of the fix for a room full of empty picture frames growing across the
     /// wall as a wallet's collection got bigger: a Frame only exists once a player has taken a
@@ -37,6 +38,9 @@ namespace Convergence.Hub
         public string Title { get; private set; }
         public string Collection { get; private set; }
         public FrameMode Mode { get; private set; }
+
+        /// <summary>Quarter turns of the art, anticlockwise (0-3) - see RoomLayout.TrophyPlacement.Turn.</summary>
+        public int Turn { get; private set; }
         public bool HasArt => _sprite != null;
         public Sprite Sprite => _sprite;
 
@@ -71,7 +75,7 @@ namespace Convergence.Hub
         /// the floor spot for Easel mode.</param>
         /// <param name="anchor">Where the character stands to use it - always a floor point.</param>
         public static Frame Build(Transform parent, string id, in ShowcaseItem item, FrameMode mode,
-                                  Vector2 visualAt, Vector2 anchor, bool solid)
+                                  Vector2 visualAt, Vector2 anchor, bool solid, int turn = 0)
         {
             var go = new GameObject($"frame-{id}");
             go.transform.SetParent(parent, false);
@@ -84,6 +88,7 @@ namespace Convergence.Hub
             f.Collection = item.Collection;
             f.Anchor = anchor;
             f.Mode = mode;
+            f.Turn = ((turn % 4) + 4) % 4;
             f._sprite = item.Art;
 
             f.BuildVisuals(solid);
@@ -112,6 +117,13 @@ namespace Convergence.Hub
                 FitArt();
             }
             transform.localPosition = visualAt;
+        }
+
+        /// <summary>Turn the art a quarter: +1 anticlockwise (left), -1 clockwise (right).</summary>
+        public void Rotate(int quarters)
+        {
+            Turn = ((Turn + quarters) % 4 + 4) % 4;
+            FitArt();
         }
 
         void BuildVisuals(bool solid)
@@ -199,7 +211,11 @@ namespace Convergence.Hub
             if (_empty != null) _empty.enabled = _sprite == null;
             if (_sprite == null) return;
 
+            // Turned on its side, the art's width stands as its height - every fit below measures
+            // the piece the way it is SEEN.
+            _art.transform.localRotation = Quaternion.Euler(0f, 0f, Turn * 90f);
             var native = _sprite.bounds.size;
+            if (Turn % 2 == 1) native = new Vector3(native.y, native.x, native.z);
             if (native.x < 0.0001f || native.y < 0.0001f) return;
 
             if (Mode == FrameMode.Wall)

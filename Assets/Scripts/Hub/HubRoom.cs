@@ -120,6 +120,8 @@ namespace Convergence.Hub
         ShowcaseItem _carryItem;
         string _carryId;        // the frame's own identity - see RoomLayout.TrophyPlacement.Id
         Vector2? _carryOrigin;   // where it stood before being picked up; null if newly taken out
+        bool _carryStand, _carryOriginStand;   // stood on the floor even where it could hang - TrophyPlacement.Stand
+        int _carryTurn, _carryOriginTurn;      // its art's quarter turns - TrophyPlacement.Turn
         bool _carryLegal;
 
         // ---- room editor: every fixture but the sigil door and its button ----
@@ -1309,21 +1311,31 @@ namespace Convergence.Hub
         static readonly Color Gold = new(0.95f, 0.85f, 0.55f);
 
         /// <summary>
-        /// Whether a floor spot counts as "against the gallery wall" - the one rule that decides
-        /// a Frame's mode, both live while it is being carried and again when the room is
-        /// rebuilt. The gallery is only the stretch of north wall the LOFT backs onto (see
-        /// LoftBounds) - that is the one span actually drawn as a face; the rest of the room has
-        /// no wall surface to mount anything on. "Against" means as close as the avatar's own
+        /// Whether a floor spot counts as "against the gallery wall" - where a Frame CAN hang,
+        /// both live while it is being carried and again when the room is rebuilt. The whole
+        /// north wall is drawn as a face (BuildGallery), so a frame hangs anywhere along it but
+        /// over the sigil door and its button. "Against" means as close as the avatar's own
         /// collider can physically get (FloorTop - WallMarginY()), with a little slack so the
         /// zone does not require pixel-perfect contact.
         /// </summary>
         bool IsWallZone(Vector2 at)
         {
-            var (lx0, lx1, _, _) = LoftBounds();
-            return at.x >= lx0 && at.x <= lx1 && at.y >= FloorTop - WallMarginY() - 0.35f;
+            if (at.y < FloorTop - WallMarginY() - 0.35f) return false;
+            float x = WallFrameX(at.x), half = Tuning.Hub.FrameSize * 0.5f + 0.1f;
+            return x + half <= Tuning.Hub.DoorX - Tuning.Hub.DoorHalfWidth
+                || x - half >= Tuning.Hub.ButtonX + 0.55f;
         }
 
-        FrameMode ModeFor(Vector2 at) => IsWallZone(at) ? FrameMode.Wall : FrameMode.Easel;
+        /// <summary>Hung where there is wall to hang on, unless the player chose to stand it -
+        /// see RoomLayout.TrophyPlacement.Stand.</summary>
+        FrameMode ModeFor(Vector2 at, bool stand) => !stand && IsWallZone(at) ? FrameMode.Wall : FrameMode.Easel;
+
+        /// <summary>A hung frame's x for a floor spot: clamped so it never hangs into a side wall.</summary>
+        float WallFrameX(float x)
+        {
+            float edge = _halfWidth - Tuning.Hub.WallThickness * 0.5f - Tuning.Hub.FrameSize * 0.5f - 0.08f;
+            return Mathf.Clamp(x, -edge, edge);
+        }
 
         /// <summary>
         /// Where a Frame is actually DRAWN for a given floor spot and mode - the wall face itself
@@ -1334,10 +1346,7 @@ namespace Convergence.Hub
         Vector2 VisualFor(Vector2 at, FrameMode mode)
         {
             if (mode != FrameMode.Wall) return at;
-            var (lx0, lx1, _, _) = LoftBounds();
-            float half = Tuning.Hub.FrameSize * 0.5f;
-            float x = lx1 > lx0 ? Mathf.Clamp(at.x, lx0 + half, lx1 - half) : at.x;
-            return new Vector2(x, FloorTop + Tuning.Hub.GalleryHeight * 0.5f);
+            return new Vector2(WallFrameX(at.x), FloorTop + Tuning.Hub.GalleryHeight * 0.5f);
         }
 
         void BuildFrames()
@@ -1352,14 +1361,14 @@ namespace Convergence.Hub
             foreach (var placed in _room.Trophies)
             {
                 if (source == null || !source.TryGetByKey(placed.Key, out var item)) continue;
-                AddFrame(placed.Id, item, new Vector2(placed.X, placed.Y));
+                AddFrame(placed.Id, item, new Vector2(placed.X, placed.Y), placed.Stand, placed.Turn);
             }
         }
 
-        void AddFrame(string id, in ShowcaseItem item, Vector2 at)
+        void AddFrame(string id, in ShowcaseItem item, Vector2 at, bool stand, int turn)
         {
-            var mode = ModeFor(at);
-            var frame = Frame.Build(_root, id, item, mode, VisualFor(at, mode), at, solid: true);
+            var mode = ModeFor(at, stand);
+            var frame = Frame.Build(_root, id, item, mode, VisualFor(at, mode), at, solid: true, turn);
             _frames.Add(frame);
 
             _points.Add(HubInteractable.Attach(frame.gameObject, at, 1.0f,
@@ -1391,8 +1400,10 @@ namespace Convergence.Hub
             _carryItem = item;
             _carryId = System.Guid.NewGuid().ToString("N");
             _carryOrigin = null;
+            _carryStand = false;
+            _carryTurn = 0;
             var at = CarryPoint();
-            var mode = ModeFor(at);
+            var mode = ModeFor(at, _carryStand);
             _carrying = Frame.Build(_root, _carryId, item, mode, VisualFor(at, mode), at, solid: false);
         }
 
@@ -1416,9 +1427,11 @@ namespace Convergence.Hub
             _carryItem = item;
             _carryId = frameId;
             _carryOrigin = origin;
+            _carryStand = _carryOriginStand = placement.Stand;
+            _carryTurn = _carryOriginTurn = placement.Turn;
             var at = CarryPoint();
-            var mode = ModeFor(at);
-            _carrying = Frame.Build(_root, frameId, item, mode, VisualFor(at, mode), at, solid: false);
+            var mode = ModeFor(at, _carryStand);
+            _carrying = Frame.Build(_root, frameId, item, mode, VisualFor(at, mode), at, solid: false, _carryTurn);
         }
 
         /// <summary>Change what an already-placed frame shows, without moving it - the crate
@@ -1668,7 +1681,17 @@ namespace Convergence.Hub
         void UpdatePlacement(bool accept)
         {
             var at = CarryPoint();
-            var mode = ModeFor(at);
+
+            // Its own two choices, read before the ghost is drawn so it shows them this frame.
+            if (accept)
+            {
+                if (Core.Controls.HangTapped) _carryStand = !_carryStand;
+                if (Core.Controls.TurnLeftTapped) { _carrying.Rotate(+1); _carryTurn = _carrying.Turn; }
+                if (Core.Controls.TurnRightTapped) { _carrying.Rotate(-1); _carryTurn = _carrying.Turn; }
+            }
+
+            bool wall = IsWallZone(at);
+            var mode = ModeFor(at, _carryStand);
             _carrying.UpdateCarry(at, mode, VisualFor(at, mode));
             _carryLegal = IsLegal(at);
             _carrying.SetGhost(_carryLegal);
@@ -1679,13 +1702,15 @@ namespace Convergence.Hub
             _promptTitle.text = _carryItem.Title.ToUpper();
             _promptSub.text = "placing";
             _promptBody.text = _carryLegal
-                ? (mode == FrameMode.Wall
-                    ? "It will hang here on the wall. Step away from the gallery to stand it as an easel instead."
-                    : "It will stand where you are. Walk up to the gallery wall to hang it instead.")
+                ? (mode == FrameMode.Wall ? "It will hang here on the wall."
+                   : wall ? "It will stand here, in front of the wall."
+                   : _carryStand ? "It will stand where you are."
+                   : "It will stand where you are. Walk up to the north wall to hang it.")
                 : "Not here - too close to something, or off the floor.";
+            string hang = _carryStand ? "hang it" : "stand it";
             _promptKey.text = Core.Controls.TouchMode
-                ? "PLACE  put it down     CRATE  back to the crate     CANCEL  leave it be"
-                : "[ E ]  put it down     [ Q ]  back to the crate     [ ESC ]  cancel";
+                ? $"PLACE  put it down    HANG  {hang}    TURN  turn it    CRATE  put away    CANCEL"
+                : $"[ E ]  put it down    [ R ]  {hang}    [ Z / X ]  turn it    [ Q ]  put away    [ ESC ]  cancel";
             _card.gameObject.SetActive(true);
 
             if (!accept) return;
@@ -1700,7 +1725,8 @@ namespace Convergence.Hub
         {
             if (_carryOrigin.HasValue)
             {
-                _room.PlaceTrophy(_carryId, _carryItem.Key, _carryOrigin.Value.x, _carryOrigin.Value.y);
+                _room.PlaceTrophy(_carryId, _carryItem.Key, _carryOrigin.Value.x, _carryOrigin.Value.y,
+                                  _carryOriginStand, _carryOriginTurn);
                 _onLayoutChanged?.Invoke();
             }
             EndPlacement(save: false);
@@ -1713,7 +1739,7 @@ namespace Convergence.Hub
 
             if (save)
             {
-                _room.PlaceTrophy(_carryId, _carryItem.Key, at.x, at.y);
+                _room.PlaceTrophy(_carryId, _carryItem.Key, at.x, at.y, _carryStand, _carryTurn);
                 _onLayoutChanged?.Invoke();
             }
 
@@ -2041,6 +2067,8 @@ namespace Convergence.Hub
             img.sprite = frame.Sprite;
             img.preserveAspect = true;
             img.raycastTarget = false;
+            // The plate is square, so a piece turned on its side still fits it whole.
+            art.localRotation = Quaternion.Euler(0f, 0f, frame.Turn * 90f);
 
             var t = UiKit.Rect(box, "t", new Vector2(0, 0), new Vector2(1, 0),
                                new Vector2(40, 118), new Vector2(-40, 166));

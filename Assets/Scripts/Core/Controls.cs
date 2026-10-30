@@ -48,6 +48,9 @@ namespace Convergence.Core
         public static bool VirtualCancel;
         public static bool VirtualLoadout;
         public static bool VirtualAlt;
+        public static bool VirtualHang;
+        public static bool VirtualTurnLeft;
+        public static bool VirtualTurnRight;
 
         /// <summary>
         /// True while the left mouse button is on one of the overlay's buttons - set by
@@ -263,6 +266,7 @@ namespace Convergence.Core
         static bool _confirm, _confirmPrev;
         static bool _mastery, _masteryPrev;
         static bool _alt, _altPrev;
+        static bool _hang, _hangPrev, _turnLeft, _turnLeftPrev, _turnRight, _turnRightPrev;
         static bool _guard, _guardPrev;
         static bool _pagePrev, _pagePrevPrev, _pageNext, _pageNextPrev;
         static bool _menu, _menuPrev;
@@ -649,6 +653,19 @@ namespace Convergence.Core
                  (kb != null && kb.qKey.isPressed) || World(altBtn)
                  || VirtualAlt);
 
+            // A frame being carried in the hub: hang it or stand it, and turn its art a quarter. Fixed
+            // buttons rather than rebindable ones - they are only read while placing, where nothing
+            // else wants Y or the D-pad (no menu is up, so the D-pad moves no focus).
+            Edge(ref _hang, ref _hangPrev,
+                 (kb != null && kb.rKey.isPressed) || (pad != null && pad.buttonNorth.isPressed)
+                 || VirtualHang);
+            Edge(ref _turnLeft, ref _turnLeftPrev,
+                 (kb != null && kb.zKey.isPressed) || (pad != null && pad.dpad.left.isPressed)
+                 || VirtualTurnLeft);
+            Edge(ref _turnRight, ref _turnRightPrev,
+                 (kb != null && kb.xKey.isPressed) || (pad != null && pad.dpad.right.isPressed)
+                 || VirtualTurnRight);
+
             // A menu's pages - the bumpers, fixed like Start. Only read by a screen that has pages, and the
             // mastery board stays shut while one is up (GameBootstrap), so LB's default bind cannot double.
             Edge(ref _pagePrev, ref _pagePrevPrev, pad != null && pad.leftShoulder.isPressed);
@@ -908,6 +925,15 @@ namespace Convergence.Core
 
         /// <summary>The third option, where one exists. Only trophy placement has one.</summary>
         public static bool AltTapped { get { Sync(); return _alt && !_altPrev; } }
+
+        /// <summary>A carried frame: hang it on the wall or stand it on the floor. R, or Y on a pad.</summary>
+        public static bool HangTapped { get { Sync(); return _hang && !_hangPrev; } }
+
+        /// <summary>A carried frame's art a quarter turn anticlockwise - Z, or the D-pad's left.</summary>
+        public static bool TurnLeftTapped { get { Sync(); return _turnLeft && !_turnLeftPrev; } }
+
+        /// <summary>A carried frame's art a quarter turn clockwise - X, or the D-pad's right.</summary>
+        public static bool TurnRightTapped { get { Sync(); return _turnRight && !_turnRightPrev; } }
 
         /// <summary>The previous / next page of a menu with pages: LB and RB.</summary>
         public static bool PagePrevTapped { get { Sync(); return _pagePrev && !_pagePrevPrev; } }

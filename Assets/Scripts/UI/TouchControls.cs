@@ -233,6 +233,14 @@ namespace Convergence.UI
             Pill("CANCEL", PillW + 20f, TopRight, new Vector2(-130f, -86f), Controls.Context.Placing,
                  v => Controls.VirtualCancel = v,
                  key: "ESC", pad: () => GamepadGlyphs.Cancel, held: () => Controls.CancelHeld);
+            // A frame's own two choices: hang it or stand it, and which way up its art goes.
+            Button("HANG", SmallR, BottomRight, ThumbArc(72f, SmallReach), Controls.Context.Placing,
+                   v => Controls.VirtualHang = v, null,
+                   key: "R", pad: () => "(Y)");
+            Pill("< TURN", PillW, TopRight, new Vector2(-480f, -86f), Controls.Context.Placing,
+                 v => Controls.VirtualTurnLeft = v, key: "Z", pad: () => "(<)");
+            Pill("TURN >", PillW, TopRight, new Vector2(-310f, -86f), Controls.Context.Placing,
+                 v => Controls.VirtualTurnRight = v, key: "X", pad: () => "(>)");
 
             // ONE back button for every modal, and it does exactly what Escape does.
             //
