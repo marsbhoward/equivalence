@@ -57,6 +57,11 @@ export async function runFormatOf(
  *                      attempt carries on; from another (a resume replaying the floor) the old
  *                      attempt closed at the LAST time the service heard from it - a snapshot or a
  *                      heartbeat - so time played is never refunded and time away is never charged
+ *   a STOP             an entering snapshot marked ClockStopped (a failed puzzle: nothing to fight
+ *                      until the side door) closes the attempt where it stands; the side door's
+ *                      entering snapshot opens a new one. A floor CLEARED with the clock never
+ *                      started again is charged the whole stop - stopping and never restarting
+ *                      buys nothing
  *
  * Nothing the client reports about time is trusted: a modified client cannot run this clock slow.
  * The pause menu and a hidden tab DURING a fight are on it (the service cannot tell them from
@@ -67,6 +72,7 @@ interface Attempt {
   attempt_at: Date | null;
   attempt_session: string | null;
   last_seen: Date | null;
+  stopped_at: Date | null;
   now: Date;
   format: string;
 }
@@ -77,10 +83,11 @@ const secondsBetween = (from: Date, to: Date) => Math.max(0, (to.getTime() - fro
  *  and the run clock's floor attempts. */
 export async function recordSnapshot(
   c: pg.PoolClient, owner: string, profileId: string, runId: string, floor: number, stage: string, session: string,
+  stopped = false,
 ) {
   const cleared = stage === 'Cleared' ? floor : Math.max(0, floor - 1);
   const r = await c.query<Attempt>(
-    `SELECT attempt_floor, attempt_at, attempt_session, last_seen, now() AS now, format
+    `SELECT attempt_floor, attempt_at, attempt_session, last_seen, stopped_at, now() AS now, format
        FROM run_progress WHERE owner = $1 AND profile_id = $2 AND run_id = $3 FOR UPDATE`,
     [owner, profileId, runId]);
   const a = r.rows[0];
@@ -91,8 +98,19 @@ export async function recordSnapshot(
   let add = 0;
   let open: { floor: number | null; at: Date | null; session: string | null } =
     { floor: a.attempt_floor, at: a.attempt_at, session: a.attempt_session };
-  if (stage === 'Entering') {
-    const carriesOn = a.attempt_at && a.attempt_floor === floor && a.attempt_session === session;
+  let stoppedAt: Date | null = null;
+  const sameAttempt = a.attempt_floor === floor && a.attempt_session === session;
+  if (stage === 'Entering' && stopped) {
+    // The clock stops where it stands: this attempt's seconds join the clock, and none open.
+    if (a.attempt_at && sameAttempt) {
+      add = played(a.attempt_at, a.now);
+      open = { floor, at: null, session };
+      stoppedAt = a.now;
+    } else if (!a.attempt_at && sameAttempt) {
+      stoppedAt = a.stopped_at;   // stopped already - a repeat changes nothing
+    }
+  } else if (stage === 'Entering') {
+    const carriesOn = a.attempt_at && sameAttempt;
     if (!carriesOn) {
       // An attempt left open was abandoned (a resume replays its floor): it counts to the last
       // moment the service heard from it.
@@ -102,14 +120,18 @@ export async function recordSnapshot(
   } else if (stage === 'Cleared' && a.attempt_at && a.attempt_floor === floor) {
     add = played(a.attempt_at, a.now);
     open = { floor: null, at: null, session: null };
+  } else if (stage === 'Cleared' && !a.attempt_at && a.stopped_at && sameAttempt) {
+    // Cleared with the clock never started again: the stop was not a stop.
+    add = secondsBetween(a.stopped_at, a.now);
+    open = { floor: null, at: null, session: null };
   }
 
   await c.query(
     `UPDATE run_progress SET reached = GREATEST(reached, $4), cleared = GREATEST(cleared, $5),
             clock_seconds = clock_seconds + $6, attempt_floor = $7, attempt_at = $8, attempt_session = $9,
-            last_seen = now(), updated_at = now()
+            stopped_at = $10, last_seen = now(), updated_at = now()
       WHERE owner = $1 AND profile_id = $2 AND run_id = $3`,
-    [owner, profileId, runId, floor, cleared, add, open.floor, open.at, open.session]);
+    [owner, profileId, runId, floor, cleared, add, open.floor, open.at, open.session, stoppedAt]);
 }
 
 /** A heartbeat arrived: the run was still being played at this moment. */

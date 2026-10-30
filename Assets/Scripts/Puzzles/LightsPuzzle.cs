@@ -12,7 +12,9 @@ namespace Convergence.Puzzles
     /// ALWAYS SOLVABLE, AND THE SCRAMBLE IS THE ANSWER. It starts all-lit and is scrambled by
     /// pressing a few distinct stones; on a 3x3 every pattern has exactly one set of presses that
     /// clears it, so the scramble's own presses are the shortest solution. The step budget is that
-    /// count plus Tuning.Puzzle.LightsSlack, and running out is how this one fails - there is no
+    /// count plus Tuning.Puzzle.LightsSlack. With a clock (the Short Descent's) running out of steps
+    /// only RESETS the stones to where they started, for another attempt - the clock is what fails
+    /// it (the user's call, 2026-10-29). Without one, running out of steps fails it - there is no
     /// single "wrong" stone in a puzzle where any stone can be undone.
     ///
     /// Stepping is literal: crossing the grid through a stone presses it. Walking round the
@@ -22,6 +24,8 @@ namespace Convergence.Puzzles
     {
         [SerializeField] List<bool> _on = new();
         [SerializeField] int _left;
+        [SerializeField] List<bool> _start = new();
+        [SerializeField] int _budget, _attempt = 1;
 
         static readonly Color Gold = new(1f, 0.80f, 0.38f);
 
@@ -38,7 +42,7 @@ namespace Convergence.Puzzles
                 if (State == PuzzleState.Failed && TimedOut) return TimedOutBody;
                 if (State == PuzzleState.Failed) return "Out of steps. The sigil door is sealed - take the side door.";
                 return "Each stone you step on flips itself and the stones beside it. Light all nine.\n" +
-                       $"Steps left: {_left}";
+                       $"Steps left: {_left}" + (_attempt > 1 ? $"   -   attempt {_attempt}" : "");
             }
         }
 
@@ -57,7 +61,8 @@ namespace Convergence.Puzzles
             var cells = Enumerable.Range(0, 9).ToList();
             for (int i = cells.Count - 1; i > 0; i--) { int j = Rng.Next(i + 1); (cells[i], cells[j]) = (cells[j], cells[i]); }
             foreach (var cell in cells.Take(k)) Press(cell);
-            _left = k + Tuning.Puzzle.LightsSlack;
+            _budget = _left = k + Tuning.Puzzle.LightsSlack;
+            _start = new List<bool>(_on);
             Refresh();
         }
 
@@ -68,7 +73,17 @@ namespace Convergence.Puzzles
             _left--;
             Refresh();
             if (_on.All(x => x)) Solve();
+            else if (_left <= 0 && HasClock && _start.Count == _on.Count) TryAgain();
             else if (_left <= 0) Fail();
+        }
+
+        /// <summary>Out of steps with time left: the stones go back to how they started.</summary>
+        void TryAgain()
+        {
+            _on = new List<bool>(_start);
+            _left = _budget;
+            _attempt++;
+            Refresh();
         }
 
         void Press(int i)

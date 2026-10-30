@@ -307,6 +307,13 @@ const MIGRATIONS: string[] = [
   );
   ALTER TABLE run_progress ADD COLUMN deferred JSONB;
   `,
+
+  // 12 - the run clock STOPPED mid-floor (runProgress.recordSnapshot): a failed puzzle's room, with
+  // nothing to fight until the side door. When it stopped, so a floor cleared without the clock
+  // ever going again is charged the whole stop.
+  `
+  ALTER TABLE run_progress ADD COLUMN stopped_at TIMESTAMPTZ;
+  `,
 ];
 
 /** Applies every migration not yet applied. Called once at start-up. */

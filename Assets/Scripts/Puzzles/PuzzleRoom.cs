@@ -66,6 +66,10 @@ namespace Convergence.Puzzles
 
         [SerializeField] float _shortLeft = -1f;
 
+        /// <summary>Whether this puzzle has a clock running (the Short Descent's) - one that fails it
+        /// when it runs out, so nothing else needs to.</summary>
+        protected bool HasClock => _shortLeft >= 0f;
+
         /// <summary>The puzzle failed because its clock ran out, not on a wrong answer.</summary>
         protected bool TimedOut { get; private set; }
 

@@ -140,7 +140,7 @@ export async function saveRun(req: Request, res: Response): Promise<void> {
            started_at = CASE WHEN runs.run_id = $3 THEN runs.started_at ELSE now() END`,
         [owner, profileId, runId, session, seq, floor, stage, snapshot]);
       // How far the run has got, as the service saw it - what its end is minted against.
-      await recordSnapshot(c, owner, profileId, runId, floor, stage, session);
+      await recordSnapshot(c, owner, profileId, runId, floor, stage, session, snapshot.ClockStopped === true);
       return { status: 200 } as const;
     });
     if (out.status !== 200) return fail(res, out.status, out.error, 'extra' in out ? out.extra : {});

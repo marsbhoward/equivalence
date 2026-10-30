@@ -5417,7 +5417,12 @@ namespace Convergence.Core
             else
             {
                 _puzzleDoor?.Seal();
-                MarkPuzzleGivenUp();   // a resume must not hand a failed puzzle back for another go
+                // A resume must not hand a failed puzzle back for another go - and the room has
+                // nothing left to fight, so the run clock STOPS until the side door (the user's
+                // call, 2026-10-29). The service stops its own on this snapshot.
+                _puzzleGivenUp = true;
+                if (_runSave != null) ResaveEntering(s => { s.PuzzleGivenUp = true; s.ClockStopped = true; });
+                Clock.CloseAttempt();
                 SpawnSideDoor();   // already standing unless the puzzle filled the floor
                 _hud?.Flash("the sigil door is sealed  -  take the side door");
                 Debug.Log($"[Floor] puzzle floor {_floor} failed");
@@ -5433,6 +5438,13 @@ namespace Convergence.Core
         IEnumerator AdjacentRoom()
         {
             MarkPuzzleGivenUp();   // the floor is this fight now, on a resume too
+            // After a failed puzzle the clock stood still: the fight starts it again, here and on the
+            // service (the snapshot no longer stopped).
+            if (!Clock.AttemptOpen)
+            {
+                Clock.OpenAttempt(_floor);
+                if (_runSave != null && _runSave.ClockStopped) ResaveEntering(s => s.ClockStopped = false);
+            }
             _transitioning = true;
             GamePause.Hold(this);
             try

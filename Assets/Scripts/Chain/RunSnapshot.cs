@@ -68,6 +68,12 @@ namespace Convergence.Chain
         /// room's fight rather than offering the puzzle again.</summary>
         public bool PuzzleGivenUp;
 
+        /// <summary>The run clock STOPPED on this floor: its puzzle failed, and there is nothing to
+        /// fight until the side door, whose snapshot clears it and starts the clock again. The
+        /// service times the floor by it (runProgress.recordSnapshot). Never set by CaptureRun, so a
+        /// resume's snapshot starts the clock.</summary>
+        public bool ClockStopped;
+
         // ---- the floor plan, for a cleared room (Entering re-plans from the planner)
 
         public Rifts.FloorCategory PlanCategory;
