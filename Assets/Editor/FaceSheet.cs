@@ -42,7 +42,8 @@ namespace Convergence.EditorTools
             else brs.AddRange(brows.Split(','));
 
             _combos.Clear();
-            foreach (var e in exprs) foreach (var b in brs) foreach (var bd in beards.Split(',')) _combos.Add(e + ":" + b + ":" + bd);
+            foreach (var e in exprs) foreach (var b in brs) foreach (var bd in beards.Split(','))
+            foreach (var mk in mark.Split(',')) _combos.Add(e + ":" + b + ":" + bd + ":" + mk);
             for (int s = 0; s < _combos.Count; s++)
             for (int v = 0; v < Views; v++)
             {
@@ -53,7 +54,7 @@ namespace Convergence.EditorTools
                 var rig = CharacterRigFactory.Build(go, ElementType.Fire, 0);
                 rig.SetDetailArt(v == 1);
                 rig.SetAppearance(new Appearance { Hair = hair, Skin = skin, Eyes = eyes, HairStyle = hairStyle,
-                                                   Expression = parts[0], Brows = parts[1], Beard = parts[2], Mark = mark });
+                                                   Expression = parts[0], Brows = parts[1], Beard = parts[2], Mark = parts[3] });
                 var loadout = new Loadout();
                 if (!string.IsNullOrEmpty(head)) loadout.Set(GearSlot.Head, head);   // e.g. wraith_eye
                 rig.Apply(loadout);

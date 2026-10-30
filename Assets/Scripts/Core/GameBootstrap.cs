@@ -510,7 +510,9 @@ namespace Convergence.Core
 
             // The on-screen controls get their OWN canvas at a lower sort order than the screens,
             // so a modal always draws over them - and they are hidden while one is open anyway,
-            // which is belt and braces on a thing that must never sit on top of a decision.
+            // which is belt and braces on a thing that must never sit on top of a decision. The one
+            // exception is a dismissible modal's BACK: TouchControls lifts the canvas over the
+            // screens while that is all it shows, or an opaque screen hid its only way out.
             _touchCanvas = UiKit.CreateCanvas("touch", 8);
             _touchCanvas.transform.SetParent(transform, false);
             UI.TouchControls.Build(_touchCanvas.transform);
@@ -2204,7 +2206,9 @@ namespace Convergence.Core
             // [E] closes it as well as opening it, because the table is now the main way in and
             // a prop you walk up to and press E on should let go of E. [M] still works.
             if (_state == State.Hub && !(_hub != null && _hub.Blocking) &&
-                (Controls.MasteryTapped ||
+                // Not over another screen: LB is the mastery board's by default and a menu's page key
+                // (Controls.PagePrevTapped), and it opened the board on top of the screen being paged.
+                ((Controls.MasteryTapped && (!screenOpen || MasteryScreen.IsOpen)) ||
                  (MasteryScreen.IsOpen && (Controls.CancelTapped || Controls.InteractTapped))))
             {
                 MasteryScreen.Toggle(_canvas.transform);

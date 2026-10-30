@@ -55,6 +55,12 @@ namespace Convergence.Chain
         public string BrowColour = "";
 
         /// <summary>
+        /// Beard colour, as a key into the HAIR swatches - the brow colour's rule: EMPTY MEANS "match the hair",
+        /// and an older profile loads empty and renders exactly as before.
+        /// </summary>
+        public string BeardColour = "";
+
+        /// <summary>
         /// A face mark (BodyLook.Marks) - a scar. ADDITIVE like Brows: an older profile loads "none" and renders
         /// exactly as before.
         /// </summary>

@@ -469,13 +469,39 @@ namespace Convergence.UI
         /// <summary>Whether a stick is drawn this frame - see <see cref="Controls.StickShown"/>.</summary>
         bool _stickShown;
 
+        /// <summary>Above the screens (10) and under the gamepad cursor (20) - see Relayout.</summary>
+        const int ModalSortOrder = 15;
+        int? _baseSortOrder;
+
+        /// <summary>
+        /// Whether the buttons are touch controls this frame: <see cref="Controls.OverlayTouch"/>, or a modal
+        /// under a finger whatever HUD &amp; TOUCH says - OFF there must not take away the only way out of a
+        /// screen on a phone.
+        /// </summary>
+        bool Live => Controls.OverlayTouch || (Controls.Screen == Controls.Context.Modal && Controls.TouchMode);
+
         void Relayout()
         {
-            bool touch = Controls.OverlayTouch;
+            bool touch = Live;
             // Off touch the buttons are readouts, and a modal's BACK reads nothing a screen's
-            // own "[ESC] to close" does not already say. OFF in HUD & TOUCH takes them all down.
-            bool on = _mode != Controls.Context.Hidden && HudPrefs.OnScreen != HudPrefs.Overlay.Off
-                      && (touch || _mode != Controls.Context.Modal);
+            // own "[ESC] to close" does not already say. OFF in HUD & TOUCH takes them all down -
+            // except a modal's BACK under a finger, which is the only way out of a screen on touch
+            // (see Live).
+            bool modal = _mode == Controls.Context.Modal;
+            bool on = _mode != Controls.Context.Hidden
+                      && (modal ? touch : HudPrefs.OnScreen != HudPrefs.Overlay.Off);
+
+            // OVER the screens while one is up. The canvas sits under them (GameBootstrap) so a modal
+            // covers the stick and the action buttons - but BACK is the one button a modal has, and a
+            // screen with an opaque backdrop painted straight over it: on touch, the hub's loadout and
+            // the transmutation circle had no way out at all. BACK is all a modal shows here, so
+            // lifting the whole canvas lifts only it.
+            var canvas = _root != null ? _root.GetComponentInParent<Canvas>() : null;
+            if (canvas != null)
+            {
+                if (canvas.sortingOrder != ModalSortOrder) _baseSortOrder = canvas.sortingOrder;
+                canvas.sortingOrder = modal ? ModalSortOrder : _baseSortOrder ?? canvas.sortingOrder;
+            }
 
             // No stick over a modal: there is nothing to steer, and it would sit on top of the
             // screen's own controls. Its finger is freed with it, so a drag on the mastery board
@@ -524,10 +550,10 @@ namespace Convergence.UI
         {
             // Re-laid out on what it shows changing - the device, the context, a setting - and on
             // nothing else, since Relayout touches every button.
-            if (_lastOverlay != Controls.OverlayTouch || _lastDevice != Controls.TouchMode
+            if (_lastOverlay != Live || _lastDevice != Controls.TouchMode
                 || _mode != Controls.Screen || _lastPrefs != HudPrefs.Version)
             {
-                _lastOverlay = Controls.OverlayTouch;
+                _lastOverlay = Live;
                 _lastDevice = Controls.TouchMode;
                 _lastPrefs = HudPrefs.Version;
                 _mode = Controls.Screen;
@@ -540,7 +566,7 @@ namespace Convergence.UI
             UpdateTags();
 
             var screen = Touchscreen.current;
-            if (screen == null || _mode == Controls.Context.Hidden || !Controls.OverlayTouch)
+            if (screen == null || _mode == Controls.Context.Hidden || !Live)
             {
                 if (screen != null) Pinch(screen.touches);
                 if (screen != null) CollectFreeTaps(screen, claimNothing: true);

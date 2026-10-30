@@ -1715,7 +1715,7 @@ namespace Convergence.Art.Gear
                                                     _look.Brows, _look.Hair, _glowLeftEye,
                                                     gaze: GazeShift, mark: _look.Mark),
                                 BodyLook.DetailScale),
-                        BodyLook.HeadPalette(skin, hair, eyes, brow),
+                        BodyLook.HeadPalette(skin, hair, eyes, brow, BodyLook.BeardRamp(_look)),
                         pixelsPerUnit: bodyPpu * BodyLook.DetailScale)
                     // The ARENA runs the same detail pass at 1x rather than drawing the flat grid:
                     // the composed head is a block-double of what the features were authored on,
@@ -1726,7 +1726,7 @@ namespace Convergence.Art.Gear
                         Covered(BodyLook.HeadDetail(_look.Expression, _look.HairStyle, _look.Beard,
                                                     _look.Brows, _look.Hair, _glowLeftEye,
                                                     scale: 1, gaze: GazeShift, mark: _look.Mark), 1),
-                        BodyLook.HeadPalette(skin, hair, eyes, brow),
+                        BodyLook.HeadPalette(skin, hair, eyes, brow, BodyLook.BeardRamp(_look)),
                         pixelsPerUnit: bodyPpu);
 
             SetBodyPixel(RigLayer.Head, headSprite, new Vector2(0, ChinOnNeckline(headSprite)));

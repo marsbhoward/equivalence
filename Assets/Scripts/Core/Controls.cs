@@ -264,6 +264,7 @@ namespace Convergence.Core
         static bool _mastery, _masteryPrev;
         static bool _alt, _altPrev;
         static bool _guard, _guardPrev;
+        static bool _pagePrev, _pagePrevPrev, _pageNext, _pageNextPrev;
         static bool _menu, _menuPrev;
         static bool _inventory, _inventoryPrev;
         static bool _settingsMenu, _settingsMenuPrev;
@@ -353,6 +354,16 @@ namespace Convergence.Core
                 Sync();
                 return _gamepadMode && CandidatesLive && Valid(_focused) ? _focused : null;
             }
+        }
+
+        /// <summary>Move the D-pad's selection to <paramref name="rt"/> - for a screen that rebuilt the rect that
+        /// had it, or that sends the selection somewhere on purpose. The screen must have registered a list
+        /// holding it (SetFocusCandidates) first, or the next sync drops it as stale.</summary>
+        public static void Focus(RectTransform rt)
+        {
+            if (rt == null) return;
+            if (_focused != null && _focused != rt) _focusedBefore = _focused;
+            _focused = rt;
         }
 
         // Screens register from their own Update, which can run before or after the first Sync of
@@ -638,6 +649,11 @@ namespace Convergence.Core
                  (kb != null && kb.qKey.isPressed) || World(altBtn)
                  || VirtualAlt);
 
+            // A menu's pages - the bumpers, fixed like Start. Only read by a screen that has pages, and the
+            // mastery board stays shut while one is up (GameBootstrap), so LB's default bind cannot double.
+            Edge(ref _pagePrev, ref _pagePrevPrev, pad != null && pad.leftShoulder.isPressed);
+            Edge(ref _pageNext, ref _pageNextPrev, pad != null && pad.rightShoulder.isPressed);
+
             Edge(ref _guard, ref _guardPrev,
                  (kb != null && kb.qKey.isPressed) || World(guardBtn)
                  || VirtualAlt);
@@ -892,6 +908,10 @@ namespace Convergence.Core
 
         /// <summary>The third option, where one exists. Only trophy placement has one.</summary>
         public static bool AltTapped { get { Sync(); return _alt && !_altPrev; } }
+
+        /// <summary>The previous / next page of a menu with pages: LB and RB.</summary>
+        public static bool PagePrevTapped { get { Sync(); return _pagePrev && !_pagePrevPrev; } }
+        public static bool PageNextTapped { get { Sync(); return _pageNext && !_pageNextPrev; } }
 
         /// <summary>The chest's defensive ability, in a run. Q on keyboard, as Alt is.</summary>
         public static bool GuardTapped { get { Sync(); return _guard && !_guardPrev; } }

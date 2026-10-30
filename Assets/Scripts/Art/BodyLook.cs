@@ -1931,6 +1931,9 @@ namespace Convergence.Art
 
         static Swatch[] _browSwatches;
 
+        /// <summary>The beard's row: the same MATCH-then-hair swatches as the brows'.</summary>
+        public static Swatch[] BeardSwatches => BrowSwatches;
+
         public static Style Brow(string key)
         {
             if (_devBrows != null && key != null && _devBrows.TryGetValue(key, out var dev)) return dev;
@@ -2080,9 +2083,20 @@ namespace Convergence.Art
         /// reads to avoid offering a colour that cannot do anything.
         /// </summary>
         public static Dictionary<char, Color> HeadPalette(Palette.Ramp skin, Palette.Ramp hair,
-                                                          Palette.Ramp eyes, Palette.Ramp? brow = null)
+                                                          Palette.Ramp eyes, Palette.Ramp? brow = null,
+                                                          Palette.Ramp? beard = null)
         {
             var map = Palette.Of(skin, hair, eyes);
+
+            // The beard's own six, for the same reason the brows have theirs: a beard can be another colour
+            // than the hair. HeadDetail moves a beard's hair-ramp cells onto these (BeardChars).
+            var bd = beard ?? hair;
+            map['t'] = bd.Line;
+            map['o'] = bd.Deep;
+            map['O'] = bd.Dark;
+            map['p'] = bd.Base;
+            map['P'] = bd.Light;
+            map['T'] = bd.Glow;
 
             // Brows get their own two characters rather than borrowing the hair's uppercase set.
             // They need to be settable INDEPENDENTLY of the hair - dark brows under pale hair is
@@ -2098,8 +2112,8 @@ namespace Convergence.Art
             map['w'] = new Color(1.00f, 1.00f, 1.00f);   // pure white
             // STUBBLE is a shadow on skin, so it is mixed from the skin and the hair - drawn in a hair tone
             // alone ('S', the old stubble) it read as a dark beard with holes in it.
-            map['m'] = Color.Lerp(skin.Base, hair.Dark, 0.38f);   // stubble
-            map['M'] = Color.Lerp(skin.Base, hair.Dark, 0.58f);   // stubble, along the jaw
+            map['m'] = Color.Lerp(skin.Base, bd.Dark, 0.38f);   // stubble
+            map['M'] = Color.Lerp(skin.Base, bd.Dark, 0.58f);   // stubble, along the jaw
 
             // THE LASH IS BLACK, not a dark version of the eye's own colour, and it needs its own
             // fixed entry to be so. Drawn from the eye ramp it can only ever be that swatch lerped
@@ -2733,8 +2747,13 @@ namespace Convergence.Art
         public static Palette.Ramp BrowRamp(Chain.Appearance a)
             => HairRamp(string.IsNullOrEmpty(a.BrowColour) ? a.Hair : a.BrowColour);
 
+        /// <summary>The beard's ramp: its own colour when set, the hair's when not.</summary>
+        public static Palette.Ramp BeardRamp(Chain.Appearance a)
+            => HairRamp(string.IsNullOrEmpty(a.BeardColour) ? a.Hair : a.BeardColour);
+
         public static string HeadKey(Chain.Appearance a, bool leftEyeGlow = false, int gaze = 0)
             => $"body.head.{a.Skin}.{a.Hair}.{a.Eyes}.{a.HairStyle}.{a.Expression}.{a.Beard}.{a.Brows}.{a.BrowColour}" +
+               (string.IsNullOrEmpty(a.BeardColour) ? "" : ".bc" + a.BeardColour) +
                (leftEyeGlow ? ".glow" : "") + (gaze != 0 ? ".g" + gaze : "") + (DevEyeGrow != 0 ? ".eye" + DevEyeGrow : "") + (string.IsNullOrEmpty(a.Mark) || a.Mark == "none" ? "" : ".m" + a.Mark);
 
         // ---------------------------------------------------------------- the mane
@@ -2865,11 +2884,42 @@ namespace Convergence.Art
             var side = View(HairStyle(hairStyle).Key, back: false);
             var big = FaceDetail.Build(Head(expression, beard, brows, gaze: gaze, hair: side?.Cap), face,
                                        scale, HairValue(hair), side?.Mane != null, beardMask, leftEyeGlow);
+            BeardOwnInk(big, beardMask, side?.Cap, scale);
             var drawn = DrawnEyeArt(expression);
             if (drawn != null) StampEyes(big, expression, gaze, scale, drawn, leftEyeGlow);
             if (leftEyeGlow) RedTear(big);
             StampMark(big, mark, gaze, scale);
             return big;
+        }
+
+        /// <summary>The hair ramp's characters and the beard's own, in the same order (HeadPalette).</summary>
+        const string HairChars = "KSDBLH", BeardChars = "toOpPT";
+
+        /// <summary>
+        /// Moves the beard's cells off the hair ramp onto its own (Appearance.BeardColour). A beard is authored in
+        /// the hair's characters, so it is told apart by its grid: a cell the beard covers and the hair cap does not
+        /// (hair paints over the beard, and a lock there stays hair).
+        /// </summary>
+        static void BeardOwnInk(string[] big, string[] beard, string[] cap, int scale)
+        {
+            if (beard == null || beard.Length == 0) return;
+            for (int py = 0; py < big.Length; py++)
+            {
+                int y = py / scale;
+                if (y >= beard.Length) break;
+                char[] line = null;
+                for (int px = 0; px < big[py].Length; px++)
+                {
+                    int x = px / scale;
+                    if (x >= beard[y].Length || beard[y][x] == '.') continue;
+                    if (cap != null && y < cap.Length && x < cap[y].Length && cap[y][x] != '.') continue;
+                    int i = HairChars.IndexOf(big[py][px]);
+                    if (i < 0) continue;
+                    line ??= big[py].ToCharArray();
+                    line[px] = BeardChars[i];
+                }
+                if (line != null) big[py] = new string(line);
+            }
         }
 
         // ---------------------------------------------------------------- hand-drawn big eyes
@@ -2880,6 +2930,14 @@ namespace Convergence.Art
         // foreshortened - in eye-ramp digits, so the swatch still colours them. Measured off the reference:
         // each eye ~30% of the face's width and nearly half its height, ~28% apart, low on the face.
         //   x lash   w white   1 line   2 deep   3 dark   4 base   5 light   6 glow   . leave the skin
+        /// <summary>
+        /// How far the hand-drawn eyes sit ABOVE the block they replace, in texels. They are twice the block's
+        /// height and reached down into the rows every beard starts on (the moustache line), so a beard drew over
+        /// the bottom of the eye. Chosen off the face mock-up sheet, 2026-10-30, over trimming the beard round the
+        /// eye (holes in the beard) and starting beards lower (most of a beard gone on these faces).
+        /// </summary>
+        const int DrawnEyeLift = 3;
+
         static readonly Dictionary<string, (string[] near, string[] far)> EyeArt = new()
         {
             ["large"] = (new[] { ".xxxxx.", "xxxxxxx", ".w2w22x", ".w3333x", "..4554.", "...11.." },
@@ -2903,15 +2961,37 @@ namespace Convergence.Art
         /// <summary>
         /// Face marks: drawn over the composed face in its own 32 x 36 grid and turned with it, ONLY over skin and
         /// brow - never over an eye, whichever eye the face has (a scar over the eye passes behind it). Chosen off
-        /// the face mock-up sheet, 2026-10-27; keys are saved (Appearance.Mark), so append, never rename.
+        /// the face mock-up sheet, 2026-10-27 (Scar) and 2026-10-30 (the rest: scars in the skin's own highlight
+        /// and shadow, stitches and the Sulfur Brand in its line and deep, ink in the lash's black); keys are saved
+        /// (Appearance.Mark), so append, never rename.
         /// </summary>
         public static readonly Style[] Marks =
         {
             new("none", "None"),
             new("scar", "Scar", new[] { "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "......hd........................", "......hd........................", "......h.d.......................", ".......hd.......................", ".......hd.......................", ".......hd.......................", "........d.......................", "........hd......................", "........hd......................", "........hd......................", "........h.d.....................", ".........hd.....................", ".........hd.....................", ".........hd.....................", "..........d.....................", "..........hd....................", "..........hd....................", "................................", "................................", "................................", "................................" }),
+            new("cheek", "Cheek Scar", new[] { "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "...........................hd...", "..........................hd....", ".........................hd.....", "........................hd......", ".......................hd.......", "................................", "................................", "................................", "................................", "................................" }),
+            new("crossed", "Crossed", new[] { "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "......hd..h.....................", ".......hdh......................", "........hd......................", ".......h.hd.....................", "......h...hd....................", "................................", "................................", "................................", "................................", "................................" }),
+            new("stitched", "Stitched", new[] { "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "......................k.k.k.k...", ".....................dddddddd...", "......................k.k.k.k...", "................................", "................................", "................................", "................................", "................................", "................................" }),
+            new("freckles", "Freckles", new[] { "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", ".....d...d...d....d...d...d.....", ".......d...d...d....d...d.......", "........d..............d........", "................................", "................................", "................................", "................................", "................................", "................................", "................................" }),
+            new("tally", "Tally", new[] { "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "......................x.x.x.....", "......................x.x.x.....", "......................x.x.x.....", "......................x.x.x.....", "................................", "................................", "................................", "................................", "................................", "................................" }),
+            new("sulfur", "Sulfur Brand", new[] { "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "........s.......................", ".......s.s......................", "......sssss.....................", "........s.......................", "......sssss.....................", "........s.......................", "................................", "................................", "................................", "................................" }),
+            new("browcut", "Brow Cut", new[] { "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", ".........................hd.....", ".........................hd.....", "........................hd......", "........................hd......", ".......................hd.......", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................", "................................" }),
         };
 
-        public static Style Mark(string key) => Find(Marks, string.IsNullOrEmpty(key) ? "none" : key);
+        public static Style Mark(string key)
+            => _devMarks != null && key != null && _devMarks.TryGetValue(key, out var dev) ? dev
+             : Find(Marks, string.IsNullOrEmpty(key) ? "none" : key);
+
+        // DEV ONLY: trial marks for the face mock-up sheet (EditorTools.FaceSheet) - never saved. Rows joined by
+        // '|', in the mark's own 32 x 36 space.
+        static Dictionary<string, Style> _devMarks;
+        public static string DevAddMark(string key, string name, string rows)
+        {
+            var grid = rows.Split('|');
+            if (grid.Length != BeardRows) return $"{key}: {grid.Length} rows, want {BeardRows}";
+            (_devMarks ??= new Dictionary<string, Style>())[key] = new Style(key, name, grid);
+            return "ok";
+        }
 
         static void StampMark(string[] big, string markKey, int gaze, int scale)
         {
@@ -2935,7 +3015,7 @@ namespace Convergence.Art
 
         /// <summary>Where each hand-drawn eye goes: its picture and its top-left, in the composed face's texels
         /// (the coarse head's own grid). Centred on the eye block the expression keeps as a marker, nudged a texel
-        /// in toward the nose, its top a texel under the block's.</summary>
+        /// in toward the nose, its top lifted DrawnEyeLift - 1 texels above the block's, clear of the beard.</summary>
         static List<(string[] pic, int ax, int ay)> DrawnEyePlacements(string expression, int gaze, string art)
         {
             var placed = new List<(string[] pic, int ax, int ay)>();
@@ -2973,7 +3053,7 @@ namespace Convergence.Art
                 bool near = b.x0 == nearX;
                 var pair = EyeArt[art]; var pic = near ? pair.near : pair.far;
                 float cx = (b.x0 + b.x1 + 1) / 2f + (near ? 1 : -1);
-                placed.Add((pic, (int)System.Math.Round(cx - pic[0].Length / 2f), b.y0 + 1));
+                placed.Add((pic, (int)System.Math.Round(cx - pic[0].Length / 2f), b.y0 + 1 - DrawnEyeLift));
             }
             return placed;
         }

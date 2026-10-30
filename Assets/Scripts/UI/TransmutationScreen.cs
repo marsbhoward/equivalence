@@ -58,12 +58,18 @@ namespace Convergence.UI
         RectTransform _page;       // everything the current tab built
         RectTransform _tooltip;
         readonly CharacterPreview _preview = new();
+        /// <summary>SALT's option pictures. Not readonly: a domain reload hands back a fresh one, rebuilt on open.</summary>
+        SaltThumbs _thumbs = new();
 
         readonly List<Hit> _hits = new();
         readonly List<Action> _refresh = new();
         readonly List<RectTransform> _focusRects = new();
         readonly List<(RectTransform Rect, Tab Tab)> _tabs = new();
         readonly List<SlotCell> _cells = new();
+        /// <summary>SALT's category frames, by index, and the open category's option cells - for the pad's
+        /// way into the options and back out (ChooseCategory, Update).</summary>
+        readonly List<RectTransform> _catRects = new();
+        readonly List<(string Key, RectTransform Rect)> _options = new();
 
         /// <summary>The slot whose stats are showing, or null.</summary>
         GearSlot? _highlight;
@@ -149,6 +155,7 @@ namespace Convergence.UI
             _weaponHiddenInPreview = false;
             _highlight = _touchPick = _shownTooltip = null;
             _preview.Build(_element, (int)PreviewW, (int)PreviewH);
+            (_thumbs ??= new SaltThumbs()).Build(_element);
             BuildChrome(canvas);
             if (_tab == Tab.Salt) _preview.Frame(BodyCategories[Mathf.Clamp(_bodyCat, 0, BodyCategories.Length - 1)].View);
             BuildPage();
@@ -168,9 +175,12 @@ namespace Convergence.UI
 
             if (_root) Destroy(_root);
             _preview.Dispose();
+            _thumbs?.Dispose();
             _hits.Clear();
             _refresh.Clear();
             _cells.Clear();
+            _catRects.Clear();
+            _options.Clear();
             _tabs.Clear();
             _root = null;
             _previewRect = null;
@@ -236,8 +246,8 @@ namespace Convergence.UI
                 "point at a slot to read it, click to change    -    scroll or drag the figure to look closer    -    [ESC] or [E] to leave the circle",
                 "tap a slot to read it, tap again to change    -    pinch or drag the figure to look closer    -    BACK to leave the circle",
                 17, new Color(0.42f, 0.45f, 0.53f), TextAnchor.MiddleCenter,
-                UI.GamepadGlyphs.Navigate + " to read a slot, " + UI.GamepadGlyphs.Confirm + " to change    -    "
-                + UI.GamepadGlyphs.Cancel + " to leave the circle    -    changes are saved as you make them");
+                UI.GamepadGlyphs.Navigate + " to read a slot, " + UI.GamepadGlyphs.Confirm + " to change    -    (LB) (RB) to turn the page    -    "
+                + UI.GamepadGlyphs.Cancel + " to step back or leave the circle    -    changes are saved as you make them");
         }
 
         void PlaceFrame()
@@ -254,6 +264,8 @@ namespace Convergence.UI
             _hits.Clear();
             _refresh.Clear();
             _cells.Clear();
+            _catRects.Clear();
+            _options.Clear();
             _shownTooltip = null;
 
             // Detached and hidden BEFORE Destroy, which is deferred to end of frame: left in
@@ -631,10 +643,14 @@ namespace Convergence.UI
                     View = CharacterPreview.View.Bust },
             new() { Label = "BEARD", Styles = BodyLook.Beards, Get = a => a.Beard, Set = (a, k) => a.Beard = k,
                     View = CharacterPreview.View.Bust },
+            // Brows' rule: MATCH follows the hair, and is where every beard starts.
+            new() { Label = "BEARD COLOUR", Swatches = BodyLook.BeardSwatches, Get = a => a.BeardColour, Set = (a, k) => a.BeardColour = k,
+                    Note = a => string.IsNullOrEmpty(a.BeardColour) ? "BEARD COLOUR    (matching hair)" : "BEARD COLOUR",
+                    View = CharacterPreview.View.Bust },
             new() { Label = "MARKS", Styles = BodyLook.Marks, Get = a => string.IsNullOrEmpty(a.Mark) ? "none" : a.Mark, Set = (a, k) => a.Mark = k },
         };
 
-        /// <summary>Face and skin down the left, hair down the right.</summary>
+        /// <summary>Face and skin down the left, hair and beard down the right - five each.</summary>
         const int BodyLeftCount = 5;
 
         /// <summary>
@@ -702,33 +718,73 @@ namespace Convergence.UI
             UiKit.Label(UiKit.Rect(well, "l", new Vector2(0, 1), new Vector2(1, 1), new Vector2(4, -24), new Vector2(-4, -4)),
                 cat.Label, 12, Dim, TextAnchor.MiddleCenter);
 
+            // A colour shows as its chip; a style as the picture of it worn (SaltThumbs).
             Image chip = null;
-            Text value = null;
+            RawImage pic = null;
             if (cat.Swatches != null)
                 chip = UiKit.Panel(well, Vector2.zero, Vector2.one, new Vector2(18, 14), new Vector2(-18, -30),
                     Color.clear).GetComponent<Image>();
             else
-                value = UiKit.Label(UiKit.Rect(well, "v", Vector2.zero, Vector2.one, new Vector2(4, 8), new Vector2(-4, -28)),
-                    "", 16, Ink, TextAnchor.MiddleCenter);
+                pic = Picture(well, new Vector2(0.5f, 0f), new Vector2(0f, 4f), 92f);
 
             var border = frame.GetComponent<Image>();
-            _hits.Add(new Hit { Rect = frame, OnClick = () =>
-            {
-                _bodyCat = index;
-                _preview.Frame(cat.View);
-                BuildPage();
-            } });
+            _catRects.Add(frame);
+            _hits.Add(new Hit { Rect = frame, OnClick = () => ChooseCategory(index) });
             _refresh.Add(() =>
             {
                 var look = _profile().Look;
                 string key = cat.Get(look);
                 if (chip != null) chip.color = cat.Swatches[BodyLook.IndexOf(cat.Swatches, key)].Color;
-                if (value != null) value.text = cat.Styles[BodyLook.IndexOf(cat.Styles, key)].Name.Replace(" ", "\n");
+                if (pic != null) pic.texture = Thumb(cat, key);
                 border.color = _bodyCat == index ? new Color(1f, 0.92f, 0.6f) : new Color(0.18f, 0.19f, 0.24f);
             });
         }
 
-        /// <summary>The chosen category's options, a finger wide, wrapping to the panel.</summary>
+        /// <summary>A square picture cell, anchored at <paramref name="anchor"/> of its parent.</summary>
+        static RawImage Picture(RectTransform parent, Vector2 anchor, Vector2 offset, float size)
+        {
+            var go = new GameObject("pic", typeof(RawImage));
+            go.transform.SetParent(parent, false);
+            var rt = (RectTransform)go.transform;
+            rt.anchorMin = rt.anchorMax = anchor;
+            rt.pivot = new Vector2(0.5f, 0f);
+            rt.anchoredPosition = offset;
+            rt.sizeDelta = new Vector2(size, size);
+            var img = go.GetComponent<RawImage>();
+            img.raycastTarget = false;
+            return img;
+        }
+
+        /// <summary>The picture of the character with one option of <paramref name="cat"/> applied - hair and
+        /// beard as head and shoulders, the face's options as the face.</summary>
+        Texture Thumb(BodyCategory cat, string key)
+        {
+            var look = JsonUtility.FromJson<Appearance>(JsonUtility.ToJson(_profile().Look));
+            look.Transmog = new Loadout();
+            cat.Set(look, key);
+            return _thumbs?.Get(look, cat.View == CharacterPreview.View.Bust);
+        }
+
+        /// <summary>
+        /// Open a category's options. On a pad the selection goes INTO them, onto what is worn, since the
+        /// panel is what the press was for; B brings it back out (Update). The page is rebuilt, so without
+        /// this the selection fell back to the first tab and the player walked back across the screen.
+        /// </summary>
+        void ChooseCategory(int index)
+        {
+            _bodyCat = index;
+            _preview.Frame(BodyCategories[index].View);
+            BuildPage();
+            if (!Core.Controls.GamepadMode) return;
+            RegisterFocus();
+            var cat = BodyCategories[index];
+            string worn = cat.Get(_profile().Look);
+            var at = _options.Find(o => o.Key == worn).Rect;
+            Core.Controls.Focus(at != null ? at : _options.Count > 0 ? _options[0].Rect : _catRects[index]);
+        }
+
+        /// <summary>The chosen category's options, wrapping to the panel: colours as square chips, styles as
+        /// pictures of the character wearing each, named underneath.</summary>
         void BuildBodyPanel(float left, float right)
         {
             var cat = BodyCategories[Mathf.Clamp(_bodyCat, 0, BodyCategories.Length - 1)];
@@ -743,17 +799,17 @@ namespace Convergence.UI
             float top = ColumnTop - 44f;
             int n = cat.Swatches?.Length ?? cat.Styles.Length;
 
-            // Swatches are square; named chips share the line before they wrap, never narrower
-            // than a finger.
-            float w = cat.Swatches != null ? Icon
-                    : Mathf.Clamp((width + gap) / n - gap, Icon, 200f);
+            // Swatches are a finger square. A picture cell is a little narrower, so the thirty-odd
+            // hairstyles still fit above the foot of the screen in four rows.
+            float w = cat.Swatches != null ? Icon : PicW;
+            float h = cat.Swatches != null ? Icon : PicH;
             int perLine = Mathf.Max(1, Mathf.FloorToInt((width + gap) / (w + gap)));
 
             for (int i = 0; i < n; i++)
             {
                 float x = left + (i % perLine) * (w + gap);
-                float y = top - (i / perLine) * (Icon + lineGap);
-                var cell = UiKit.Panel(_page, Centre, Centre, new Vector2(x, y - Icon), new Vector2(x + w, y),
+                float y = top - (i / perLine) * (h + lineGap);
+                var cell = UiKit.Panel(_page, Centre, Centre, new Vector2(x, y - h), new Vector2(x + w, y),
                     new Color(0.16f, 0.17f, 0.22f));
                 var bg = cell.GetComponent<Image>();
                 string key;
@@ -770,18 +826,28 @@ namespace Convergence.UI
                 {
                     var st = cat.Styles[i];
                     key = st.Key;
-                    var text = UiKit.Label(cell, st.Name, 17, Color.white, TextAnchor.MiddleCenter);
+                    var pic = Picture(cell, new Vector2(0.5f, 1f), new Vector2(0f, -4f - (w - 8f)), w - 8f);
+                    var text = UiKit.Label(UiKit.Rect(cell, "n", Vector2.zero, new Vector2(1f, 0f), new Vector2(2f, 2f), new Vector2(-2f, 22f)),
+                        st.Name, 13, Color.white, TextAnchor.MiddleCenter);
+                    string drawnFor = null;
                     _refresh.Add(() =>
                     {
-                        bool on = cat.Get(_profile().Look) == key;
-                        bg.color = on ? new Color(0.22f, 0.20f, 0.13f) : new Color(0.09f, 0.10f, 0.14f);
+                        var look = _profile().Look;
+                        bool on = cat.Get(look) == key;
+                        bg.color = on ? new Color(1f, 0.92f, 0.6f) : new Color(0.16f, 0.17f, 0.22f);
                         text.color = on ? new Color(1f, 0.92f, 0.6f) : new Color(0.65f, 0.68f, 0.75f);
+                        // Only when the rest of the look moved - choosing within the row redraws nothing.
+                        string basis = BodyLook.HeadKey(look);
+                        if (basis != drawnFor) { drawnFor = basis; pic.texture = Thumb(cat, key); }
                     });
                 }
 
+                _options.Add((key, cell));
                 _hits.Add(new Hit { Rect = cell, OnClick = () => { cat.Set(_profile().Look, key); Commit(); } });
             }
         }
+
+        const float PicW = 112f, PicH = 128f;
 
         // ------------------------------------------------------------------ edits
 
@@ -896,6 +962,31 @@ namespace Convergence.UI
 
         // ------------------------------------------------------------------ input
 
+        void SwitchTab(Tab tab)
+        {
+            _tab = tab;
+            _touchPick = null;
+            if (tab == Tab.Salt) _preview.Frame(BodyCategories[Mathf.Clamp(_bodyCat, 0, BodyCategories.Length - 1)].View);
+            else _preview.ResetView();
+            BuildPage();
+            // The selection follows to the page's tab, rather than falling back to the first one.
+            if (Core.Controls.GamepadMode)
+            {
+                RegisterFocus();
+                Core.Controls.Focus(_tabs.Find(t => t.Tab == tab).Rect);
+            }
+        }
+
+        /// <summary>This frame's pad targets: the tabs, then everything the page can press.</summary>
+        void RegisterFocus()
+        {
+            _focusRects.Clear();
+            foreach (var (rect, _) in _tabs) _focusRects.Add(rect);
+            foreach (var h in _hits)
+                if (h.Rect != null) _focusRects.Add(h.Rect);
+            Core.Controls.SetFocusCandidates(_focusRects);
+        }
+
         /// <summary>
         /// Which slot is highlighted this frame: the pad's focus, the mouse's hover, or touch's
         /// last tap. Asked every frame - the device can change mid-screen.
@@ -978,17 +1069,33 @@ namespace Convergence.UI
             // the slot behind it and one Cancel would close the grid AND the screen under it.
             if (PickerOpen) return;
 
+            _thumbs?.Tick();
+
+            // B in SALT's options steps back out to their category, as it backs out of the gear grid -
+            // not straight out of the circle from the far side of the screen.
+            if (Core.Controls.CancelTapped && _tab == Tab.Salt && Core.Controls.GamepadMode
+                && _options.Exists(o => o.Rect == Core.Controls.Focused)
+                && _bodyCat >= 0 && _bodyCat < _catRects.Count)
+            {
+                Core.Controls.Focus(_catRects[_bodyCat]);
+                return;
+            }
+
             if (Core.Controls.CancelTapped || Core.Controls.InteractTapped)
             {
                 Close();
                 return;
             }
 
-            _focusRects.Clear();
-            foreach (var (rect, _) in _tabs) _focusRects.Add(rect);
-            foreach (var h in _hits)
-                if (h.Rect != null) _focusRects.Add(h.Rect);
-            Core.Controls.SetFocusCandidates(_focusRects);
+            RegisterFocus();
+
+            // The bumpers turn the page, wrapping, so a pad never has to climb to the tabs.
+            if (Core.Controls.PagePrevTapped || Core.Controls.PageNextTapped)
+            {
+                int step = Core.Controls.PageNextTapped ? 1 : -1;
+                SwitchTab((Tab)(((int)_tab + step + 3) % 3));
+                return;
+            }
 
             PreviewGesture();
 
@@ -997,14 +1104,7 @@ namespace Convergence.UI
                 foreach (var (rect, tab) in _tabs)
                 {
                     if (!RectTransformUtility.RectangleContainsScreenPoint(rect, at, null)) continue;
-                    if (tab != _tab)
-                    {
-                        _tab = tab;
-                        _touchPick = null;
-                        if (tab == Tab.Salt) _preview.Frame(BodyCategories[Mathf.Clamp(_bodyCat, 0, BodyCategories.Length - 1)].View);
-                        else _preview.ResetView();
-                        BuildPage();
-                    }
+                    if (tab != _tab) SwitchTab(tab);
                     return;
                 }
 
