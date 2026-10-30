@@ -183,7 +183,10 @@ namespace Convergence.UI
             tag.fontStyle = FontStyle.Bold;
             var title = UiKit.Label(UiKit.Rect(full, "title", top, one, new Vector2(0, -128), new Vector2(0, -58)),
                 "CLEARED", 60, Bright, TextAnchor.MiddleCenter);
-            title.fontStyle = FontStyle.Bold;
+            // The title face, like a boss's name - at full size and unbolded: it has one weight,
+            // and Unity's faked bold smears it.
+            title.font = UiKit.Title;
+            title.fontSize = 60;
             Shadow(title, 3f);
             _prompt = UiKit.Label(UiKit.Rect(full, "prompt", top, one, new Vector2(0, -164), new Vector2(0, -132)),
                 "", 22, Prompt, TextAnchor.MiddleCenter);

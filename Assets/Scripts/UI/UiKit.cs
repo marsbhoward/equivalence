@@ -36,7 +36,7 @@ namespace Convergence.UI
         ///
         ///     Font    Pixelify Sans        sentences, speech, anything with lowercase in it
         ///     Caps    Silkscreen           all-caps labels, key hints, numbers
-        ///     Title   IM Fell English SC   boss names - the one place the pixel display face lost
+        ///     Title   IM Fell English SC   boss names and the floor's CLEARED
         ///
         /// <see cref="Label"/> picks Font or Caps from the text it is made with, so the hundreds of
         /// existing call sites change face without being touched. A missing file falls back to the
