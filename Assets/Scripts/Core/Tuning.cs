@@ -2483,6 +2483,11 @@ namespace Convergence.Core
             public const float RiftBase = 0.04f;
             public const float RiftStep = 0.07f;
 
+            /// <summary>Added to the Rift's weight on every eligible floor of ENEMY BAND 0 (the user's
+            /// call, 2026-10-30: the first Rift came too late). Short, measured on the planner: the first
+            /// Rift's mean floor 8.1 -> 6.7, and by floor 7 ~40% -> ~63%. The gap limit is unchanged.</summary>
+            public const float BandZeroRiftBonus = 0.25f;
+
             /// <summary>The longest run of eligible floors without a REACHED Rift; the floor after
             /// is a Blue Rift outright. A rule rather than a probability, because the player
             /// carrying a Diamond toward floor 98 cares about the worst case, not the mean.</summary>
@@ -7440,6 +7445,14 @@ namespace Convergence.Core
             /// </summary>
             public const float ShortDropScale = 1.15f;
             public static float FormatDropScale => RunFormat.Short ? ShortDropScale : 1f;
+
+            /// <summary>
+            /// Enemy gear drops in ENEMY BAND 0 (RunFormat.EnemyBand) multiplied by this (the user's
+            /// call, 2026-10-30): band 0 fights ~35 Chasers' worth, so at the base rate a run came out
+            /// of it with ~0.3 pieces - nothing to wear before the first boss. x8 is ~2.6. Gear only,
+            /// not Rift Boxes, and every later band keeps the base rate.
+            /// </summary>
+            public const float BandZeroGearDropScale = 8f;
             public const float ShortAvatarBlackDiamondBoxChance = 0.0025f;
             public const float ShortFinalLaterDiamondChance = 0.025f;
             public const float ShortFinalLaterBlackDiamondChance = 0.0075f;

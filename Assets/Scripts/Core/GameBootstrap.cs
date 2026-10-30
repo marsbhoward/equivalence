@@ -5659,7 +5659,8 @@ namespace Convergence.Core
             MintedGearRecord drop;
             using (Rifts.RunRolls.Seeded(_planner?.Seed ?? 0, _floor, Rifts.RunRolls.Kind.KillGear, kill))
             {
-                if (UnityEngine.Random.value >= Tuning.GearRoll.EnemyGearDropChance * chasers * Tuning.GearRoll.FormatDropScale) return;
+                float band = RunFormat.EnemyBand(_floor) == 0 ? Tuning.GearRoll.BandZeroGearDropScale : 1f;
+                if (UnityEngine.Random.value >= Tuning.GearRoll.EnemyGearDropChance * chasers * Tuning.GearRoll.FormatDropScale * band) return;
                 drop = _loot.RollGear(_floor);
             }
             Debug.Log($"[Rift] floor {_floor} enemy dropped {drop.DisplayName} (on the ground)");

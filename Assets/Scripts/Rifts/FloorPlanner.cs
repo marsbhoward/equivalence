@@ -173,7 +173,9 @@ namespace Convergence.Rifts
             }
 
             float wCombat = Tuning.Floors.CombatWeight;
-            float wRift = riftEligible ? Tuning.Floors.RiftBase + Tuning.Floors.RiftStep * SinceRift : 0f;
+            float wRift = riftEligible ? Tuning.Floors.RiftBase + Tuning.Floors.RiftStep * SinceRift
+                                         + (Core.RunFormat.EnemyBand(floor) == 0 ? Tuning.Floors.BandZeroRiftBonus : 0f)
+                                       : 0f;
             float wPuzzle = boss || floor < Tuning.Floors.PuzzleMinFloor ? 0f
                           : Tuning.Floors.PuzzleBase + Tuning.Floors.PuzzleStep * SincePuzzle;
             double roll = rng.NextDouble() * (wCombat + wRift + wPuzzle);
