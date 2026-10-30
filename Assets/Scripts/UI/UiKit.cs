@@ -30,8 +30,42 @@ namespace Convergence.UI
         /// </summary>
         public const float TouchTarget = 128f;
 
-        static Font _font;
-        public static Font Font => _font ??= Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf");
+        /// <summary>
+        /// The game's type, "Pixel Rite" (the user's pick from the dialogue &amp; type mock-up,
+        /// 2026-10-30). Three faces, all OFL, each beside its licence in Resources/Fonts:
+        ///
+        ///     Font    Pixelify Sans        sentences, speech, anything with lowercase in it
+        ///     Caps    Silkscreen           all-caps labels, key hints, numbers
+        ///     Title   IM Fell English SC   boss names - the one place the pixel display face lost
+        ///
+        /// <see cref="Label"/> picks Font or Caps from the text it is made with, so the hundreds of
+        /// existing call sites change face without being touched. A missing file falls back to the
+        /// built-in Arial rather than drawing nothing.
+        /// </summary>
+        static Font _font, _caps, _title, _builtin;
+        public static Font Font => _font ??= Load("Fonts/PixelifySans");
+        public static Font Caps => _caps ??= Load("Fonts/Silkscreen");
+        public static Font Title => _title ??= Load("Fonts/IMFellEnglishSC");
+
+        /// <summary>
+        /// Silkscreen sets about a fifth wider than the Arial every layout was sized against (a third
+        /// wider in digits), so a Caps label is drawn this much smaller to keep inside the same box.
+        /// </summary>
+        public const float CapsScale = 0.85f;
+
+        static Font Load(string path)
+        {
+            var f = Resources.Load<Font>(path);
+            return f != null ? f : (_builtin ??= Resources.GetBuiltinResource<Font>("LegacyRuntime.ttf"));
+        }
+
+        /// <summary>No lowercase letter and not empty: a label Silkscreen should set.</summary>
+        public static bool IsCaps(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return false;
+            foreach (char c in text) if (char.IsLower(c)) return false;
+            return true;
+        }
 
         public static Canvas CreateCanvas(string name, int sortOrder = 0)
         {
@@ -81,9 +115,10 @@ namespace Convergence.UI
             var go = new GameObject("label", typeof(Text));
             go.transform.SetParent(parent, false);
             var t = go.GetComponent<Text>();
-            t.font = Font;
+            bool caps = IsCaps(text);
+            t.font = caps ? Caps : Font;
             t.text = text;
-            t.fontSize = size;
+            t.fontSize = caps ? Mathf.RoundToInt(size * CapsScale) : size;
             t.color = color;
             t.alignment = anchor;
             t.horizontalOverflow = HorizontalWrapMode.Overflow;

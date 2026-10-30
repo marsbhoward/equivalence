@@ -190,15 +190,16 @@ namespace Convergence.UI
             var tint = enraged ? new Color(1f, 0.35f, 0.30f) : new Color(0.55f, 0.65f, 1f);
             _bossFill.color = immune ? tint * 0.55f : new Color(1f, 0.92f, 0.55f);
 
-            _bossLabel.text = immune
-                ? (enraged ? $"{bossName}   -   ENRAGED   -   {movement}" : $"{bossName}   -   {movement}")
-                : $"{bossName}   -   OPEN";
-            _bossLabel.color = immune ? new Color(0.62f, 0.66f, 0.74f) : new Color(1f, 0.92f, 0.55f);
+            // The name in the title face, the state beside it in the caps face - a Text has one
+            // font, so they are two labels on the one row.
+            _bossName.text = bossName;
+            _bossState.text = immune ? (enraged ? $"ENRAGED  ·  {movement}" : movement) : "OPEN";
+            _bossState.color = immune ? new Color(0.62f, 0.66f, 0.74f) : new Color(1f, 0.92f, 0.55f);
         }
 
         RectTransform _bossRoot;
         Image _bossFill;
-        Text _bossLabel;
+        Text _bossName, _bossState;
 
         void BuildBossBar()
         {
@@ -212,8 +213,13 @@ namespace Convergence.UI
 
             var lblRt = UiKit.Rect(_bossRoot, "lbl", new Vector2(0, 0), new Vector2(1, 1),
                 new Vector2(0, 20), new Vector2(0, 0));
-            _bossLabel = UiKit.Label(lblRt, "", 20, new Color(0.9f, 0.92f, 0.96f), TextAnchor.MiddleCenter);
-            UiKit.Legible(_bossLabel);
+            _bossName = UiKit.Label(lblRt, "", 30, new Color(0.95f, 0.92f, 0.85f), TextAnchor.LowerLeft);
+            _bossName.font = UiKit.Title;
+            UiKit.Legible(_bossName);
+            _bossState = UiKit.Label(lblRt, "", 16, new Color(0.62f, 0.66f, 0.74f), TextAnchor.LowerRight);
+            _bossState.font = UiKit.Caps;
+            _bossState.fontSize = Mathf.RoundToInt(16 * UiKit.CapsScale);
+            UiKit.Legible(_bossState);
         }
 
         /// <summary>

@@ -4321,7 +4321,7 @@ namespace Convergence.Core
                     return new()
                     {
                         Kind = kind, Enabled = true, Value = RestoreText(kind, r, xpAmount),
-                        Note = $"{Mathf.CeilToInt(cur)} → {Mathf.CeilToInt(after)} / {Mathf.CeilToInt(max)}",
+                        Note = $"{Mathf.CeilToInt(cur)} » {Mathf.CeilToInt(after)} / {Mathf.CeilToInt(max)}",
                         Blurb = "Patches you up. Does nothing for worn armour.",
                     };
                 }
@@ -4340,7 +4340,7 @@ namespace Convergence.Core
                     {
                         Kind = kind, Enabled = true,
                         Value = $"+{Tuning.FloorRewards.CalxPerCard} {Tuning.FloorRewards.CalxTier}",
-                        Note = $"CARRIED {_runCalx} → {_runCalx + Tuning.FloorRewards.CalxPerCard}",
+                        Note = $"CARRIED {_runCalx} » {_runCalx + Tuning.FloorRewards.CalxPerCard}",
                         Blurb = $"Carried. Kept if you extract, lost if you die. " +
                                 $"{Tuning.GearRoll.CalxPerBox} make a {Tuning.FloorRewards.CalxTier} box.",
                     };

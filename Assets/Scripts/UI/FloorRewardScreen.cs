@@ -49,7 +49,7 @@ namespace Convergence.UI
             public Moveset Art;        // the art a Moveset ring offers
             public bool Enabled;
             public string Value;       // the ring's line: an art's name, "+41 HP"
-            public string Note;        // the description's state line: "96 → 137 / 137"
+            public string Note;        // the description's state line: "96 » 137 / 137"
             public string Blurb;
         }
 
@@ -330,7 +330,7 @@ namespace Convergence.UI
         {
             _arrow = Centred(full, "arrow", new Vector2(60f, 90f), new Vector2(54f, 54f));
             _arrowGroup = _arrow.gameObject.AddComponent<CanvasGroup>();
-            var a = UiKit.Label(_arrow, "→", 46, GoldC, TextAnchor.MiddleCenter);
+            var a = UiKit.Label(_arrow, "»", 46, GoldC, TextAnchor.MiddleCenter);
             Shadow(a, 2f);
 
             _compareBar = Centred(full, "compare", new Vector2(60f, -390f), new Vector2(1000f, 70f));

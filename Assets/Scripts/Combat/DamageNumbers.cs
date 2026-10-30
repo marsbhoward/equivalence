@@ -75,7 +75,7 @@ namespace Convergence.Combat
             go.transform.SetParent(canvas.transform, false);
 
             var text = go.GetComponent<Text>();
-            text.font = UiKit.Font;
+            text.font = UiKit.Caps;   // numbers are set in the caps face (UiKit, "Pixel Rite")
             text.text = Mathf.RoundToInt(amount).ToString();
             int baseSize = finisher ? Tuning.DamageNumbers.FinisherFontSize : Tuning.DamageNumbers.FontSize;
             text.fontSize = crit ? Mathf.RoundToInt(baseSize * Tuning.DamageNumbers.CritSizeMul) : baseSize;
