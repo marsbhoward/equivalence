@@ -285,7 +285,7 @@ namespace Convergence.Art.Gear
         /// The Drifter's Shroud: a NECK piece after the user's desert-ranger reference - red cloth
         /// bunched round the throat and thrown over the shoulders. Started FROM the Wraithguard's
         /// drape with the hood and cape taken off (the user's call), now its own MANTLE over both
-        /// shoulders (ShroudIn), shaded as one woven cloth (ShroudTexel), on
+        /// shoulders (ShroudIn), shaded as one cloth (ShroudTexel), on
         /// <see cref="RigLayer.NeckOver"/> - worn over whatever cloak is on, from behind too, and
         /// over a hood (ShroudOverCloak). It hides both pauldrons, as a hood clips the mane - see
         /// PrimitiveCharacterRig.SyncShroudSide.
@@ -296,12 +296,6 @@ namespace Convergence.Art.Gear
             // warmer and lighter than the Wanderer's Hood so the two don't read as one cloth.
             var ramp = new Palette.Ramp(new Color(0.47f, 0.33f, 0.22f));
             var pal = Palette.Of(ramp);
-            // The weave's UNDER threads (see Woven): each tone part way to the next one down -
-            // a full step would turn the weave into a checkerboard louder than the folds.
-            pal['L'] = Color.Lerp(ramp.Light, ramp.Base, WeaveDepth);
-            pal['B'] = Color.Lerp(ramp.Base, ramp.Dark, WeaveDepth);
-            pal['D'] = Color.Lerp(ramp.Dark, ramp.Deep, WeaveDepth);
-            pal['S'] = Color.Lerp(ramp.Deep, ramp.Line, WeaveDepth);
             var item = Make("drifter_shroud", "Drifter's Shroud", GearSlot.Neck, LootTier.Gold, 0f,
                 Pixels(RigLayer.NeckOver, "gear.neck.shroud", ShroudRows, pal,
                        0f, (ShroudTopY + ShroudBottomY) / 2f, ppu: BodyPpu));
@@ -310,9 +304,6 @@ namespace Convergence.Art.Gear
             item.ShroudOverCloak = true;
             return item;
         }
-
-        /// <summary>How far an under-thread drops toward the next tone down.</summary>
-        const float WeaveDepth = 0.3f;
 
         /// <summary>
         /// ONE PIECE OF CLOTH (the user's call): no rolls, no tucks, no hem line, no fold planes.
@@ -395,32 +386,15 @@ namespace Convergence.Art.Gear
         static bool ShroudIn(float x, float y)
             => Mathf.Abs(x) <= ShroudOuter(y) && y <= ShroudTop(x) && y >= ShroudBottom(x);
 
-        static string[] _shroudRows;
-        static string[] ShroudRows => _shroudRows ??= Woven(SampleCells(
-            -ShroudHalfW, ShroudHalfW, ShroudBottomY, ShroudTopY, ShroudTexel));
-
         /// <summary>
-        /// WOVEN CLOTH as a PLAIN weave: every other texel, checkerboard-wise, is a thread passing
-        /// under - its cloth tone ('sdbl') swapped for its under-thread key ('SDBL'). One texel
-        /// each and no direction, so it reads as the grain of one cloth rather than a pattern laid
-        /// on it (a 2x2 basket weave, alternating across and down, broke the shroud into patches).
+        /// PLAIN, with no weave. A one-texel checkerboard of under-threads was tried and FLICKERED:
+        /// the idle breath slides the body by fractions of a texel, and under point sampling a
+        /// pattern at one texel's frequency trades screen pixels row by row as it moves - most
+        /// visibly at a non-integer zoom (the hub's 1.33x figure in a smaller window). Flat tone
+        /// bands hide the same slide; any texture here has to be coarser than a texel.
         /// </summary>
-        static string[] Woven(string[] rows)
-        {
-            var woven = new string[rows.Length];
-            var sb = new System.Text.StringBuilder();
-            for (int r = 0; r < rows.Length; r++)
-            {
-                sb.Clear();
-                for (int c = 0; c < rows[r].Length; c++)
-                {
-                    char ch = rows[r][c];
-                    bool under = (r + c) % 2 == 1;
-                    sb.Append(under && WgCloth.IndexOf(ch) >= 0 ? char.ToUpperInvariant(ch) : ch);
-                }
-                woven[r] = sb.ToString();
-            }
-            return woven;
-        }
+        static string[] _shroudRows;
+        static string[] ShroudRows => _shroudRows ??= SampleCells(
+            -ShroudHalfW, ShroudHalfW, ShroudBottomY, ShroudTopY, ShroudTexel);
     }
 }

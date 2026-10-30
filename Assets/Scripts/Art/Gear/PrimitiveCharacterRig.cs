@@ -540,7 +540,7 @@ namespace Convergence.Art.Gear
         /// </summary>
         const float DustSpeed = 1.8f;
 
-        /// <summary>How far ahead of the hips a puff is dropped, world units.</summary>
+        /// <summary>How far behind the feet a puff is dropped, world units at visual scale 1.</summary>
         const float DustAhead = 0.10f;
 
         // ---- hit reaction ----
@@ -5705,8 +5705,12 @@ namespace Convergence.Art.Gear
                     // what they are pointing at would otherwise kick dust out in front of
                     // themselves. Velocity is also the only one of the two that means anything
                     // on a straight vertical run.
+                    // On the foot line - the contact shadow's spot, which already carries the
+                    // sole height and the visual scale - not the root, which is the hips: at the
+                    // hub's larger figure the grit flew off the waist.
                     Vector2 back = Body != null ? -Body.linearVelocity.normalized : Vector2.zero;
-                    DustPuff.Raise(transform.position + (Vector3)(back * DustAhead), back);
+                    Vector3 ground = _shadow != null ? _shadow.transform.position : transform.position;
+                    DustPuff.Raise(ground + (Vector3)(back * DustAhead * _visualScale), back);
                 }
                 _lastFootfall = footfall;
             }
