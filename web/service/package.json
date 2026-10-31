@@ -13,12 +13,13 @@
     "@lucid-evolution/lucid": "^0.5.5",
     "express": "^4.19.2",
     "pg": "^8.23.1",
-    "sharp": "^0.34.5"
+    "sharp": "^0.35.5"
   },
   "devDependencies": {
     "@types/express": "^4.17.21",
     "@types/node": "^20.14.0",
     "@types/pg": "^8.23.1",
+    "railway": "^3.16.0",
     "tsx": "^4.15.0",
     "typescript": "^5.5.0"
   },

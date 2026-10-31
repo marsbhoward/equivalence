@@ -86,7 +86,30 @@ function resolve(source: string): { url: URL } | { data: Buffer } | null {
   }
 }
 
-/** Loopback, private, link-local, carrier NAT, multicast, reserved - anything not the public internet. */
+/** An IPv6 address as its 16 bytes, or null. */
+function v6Bytes(ip: string): number[] | null {
+  let s = ip.toLowerCase();
+  const zone = s.indexOf('%');
+  if (zone >= 0) s = s.slice(0, zone);
+  // A trailing dotted quad (::ffff:1.2.3.4) becomes two hex groups.
+  const quad = /(\d+)\.(\d+)\.(\d+)\.(\d+)$/.exec(s);
+  if (quad) {
+    const [a, b, c, d] = quad.slice(1).map(Number);
+    s = s.slice(0, quad.index) + ((a << 8) | b).toString(16) + ':' + ((c << 8) | d).toString(16);
+  }
+  const halves = s.split('::');
+  if (halves.length > 2) return null;
+  const head = halves[0] ? halves[0].split(':') : [];
+  const tail = halves.length === 2 && halves[1] ? halves[1].split(':') : [];
+  const fill = halves.length === 2 ? 8 - head.length - tail.length : 0;
+  const groups = [...head, ...Array(Math.max(0, fill)).fill('0'), ...tail];
+  if (groups.length !== 8 || groups.some(g => !/^[0-9a-f]{1,4}$/.test(g))) return null;
+  return groups.flatMap(g => { const n = parseInt(g, 16); return [n >> 8, n & 255]; });
+}
+
+/** Loopback, private, link-local, carrier NAT, multicast, reserved - anything not the public internet.
+ *  An IPv6 address that CARRIES an IPv4 one is judged by the IPv4 inside: mapped (::ffff:a9fe:a9fe is
+ *  169.254.169.254 - the form a URL host normalises to), compatible, NAT64 (64:ff9b::/96) and 6to4. */
 function isPrivate(ip: string): boolean {
   if (isIP(ip) === 4) {
     const [a, b] = ip.split('.').map(Number);
@@ -94,14 +117,25 @@ function isPrivate(ip: string): boolean {
       || (a === 172 && b >= 16 && b < 32) || (a === 192 && b === 168) || (a === 192 && b === 0)
       || (a === 198 && (b === 18 || b === 19)) || a >= 224;
   }
-  const v6 = ip.toLowerCase();
-  if (v6.startsWith('::ffff:')) return isPrivate(v6.slice(7));
-  return v6 === '::' || v6 === '::1' || v6.startsWith('fc') || v6.startsWith('fd') || v6.startsWith('fe8')
-    || v6.startsWith('fe9') || v6.startsWith('fea') || v6.startsWith('feb') || v6.startsWith('ff');
+  const v = v6Bytes(ip);
+  if (!v) return true;   // not an address we can read - refused
+  const v4 = (at: number) => isPrivate(v.slice(at, at + 4).join('.'));
+  const zero = (from: number, to: number) => v.slice(from, to).every(x => x === 0);
+  if (zero(0, 10) && v[10] === 0xff && v[11] === 0xff) return v4(12);                     // ::ffff:a.b.c.d
+  if (zero(0, 12)) return true;                                                            // ::, ::1, ::a.b.c.d
+  if (v[0] === 0x00 && v[1] === 0x64 && v[2] === 0xff && v[3] === 0x9b) return true;       // NAT64 64:ff9b::/32
+  if (v[0] === 0x20 && v[1] === 0x02) return v4(2);                                        // 6to4 2002::/16
+  return (v[0] & 0xfe) === 0xfc                                                            // fc00::/7 unique local
+    || (v[0] === 0xfe && (v[1] & 0xc0) === 0x80)                                           // fe80::/10 link-local
+    || (v[0] === 0xfe && (v[1] & 0xc0) === 0xc0)                                           // fec0::/10 site-local
+    || v[0] === 0xff                                                                       // multicast
+    || (v[0] === 0x20 && v[1] === 0x01 && v[2] === 0x0d && v[3] === 0xb8);                 // documentation
 }
 
 /** GET over https, pinned to a public address, capped in size and time, no redirects. Shared with
  *  routes/nft.ts, which fetches a piece's HTML the same guarded way. */
+export { isPrivate };
+
 export async function fetchPublic(url: URL, accept = 'image/*', maxBytes = MAX_BYTES): Promise<Buffer> {
   const host = url.hostname.replace(/^\[|\]$/g, '');
   const addrs = isIP(host) ? [{ address: host, family: isIP(host) }] : await lookup(host, { all: true });
@@ -133,6 +167,10 @@ export async function fetchPublic(url: URL, accept = 'image/*', maxBytes = MAX_B
       res.on('error', reject);
     });
     req.on('timeout', () => req.destroy(new Error('image fetch timed out')));
+    // `timeout` is an IDLE limit: a host dripping a byte every few seconds would never trip it.
+    // The whole fetch gets TIMEOUT_MS as well.
+    const deadline = setTimeout(() => req.destroy(new Error('fetch took too long')), TIMEOUT_MS);
+    req.on('close', () => clearTimeout(deadline));
     req.on('error', reject);
   });
 }
