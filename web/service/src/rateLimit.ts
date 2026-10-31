@@ -122,8 +122,8 @@ export const overall = (name: string, limit: Limit) => limiter(name, limit, () =
  *              end - well under 120 a minute for one player.
  *   writes     begin-run once a run, commit-run once (and a retry or two), opening boxes in
  *              ones and tens.
- *   public     the game reads /components when the wallet connects and on a refresh; /art per
- *              picture shown.
+ *   public     the game reads /components when the wallet connects and on a refresh,
+ *              /components/items per policy page opened; /art per picture shown.
  */
 export const LIMITS = {
   // ---- before authentication (per IP)
@@ -132,9 +132,13 @@ export const LIMITS = {
   sessionIp: { burst: 30, perMinute: 120 },
   publicRead: { burst: 20, perMinute: 60 },
   components: { burst: 10, perMinute: 20 },
+  /** A policy's page or a frame's pieces (routes/components.ts) - the picker turns pages, the hub restores frames. */
+  componentItems: { burst: 20, perMinute: 60 },
   art: { burst: 60, perMinute: 120 },
   /** Wallet pictures (routes/img.ts) - a crate opening asks for up to 24 at once. */
   img: { burst: 60, perMinute: 240 },
+  /** A piece's live HTML (routes/nft.ts) - one per close-up view opened. */
+  nft: { burst: 10, perMinute: 30 },
   /** CSP violation reports (play.ts) - a page can fire a burst; nothing past this is worth logging. */
   csp: { burst: 20, perMinute: 30 },
   writeIp: { burst: 30, perMinute: 60 },

@@ -55,14 +55,37 @@ namespace Convergence.Hub
 
         public int Count => WalletInventory.Count;
 
-        public bool TryGet(int index, out ShowcaseItem item)
+        // Rebuilt only when the inventory's policy list is a different list (a refresh replaces it).
+        IReadOnlyList<WalletPolicy> _groupsFrom;
+        readonly List<ShowcaseGroup> _groups = new();
+
+        public IReadOnlyList<ShowcaseGroup> Groups
         {
-            item = default;
-            var owned = WalletInventory.Components;
-            if (index < 0 || index >= owned.Count) return false;
-            item = Compose(owned[index]);
-            return true;
+            get
+            {
+                var policies = WalletInventory.Policies;
+                if (!ReferenceEquals(policies, _groupsFrom) || _groups.Count != policies.Count)
+                {
+                    _groupsFrom = policies;
+                    _groups.Clear();
+                    foreach (var p in policies)
+                        _groups.Add(new ShowcaseGroup { Id = p.Policy, Name = p.Name, Count = p.Count });
+                }
+                return _groups;
+            }
         }
+
+        public void Loaded(string group, List<ShowcaseItem> into)
+        {
+            into.Clear();
+            foreach (var c in WalletInventory.Loaded(group))
+                into.Add(new ShowcaseItem { Key = c.Key, Title = c.Title, Collection = c.Collection });
+        }
+
+        public bool HasMore(string group) => WalletInventory.HasMore(group);
+        public bool IsLoading(string group) => WalletInventory.IsLoading(group);
+        public void LoadMore(string group) => _ = WalletInventory.LoadNextPageAsync(group);
+        public void Want(IEnumerable<string> keys) => _ = WalletInventory.LoadUnitsAsync(keys);
 
         public bool TryGetByKey(string key, out ShowcaseItem item)
         {
@@ -79,7 +102,12 @@ namespace Convergence.Hub
                 Key = c.Key,
                 Title = c.Title,
                 Collection = c.Collection,
-                Art = Art(c),
+                // Our own collection's cards are drawn by the game, spinning (NftCard) - the still is
+                // only a frame of the piece. Everything else is its picture.
+                Art = c.HasCard && c.Card != null
+                    ? NftCard.Get(c.Key, c.Card, NftCard.WallHeight)?.Sprite ?? Art(c)
+                    : Art(c),
+                HtmlUrl = c.HtmlUrl,
             };
         }
 
@@ -183,8 +211,12 @@ namespace Convergence.Hub
             }
         }
 
+        /// <summary>The drawn cards redraw here - only the ones something is showing (NftCard.Touch).</summary>
+        void Update() => NftCard.TickAll();
+
         void OnDestroy()
         {
+            NftCard.DestroyAll();
             foreach (var s in _art.Values)
             {
                 if (s == null) continue;

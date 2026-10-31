@@ -1,3 +1,5 @@
+import { credentialToRewardAddress, getAddressDetails } from '@lucid-evolution/lucid';
+
 /**
  * Read-only Blockfrost access.
  *
@@ -63,7 +65,7 @@ export async function networkInfo() {
   };
 }
 
-type BfAmount = { unit: string; quantity: string };
+export type BfAmount = { unit: string; quantity: string };
 type BfAsset = {
   asset: string;
   policy_id: string;
@@ -77,6 +79,34 @@ export async function assetsAt(address: string): Promise<BfAmount[]> {
   const acc = await bf<{ amount: BfAmount[] }>(`/addresses/${encodeURIComponent(address)}`);
   if (!acc) return [];
   return acc.amount.filter(a => a.unit !== 'lovelace');
+}
+
+/**
+ * Every native token a WALLET holds, lovelace excluded - across all its addresses, not one.
+ *
+ * A Cardano wallet (Eternl, Lace, Vespr, ...) spreads its tokens over many addresses under ONE
+ * stake key, and the address it hands the game is only one of them; reading that address alone
+ * missed whatever sat on the others. So the read goes by the stake account (Blockfrost sums it,
+ * paged 100 a call), and by the address only when there is no stake part (an enterprise address)
+ * or the account has never been seen on chain.
+ *
+ * `maxPages` bounds the calls for a very large wallet; `truncated` says the bound was hit.
+ */
+export async function walletAssets(address: string, maxPages: number): Promise<{ amounts: BfAmount[]; truncated: boolean }> {
+  const details = getAddressDetails(address);
+  if (details.stakeCredential) {
+    const stake = credentialToRewardAddress(details.networkId === 1 ? 'Mainnet' : 'Preview', details.stakeCredential);
+    const amounts: BfAmount[] = [];
+    for (let page = 1; page <= maxPages; page++) {
+      const batch = await bf<BfAmount[]>(`/accounts/${encodeURIComponent(stake)}/addresses/assets?count=100&page=${page}`);
+      if (batch === null) break;               // an account never seen on chain - read the address below
+      amounts.push(...batch);
+      if (batch.length < 100) return { amounts, truncated: false };
+      if (page === maxPages) return { amounts, truncated: true };
+    }
+    if (amounts.length > 0) return { amounts, truncated: false };
+  }
+  return { amounts: await assetsAt(details.address.bech32), truncated: false };
 }
 
 export async function assetInfo(unit: string): Promise<BfAsset | null> {

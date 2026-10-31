@@ -281,6 +281,9 @@ namespace Convergence.Hub
 
         void Update()
         {
+            // A drawn card (NftCard) keeps turning while it hangs here; any other picture ignores this.
+            NftCard.Touch(_sprite);
+
             // Only a standing piece answers focus - its jar's glass brightens. A wall frame hangs flush.
             if (Mode != FrameMode.Easel || _eGlow == null) return;
             _lit = Mathf.MoveTowards(_lit, _focused ? 1f : 0f, Time.unscaledDeltaTime * 5f);

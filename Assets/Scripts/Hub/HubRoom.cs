@@ -88,7 +88,7 @@ namespace Convergence.Hub
         System.Action _onMastery;
         System.Action<string> _onSwitchCharacter;
         System.Action _onNewCharacter;
-        System.Action _onOpenCollection;
+        System.Action _onOpenHubThemes;
         System.Action<string> _onOpenCollectionForFrame;
         System.Action<bool> _onDressArmoury;
         System.Action _onOpenTerminal;
@@ -154,6 +154,9 @@ namespace Convergence.Hub
 
         // ---- prompt UI ----
         RectTransform _promptPanel, _inspectRoot, _card, _titleRow, _subRow;
+        RectTransform _inspectBack;
+        Sprite _inspectSprite;   // the close-up's drawn card, kept turning while it is up (NftCard)
+        readonly List<RectTransform> _inspectFocus = new();
         Text _promptTitle, _promptSub, _promptBody, _promptKey;
         Image _promptAccent;
         Transform _canvas;
@@ -202,7 +205,7 @@ namespace Convergence.Hub
                           ElementType[] order, IReadOnlyList<CharacterProfile> roster,
                           System.Action<ElementType> onEnter, System.Action onTransmute,
                           System.Action onMastery, System.Action<string> onSwitchCharacter,
-                          System.Action onNewCharacter, System.Action onOpenCollection,
+                          System.Action onNewCharacter, System.Action onOpenHubThemes,
                           System.Action<string> onOpenCollectionForFrame,
                           System.Action onLayoutChanged, RoomLayout room,
                           System.Action onOpenTerminal, System.Action onTakePortrait,
@@ -215,7 +218,7 @@ namespace Convergence.Hub
             _room = room ?? new RoomLayout();
             // What a Prism shows lit in here: the element the selector starts on (see Attunement).
             if (order != null && order.Length > 0) Attunement.Set(order[0]);
-            _onOpenCollection = onOpenCollection;
+            _onOpenHubThemes = onOpenHubThemes;
             _onOpenCollectionForFrame = onOpenCollectionForFrame;
             _onOpenTerminal = onOpenTerminal;
             _onTakePortrait = onTakePortrait;
@@ -756,10 +759,13 @@ namespace Convergence.Hub
         }
 
         /// <summary>
-        /// The crate the collection comes out of, and the switch for the room editor.
+        /// The crate the frames come out of, the way into the hub's themes, and the switch for the
+        /// room editor. It holds FRAMES, not the wallet (the user's call, 2026-10-31): [E] hands
+        /// the player an empty one to set down, and its art is chosen on the frame itself
+        /// (UI.ShowcasePicker, grouped by policy). [R] opens the themes.
         ///
-        /// Two separate bindings rather than one overloaded [E]: opening the collection is a real,
-        /// already-shipped feature and Alt was free (it already means "back out" during trophy
+        /// Two separate bindings rather than one overloaded [E]: taking out a frame is the
+        /// crate's own job and Alt was free (it already means "back out" during trophy
         /// placement, and nothing else in the room uses it). [E] opens the crate normally, or
         /// picks the crate itself up once editing - see <see cref="ToggleEditMode"/> for why
         /// Alt is what enters that mode rather than another press of [E].
@@ -806,7 +812,7 @@ namespace Convergence.Hub
                 {
                     if (_editMode) BeginCarryFixture("crate");
                     else if (HasParcel) OnOpenParcel?.Invoke();
-                    else _onOpenCollection?.Invoke();
+                    else TakeOutFrame();
                 },
                 on => crateArt.SetFocus(on));
             _points.Add(_cratePoint);
@@ -827,13 +833,13 @@ namespace Convergence.Hub
             int n = Showcase.Source?.Count ?? 0;
             return new Prompt
             {
-                Title = "THE COLLECTION",
-                Sub = n > 0 ? $"{n} piece{(n == 1 ? "" : "s")}" : "empty",
+                Title = "THE CRATE",
+                Sub = n > 0 ? $"{n} piece{(n == 1 ? "" : "s")} in your wallet" : "frames",
                 Body = n > 0
-                    ? "Take a piece out and stand it anywhere in the room, or hang it on the " +
-                      "gallery wall."
-                    : "No collection is connected, so there is nothing to display yet.",
-                Key = "[ E ]  open the crate     [ Q ]  rearrange the room",
+                    ? "Take out a frame, hang it on the gallery wall or stand it anywhere, then " +
+                      "choose the art it shows."
+                    : "Take out a frame and hang it or stand it. Connect a wallet holding art to fill it.",
+                Key = "[ E ]  take out a frame     [ R ]  hub themes     [ Q ]  rearrange the room",
                 Accent = new Color(0.72f, 0.58f, 0.34f),
             };
         }
@@ -1359,42 +1365,71 @@ namespace Convergence.Hub
             var source = Showcase.Source;
 
             foreach (var placed in _room.Trophies)
-            {
-                if (source == null || !source.TryGetByKey(placed.Key, out var item)) continue;
-                AddFrame(placed.Id, item, new Vector2(placed.X, placed.Y), placed.Stand, placed.Turn);
-            }
+                AddFrame(placed.Id, ItemFor(placed.Key), new Vector2(placed.X, placed.Y), placed.Stand, placed.Turn);
         }
+
+        /// <summary>
+        /// What a frame shows: its piece, or nothing. A frame is the player's furniture, out of the
+        /// crate, so it STAYS when its art does not resolve - no wallet connected, the piece sold -
+        /// standing empty with its key kept, and filling again when the wallet comes back
+        /// (Showcase.Refresh). An empty key is a frame never filled, or emptied.
+        /// </summary>
+        static ShowcaseItem ItemFor(string key)
+        {
+            var source = Showcase.Source;
+            if (!string.IsNullOrEmpty(key) && source != null && source.TryGetByKey(key, out var item)) return item;
+            return new ShowcaseItem { Key = key ?? "", Title = EmptyTitle };
+        }
+
+        const string EmptyTitle = "a frame";
+
+        /// <summary>An empty frame out of the crate, into the player's hands.</summary>
+        void TakeOutFrame() => BeginPlacement(new ShowcaseItem { Key = "", Title = EmptyTitle });
 
         void AddFrame(string id, in ShowcaseItem item, Vector2 at, bool stand, int turn)
         {
+            string placedKey = item.Key;
             var mode = ModeFor(at, stand);
             var frame = Frame.Build(_root, id, item, mode, VisualFor(at, mode), at, solid: true, turn);
             _frames.Add(frame);
 
             _points.Add(HubInteractable.Attach(frame.gameObject, at, 1.0f,
-                () => new Prompt
-                {
-                    Title = frame.Title.ToUpper(),
-                    Sub = frame.Collection,
-                    Body = frame.Mode == FrameMode.Wall
-                        ? "Hung on the wall. Change what it shows, or pick it up to move it or " +
-                          "put it back in the crate."
-                        : "Standing where you put it. Change what it shows, or pick it up to " +
-                          "move it or put it back in the crate.",
-                    Key = _editMode
-                        ? "[ E ]  change art     [ Q ]  pick up"
-                        : "[ E ]  change art     [ Q ]  pick up     [ R ]  look closer",
-                    Accent = new Color(0.86f, 0.78f, 0.55f),
-                },
+                () => frame.HasArt
+                    ? new Prompt
+                    {
+                        Title = frame.Title.ToUpper(),
+                        Sub = frame.Collection,
+                        Body = frame.Mode == FrameMode.Wall
+                            ? "Hung on the wall. Change what it shows, or pick it up to move it or " +
+                              "put it back in the crate."
+                            : "Standing where you put it. Change what it shows, or pick it up to " +
+                              "move it or put it back in the crate.",
+                        Key = _editMode
+                            ? "[ E ]  change art     [ Q ]  pick up"
+                            : "[ E ]  change art     [ Q ]  pick up     [ R ]  look closer",
+                        Accent = new Color(0.86f, 0.78f, 0.55f),
+                    }
+                    : new Prompt
+                    {
+                        Title = "AN EMPTY FRAME",
+                        Sub = frame.Mode == FrameMode.Wall ? "on the wall" : "standing",
+                        Body = string.IsNullOrEmpty(placedKey)
+                            ? "Choose a piece from your wallet to show in it, or pick it up to move it " +
+                              "or put it back in the crate."
+                            : "Its piece is not in the connected wallet. Choose another, or pick it up " +
+                              "to move it or put it back in the crate.",
+                        Key = "[ E ]  choose art     [ Q ]  pick up",
+                        Accent = new Color(0.86f, 0.78f, 0.55f),
+                    },
                 () => _onOpenCollectionForFrame?.Invoke(id), on => frame.SetFocus(on)));
         }
 
         // ------------------------------------------------------------------ placement
 
-        /// <summary>Take a piece out of the crate and start looking for a spot. Always a brand
+        /// <summary>Take a frame out of the crate and start looking for a spot. Always a brand
         /// new frame - see RoomLayout.PlaceTrophy's own note on why identity is never reused
         /// across two different pieces of art.</summary>
-        public void BeginPlacement(ShowcaseItem item)
+        void BeginPlacement(ShowcaseItem item)
         {
             if (_carrying != null) return;
             _carryItem = item;
@@ -1416,8 +1451,7 @@ namespace Convergence.Hub
             foreach (var t in _room.Trophies) if (t.Id == frameId) { placement = t; break; }
             if (placement == null) return;
 
-            var source = Showcase.Source;
-            if (source == null || !source.TryGetByKey(placement.Key, out var item)) return;
+            var item = ItemFor(placement.Key);
 
             var origin = new Vector2(placement.X, placement.Y);
             _room.RemoveTrophy(frameId);
@@ -1434,8 +1468,8 @@ namespace Convergence.Hub
             _carrying = Frame.Build(_root, frameId, item, mode, VisualFor(at, mode), at, solid: false, _carryTurn);
         }
 
-        /// <summary>Change what an already-placed frame shows, without moving it - the crate
-        /// picker's callback when it was opened from a standing frame.</summary>
+        /// <summary>Change what an already-placed frame shows, without moving it - the art
+        /// picker's callback. An empty key empties the frame.</summary>
         public void SetFrameArt(string frameId, string key)
         {
             if (_room == null) return;
@@ -1856,7 +1890,14 @@ namespace Convergence.Hub
             // The enlarged view owns input while it is up.
             if (_inspectRoot != null)
             {
-                if (Core.Controls.InteractTapped || Core.Controls.CancelTapped) CloseInspect();
+                NftCard.Touch(_inspectSprite);
+                _inspectFocus.Clear();
+                if (_inspectBack != null) _inspectFocus.Add(_inspectBack);
+                Core.Controls.SetFocusCandidates(_inspectFocus);
+                if (Core.Controls.InteractTapped || Core.Controls.CancelTapped
+                    || (_inspectBack != null && Core.Controls.Tapped(out var at)
+                        && RectTransformUtility.RectangleContainsScreenPoint(_inspectBack, at, null)))
+                    CloseInspect();
                 return;
             }
 
@@ -1916,6 +1957,8 @@ namespace Convergence.Hub
             // to admire a piece is a different moment from moving furniture around it.
             if (!_editMode && Core.Controls.SecondAbilityTapped && _focused != null)
             {
+                // The crate's second button opens the hub's themes (they were the old collection's HUB tab).
+                if (_focused == _cratePoint && !HasParcel) { _onOpenHubThemes?.Invoke(); return; }
                 var frame = _focused.GetComponent<Frame>();
                 if (frame != null && frame.HasArt) { OpenInspect(frame); return; }
             }
@@ -2070,6 +2113,18 @@ namespace Convergence.Hub
             // The plate is square, so a piece turned on its side still fits it whole.
             art.localRotation = Quaternion.Euler(0f, 0f, frame.Turn * 90f);
 
+            // Our own collection's piece: its LIVE page over the plate on the web build (NftFrame -
+            // the only place a page ever runs), else the drawn card at close-up size. Both upright:
+            // the card is drawn portrait whichever way the frame's art was turned.
+            Chain.WalletInventory.TryGet(frame.Key, out var piece);
+            bool live = piece != null && NftFrame.Available && !string.IsNullOrEmpty(piece.HtmlUrl);
+            if (piece != null && (live || piece.HasCard)) art.localRotation = Quaternion.identity;
+            if (!live && piece != null && piece.HasCard && piece.Card != null)
+            {
+                _inspectSprite = NftCard.Get(piece.Key, piece.Card, NftCard.BigHeight)?.Sprite;
+                if (_inspectSprite != null) img.sprite = _inspectSprite;
+            }
+
             var t = UiKit.Rect(box, "t", new Vector2(0, 0), new Vector2(1, 0),
                                new Vector2(40, 118), new Vector2(-40, 166));
             UiKit.Label(t, frame.Title, 30, new Color(0.93f, 0.94f, 0.97f));
@@ -2080,13 +2135,32 @@ namespace Convergence.Hub
                 18, new Color(0.62f, 0.65f, 0.73f));
             body.horizontalOverflow = HorizontalWrapMode.Wrap;
 
+            // A BACK to tap: a click into the live page takes the keyboard with it, so [ E ] and
+            // Escape no longer reach the game until something outside the page is clicked.
+            _inspectBack = UiKit.Panel(box, new Vector2(1, 0), new Vector2(1, 0),
+                                       new Vector2(-200, 18), new Vector2(-40, 62), new Color(0.16f, 0.16f, 0.2f));
+            UiKit.Label(_inspectBack, "BACK", 20, new Color(0.85f, 0.87f, 0.92f), TextAnchor.MiddleCenter);
             var f = UiKit.Rect(box, "f", new Vector2(0, 0), new Vector2(1, 0),
-                               new Vector2(40, 20), new Vector2(-40, 54));
-            UiKit.Label(f, "[ E ]  back", 19, new Color(0.5f, 0.53f, 0.6f));
+                               new Vector2(40, 20), new Vector2(-220, 54));
+            UiKit.Label(f, live ? "[ E ]  back     drag to turn it, tap to flip it" : "[ E ]  back", 19, new Color(0.5f, 0.53f, 0.6f));
+
+            if (live)
+            {
+                // Laid out now, so the plate's rect is where it will be drawn.
+                Canvas.ForceUpdateCanvases();
+                var corners = new Vector3[4];
+                art.GetWorldCorners(corners);
+                var a = RectTransformUtility.WorldToScreenPoint(null, corners[0]);
+                var c = RectTransformUtility.WorldToScreenPoint(null, corners[2]);
+                NftFrame.Show(piece.HtmlUrl, Rect.MinMaxRect(a.x, a.y, c.x, c.y));
+            }
         }
 
         void CloseInspect()
         {
+            NftFrame.Hide();
+            _inspectSprite = null;
+            _inspectBack = null;
             if (_inspectRoot != null) Destroy(_inspectRoot.gameObject);
             _inspectRoot = null;
             GamePause.Release(this);

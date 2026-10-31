@@ -3,9 +3,10 @@ import { internal } from './errors.js';
 import { mintDesign } from './routes/mintDesign.js';
 import { devMintCharacter } from './routes/devCharacter.js';
 import { splitFunds } from './routes/splitFunds.js';
-import { components } from './routes/components.js';
+import { componentItems, components } from './routes/components.js';
 import { getArt, postArt } from './routes/art.js';
 import { getImage } from './routes/img.js';
+import { getNftPage } from './routes/nft.js';
 import { networkInfo } from './blockfrost.js';
 import { cors } from './cors.js';
 import { requireWriteToken } from './writeAuth.js';
@@ -100,6 +101,8 @@ app.get('/read/health', publicRead, blockfrostPublic, async (_req, res) => {
 // The first real read: what a wallet holds. Pure Blockfrost - no service wallet, no signature,
 // nothing to approve.
 app.get('/components', perIp('components', LIMITS.components), blockfrostPublic, components);
+// One policy's pieces, or a placed frame's, a page at a time (the picker pages through them).
+app.get('/components/items', perIp('component-items', LIMITS.componentItems), blockfrostPublic, componentItems);
 
 /**
  * The service wallet's own address - the one that has to hold test ADA before any write can pay a
@@ -154,6 +157,8 @@ app.get('/boxes/:profileId', requireSession, perIdentity('boxes', LIMITS.boxes),
 app.get('/art/:artKey', getArt);
 // A wallet token's picture, fetched once, shrunk and cached (routes/img.ts).
 app.get('/img/:unit', perIp('img', LIMITS.img), blockfrostPublic, getImage);
+// A piece's live HTML, our own collections only (HTML_POLICIES) - the close-up view's iframe (routes/nft.ts).
+app.get('/nft/:unit', perIp('nft', LIMITS.nft), blockfrostPublic, getNftPage);
 // The portrait (routes/pfp.ts): reads are public, takes are the player's and pay inside the tx.
 app.get('/pfp/:profileId', publicRead, blockfrostPublic, readPortrait);
 app.get('/pfp/:profileId/status', publicRead, blockfrostPublic, portraitStatus);

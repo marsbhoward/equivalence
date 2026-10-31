@@ -1179,19 +1179,7 @@ namespace Convergence.Core
             await _store.UnlockAsync(_profile);
         }
 
-        /// <summary>
-        /// Open the collection, and hand whatever is chosen back to the room to be carried out.
-        /// </summary>
-        void OpenCollection()
-        {
-            if (_hub == null) return;
-            ShowcasePicker.Open(_canvas.transform, Hub.Showcase.Source,
-                key => _account.Room.Holds(key),
-                item => _hub?.BeginPlacement(item),
-                OpenHubThemes);
-        }
-
-        // ---- the hub's themes (group 8): chosen in the collection's HUB tab, won as parcels ----
+        // ---- the hub's themes (group 8): chosen at the crate ([R]), won as parcels ----
 
         bool _hubLookDirty;
 
@@ -1215,9 +1203,8 @@ namespace Convergence.Core
                 (item, theme) => { _hubLookDirty = true; SaveHubLook(); },
                 () =>
                 {
-                    // Back to the collection - the room dressed anew behind it, if anything changed.
+                    // Back to the room - dressed anew behind it, if anything changed.
                     if (_hubLookDirty) { _hubLookDirty = false; ShowHub(); }
-                    else OpenCollection();
                 });
         }
 
@@ -1245,17 +1232,18 @@ namespace Convergence.Core
             ShowHub();
             ConfirmDialog.ShowNotice(_canvas.transform, Hub.HubThemes.NameOf(theme).ToUpper(),
                 "A new theme for your hub - its floor, its walls and every piece in it. The room is dressed in it now; " +
-                "change any piece back in the crate's collection, HUB tab.", "OK", null);
+                "change any piece back at the crate - [ R ]  hub themes.", "OK", null);
         }
 
-        /// <summary>Open the collection from an already-placed Frame, wall-mounted or standing -
-        /// picking a piece swaps what it shows without moving it.</summary>
+        /// <summary>Choose a placed Frame's art, wall-mounted or standing - the wallet's pieces
+        /// grouped by policy. Picking one swaps what it shows without moving it; EMPTY empties it.</summary>
         void OpenCollectionForFrame(string frameId)
         {
             if (_hub == null) return;
+            string current = _account.Room.Trophies.Find(t => t.Id == frameId)?.Key;
             ShowcasePicker.Open(_canvas.transform, Hub.Showcase.Source,
-                key => _account.Room.Holds(key),
-                item => _hub?.SetFrameArt(frameId, item.Key));
+                key => _account.Room.Holds(key), current,
+                key => _hub?.SetFrameArt(frameId, key));
         }
 
         /// <summary>
@@ -1718,7 +1706,7 @@ namespace Convergence.Core
                        () => { if (!GuardWaitingRun()) MasteryScreen.Open(_canvas.transform); },
                        SwitchCharacter,
                        NewCharacter,
-                       OpenCollection,
+                       OpenHubThemes,
                        OpenCollectionForFrame,
                        SaveRoom,
                        _account.Room,

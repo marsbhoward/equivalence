@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace Convergence.Hub
@@ -38,12 +39,22 @@ namespace Convergence.Hub
 
         public int Count => _items.Length;
 
-        public bool TryGet(int index, out ShowcaseItem item)
+        public IReadOnlyList<ShowcaseGroup> Groups => _groups ??= new List<ShowcaseGroup>
         {
-            if (index < 0 || index >= _items.Length) { item = default; return false; }
-            item = _items[index];
-            return true;
+            new ShowcaseGroup { Id = "dev", Name = "Placeholder Collection", Count = _items.Length },
+        };
+        List<ShowcaseGroup> _groups;
+
+        public void Loaded(string group, List<ShowcaseItem> into)
+        {
+            into.Clear();
+            if (group == "dev") into.AddRange(_items);
         }
+
+        public bool HasMore(string group) => false;
+        public bool IsLoading(string group) => false;
+        public void LoadMore(string group) { }
+        public void Want(IEnumerable<string> keys) { }
 
         public bool TryGetByKey(string key, out ShowcaseItem item)
         {

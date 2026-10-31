@@ -244,6 +244,12 @@ ${bodyHash}`;
       const r = await service(`/components?address=${encodeURIComponent(accountId)}`);
       return r.json();
     },
+    async listComponentItems({ accountId, policy, page, units }) {
+      if (!accountId) return { items: [] };
+      const q = units ? `units=${encodeURIComponent(units)}` : `policy=${encodeURIComponent(policy != null ? policy : "")}&page=${encodeURIComponent(page || "0")}`;
+      const r = await service(`/components/items?address=${encodeURIComponent(accountId)}&${q}`);
+      return r.json();
+    },
     // ---- reads ------------------------------------------------------------------------------
     async currentPfp({ profileId }) {
       const r = await service(`/pfp/${encodeURIComponent(profileId)}`);

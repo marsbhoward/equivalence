@@ -337,11 +337,19 @@ export const connector: EquivalenceChain = {
 
   async listComponents({ accountId }) {
     if (!accountId) return { items: [] };
-    // SEAM: every component token this address holds, resolved to its metadata. Return the image
-    // URL rather than the image - the game fetches lazily and caps how many it keeps resident.
-    // The service already wraps the list ({"items":[...], truncated, held}) - JsonUtility cannot
+    // SEAM: what this wallet holds, grouped by policy - details come per policy page
+    // (listComponentItems). The service already wraps the list ({"items":[...], truncated, held}) - JsonUtility cannot
     // read a bare array. Wrapping it again handed Unity {"items":{"items":[...]}} and an empty list.
     const r = await service(`/components?address=${encodeURIComponent(accountId)}`);
+    return r.json();
+  },
+
+  async listComponentItems({ accountId, policy, page, units }) {
+    if (!accountId) return { items: [] };
+    const q = units
+      ? `units=${encodeURIComponent(units)}`
+      : `policy=${encodeURIComponent(policy ?? '')}&page=${encodeURIComponent(page || '0')}`;
+    const r = await service(`/components/items?address=${encodeURIComponent(accountId)}&${q}`);
     return r.json();
   },
 

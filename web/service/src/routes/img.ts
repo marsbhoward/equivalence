@@ -39,7 +39,7 @@ const FAIL_MS = 10 * 60_000;
 const IPFS_GATEWAY = process.env.IPFS_GATEWAY || 'https://gateway.pinata.cloud/ipfs/';
 const UNIT = /^[0-9a-f]{56,120}$/;
 
-const dir = () => path.resolve(process.env.IMG_DIR
+export const dir = () => path.resolve(process.env.IMG_DIR
   || (process.env.RAILWAY_VOLUME_MOUNT_PATH ? path.join(process.env.RAILWAY_VOLUME_MOUNT_PATH, 'img') : './img-cache'));
 
 /** The raw image field of a token's metadata - CIP-25 allows a split string. */
@@ -60,8 +60,16 @@ export function imagePath(unit: string, metadata: Record<string, unknown>): stri
 /** Where an image source can actually be fetched from, or null when it is not a kind we fetch. */
 function resolve(source: string): { url: URL } | { data: Buffer } | null {
   if (source.startsWith('data:')) {
-    const m = /^data:image\/[a-z0-9.+-]+(;[a-z0-9=-]+)*;base64,(.*)$/is.exec(source);
-    return m ? { data: Buffer.from(m[2], 'base64') } : null;
+    const b64 = /^data:image\/[a-z0-9.+-]+(;[a-z0-9=-]+)*;base64,(.*)$/is.exec(source);
+    if (b64) return { data: Buffer.from(b64[2], 'base64') };
+    // On-chain SVG is as often TEXT as base64 - `data:image/svg+xml;utf8,<svg ...` or percent-encoded.
+    const text = /^data:image\/[a-z0-9.+-]+(;[a-z0-9=-]+)*,(.*)$/is.exec(source);
+    if (!text) return null;
+    try {
+      return { data: Buffer.from(/%[0-9a-f]{2}/i.test(text[2]) ? decodeURIComponent(text[2]) : text[2], 'utf8') };
+    } catch {
+      return null;
+    }
   }
   const cid = /^ipfs:\/\/(?:ipfs\/)?(.+)$/i.exec(source)?.[1]
     ?? (/^(Qm[1-9A-HJ-NP-Za-km-z]{44}|b[a-z2-7]{50,})$/.test(source) ? source : undefined)
@@ -92,8 +100,9 @@ function isPrivate(ip: string): boolean {
     || v6.startsWith('fe9') || v6.startsWith('fea') || v6.startsWith('feb') || v6.startsWith('ff');
 }
 
-/** GET over https, pinned to a public address, capped in size and time, no redirects. */
-async function fetchPublic(url: URL): Promise<Buffer> {
+/** GET over https, pinned to a public address, capped in size and time, no redirects. Shared with
+ *  routes/nft.ts, which fetches a piece's HTML the same guarded way. */
+export async function fetchPublic(url: URL, accept = 'image/*', maxBytes = MAX_BYTES): Promise<Buffer> {
   const host = url.hostname.replace(/^\[|\]$/g, '');
   const addrs = isIP(host) ? [{ address: host, family: isIP(host) }] : await lookup(host, { all: true });
   if (!addrs.length || addrs.some(a => isPrivate(a.address))) throw new Error(`refused host ${host}`);
@@ -102,7 +111,7 @@ async function fetchPublic(url: URL): Promise<Buffer> {
   return new Promise((resolveBody, reject) => {
     const req = https.get(url, {
       timeout: TIMEOUT_MS,
-      headers: { accept: 'image/*', 'user-agent': 'equivalence-service' },
+      headers: { accept, 'user-agent': 'equivalence-service' },
       // The address that was checked is the one connected to - a second lookup could answer differently.
       lookup: (_h, opts, cb) => (opts as { all?: boolean }).all
         ? (cb as unknown as (e: null, a: { address: string; family: number }[]) => void)(null, [pinned])
@@ -117,7 +126,7 @@ async function fetchPublic(url: URL): Promise<Buffer> {
       let size = 0;
       res.on('data', (c: Buffer) => {
         size += c.length;
-        if (size > MAX_BYTES) { req.destroy(new Error('image too large')); return; }
+        if (size > maxBytes) { req.destroy(new Error('response too large')); return; }
         chunks.push(c);
       });
       res.on('end', () => resolveBody(Buffer.concat(chunks)));
@@ -149,8 +158,17 @@ async function picture(unit: string, source: string): Promise<Buffer> {
       if (!where) throw new Error('not an image source this service fetches');
       const raw = 'data' in where ? where.data : await fetchPublic(where.url);
       if (raw.length > MAX_BYTES) throw new Error('image too large');
-      const img = sharp(raw, { limitInputPixels: 64_000_000, animated: false })
-        .resize(MAX_EDGE, MAX_EDGE, { fit: 'inside', withoutEnlargement: true });
+      // Any format sharp reads goes out as PNG or JPEG (below) - GIF (its first frame), WebP, AVIF
+      // and SVG included, so the game's texture loader only ever sees the two it decodes.
+      const opts = { limitInputPixels: 64_000_000, animated: false };
+      let input = sharp(raw, opts);
+      // A vector has no size of its own: drawn at its declared size, a 64-unit SVG came out 64 px.
+      // Rasterised at the density that brings its long edge to MAX_EDGE instead.
+      const first = await input.metadata();
+      const long = Math.max(first.width ?? 0, first.height ?? 0);
+      if (first.format === 'svg' && long > 0 && long < MAX_EDGE)
+        input = sharp(raw, { ...opts, density: Math.min(2400, (72 * MAX_EDGE) / long) });
+      const img = input.resize(MAX_EDGE, MAX_EDGE, { fit: 'inside', withoutEnlargement: true });
       const out = (await img.metadata()).hasAlpha
         ? await img.png({ compressionLevel: 9, palette: true, quality: 90 }).toBuffer()
         : await img.flatten().jpeg({ quality: 86, mozjpeg: true }).toBuffer();

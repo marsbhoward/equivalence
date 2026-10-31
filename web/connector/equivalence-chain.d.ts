@@ -74,12 +74,19 @@ export interface EquivalenceChain {
   // ---- what the wallet owns -------------------------------------------------------------
 
   /**
-   * The component art this wallet holds, as the service returns it: {"items":[{ Key, Title,
-   * Collection, Slot, ImageUrl }], truncated, held} - ALREADY wrapped, so pass it through. `Slot` names the rig slot a component can fill ("Head", "Weapon", ...) or is
-   * empty for display-only art. `ImageUrl` is fetched lazily by the game and capped - do not
-   * inline image data here.
+   * What this wallet holds, POLICY FIRST, as the service returns it: {"items":[], "held":[unit...],
+   * "policies":[{ Policy, Name, Count }], truncated} - pass it through. No details here: those come
+   * a policy page at a time from listComponentItems.
    */
   listComponents(args: { accountId: string }): Promise<{ items: unknown[] } | string>;
+
+  /**
+   * One policy's page of pieces (`policy` + `page`), or named units (`units`, comma-separated, at
+   * most 24): {"items":[{ Key, Title, Collection, Slot, ImageUrl }], page, pages}. `Slot` names the
+   * rig slot a component can fill or is empty for display-only art. `ImageUrl` is fetched lazily by
+   * the game and capped - do not inline image data here.
+   */
+  listComponentItems(args: { accountId: string; policy?: string; page?: string; units?: string }): Promise<{ items: unknown[] } | string>;
 
   // ---- reads (no signature) -------------------------------------------------------------
 

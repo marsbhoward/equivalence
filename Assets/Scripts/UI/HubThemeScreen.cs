@@ -8,7 +8,7 @@ using Convergence.Hub;
 namespace Convergence.UI
 {
     /// <summary>
-    /// The crate collection's HUB tab (the user's group 7 pick: chosen in the collection): pick a hub
+    /// The hub's themes, opened at the crate with [R] (the user's group 7 pick: chosen at the crate; once the collection's HUB tab): pick a hub
     /// item down the left, then the theme it wears from the themes this character OWNS on the right -
     /// each card is that item drawn in that theme. The top row dresses every item at once. Only owned
     /// themes are offered; the Cloister always is.
@@ -31,7 +31,7 @@ namespace Convergence.UI
         int _openedFrame;
 
         /// <summary>Open over <paramref name="canvas"/>. <paramref name="onPick"/> gets (item, theme) -
-        /// item -1 for every item; <paramref name="onBack"/> returns to the collection.</summary>
+        /// item -1 for every item; <paramref name="onBack"/> returns to the room.</summary>
         public static void Open(Transform canvas, Chain.HubLook look, List<HubTheme> owned, Action<int, HubTheme> onPick, Action onBack)
         {
             if (IsOpen) return;
@@ -67,9 +67,9 @@ namespace Convergence.UI
             _rows.Clear(); _cards.Clear();
             UiKit.Panel(_full, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero, new Color(0.03f, 0.032f, 0.045f, 0.97f));
             UiKit.Label(UiKit.Rect(_full, "t", new Vector2(0, 1), new Vector2(1, 1), new Vector2(0, -108), new Vector2(0, -48)),
-                "THE COLLECTION  -  HUB", 40, new Color(0.93f, 0.94f, 0.97f), TextAnchor.MiddleCenter);
+                "HUB THEMES", 40, new Color(0.93f, 0.94f, 0.97f), TextAnchor.MiddleCenter);
             UiKit.Label(UiKit.Rect(_full, "s", new Vector2(0, 1), new Vector2(1, 1), new Vector2(0, -142), new Vector2(0, -108)),
-                $"{_owned.Count - 1} of {HubThemes.Count - 1} themes earned    -    BACK or [ESC] to the collection",
+                $"{_owned.Count - 1} of {HubThemes.Count - 1} themes earned    -    BACK or [ESC] to close",
                 18, new Color(0.5f, 0.53f, 0.6f), TextAnchor.MiddleCenter);
 
             // The items, down the left.

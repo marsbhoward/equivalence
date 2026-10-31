@@ -36,3 +36,23 @@ export async function cachedAssetInfo(unit: string): Promise<Info> {
 export async function forgetAsset(unit: string): Promise<void> {
   if (hasDatabase()) await q('DELETE FROM asset_cache WHERE unit = $1', [unit]).catch(() => {});
 }
+
+/**
+ * Many units at once: every cache hit in ONE query, then at most `fetchBudget` of the misses from
+ * Blockfrost (in parallel - the budget is what keeps that fan-out small). A miss past the budget,
+ * or one Blockfrost could not answer, is simply absent from the map.
+ */
+export async function cachedAssetInfos(units: string[], fetchBudget: number): Promise<Map<string, Info>> {
+  const found = new Map<string, Info>();
+  if (units.length === 0) return found;
+  if (hasDatabase()) {
+    const rows = await q<{ unit: string; info: Info }>(
+      `SELECT unit, info FROM asset_cache WHERE unit = ANY($1) AND fetched_at > now() - make_interval(hours => $2)`,
+      [units, MAX_AGE_HOURS]).catch(() => []);
+    for (const r of rows) found.set(r.unit, r.info);
+  }
+  const missing = units.filter(u => !found.has(u)).slice(0, Math.max(0, fetchBudget));
+  const fetched = await Promise.all(missing.map(u => cachedAssetInfo(u).catch(() => null)));
+  missing.forEach((u, i) => { if (fetched[i]) found.set(u, fetched[i]); });
+  return found;
+}

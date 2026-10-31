@@ -16,6 +16,9 @@ namespace Convergence.Hub
         public Sprite Art;
         public string Title;
         public string Collection;
+
+        /// <summary>The piece's live page, for our own collections only - the web close-up's (NftFrame).</summary>
+        public string HtmlUrl;
     }
 
     /// <summary>
@@ -32,13 +35,39 @@ namespace Convergence.Hub
     /// </summary>
     public interface IShowcaseSource
     {
-        /// <summary>How many pieces are available to display.</summary>
+        /// <summary>How many pieces are held, details loaded or not.</summary>
         int Count { get; }
 
-        bool TryGet(int index, out ShowcaseItem item);
+        /// <summary>The collections - a policy each, on Cardano - the pieces group into.</summary>
+        IReadOnlyList<ShowcaseGroup> Groups { get; }
+
+        /// <summary>A group's pieces loaded so far, in order, into <paramref name="into"/> (cleared first).
+        /// WITHOUT pictures where they are fetched (Art may be null) - ask <see cref="TryGetByKey"/>
+        /// for the ones on screen, or listing a big collection would fetch every picture in it.</summary>
+        void Loaded(string group, List<ShowcaseItem> into);
+
+        /// <summary>Whether a group has more pieces to load, and whether some are on their way.</summary>
+        bool HasMore(string group);
+        bool IsLoading(string group);
+
+        /// <summary>Start loading a group's next page. A no-op while one is on its way or past the last.</summary>
+        void LoadMore(string group);
 
         /// <summary>Look one up by its stable key, for restoring a saved layout.</summary>
         bool TryGetByKey(string key, out ShowcaseItem item);
+
+        /// <summary>Pieces the room needs by key (its placed frames) - fetched if held and not loaded.</summary>
+        void Want(IEnumerable<string> keys);
+    }
+
+    /// <summary>One collection of showcase art.</summary>
+    public struct ShowcaseGroup
+    {
+        /// <summary>Its policy id (56 hex), or the dev source's own name.</summary>
+        public string Id;
+        /// <summary>Its collection name - empty when none is known, and the picker shows the id shortened.</summary>
+        public string Name;
+        public int Count;
     }
 
     /// <summary>
@@ -63,6 +92,10 @@ namespace Convergence.Hub
         {
             _frames.Add(frame);
             Apply(frame);
+            // Built showing nothing for a piece the wallet holds but has not loaded: ask for it now
+            // (Refresh asks too, but nothing repaints a room that was only rebuilt).
+            if (_source != null && frame != null && !string.IsNullOrEmpty(frame.Key) && !frame.HasArt)
+                _source.Want(new[] { frame.Key });
         }
 
         internal static void Unregister(Frame frame) => _frames.Remove(frame);
@@ -76,6 +109,12 @@ namespace Convergence.Hub
         {
             _frames.RemoveAll(f => f == null);
             foreach (var f in _frames) Apply(f);
+
+            // A frame whose piece is held but not loaded asks for it; the answer comes back here.
+            if (_source == null) return;
+            var want = new List<string>();
+            foreach (var f in _frames) if (!string.IsNullOrEmpty(f.Key) && !f.HasArt) want.Add(f.Key);
+            if (want.Count > 0) _source.Want(want);
         }
 
         static void Apply(Frame frame)

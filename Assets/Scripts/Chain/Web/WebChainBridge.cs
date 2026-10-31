@@ -42,6 +42,12 @@ namespace Convergence.Chain.Web
         public string method = "";
         public string path = "";
         public string body = "";
+
+        /// <summary>listComponentItems: one policy's page (policy + page), or named units
+        /// (comma-separated) - routes/components.ts.</summary>
+        public string policy = "";
+        public string page = "";
+        public string units = "";
     }
 
     [Serializable]
