@@ -3,3 +3,4 @@ dist/
 .env
 .write-token
 img-cache/
+.env.showcase
