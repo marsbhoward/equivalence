@@ -1399,6 +1399,9 @@ namespace Convergence.Art.Gear
             // and a black cradle. See DemoGear.Gemini.cs.
             AddGemini(items);
 
+            // ---- the standard relics: the looks a rolled relic wears. See DemoGear.Relics.cs.
+            AddStandardRelics(items);
+
             // ---- menu art for everything that has none ----
             //
             // Six weapons carry HAND-DRAWN menu art, and those are left exactly as they are: a

@@ -909,8 +909,9 @@ namespace Convergence.UI
             // (the user's call, 2026-10-09) - choosing it would change nothing and still mark
             // the slot as perceived.
             var worn = GearCatalog.Get(_profile().Gear.Get(slot));
-            // A piece with no art has no look to be perceived as (stat-rolled gear today).
-            var options = SameClassOnly(slot, GearCatalog.ForSlot(slot))
+            // A piece with no art has no look to be perceived as (stat-rolled gear today). Only
+            // looks the player holds (GearOwnership) - the gear made in development is not a skin.
+            var options = SameClassOnly(slot, GearOwnership.Owned(slot))
                 .FindAll(o => !Appearance.SameLook(o, worn) && o.Layers != null && o.Layers.Length > 0);
 
             _picker.Open(_root.transform, slot, held, _profile().Look.Transmog.Get(slot),

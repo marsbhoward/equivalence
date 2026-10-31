@@ -293,6 +293,19 @@ namespace Convergence.Chain
             Art.Gear.GearSlot.Relic => $"{tier} {Art.Gear.WeaponClasses.Name(weaponClass)} Relic",
             _ => $"{tier} {Art.Gear.GearSlots.Label(slot)}",
         };
+
+        /// <summary>
+        /// A rolled relic WEARS a standard look (Art.Gear.DemoGear.Relics): the look is the Design,
+        /// and the name follows it ("Bronze Hourglass"). The art, class and tier stay the record's -
+        /// any look carries any class's art (the user's call, 2026-10-31).
+        /// </summary>
+        public void WearStandardRelic(string lookId)
+        {
+            var look = Art.Gear.GearCatalog.Get(lookId);
+            if (Slot != Art.Gear.GearSlot.Relic || look == null) return;
+            Design = lookId;
+            DisplayName = $"{Tier} {look.DisplayName}";
+        }
         public Art.Gear.GearSlot Slot;
         public Art.Gear.LootTier Tier;
         public Art.Gear.StatPercents Grants = new();
@@ -404,6 +417,8 @@ namespace Convergence.Chain
             item.Grants = Grants;
             if (Slot == Art.Gear.GearSlot.Torso) item.DefensiveAbility = DefensiveAbility;
             if (Slot == Art.Gear.GearSlot.Weapon && design == null) item.Class = Class;
+            // A standard relic look carries any class's art: the class is the record's, not the look's.
+            if (Slot == Art.Gear.GearSlot.Relic && Art.Gear.DemoGear.IsStandardRelic(Design)) item.Class = Class;
 
             // A rolled relic seeds slot 3 without locking it - GearItem.Signature gates on Black
             // Diamond, which nothing minted here ever is, so this only ever answers

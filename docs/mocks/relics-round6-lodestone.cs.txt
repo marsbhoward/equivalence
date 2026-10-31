@@ -1,0 +1,78 @@
+var F = System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Instance | System.Reflection.BindingFlags.Public;
+var DG = typeof(Convergence.Art.Gear.DemoGear);
+var hip = DG.GetMethod("HipRelic", F);
+var make = DG.GetMethod("Make", F);
+var P = typeof(Convergence.Art.Palette);
+Convergence.Art.Palette.Ramp R(float r, float g, float b) => new Convergence.Art.Palette.Ramp(new UnityEngine.Color(r, g, b));
+var leather = Convergence.Art.Palette.Leather;
+var bronze = Convergence.Art.Palette.Bronze;
+var iron = Convergence.Art.Palette.Iron;
+var glass = R(0.62f, 0.80f, 0.86f);
+var salt = R(0.93f, 0.92f, 0.88f);
+var sulphur = R(0.92f, 0.78f, 0.20f);
+var mercury = R(0.80f, 0.82f, 0.88f);
+var fur = R(0.80f, 0.70f, 0.56f);
+var feather = R(0.90f, 0.88f, 0.82f);
+var lode = R(0.30f, 0.29f, 0.34f);
+
+var stoneDk = R(0.44f, 0.40f, 0.48f);
+var nail = R(0.72f, 0.72f, 0.76f);
+var designs = new System.Collections.Generic.List<(string id, string name, string[] rows, System.Collections.Generic.Dictionary<char, UnityEngine.Color> pal)>
+{
+ ("mock_lode_nails", "Lodestone, nails", new[]{
+  "....HH....HL.",
+  "....LB...HL..",
+  "....LBhl.LB..",
+  "...hllllbbd..",
+  "..hlllllbbbd.",
+  "HLhllllbbbbd.",
+  "HBlllbbbbbdd.",
+  "..lllbbbbddLH",
+  "..lbbbbbdddBH",
+  "...bbbbddds..",
+  "....bdLBss...",
+  "......LB.....",
+  "......HH.....",
+ }, Convergence.Art.Palette.Of(stoneDk, nail)),
+ ("mock_lode_filings", "Lodestone, filings", new[]{
+  ".....LL.....",
+  "....L..B....",
+  ".....BB.....",
+  "..L.HlhH.L..",
+  ".H.hlllbbd.H",
+  "L.hlllbbbbd.",
+  ".HllllbbbbdL",
+  "L.lllbbbbdd.",
+  ".Hlbbbbbddd.",
+  "..Hbbbbddd.L",
+  "...Hsdssd.L.",
+  "....L.L.L...",
+ }, Convergence.Art.Palette.Of(stoneDk, nail)),
+};
+var made = "";
+foreach (var d in designs)
+{
+  var layer = hip.Invoke(null, new object[]{ "gear.relic." + d.id, d.rows, d.pal });
+  var arr = System.Array.CreateInstance(layer.GetType(), 1); arr.SetValue(layer, 0);
+  var item = (Convergence.Art.Gear.GearItem)make.Invoke(null, new object[]{ d.id, d.name, Convergence.Art.Gear.GearSlot.Relic, Convergence.Art.Gear.LootTier.Silver, 0f, arr });
+  Convergence.Art.Gear.GearCatalog.Register(item);
+  made += d.id + " ";
+}
+return made;
+// round 6b:
+ ("mock_lode_cling", "Lodestone, clinging nails", new[]{
+  "...hllb......",
+  "..hlllbbd....",
+  ".hllllbbbdd..",
+  "HHlllbbbbbbd.",
+  "HSHHlbbbbbbd.",
+  ".lllHHbbbbdds",
+  ".llbbbHHbbdds",
+  ".lbbbbbbHLdds",
+  "..bbbbbbbdHLL",
+  "..sbbbbbdddss",
+  "...ssssHLsss.",
+  ".......HL....",
+  ".......LB....",
+  "........B....",
+ }, Convergence.Art.Palette.Of(magnetite, nail)),

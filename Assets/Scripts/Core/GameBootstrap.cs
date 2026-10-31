@@ -568,6 +568,11 @@ namespace Convergence.Core
                     resumed = "";
             }
 
+            // The showcase instance names its format before anything loads - what a character
+            // holds there (GearOwnership.StartersHeld) and its kit depend on it.
+            await Chain.Service.ServiceStatus.RefreshAsync(force: true);
+            WireGearOwnership();
+
             _profile = await _store.LoadAsync(await _store.DefaultProfileIdAsync());
 
             // No wallet is connected, so the account is the local one. Connecting a wallet later
@@ -578,6 +583,7 @@ namespace Convergence.Core
             // at the wrong slot. Prune anything whose item no longer belongs where it sits - after
             // the minted pieces are registered, or every one of them reads as unknown.
             RegisterMintedGear(_profile);
+            DropUnheld(_profile);
             int dropped = _profile.Gear.DropStale();
             if (dropped > 0)
                 Debug.Log($"[ProfileStore] dropped {dropped} loadout entries that no longer match their slot.");
@@ -612,6 +618,46 @@ namespace Convergence.Core
 
             BuildArena();
             ShowHub();
+        }
+
+        // ---- what a player holds (GearOwnership; the user's call, 2026-10-31) ----
+
+        /// <summary>DEV: play the Editor as an ordinary player - no gear made in development
+        /// (GearOwnership.AuthoredHeld). A static, so a domain reload clears it.</summary>
+        public static bool DevAsPlayer;
+
+        /// <summary>The gear made in development is held in the Editor and by the TEST WALLET
+        /// (Chain.TestWallet), proven - nobody else, on any instance.</summary>
+        static bool DevGearHeld()
+            => (Application.isEditor && !DevAsPlayer)
+            || (Chain.Web.ChainWallet.Proven && Chain.TestWallet.Is(Chain.Web.ChainWallet.Address));
+
+        void WireGearOwnership()
+        {
+            Art.Gear.GearOwnership.AuthoredHeld = DevGearHeld;
+            Art.Gear.GearOwnership.HoldsInstance = id => _profile != null && _profile.MintedGear.Exists(r => r.InstanceId == id);
+            Art.Gear.GearOwnership.StartersHeld = () => !RunFormat.Showcase;
+        }
+
+        /// <summary>
+        /// Takes off what the character no longer holds - a piece made in development worn by
+        /// anyone but the test wallet, and a perception of one. A starter stays on (the showcase's
+        /// kit replaces it). Before DropStale, which then settles the relic beside the weapon.
+        /// </summary>
+        void DropUnheld(CharacterProfile profile)
+        {
+            if (profile == null || DevGearHeld()) return;
+            int n = 0;
+            foreach (var loadout in new[] { profile.Gear, profile.Look.Transmog })
+                foreach (var e in loadout.Equipped.ToArray())
+                {
+                    var item = Art.Gear.GearCatalog.Get(e.ItemId);
+                    if (item == null || Art.Gear.GearOwnership.Held(item) ||
+                        Array.IndexOf(Art.Gear.GearOwnership.Starters, e.ItemId) >= 0) continue;
+                    loadout.Clear(e.Slot);
+                    n++;
+                }
+            if (n > 0) Debug.Log($"[ProfileStore] took off {n} piece(s) made in development - the test wallet's only");
         }
 
         /// <summary>
@@ -737,6 +783,11 @@ namespace Convergence.Core
                 GearForge.Migrate(record);
                 // Anything minted before sub-stats existed gets its tier's worth rolled now.
                 GearForge.EnsureSubStats(record);
+                // A relic rolled before the standard looks existed drew nothing - it takes one now,
+                // fixed to its id. Its name is left as it was.
+                if (record.Slot == Art.Gear.GearSlot.Relic && string.IsNullOrEmpty(record.Design) &&
+                    record.Tier is Art.Gear.LootTier.Bronze or Art.Gear.LootTier.Silver or Art.Gear.LootTier.Gold)
+                    record.Design = Art.Gear.DemoGear.StandardRelicFor(Art.Gear.DemoGear.StableHash(record.InstanceId));
                 Art.Gear.GearCatalog.Register(record.ToGearItem());
             }
         }
@@ -1968,6 +2019,7 @@ namespace Convergence.Core
 
                 _profile = next;
                 RegisterMintedGear(_profile);
+                DropUnheld(_profile);
                 _profile.Gear.DropStale();
                 await LookUpWaitingRunAsync();
                 await ForfeitStaleStake();
@@ -2620,7 +2672,7 @@ namespace Convergence.Core
         {
             var classes = new[] { Art.Gear.WeaponClass.Greatsword, Art.Gear.WeaponClass.Disc, Art.Gear.WeaponClass.Bow };
             Choices.Show(_canvas.transform, "CHOOSE YOUR WEAPON",
-                "A Bronze weapon of the kind you choose, and a set of Bronze armour rolled for you. What you find below is yours to keep.",
+                "A Bronze weapon of the kind you choose, a set of Bronze armour rolled for you, a chest for each defensive to try, and a relic. What you find below is yours to keep.",
                 new List<(string, string)>
                 {
                     ("GREATSWORD", "Two hands, slow and wide - every swing a commitment."),
@@ -2644,11 +2696,29 @@ namespace Convergence.Core
         {
             var slots = new List<Art.Gear.GearSlot> { Art.Gear.GearSlot.Weapon };
             slots.AddRange(Tuning.Showcase.KitArmour);
-            foreach (var slot in slots)
+            // A CHEST FOR EVERY DEFENSIVE (the user's call, 2026-10-31): the torso carries the
+            // ability, so the kit holds one of each to try. The one rolled first is worn.
+            var abilities = (Art.Gear.DefensiveAbility[])Enum.GetValues(typeof(Art.Gear.DefensiveAbility));
+            int chests = 0;
+            for (int s = 0; s < slots.Count; s++)
             {
+                var slot = slots[s];
                 string instanceId = $"KIT-{slot}-{Guid.NewGuid():N}";
                 var (_, grants, primary, subs, ability, finisher) =
                     Art.Gear.GearRoller.RollItem(slot, Tuning.Showcase.KitTier, instanceId.GetHashCode(), weaponClass);
+                bool spare = false;
+                if (slot == Art.Gear.GearSlot.Torso && Tuning.Showcase.KitChestPerDefensive)
+                {
+                    // The first chest keeps its roll; each spare takes an ability not yet given.
+                    if (chests > 0)
+                    {
+                        spare = true;
+                        foreach (var a in abilities)
+                            if (!_profile.MintedGear.Exists(r => r.InstanceId.StartsWith("KIT-Torso-") && r.DefensiveAbility == a))
+                            { ability = a; break; }
+                    }
+                    if (++chests < abilities.Length) slots.Insert(s + 1, slot);
+                }
                 var record = new MintedGearRecord
                 {
                     InstanceId = instanceId,
@@ -2665,13 +2735,29 @@ namespace Convergence.Core
                 };
                 _profile.MintedGear.Add(record);
                 Art.Gear.GearCatalog.Register(record.ToGearItem());
-                _profile.Gear.Set(slot, instanceId);
+                if (!spare) _profile.Gear.Set(slot, instanceId);
             }
+            // The relic: a standard look at random, carrying the class's mobility art (Tuning.Showcase).
+            string relicId = $"KIT-Relic-{Guid.NewGuid():N}";
+            var relic = new MintedGearRecord
+            {
+                InstanceId = relicId,
+                Slot = Art.Gear.GearSlot.Relic,
+                Tier = Tuning.Showcase.KitTier,
+                Finisher = Tuning.Showcase.KitRelicArt(weaponClass),
+                Class = weaponClass,
+                StatsVersion = Art.Gear.GearRoller.TablesVersion,
+            };
+            relic.WearStandardRelic(Art.Gear.DemoGear.StandardRelicFor(Art.Gear.DemoGear.StableHash(relicId)));
+            _profile.MintedGear.Add(relic);
+            Art.Gear.GearCatalog.Register(relic.ToGearItem());
+            _profile.Gear.Set(Art.Gear.GearSlot.Relic, relicId);
+
             _profile.Gear.DropStale();
             _profile.Look.Transmog.Clear(Art.Gear.GearSlot.Weapon);
             RepaintLive();
             if (CharacterScreen != null) CharacterScreen.Refresh();
-            Debug.Log($"[Showcase] kit given: Bronze {weaponClass} and {Tuning.Showcase.KitArmour.Length} armour pieces");
+            Debug.Log($"[Showcase] kit given: Bronze {weaponClass}, {Tuning.Showcase.KitArmour.Length} armour pieces and {chests} chests");
             _ = _store.UnlockAsync(_profile);
         }
 

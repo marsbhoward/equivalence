@@ -696,6 +696,19 @@ namespace Convergence.Core
                 Art.Gear.GearSlot.Boots, Art.Gear.GearSlot.Gloves,
             };
 
+            /// <summary>The kit holds a Bronze chest for EVERY defensive ability, one worn, so each
+            /// can be tried (the user's call, 2026-10-31).</summary>
+            public const bool KitChestPerDefensive = true;
+
+            /// <summary>The kit's relic: a standard look at random, carrying the class's MOBILITY art
+            /// (the user's call, 2026-10-31: mobility relics for the demo; any look, any art).</summary>
+            public static string KitRelicArt(Art.Gear.WeaponClass weaponClass) => weaponClass switch
+            {
+                Art.Gear.WeaponClass.Disc => "disc_kickback",
+                Art.Gear.WeaponClass.Bow  => "bow_disengage",
+                _                         => "grappling_hook",
+            };
+
             /// <summary>The closing card's Discord (the user's, 2026-10-31).</summary>
             public const string DiscordUrl = "https://discord.gg/V9qEGPcMW";
 

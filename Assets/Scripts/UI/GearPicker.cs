@@ -170,7 +170,7 @@ namespace Convergence.UI
             // The relic socket lists by what is HELD rather than by slot - a signature relic only
             // fits beside a weapon of its own class. Everything else is a plain slot lookup.
             _all = options ?? (slot == GearSlot.Relic
-                ? GearCatalog.RelicsFor(heldWeapon)
+                ? GearOwnership.Relics(heldWeapon)
                 : GearOwnership.Owned(slot));
 
             _root = new GameObject("GearPicker", typeof(RectTransform));

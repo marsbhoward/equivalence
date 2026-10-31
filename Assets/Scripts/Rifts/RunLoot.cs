@@ -440,7 +440,7 @@ namespace Convergence.Rifts
             int stars = RollDropStars(slot, tier, floor);
             var grants = GearRoller.BuildGrants(slot, tier, primary, stars, subs);
 
-            return new MintedGearRecord
+            var record = new MintedGearRecord
             {
                 InstanceId = instanceId,
                 DisplayName = MintedGearRecord.NameFor(tier, slot, weaponClass),
@@ -455,6 +455,10 @@ namespace Convergence.Rifts
                 UpgradeLevel = stars,
                 StatsVersion = GearRoller.TablesVersion,
             };
+            // A relic wears a standard look, picked off the roll's own seed - no further draw, so the
+            // floor's stream is where it was (DemoGear.StandardRelicFor).
+            if (slot == GearSlot.Relic) record.WearStandardRelic(DemoGear.StandardRelicFor(seed));
+            return record;
         }
 
         /// <summary>The first floor a tier drops on - where its band begins in TierFor. Keep the

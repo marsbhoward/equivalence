@@ -56,7 +56,7 @@ namespace Convergence.Chain
         /// </summary>
         public static bool Salvageable(MintedGearRecord r)
             => r != null && r.Tier is LootTier.Bronze or LootTier.Silver or LootTier.Gold &&
-               string.IsNullOrEmpty(r.Design);
+               (string.IsNullOrEmpty(r.Design) || DemoGear.IsStandardRelic(r.Design));
 
         /// <summary>Calx a piece breaks into: one per base piece it is worth (2^stars).</summary>
         public static int CalxFor(MintedGearRecord r)
