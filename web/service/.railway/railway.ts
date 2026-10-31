@@ -2,12 +2,12 @@ import { defineRailway, postgres, project, service, volume } from "railway/iac";
 
 // The deploy settings railway.json held - never applied, since no service read Config as Code (2026-10-31).
 // Both services alike: node directly (SIGTERM reaches it, src/lifecycle.ts drains for 25 s inside the 30),
-// /health gates a deploy, a crash restarts. Variables stay unmanaged: IaC never reads or writes a secret.
+// /health gates a deploy, a crash restarts (ON_FAILURE is Railway's default, which it stores as
+// null - naming it left a change in every plan). Variables stay unmanaged: IaC never reads or writes a secret.
 const deploy = {
   startCommand: "node dist/index.js",
   healthcheckPath: "/health",
   healthcheckTimeout: 60,
-  restartPolicyType: "ON_FAILURE",
   restartPolicyMaxRetries: 3,
   drainingSeconds: 30,
 } as const;
