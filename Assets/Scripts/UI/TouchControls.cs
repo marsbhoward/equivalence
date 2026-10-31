@@ -538,7 +538,12 @@ namespace Convergence.UI
                 b.Rect.anchorMin = b.Rect.anchorMax = mirror ? new Vector2(1f - b.Anchor.x, b.Anchor.y) : b.Anchor;
                 b.Rect.anchoredPosition = new Vector2(mirror ? -b.Offset.x : b.Offset.x, b.Offset.y) * scale;
                 b.Rect.localScale = new Vector3(scale, scale, 1f);
-                b.Rect.gameObject.SetActive(on && b.Show == _mode && (b.Visible == null || b.Visible()));
+                bool shown = on && b.Show == _mode && (b.Visible == null || b.Visible());
+                // Leaving the screen lets go of its input, once - from then on only shown buttons
+                // write (Update). A button that shares its input with a shown one is rewritten by
+                // that one on the next frame.
+                if (!shown && b.Rect.gameObject.activeSelf) { b.Finger = -1; b.Pulse = false; b.Set(false); }
+                b.Rect.gameObject.SetActive(shown);
                 if (b.Key != null) b.Key.gameObject.SetActive(hints);
                 // A pill's key sits beside its name, so the name makes room only while it shows.
                 if (b.Pill && b.Key != null)
@@ -680,6 +685,12 @@ namespace Convergence.UI
 
             foreach (var b in _buttons)
             {
+                // ONLY A SHOWN BUTTON WRITES ITS INPUT. Buttons of different screens share one
+                // (USE and PLACE are both Interact, GUARD and CRATE both Alt, MENU, CANCEL and BACK
+                // all Cancel); written every frame by every button, a hidden one later in the list
+                // wrote "up" over the shown one's press - USE in the hub, GUARD and MENU in a run
+                // never fired on a phone. A hidden button is released once, by Relayout.
+                if (!b.Rect.gameObject.activeSelf) continue;
                 bool down = b.Finger >= 0 && StillDown(touches, b.Finger);
                 if (!down) b.Finger = -1;
                 down |= b.Pulse;
