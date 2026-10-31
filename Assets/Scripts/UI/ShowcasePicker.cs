@@ -37,8 +37,12 @@ namespace Convergence.UI
         int _group, _groupPage, _page;
         string _current;
 
-        /// <summary>What the page was drawn from - redrawn when a load changes it.</summary>
-        (int Groups, int Items, bool More, bool Loading) _drawn;
+        /// <summary>What the page was drawn from - redrawn when a load changes it, or a picture fails.</summary>
+        (int Groups, int Items, bool More, bool Loading, int Failed) _drawn;
+
+        /// <summary>Names learned from a policy's loaded pieces, for a policy the wallet read did not
+        /// name - a policy id means nothing to a player (the user, 2026-10-31).</summary>
+        readonly Dictionary<string, string> _learned = new();
 
         /// <summary>The visible pictures, so a picture arriving swaps in without a redraw (which
         /// would lose the pad's focus).</summary>
@@ -68,6 +72,7 @@ namespace Convergence.UI
             _source = source;
             _groups.Clear();
             if (source != null) _groups.AddRange(source.Groups);
+            _learned.Clear();
             _groups.Sort((a, b) => string.Compare(NameOf(a), NameOf(b), StringComparison.OrdinalIgnoreCase));
             // Opens on the policy of what the frame shows - the head of its key.
             string policy = _current.Length >= 56 ? _current.Substring(0, 56) : null;
@@ -91,17 +96,21 @@ namespace Convergence.UI
             UiKit.Label(UiKit.Rect(_full, "s", new Vector2(0, 1), new Vector2(1, 1),
                 new Vector2(0, -142), new Vector2(0, -108)),
                 _groups.Count > 0
-                    ? "your wallet's pieces, by collection    -    BACK or [ESC] to close"
+                    ? "your wallet's pieces, by collection    -    BACK or [BACKSPACE] to close"
                     : "nothing to show - connect a wallet holding art",
                 18, new Color(0.5f, 0.53f, 0.6f), TextAnchor.MiddleCenter);
 
             Rebuild();
         }
 
-        /// <summary>A group's name: its collection, else its policy id shortened.</summary>
-        static string NameOf(in ShowcaseGroup g)
+        static bool Readable(string name) => !string.IsNullOrEmpty(name) && !(name.Length == 56 && IsHex(name, 56));
+
+        /// <summary>A group's name: its collection, else one learned from its pieces, else its policy id
+        /// shortened.</summary>
+        string NameOf(in ShowcaseGroup g)
         {
-            if (!string.IsNullOrEmpty(g.Name) && !(g.Name.Length == 56 && IsHex(g.Name, 56))) return g.Name;
+            if (Readable(g.Name)) return g.Name;
+            if (g.Id != null && _learned.TryGetValue(g.Id, out var learned)) return learned;
             var id = g.Id ?? "";
             return id.Length == 56 ? $"policy {id.Substring(0, 6)}...{id.Substring(52)}" : "untitled";
         }
@@ -124,6 +133,12 @@ namespace Convergence.UI
             _cells.Clear();
             _content = UiKit.Rect(_full, "content", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
             var mid = new Vector2(0.5f, 0.5f);
+
+            // BACK, on screen: Escape leaves the browser's fullscreen before the page ever sees it.
+            var back = UiKit.Panel(_content, new Vector2(0, 1), new Vector2(0, 1),
+                new Vector2(40, -112), new Vector2(220, -48), new Color(0.11f, 0.12f, 0.16f));
+            UiKit.Label(back, "<  BACK", 20, new Color(0.8f, 0.83f, 0.9f), TextAnchor.MiddleCenter);
+            _hits.Add((back, Close));
 
             // ---- the policies, down the left ----
             const float lx0 = -880f, lx1 = -500f, rowH = 64f, rowGap = 10f, top = 340f;
@@ -157,14 +172,14 @@ namespace Convergence.UI
                 _hits.Add((empty, () => Pick("")));
             }
 
-            _drawn = (_groups.Count, 0, false, false);
+            _drawn = (_groups.Count, 0, false, false, 0);
             if (_groups.Count == 0) return;
 
             // ---- the chosen policy's pieces, paged - loaded a page at a time as they are reached ----
             var group = _groups[_group];
             _source.Loaded(group.Id, _items);
             bool more = _source.HasMore(group.Id), loading = _source.IsLoading(group.Id);
-            _drawn = (_groups.Count, _items.Count, more, loading);
+            _drawn = (_groups.Count, _items.Count, more, loading, FailedCount());
             const float cell = 210f, gap = 24f, label = 34f, gx0 = -420f;
             float gx1 = gx0 + Cols * cell + (Cols - 1) * gap;
 
@@ -216,6 +231,18 @@ namespace Convergence.UI
                     TextAnchor.MiddleCenter);
 
                 var key = item.Key;
+                // A picture that did not arrive: say so, and RETRY it - its hit before the card's,
+                // so a tap on it fetches again rather than choosing a picture nobody can see.
+                if (_source.Failed(key))
+                {
+                    img.color = Color.clear;   // the placeholder would be a blank white tile under the words
+                    UiKit.Label(UiKit.Rect(card, "f", new Vector2(0, 0.5f), new Vector2(1, 1), new Vector2(6, 0), new Vector2(-6, -12)),
+                        "couldn't load", 16, new Color(0.75f, 0.55f, 0.5f), TextAnchor.MiddleCenter);
+                    var retry = UiKit.Panel(card, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f),
+                        new Vector2(-70, 18), new Vector2(70, 72), new Color(0.22f, 0.2f, 0.14f));
+                    UiKit.Label(retry, "RETRY", 19, new Color(1f, 0.86f, 0.4f), TextAnchor.MiddleCenter);
+                    _hits.Add((retry, () => { _source.Retry(key); Rebuild(); }));
+                }
                 _hits.Add((card, () => Pick(key)));
                 _cells.Add((img, key));
             }
@@ -268,6 +295,27 @@ namespace Convergence.UI
             _items.Clear();
         }
 
+        /// <summary>The visible pictures that failed - a change redraws the page with its RETRYs.</summary>
+        int FailedCount()
+        {
+            int n = 0;
+            if (_source == null) return 0;
+            foreach (var (_, key) in _cells) if (_source.Failed(key)) n++;
+            return n;
+        }
+
+        /// <summary>A name for the open policy from its loaded pieces, when the wallet read gave none.
+        /// Returns whether one was learned, so the list redraws with it.</summary>
+        bool LearnName(string id)
+        {
+            if (string.IsNullOrEmpty(id) || _learned.ContainsKey(id)) return false;
+            var g = _groups.Find(x => x.Id == id);
+            if (Readable(g.Name)) return false;
+            foreach (var it in _items)
+                if (Readable(it.Collection)) { _learned[id] = it.Collection; return true; }
+            return false;
+        }
+
         void Update()
         {
             if (!IsOpen) return;
@@ -277,8 +325,9 @@ namespace Convergence.UI
             {
                 var id = _groups[_group].Id;
                 _source.Loaded(id, _items);
-                var now = (_groups.Count, _items.Count, _source.HasMore(id), _source.IsLoading(id));
-                if (now != _drawn) Rebuild();
+                bool named = LearnName(id);
+                var now = (_groups.Count, _items.Count, _source.HasMore(id), _source.IsLoading(id), FailedCount());
+                if (now != _drawn || named) Rebuild();
                 foreach (var (img, key) in _cells)
                     if (img != null && _source.TryGetByKey(key, out var it) && img.sprite != it.Art) img.sprite = it.Art;
             }

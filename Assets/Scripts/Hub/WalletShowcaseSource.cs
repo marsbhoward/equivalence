@@ -87,6 +87,19 @@ namespace Convergence.Hub
         public void LoadMore(string group) => _ = WalletInventory.LoadNextPageAsync(group);
         public void Want(IEnumerable<string> keys) => _ = WalletInventory.LoadUnitsAsync(keys);
 
+        public bool Failed(string key) => _failedAt.ContainsKey(key) && !_loading.Contains(key) && !_art.ContainsKey(key);
+
+        /// <summary>The player's RETRY: past the cooldown here and past the service's own memory of
+        /// the failure (`retry=1`, routes/img.ts) - otherwise it would answer "recently failed".</summary>
+        public void Retry(string key)
+        {
+            if (!WalletInventory.TryGet(key, out var c) || string.IsNullOrEmpty(c.ImageUrl)) return;
+            _failedAt.Remove(key);
+            if (!_loading.Add(key)) return;
+            string url = c.ImageUrl + (c.ImageUrl.Contains("?") ? "&" : "?") + "retry=1";
+            StartCoroutine(Fetch(key, url));
+        }
+
         public bool TryGetByKey(string key, out ShowcaseItem item)
         {
             item = default;

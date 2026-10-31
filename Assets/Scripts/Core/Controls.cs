@@ -618,8 +618,12 @@ namespace Convergence.Core
                  || World(interactBtn)
                  || VirtualInteract);
 
+            // Backspace as well as Escape (the user's call, 2026-10-31): in a browser's fullscreen the
+            // first Escape leaves fullscreen and never reaches the page. No screen takes typed text,
+            // so Backspace has nothing else to mean.
             Edge(ref _cancel, ref _cancelPrev,
-                 (kb != null && kb.escapeKey.isPressed) || (cancelBtn != null && cancelBtn.isPressed)
+                 (kb != null && (kb.escapeKey.isPressed || kb.backspaceKey.isPressed))
+                 || (cancelBtn != null && cancelBtn.isPressed)
                  || VirtualCancel);
 
             // Start is fixed, like Select below: the loadout in the hub, and (through MenuTapped)

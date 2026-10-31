@@ -32,11 +32,19 @@ import { cachedAssetInfo } from '../assetCache.js';
  */
 
 const MAX_EDGE = 512;
-const MAX_BYTES = 8 * 1024 * 1024;
+/** Originals run large - an 8 MB cap turned away whole collections of 4K PNGs (2026-10-31). */
+const MAX_BYTES = 24 * 1024 * 1024;
+/** Idle: no byte for this long ends a fetch. */
 const TIMEOUT_MS = 10_000;
-/** A source that failed is left alone this long, so one bad token cannot be retried every repaint. */
-const FAIL_MS = 10 * 60_000;
-const IPFS_GATEWAY = process.env.IPFS_GATEWAY || 'https://gateway.pinata.cloud/ipfs/';
+/** In total, per gateway tried - a large original over a slow gateway needs more than the idle limit. */
+const DEADLINE_MS = 25_000;
+/** A source that failed is left alone this long, so one bad token cannot be retried every repaint.
+ *  A player's own RETRY (`?retry=1`, the art chooser) skips it. */
+const FAIL_MS = 2 * 60_000;
+/** IPFS gateways, tried in order until one answers - a public gateway's slow minute is common. */
+const IPFS_GATEWAYS = (process.env.IPFS_GATEWAYS || process.env.IPFS_GATEWAY
+  || 'https://gateway.pinata.cloud/ipfs/,https://ipfs.io/ipfs/,https://dweb.link/ipfs/')
+  .split(',').map(s => s.trim()).filter(Boolean);
 const UNIT = /^[0-9a-f]{56,120}$/;
 
 export const dir = () => path.resolve(process.env.IMG_DIR
@@ -57,8 +65,9 @@ export function imagePath(unit: string, metadata: Record<string, unknown>): stri
   return source ? `/img/${unit}?v=${imageVersion(source)}` : '';
 }
 
-/** Where an image source can actually be fetched from, or null when it is not a kind we fetch. */
-function resolve(source: string): { url: URL } | { data: Buffer } | null {
+/** Where an image source can actually be fetched from - every gateway for IPFS, in order - or null
+ *  when it is not a kind we fetch. */
+function resolve(source: string): { urls: URL[] } | { data: Buffer } | null {
   if (source.startsWith('data:')) {
     const b64 = /^data:image\/[a-z0-9.+-]+(;[a-z0-9=-]+)*;base64,(.*)$/is.exec(source);
     if (b64) return { data: Buffer.from(b64[2], 'base64') };
@@ -76,11 +85,11 @@ function resolve(source: string): { url: URL } | { data: Buffer } | null {
     // Any gateway's /ipfs/<cid> is the same bytes - fetched from ours.
     ?? /^https?:\/\/[^/]+\/ipfs\/(.+)$/i.exec(source)?.[1];
   try {
-    if (cid) return { url: new URL(IPFS_GATEWAY + cid) };
+    if (cid) return { urls: IPFS_GATEWAYS.map(g => new URL(g + cid)) };
     const ar = /^ar:\/\/(.+)$/i.exec(source)?.[1];
-    if (ar) return { url: new URL(`https://arweave.net/${ar}`) };
+    if (ar) return { urls: [new URL(`https://arweave.net/${ar}`)] };
     const url = new URL(source);
-    return url.protocol === 'https:' ? { url } : null;
+    return url.protocol === 'https:' ? { urls: [url] } : null;
   } catch {
     return null;
   }
@@ -169,7 +178,7 @@ export async function fetchPublic(url: URL, accept = 'image/*', maxBytes = MAX_B
     req.on('timeout', () => req.destroy(new Error('image fetch timed out')));
     // `timeout` is an IDLE limit: a host dripping a byte every few seconds would never trip it.
     // The whole fetch gets TIMEOUT_MS as well.
-    const deadline = setTimeout(() => req.destroy(new Error('fetch took too long')), TIMEOUT_MS);
+    const deadline = setTimeout(() => req.destroy(new Error('fetch took too long')), DEADLINE_MS);
     req.on('close', () => clearTimeout(deadline));
     req.on('error', reject);
   });
@@ -183,18 +192,33 @@ const typeOf = (b: Buffer) => (b[0] === 0x89 && b[1] === 0x50 ? 'image/png' : 'i
 const inFlight = new Map<string, Promise<Buffer>>();
 const failed = new Map<string, number>();
 
-async function picture(unit: string, source: string): Promise<Buffer> {
+/** The first gateway that answers, else the last one's error. */
+async function fetchAny(urls: URL[]): Promise<Buffer> {
+  let last: unknown = new Error('no source');
+  for (const url of urls) {
+    try {
+      return await fetchPublic(url);
+    } catch (e) {
+      last = e;
+      // Too large is too large on every gateway - the same bytes.
+      if ((e as Error).message === 'response too large') break;
+    }
+  }
+  throw last;
+}
+
+async function picture(unit: string, source: string, retry = false): Promise<Buffer> {
   const file = path.join(dir(), `${unit}.${imageVersion(source)}.img`);
   if (existsSync(file)) return readFile(file);
   const until = failed.get(file);
-  if (until && until > Date.now()) throw new Error('recently failed');
+  if (until && until > Date.now() && !retry) throw new Error('recently failed');
 
   let p = inFlight.get(file);
   if (!p) {
     p = (async () => {
       const where = resolve(source);
       if (!where) throw new Error('not an image source this service fetches');
-      const raw = 'data' in where ? where.data : await fetchPublic(where.url);
+      const raw = 'data' in where ? where.data : await fetchAny(where.urls);
       if (raw.length > MAX_BYTES) throw new Error('image too large');
       // Any format sharp reads goes out as PNG or JPEG (below) - GIF (its first frame), WebP, AVIF
       // and SVG included, so the game's texture loader only ever sees the two it decodes.
@@ -236,7 +260,7 @@ export async function getImage(req: Request, res: Response): Promise<void> {
       res.status(404).json({ error: 'this token has no picture' });
       return;
     }
-    const pic = await picture(unit, source);
+    const pic = await picture(unit, source, req.query.retry === '1');
     res.setHeader('Content-Type', typeOf(pic));
     // Versioned URL (the source's hash): a new picture is a new URL, so this one never changes.
     res.setHeader('Cache-Control', req.query.v === imageVersion(source)

@@ -55,6 +55,8 @@ namespace Convergence.Hub
         public bool IsLoading(string group) => false;
         public void LoadMore(string group) { }
         public void Want(IEnumerable<string> keys) { }
+        public bool Failed(string key) => false;
+        public void Retry(string key) { }
 
         public bool TryGetByKey(string key, out ShowcaseItem item)
         {

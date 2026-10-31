@@ -69,7 +69,7 @@ export async function components(req: Request, res: Response) {
     const policies = [...byPolicy.entries()].map(([policy, units]) => {
       const info = infos.get(units[0]);
       const m = (info?.onchain_metadata ?? info?.metadata ?? {}) as Record<string, unknown>;
-      return { Policy: policy, Name: typeof m.collection === 'string' ? m.collection : '', Count: units.length };
+      return { Policy: policy, Name: info ? collectionName(m, info.asset_name) : '', Count: units.length };
     });
 
     res.json({ items: [], held, policies, truncated });
@@ -128,7 +128,7 @@ export async function componentItems(req: Request, res: Response) {
       items.push({
         Key: a.asset,
         Title: String(m.name ?? assetNameText(a.asset_name) ?? ''),
-        Collection: String(m.collection ?? a.policy_id),
+        Collection: collectionName(m, a.asset_name) || a.policy_id,
         Slot: String(m.slot ?? ''),
         ImageUrl: image,
         // The live page, for our own collections only (routes/nft.ts) - '' for everything else.
@@ -145,8 +145,8 @@ export async function componentItems(req: Request, res: Response) {
 
 /** Units per details page - and so the most Blockfrost calls one request can make. */
 const PAGE_SIZE = 24;
-/** Uncached policy names fetched per /components request. */
-const NAME_FETCHES = 12;
+/** Uncached policy names fetched per /components request - most wallets hold fewer collections. */
+const NAME_FETCHES = 40;
 /** Stake-account pages (100 tokens each) read per wallet - a 2,000-token wallet is read whole. */
 const MAX_PAGES = 20;
 
@@ -170,6 +170,34 @@ async function heldBy(address: string) {
   recent.set(address, entry);
   if (recent.size > RECENT_MAX) recent.delete(recent.keys().next().value!);
   return entry;
+}
+
+/**
+ * A collection's NAME for a player to read. CIP-25 has no required collection field, so most
+ * collections never set one, and a policy id means nothing to anyone (the user, 2026-10-31). In
+ * order: `collection`, `project`, then the token's own name without its number - "Clay Nation #6360"
+ * and "ClayNation6360" are both "Clay Nation"/"ClayNation". '' when nothing readable is left.
+ */
+export function collectionName(m: Record<string, unknown>, assetName?: string | null): string {
+  for (const k of ['collection', 'Collection', 'project', 'Project'])
+    if (typeof m[k] === 'string' && (m[k] as string).trim()) return (m[k] as string).trim().slice(0, 48);
+  const raw = typeof m.name === 'string' ? m.name : nameText(assetName ?? '');
+  const name = raw
+    .replace(/\s*[#№]\s*\d+\s*$/u, '')          // "Clay Nation #6360"
+    .replace(/[\s_-]*\(?\d+\)?\s*$/u, '')        // "Pixl Genesis 03505", "ClayNation6360", "(12)"
+    .replace(/[\s:|-]+$/u, '')
+    .trim();
+  return /[A-Za-z]/.test(name) ? name.slice(0, 48) : '';
+}
+
+/** CIP-67 labels a CIP-68 asset name starts with: reference (100), NFT (222), FT (333), RFT (444). */
+const CIP67 = /^(000643b0|000de140|0014df10|001bc280)/i;
+
+/** An asset name as text without its CIP-68 label, or '' when it is not text. */
+function nameText(hex: string): string {
+  const text = assetNameText(hex.replace(CIP67, ''));
+  // assetNameText falls back to the hex itself - never a name.
+  return /^[0-9a-f]+$/i.test(text) && text.length >= 8 ? '' : text;
 }
 
 function addressOf(req: Request, res: Response): string {

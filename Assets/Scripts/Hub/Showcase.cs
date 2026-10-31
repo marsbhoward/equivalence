@@ -58,6 +58,13 @@ namespace Convergence.Hub
 
         /// <summary>Pieces the room needs by key (its placed frames) - fetched if held and not loaded.</summary>
         void Want(IEnumerable<string> keys);
+
+        /// <summary>Whether a piece's picture failed to load (and is not loading again) - the art
+        /// chooser offers a RETRY on it.</summary>
+        bool Failed(string key);
+
+        /// <summary>Fetch a failed picture again now - the player asked, so past every cooldown.</summary>
+        void Retry(string key);
     }
 
     /// <summary>One collection of showcase art.</summary>
