@@ -385,7 +385,7 @@ namespace Convergence.UI
 
                 UiKit.Label(UiKit.Rect(card, "s", new Vector2(0, 1), new Vector2(1, 1),
                     new Vector2(22, -32), new Vector2(-12, -8)),
-                    slot.ToString().ToUpperInvariant(), 14,
+                    slot.Label().ToUpperInvariant(), 14,
                     new Color(0.5f, 0.53f, 0.6f), TextAnchor.MiddleLeft);
 
                 UiKit.Label(UiKit.Rect(card, "n", new Vector2(0, 0), new Vector2(1, 0),

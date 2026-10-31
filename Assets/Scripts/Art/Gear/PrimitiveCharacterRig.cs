@@ -699,7 +699,7 @@ namespace Convergence.Art.Gear
         ClothBend _tassetCloth, _beltCloth;
 
         /// <summary>The COMBINED, currently-applied state - GearItem.HasGlowingEye asked for by
-        /// <see cref="_glowEyeItem"/> AND not suppressed by <see cref="_helmHidden"/>. See
+        /// <see cref="_glowEyeItem"/> AND no shown helm over the eye (see SyncGlowEye). See
         /// RepaintHead and SyncGlowEye. Tracked separately from Apply's other per-item flags
         /// because it is the only one that has to reach back into SetAppearance's own territory
         /// (the face itself) rather than staying inside the gear layers Apply otherwise owns.
@@ -2424,9 +2424,7 @@ namespace Convergence.Art.Gear
                 SyncHelmFacing(_facingAway);
             EncloseHeadInHelm();
 
-            // wraith_eye paints no HeadArmor sprite at all - the recoloured eye and its glow ARE
-            // its whole presence on the head slot, so "hide helm" has to reach into SyncGlowEye
-            // too or the item has nothing the toggle actually does anything to.
+            // A sealed helm or a mask hides the Wraith's Eye's glow; hiding the helm shows it again.
             SyncGlowEye();
 
             // Taking the helmet off gives the hair its crown back, so the mane has to be rebuilt
@@ -3168,10 +3166,11 @@ namespace Convergence.Art.Gear
                     _hoodBack = item.HoodBack?.Sprite;
                 }
 
-                // Same reasoning as the hood above: a fact about the whole Head item, read once
-                // per Apply rather than per layer it happens to paint (wraith_eye paints no
-                // layers at all - see DemoGear's own note).
-                if (item.Slot == GearSlot.Head && item.HasGlowingEye) wantGlowEye = true;
+                // Same reasoning as the hood above: a fact about the whole item, read once per
+                // Apply rather than per layer it happens to paint (wraith_eye paints no layers at
+                // all - see DemoGear's own note). Any slot: the Wraith's Eye is an ACCESSORY
+                // (GearSlot.Ring) since 2026-10-30, so a helm can be worn with it.
+                if (item.HasGlowingEye) wantGlowEye = true;
 
                 // Same reasoning again: a mask is a fact about the ITEM, not something the rig
                 // could work out from the sprite it paints. SyncHeadCoverage derives _helmOn from
@@ -3505,10 +3504,9 @@ namespace Convergence.Art.Gear
         }
 
         /// <summary>
-        /// Whether the equipped Head item asks for GearItem.HasGlowingEye, independent of
-        /// <see cref="_helmHidden"/> - <see cref="_glowLeftEye"/> is the two combined. Apply sets
-        /// this; SetHelmHidden re-derives <see cref="_glowLeftEye"/> from it without needing to
-        /// know anything about gear.
+        /// Whether an equipped item asks for GearItem.HasGlowingEye, independent of the helm -
+        /// <see cref="_glowLeftEye"/> is the two combined. Apply sets this; SetHelmHidden
+        /// re-derives <see cref="_glowLeftEye"/> from it without needing to know anything about gear.
         /// </summary>
         bool _glowEyeItem;
 
@@ -3518,13 +3516,14 @@ namespace Convergence.Art.Gear
         /// on why it exists apart from DrawPixelBody) on every unrelated slot change would be
         /// paid for nothing most of the time.
         ///
-        /// Gated on <see cref="_helmHidden"/> the same way a real helmet's own sprite already is
-        /// (see SetHelmHidden) - wraith_eye's whole visible presence IS this effect, so "hide
-        /// helm" has nothing else on the item to hide unless this counts too.
+        /// The glow is an overlay above every gear layer, so a helm that covers the eye - a
+        /// sealed helm or a mask - turns it off while it is shown; hiding that helm brings it
+        /// back. An open helm leaves the eye in view, glow and all.
         /// </summary>
         void SyncGlowEye()
         {
-            bool want = _glowEyeItem && !_helmHidden;
+            bool eyeCovered = !_helmHidden && (_headSealed || _faceMaskOnly);
+            bool want = _glowEyeItem && !eyeCovered;
             if (want == _glowLeftEye) return;
             _glowLeftEye = want;
 

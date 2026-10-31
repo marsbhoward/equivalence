@@ -103,6 +103,9 @@ namespace Convergence.Chain
         /// in will render into the wrong place rather than fail loudly. Self-healing beats a
         /// version stamp here: the check is "does this item actually belong in this slot", which
         /// stays true for every future reshuffle.
+        ///
+        /// An item that moved slot (the Wraith's Eye, Head to Ring) is MOVED with it when its own
+        /// slot is empty, rather than taken off.
         /// </summary>
         public int DropStale()
         {
@@ -112,6 +115,11 @@ namespace Convergence.Chain
             {
                 var item = GearCatalog.Get(Equipped[i].ItemId);
                 if (GearSlots.Accepts(Equipped[i].Slot, item, held)) continue;
+                if (item != null && Get(item.Slot) == null && GearSlots.Accepts(item.Slot, item, held))
+                {
+                    Equipped[i].Slot = item.Slot;
+                    continue;
+                }
                 Equipped.RemoveAt(i);
                 removed++;
             }

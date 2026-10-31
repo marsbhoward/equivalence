@@ -101,16 +101,16 @@ namespace Convergence.Balance
         };
 
         /// <summary>
-        /// Each build's spend of the 50 levels, branch by branch along the board's path - keystone,
-        /// fillers, Tincture, fillers, Opus - until the levels run out: two whole branches (42) and
-        /// the keystone and four fillers of a third.
+        /// Each build's spend of the 50 levels along the grid: whole routes in order ("path:lane1:lane2",
+        /// or a diagonal's id), until the levels run out - three paths of 16 (48) and two more
+        /// levels down a fourth. Lanes count from the path's left as MasteryBoard.Paths lists them.
         /// </summary>
         static readonly Dictionary<Archetype, string[]> Board = new()
         {
-            { Archetype.Striker, new[] { "strikes", "weight", "armour" } },
-            { Archetype.Tempo, new[] { "speed", "strikes", "evasion" } },
-            { Archetype.Bulwark, new[] { "armour", "weight", "sustain" } },
-            { Archetype.Elementalist, new[] { "element", "area", "sustain" } },
+            { Archetype.Striker, new[] { "offense:2:1", "survival:0:0", "tempo:0:0", "element" } },
+            { Archetype.Tempo, new[] { "tempo:0:0", "offense:2:2", "survival:2:2", "reach" } },
+            { Archetype.Bulwark, new[] { "survival:0:3", "offense:1:1", "tempo:0:0", "area" } },
+            { Archetype.Elementalist, new[] { "element", "area", "survival:3:3", "offense:2:1" } },
         };
 
         // ------------------------------------------------------------------ construction
@@ -318,33 +318,33 @@ namespace Convergence.Balance
         }
 
         /// <summary>
-        /// Spends the level cap on the build's branches the way BoardState allows: a keystone first
-        /// (fillers are only reachable through it), then its fillers in order. Folded into the stat
-        /// block exactly as BuildPlayer folds Mastery.Get.
+        /// Spends the level cap along the build's routes the way BoardState allows - every route
+        /// walks out from the centre - folded into the stat block exactly as BuildPlayer folds
+        /// Mastery.Get. A lane-following rule takes its route's lane's.
         /// </summary>
         static void Spend(Build b)
         {
             int left = Tuning.Mastery.LevelCap;
-            foreach (var branch in Board[b.Archetype])
+            foreach (var pick in Board[b.Archetype])
             {
+                var parts = pick.Split(':');
+                int l1 = parts.Length > 1 ? int.Parse(parts[1]) : 0, l2 = parts.Length > 2 ? int.Parse(parts[2]) : 0;
                 int bought = 0;
-                // MasteryBoard.All holds each branch's nodes in path order: keystone, fillers,
-                // Tincture, fillers, Opus.
-                foreach (var node in MasteryBoard.All.Where(n => n.Branch == branch))
+                foreach (var node in MasteryBoard.Route(parts[0], l1, l2))
                 {
                     if (node.Cost > left) break;
                     left -= node.Cost;
                     bought++;
-                    Fold(b, node);
+                    Fold(b, node, node.FollowsLane ? MasteryBoard.LaneRule(node, node.RuleSlot == 0 ? l1 : l2) : node.Notable);
                 }
-                if (bought > 0) b.Picks.Add($"board: {MasteryBoard.BranchName(branch)} x{bought}");
+                if (bought > 0) b.Picks.Add($"board: {MasteryBoard.BranchName(parts[0])} {pick} x{bought}");
                 if (left <= 0) break;
             }
         }
 
         /// <summary>A node folded into the build as BuildPlayer folds the board: its stat points
         /// into the stat block, its board-only stat and its rule beside it.</summary>
-        static void Fold(Build b, MasteryNode node)
+        static void Fold(Build b, MasteryNode node, Notable rule)
         {
             if (node.Stat != StatKind.None) GearRoller.Add(b.Stats, node.Stat, node.Value);
             switch (node.Extra)
@@ -354,8 +354,12 @@ namespace Convergence.Balance
                 case BoardStat.SoakPower:    b.SoakPoints += node.Value; break;
                 case BoardStat.BleedPower:   b.BleedPoints += node.Value; break;
                 case BoardStat.StaggerPower: b.StaggerPoints += node.Value; break;
+                case BoardStat.StatusPower:
+                    b.BurnPoints += node.Value; b.SoakPoints += node.Value;
+                    b.BleedPoints += node.Value; b.StaggerPoints += node.Value;
+                    break;
             }
-            if (node.Notable != Notable.None) b.Notables.Add(node.Notable);
+            if (rule != Notable.None) b.Notables.Add(rule);
         }
     }
 }

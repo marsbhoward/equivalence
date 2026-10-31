@@ -315,7 +315,7 @@ namespace Convergence.UI
                     var card = Card(i, 4, 220f, 130f, 22f, -50f);
                     UiKit.Label(UiKit.Rect(card, "n", Vector2.zero, Vector2.one,
                         new Vector2(6, 6), new Vector2(-6, -6)),
-                        slot.ToString(), 22, new Color(0.96f, 0.87f, 0.74f), TextAnchor.MiddleCenter);
+                        slot.Label(), 22, new Color(0.96f, 0.87f, 0.74f), TextAnchor.MiddleCenter);
 
                     var chosen = slot;
                     _actions.Add((card, () =>
@@ -403,7 +403,7 @@ namespace Convergence.UI
 
         static string ItemName(MintedGearRecord r)
         {
-            string name = r.Slot == GearSlot.Weapon ? $"{r.Tier} {r.Class}" : $"{r.Tier} {r.Slot}";
+            string name = r.Slot == GearSlot.Weapon ? $"{r.Tier} {r.Class}" : $"{r.Tier} {r.Slot.Label()}";
             return r.Slot == GearSlot.Torso ? $"{name} ({r.DefensiveAbility})" : name;
         }
 
@@ -558,7 +558,7 @@ namespace Convergence.UI
             Line(y, $"{ItemName(p.A)}  x2", 28, TierColor(p.FromTier), 700f);
             StarRow(360f, y - 2f, p.FromLevel);
             y -= 50f;
-            Line(y, $"becomes  {p.ToTier} {(p.A.Slot == GearSlot.Weapon ? p.A.Class.ToString() : p.A.Slot.ToString())}",
+            Line(y, $"becomes  {p.ToTier} {(p.A.Slot == GearSlot.Weapon ? p.A.Class.ToString() : p.A.Slot.Label())}",
                  28, TierColor(p.ToTier), 700f);
             StarRow(360f, y - 2f, p.ToLevel);
             y -= 64f;

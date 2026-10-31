@@ -8,8 +8,8 @@ namespace Convergence.Art.Gear
         // ------------------------------------------------------------------ the Wraith's Eye
         //
         // WORN it has no art at all - the item IS the character's own left eye, recoloured to a
-        // fixed red and pulsing (HasGlowingEye, BodyLook.Head, GlowingEye). A helm would cover the
-        // very eye it exists to show. But a card, the armoury wall and its NFT image need a
+        // fixed red and pulsing (HasGlowingEye, BodyLook.Head, GlowingEye). An ACCESSORY since
+        // 2026-10-30, worn beside a helm. But a card, the armoury wall and its NFT image need a
         // picture, so it gets a DISPLAY picture only (GearItem.DisplayLayer - the disc pair's
         // mechanism): never on the body, so the worn look is untouched.
         //

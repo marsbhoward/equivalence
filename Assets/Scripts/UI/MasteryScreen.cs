@@ -24,6 +24,9 @@ namespace Convergence.UI
         /// </summary>
         const float BaseScale = 70f;
 
+        /// <summary>Defined words in the detail panel, and their names in the notes under it.</summary>
+        const string TermHex = "e8ba3d";
+
         /// <summary>
         /// The gap between two ADJACENT nodes, in content units - MEASURED off the grid rather
         /// than typed, so it stays true when a node is added or moved.
@@ -141,6 +144,9 @@ namespace Convergence.UI
         Text _detailTitle, _detailBody, _detailAction, _totalText, _globalText;
         readonly Dictionary<string, Image> _nodeImages = new();
         readonly Dictionary<string, Image> _nodeRings = new();
+
+        /// <summary>The sigil's four rings round the centre, one per element, the viewed one lit.</summary>
+        readonly List<(ElementType Element, Image Ring)> _sigil = new();
         readonly List<(Text Level, Image Fill, Text Spare, RectTransform Rect, Image Bg)> _elementChips = new();
 
         public void Init(System.Func<CharacterProfile> profile) => _profile = profile;
@@ -279,6 +285,8 @@ namespace Convergence.UI
             _content.anchorMin = _content.anchorMax = new Vector2(0.5f, 0.5f);
             _content.sizeDelta = Vector2.zero;
 
+            BuildSigil();
+
             // Edges first so nodes draw over them.
             var drawn = new HashSet<string>();
             foreach (var node in MasteryBoard.All)
@@ -294,6 +302,41 @@ namespace Convergence.UI
             foreach (var node in MasteryBoard.All) BuildNode(node);
         }
 
+        /// <summary>
+        /// The centre is the sigil (the user's grid): four interlocking rings at the compass points,
+        /// as the game's sigil has them - Air up, Water right, Earth down, Fire left - with the
+        /// release's knot where they cross. Spacing is SigilRings' ratio (centres 53, radius 47).
+        /// </summary>
+        /// <summary>The sigil's ring centres and radius from the middle, in content units, and its
+        /// outer edge - where the spokes begin.</summary>
+        static float SigilD => 1.62f * MasteryBoard.NodeStep * BaseScale;
+        static float SigilR => SigilD * 47f / 53f;
+        static float SigilRim => SigilD + SigilR;
+
+        void BuildSigil()
+        {
+            _sigil.Clear();
+            float d = SigilD, r = SigilR;
+            var rings = new (ElementType, Vector2)[]
+            {
+                (ElementType.Air, Vector2.up), (ElementType.Water, Vector2.right),
+                (ElementType.Earth, Vector2.down), (ElementType.Fire, Vector2.left),
+            };
+            foreach (var (element, dir) in rings)
+            {
+                var go = new GameObject($"sigil-{element}", typeof(RectTransform));
+                go.transform.SetParent(_content, false);
+                var rt = (RectTransform)go.transform;
+                rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
+                rt.anchoredPosition = dir * d;
+                rt.sizeDelta = Vector2.one * (r * 2f / 0.88f);   // Spr.Ring draws its line at 0.88 of its radius
+                var img = go.AddComponent<Image>();
+                img.sprite = Spr.Ring;
+                img.raycastTarget = false;
+                _sigil.Add((element, img));
+            }
+        }
+
         void BuildEdge(MasteryNode a, MasteryNode b)
         {
             var go = new GameObject("edge", typeof(RectTransform));
@@ -301,6 +344,9 @@ namespace Convergence.UI
             var rt = (RectTransform)go.transform;
 
             Vector2 pa = a.Position * BaseScale, pb = b.Position * BaseScale;
+            // A spoke starts at the sigil's rim, not the knot - the rings stay unbroken.
+            if (a.Kind == NodeKind.Rebis) pa = pb.normalized * SigilRim;
+            if (b.Kind == NodeKind.Rebis) pb = pa.normalized * SigilRim;
             rt.anchorMin = rt.anchorMax = new Vector2(0.5f, 0.5f);
             rt.pivot = new Vector2(0.5f, 0.5f);
             rt.anchoredPosition = (pa + pb) * 0.5f;
@@ -426,6 +472,10 @@ namespace Convergence.UI
                                          : new Color(0.08f, 0.09f, 0.13f, 1f);
             }
 
+            foreach (var (element, ring) in _sigil)
+                ring.color = element == _viewing ? new Color(0.95f, 0.85f, 0.56f, 1f)    // SigilRings' Lit
+                                                 : new Color(0.61f, 0.49f, 0.17f, 0.85f); // and Dim
+
             foreach (var node in MasteryBoard.All) RefreshNode(node);
             RefreshDetail();
         }
@@ -451,7 +501,7 @@ namespace Convergence.UI
             // tinting by element would paint one board entirely one colour and say nothing; the
             // principle is the axis a player is actually reading the board along.
             // The Rebis belongs to no principle: drawn white, the union of the three.
-            Color baseColor = node.Kind == NodeKind.Rebis ? new Color(0.92f, 0.9f, 0.86f) : PrincipleTint(node.Principle);
+            Color baseColor = node.Kind == NodeKind.Rebis ? new Color(0.92f, 0.9f, 0.86f) : PrincipleTint(_board.PrincipleOf(_viewing, node));
 
             bool owned = _board.IsUnlocked(_viewing, node.Id);
             var check = _board.Check(_viewing, node);
@@ -489,37 +539,64 @@ namespace Convergence.UI
             if (_actionRect) _actionRect.gameObject.SetActive(true);
 
             string branch = MasteryBoard.BranchName(node.Branch);
+            // A lane-following rule reads the lane taken at its fork; until then it lists them.
+            var rule = _board.RuleOf(_viewing, node);
+            string ruleName = rule != Notable.None ? MasteryBoard.NameOf(rule) : "Follows your lane";
             _detailTitle.text = node.Kind switch
             {
-                NodeKind.Rebis => "THE REBIS",
-                NodeKind.Tincture => $"{MasteryBoard.NameOf(node.Notable)} - TINCTURE",
-                NodeKind.Opus when node.Notable != Notable.None => $"{MasteryBoard.NameOf(node.Notable)} - OPUS",
-                NodeKind.Opus => $"{branch} - OPUS",
-                NodeKind.Keystone when node.Notable != Notable.None => $"{MasteryBoard.NameOf(node.Notable)} - {branch} KEYSTONE",
-                NodeKind.Keystone => $"{branch} - KEYSTONE",
+                NodeKind.Rebis => $"{ElementInfo.AbilityName(_viewing)} - THE SIGIL",
+                NodeKind.Tincture when node.Fork.Length == 0 && !node.FollowsLane && node.Branch != "" &&
+                                       MasteryBoard.DiagonalOf(node.Branch) != null => $"{ruleName} - {branch}",
+                NodeKind.Tincture => $"{ruleName} - CONVERGENCE",
+                NodeKind.Opus => $"{ruleName} - CAPSTONE",
+                _ when rule != Notable.None => $"{branch} - {MasteryBoard.NameOf(rule)}",
                 _ => branch,
             };
 
             var body = new System.Text.StringBuilder();
             string statLine = MasteryBoard.StatLine(node);
-            if (statLine.Length > 0) body.Append(statLine);
-            if (node.Notable != Notable.None)
+            // Every defined word the node's text leans on, explained under it (Core.Glossary).
+            string marked = MasteryBoard.StatMeaning(node) + " " +
+                            (rule != Notable.None ? MasteryBoard.Describe(rule) : "");
+            if (statLine.Length > 0)
+            {
+                body.Append(statLine);
+                string meaning = MasteryBoard.StatMeaning(node);
+                if (meaning.Length > 0) body.Append("\n").Append(Glossary.Highlight(meaning, TermHex));
+            }
+            if (rule != Notable.None)
             {
                 if (body.Length > 0) body.Append("\n\n");
-                body.Append(MasteryBoard.Describe(node.Notable));
+                // A status lane's first node opens its humour as well as its stat.
+                if (node.Kind == NodeKind.Filler) body.Append($"Opens the humour {MasteryBoard.NameOf(rule)}: ");
+                body.Append(Glossary.Highlight(MasteryBoard.Describe(rule), TermHex));
             }
+            else if (node.FollowsLane)
+            {
+                if (body.Length > 0) body.Append("\n\n");
+                body.Append("Takes the rule of the lane you choose at this fork:");
+                var spec = MasteryBoard.PathOf(node.Branch);
+                if (spec != null)
+                    for (int l = 0; l < spec.Value.Lanes.Length; l++)
+                        body.Append($"\n  {spec.Value.Lanes[l].Name}  -  {MasteryBoard.NameOf(MasteryBoard.LaneRule(node, l))}");
+            }
+            string notes = Glossary.Footnotes(marked, TermHex);
+            if (notes.Length > 0) body.Append("\n\n<size=15>").Append(notes).Append("</size>");
             if (node.Kind == NodeKind.Filler && node.Stat == Art.Gear.StatKind.None && node.Extra == BoardStat.None)
                 body.Append("Carries its principle point and nothing else.");
-            if (node.Kind == NodeKind.Rebis) body.Append($"\n\nbelongs to no principle");
-            else body.Append($"\n\n{branch}  -  {node.Principle}");
-            body.Append($"\n\ncost  {node.Cost} {_viewing} level{(node.Cost == 1 ? "" : "s")}");
-
-            if (node.Keystone && MasteryBoard.BranchesOf(node.Domain).Length > 1)
+            var principle = _board.PrincipleOf(_viewing, node);
+            if (node.Kind == NodeKind.Rebis) body.Append($"\n\nbelongs to no principle - owned from the start");
+            else
             {
-                // The one irreversible choice on the board, so it says so before it is taken
-                // rather than after.
-                body.Append("\n\nTaking this closes this domain's other branches on this board, " +
-                            "permanently. Only reincarnation reopens them.");
+                body.Append($"\n\n{branch}  -  {principle}");
+                body.Append($"\n\ncost  {node.Cost} {_viewing} level{(node.Cost == 1 ? "" : "s")}");
+            }
+
+            if (node.Fork.Length > 0 && !owned)
+            {
+                // The one lock on the grid, said before it is taken rather than after.
+                body.Append("\n\nTaking this lane closes this fork's other three lanes on this board " +
+                            "until reincarnation. The fork further out is a choice of its own.");
             }
 
             if (node.Kind == NodeKind.Rebis)
@@ -527,27 +604,23 @@ namespace Convergence.UI
                 string first = ElementInfo.AbilityName(_viewing);
                 string second = ElementInfo.SecondAbilityName(_viewing);
                 if (second == null)
-                    body.Append($"\n\nWould offer an alternative to {first}, but {_viewing} has " +
-                                "none built yet.");
-                else if (!owned)
-                    body.Append($"\n\nAlso unlocks {second} as an alternative to {first}. One is " +
-                                "active at a time, on the same button - switch here, free.");
+                    body.Append($"\n\n{_viewing} has one release, {first}. Every path starts here.");
                 else
                 {
                     bool useSecond = _board.UsesSecondAbility(_viewing);
                     body.Append($"\n\nABILITY   {(useSecond ? first : $"[{first}]")}  /  " +
-                                $"{(useSecond ? $"[{second}]" : second)}");
+                                $"{(useSecond ? $"[{second}]" : second)}\nOne is active at a time, on the same button - switch here, free.");
                 }
             }
 
             if (node.PrincipleWeight > 0)
             {
-                body.Append($"\n\ncontributes {node.PrincipleWeight} {node.Principle} - you hold " +
-                            $"{_board.PrinciplePoints(_viewing, node.Principle)}");
+                body.Append($"\n\ncontributes {node.PrincipleWeight} {principle} - you hold " +
+                            $"{_board.PrinciplePoints(_viewing, principle)}");
 
                 // THE CHAIN, spelled out. Points on their own say nothing: a player looking at a
                 // node is deciding what it buys, and for the principle half what it buys is a link.
-                body.Append(ChainSummary(node.Principle));
+                body.Append(ChainSummary(principle));
             }
             _detailBody.text = body.ToString();
 
@@ -565,7 +638,7 @@ namespace Convergence.UI
             {
                 BoardState.Blocked.None           => "CLICK AGAIN TO UNLOCK",
                 BoardState.Blocked.Unreachable    => "not connected yet",
-                BoardState.Blocked.KeystoneLocked => "another keystone in this domain was taken",
+                BoardState.Blocked.ForkLocked     => "another lane was taken",
                 BoardState.Blocked.Hidden         => "this element has one ability",
                 BoardState.Blocked.AlreadyOwned   => "UNLOCKED",
                 _                                 => "not enough spare levels",

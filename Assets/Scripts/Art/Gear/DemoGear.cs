@@ -372,10 +372,11 @@ namespace Convergence.Art.Gear
             items.Add(Make("blacksteel_helm", "Black Steel Helm", GearSlot.Head, LootTier.Diamond, 0f,
                 Pixels(RigLayer.HeadArmor, "gear.head.blacksteel", BlackSteelHelmRows, blackSteelPal, 0f, 9f, ppu: BodyPpu)));
 
-            // Bare-headed on purpose - no Layers at all, the same "no art" answer the Relic slot
-            // gives for a piece whose whole point is an effect rather than a shape. A helm here
-            // would cover the very eye the item exists to show.
-            var wraithEye = Make("wraith_eye", "Wraith's Eye", GearSlot.Head, LootTier.Diamond, 0f);
+            // No Layers at all, the same "no art" answer the Relic slot gives for a piece whose
+            // whole point is an effect rather than a shape. An ACCESSORY (GearSlot.Ring, moved off
+            // the head 2026-10-30, the user's call) so it is worn with a helm, not instead of one;
+            // a sealed helm or a mask hides the glow (PrimitiveCharacterRig.SyncGlowEye).
+            var wraithEye = Make("wraith_eye", "Wraith's Eye", GearSlot.Ring, LootTier.Diamond, 0f);
             wraithEye.HasGlowingEye = true;
             WraithEyeDisplay(wraithEye);   // a picture for cards and its NFT only - never worn
             items.Add(wraithEye);

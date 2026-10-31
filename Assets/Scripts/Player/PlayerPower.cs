@@ -86,11 +86,11 @@ namespace Convergence.Player
             var s = new StatPercents();
             if (build == PowerBuild.Reference) return s;
 
-            foreach (var node in MasteryBoard.All)
-            {
-                if (node.Branch == "strikes" && node.Stat == StatKind.Damage) s.Damage += node.Value;
-                if (node.Branch == "speed" && node.Stat == StatKind.AttackSpeed) s.AttackSpeed += node.Value;
-            }
+            // Version 2's whole Strikes and Speed branches: nine units each of Damage and Attack Speed.
+            // Held as that number, not read off the grid, so the rebuilt board leaves wave pricing
+            // exactly where it was until the Assay replaces this model (Phase 7).
+            s.Damage += MasteryBoard.Unit(StatKind.Damage) * 9f;
+            s.AttackSpeed += MasteryBoard.Unit(StatKind.AttackSpeed) * 9f;
 
             s.Add(Gold3(GearSlot.Weapon, StatKind.Damage,
                         StatKind.Damage, StatKind.FinisherPower, StatKind.CritDamage));

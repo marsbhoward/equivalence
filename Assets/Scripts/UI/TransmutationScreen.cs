@@ -447,7 +447,7 @@ namespace Convergence.UI
                 img.color = passThrough ? new Color(tint.r, tint.g, tint.b, 0.35f) : tint;
 
                 name.text = locked ? "RELIC\nno perception"
-                          : item == null ? slot.ToString().ToUpper()
+                          : item == null ? slot.Label().ToUpper()
                           : img.enabled ? "" : item.DisplayName.Replace(" ", "\n");
                 name.color = item != null && !img.enabled && !locked ? CharacterScreen.TierColor(item.Tier)
                                                           : new Color(0.38f, 0.40f, 0.47f);
@@ -477,6 +477,8 @@ namespace Convergence.UI
 
         static readonly Color Ink = new(0.85f, 0.87f, 0.92f);
         static readonly Color Dim = new(0.5f, 0.53f, 0.6f);
+        /// <summary>A stat's meaning under it - quieter than a sub-stat.</summary>
+        static readonly Color Faint = new(0.42f, 0.44f, 0.5f);
         static readonly Color MercuryInk = new(0.62f, 0.56f, 0.78f);
         static readonly Color StarOn = new(1f, 0.82f, 0.3f);
         static readonly Color StarOff = new(1f, 1f, 1f, 0.12f);
@@ -505,11 +507,13 @@ namespace Convergence.UI
             float left = cell.Side > 0 ? iconRight + 8f
                        : cell.Side < 0 ? iconLeft - 8f - TooltipW
                        : (iconLeft + iconRight) * 0.5f - TooltipW * 0.5f;
-            float top = cell.Side == 0 ? iconTop + 8f + h : iconTop;
-            top = Mathf.Max(top, FloorY + h);   // never past the foot of the screen
+            Vector2 Bottom(float height) => new(left, TopFor(height) - height);
+            Vector2 Top(float height) => new(left + TooltipW, TopFor(height));
+            float TopFor(float height) => Mathf.Max(cell.Side == 0 ? iconTop + 8f + height : iconTop,
+                                                    FloorY + height);   // never past the foot of the screen
 
             // Edged in the piece's tier, like the slot it reads.
-            _tooltip = UiKit.Panel(_full, Centre, Centre, new Vector2(left, top - h), new Vector2(left + TooltipW, top),
+            _tooltip = UiKit.Panel(_full, Centre, Centre, Bottom(h), Top(h),
                 cell.Border != null ? cell.Border.color : Dim);
             var body = UiKit.Panel(_tooltip, Vector2.zero, Vector2.one, new Vector2(2, 2), new Vector2(-2, -2),
                 new Color(0.035f, 0.04f, 0.06f, 0.97f));
@@ -517,6 +521,19 @@ namespace Convergence.UI
                 lines, 17, Ink, TextAnchor.UpperLeft);
             t.supportRichText = true;
             t.lineSpacing = 1.05f;
+
+            // The stats' meanings wrap, so the panel is sized to the text as laid out at its width.
+            t.horizontalOverflow = HorizontalWrapMode.Wrap;
+            h = Mathf.Max(h, t.preferredHeight + 28f);
+            _tooltip.offsetMin = Bottom(h);
+            _tooltip.offsetMax = Top(h);
+        }
+
+        /// <summary>A stat's meaning (Core.Glossary) as a small dim line under it.</summary>
+        static string Meaning(StatKind k)
+        {
+            string m = Glossary.Plain(Glossary.Stat(k));
+            return m.Length == 0 ? "" : $"\n<size=14><color=#{Hex(Faint)}>{m}</color></size>";
         }
 
         /// <summary>SULFUR: the worn piece - name, tier and stars, every stat, its ability or
@@ -527,12 +544,12 @@ namespace Convergence.UI
             var item = GearCatalog.Get(p.Gear.Get(slot));
             var sb = new StringBuilder();
             if (item == null)
-                return $"<color=#{Hex(Dim)}>{slot.ToString().ToUpper()}</color>\nnothing worn";
+                return $"<color=#{Hex(Dim)}>{slot.Label().ToUpper()}</color>\nnothing worn";
 
             sb.Append($"<size=21><color=#{Hex(CharacterScreen.TierColor(item.Tier))}>{item.DisplayName}</color></size>");
             string tier = item.Tier == LootTier.BlackDiamond ? "Black Diamond" : item.Tier.ToString();
             string stars = item.Stars > 0 ? $"  {item.Stars} star{(item.Stars == 1 ? "" : "s")}" : "";
-            string kind = slot == GearSlot.Weapon ? WeaponClasses.Name(item.Class) : slot.ToString();
+            string kind = slot == GearSlot.Weapon ? WeaponClasses.Name(item.Class) : slot.Label();
             sb.Append($"\n<color=#{Hex(Dim)}>{tier}{stars}  {kind}</color>");
 
             var record = p.MintedGear.Find(r => r.InstanceId == item.ItemId);
@@ -541,10 +558,11 @@ namespace Convergence.UI
                 float scale = GearRoller.UpgradeScale(record.UpgradeLevel);
                 // The Forge's own read of a roll: primary, then each sub-stat, scaled by stars.
                 sb.Append($"\n{GearForge.Label(record.PrimaryStat)} {Pct(GearRoller.PrimaryPoints(record.PrimaryStat, record.Tier, record.Slot) * scale)}");
+                sb.Append(Meaning(record.PrimaryStat));
                 if (record.SubStats != null)
                     foreach (var sub in record.SubStats)
                         if (sub != null)
-                            sb.Append($"\n<color=#{Hex(Dim)}>  {GearForge.Label(sub.Kind)} {Pct(sub.Value * scale)}</color>");
+                            sb.Append($"\n<color=#{Hex(Dim)}>  {GearForge.Label(sub.Kind)} {Pct(sub.Value * scale)}</color>").Append(Meaning(sub.Kind));
             }
             else
             {
@@ -552,7 +570,7 @@ namespace Convergence.UI
                 {
                     if (k == StatKind.None) continue;
                     float v = GearRoller.PointsOf(item.Grants, k);
-                    if (Mathf.Abs(v) > 0.01f) sb.Append($"\n{GearForge.Label(k)} {Pct(v)}");
+                    if (Mathf.Abs(v) > 0.01f) sb.Append($"\n{GearForge.Label(k)} {Pct(v)}").Append(Meaning(k));
                 }
                 if (item.Power > 0f) sb.Append($"\n<color=#{Hex(Dim)}>power {item.Power:0}</color>");
             }
@@ -588,7 +606,7 @@ namespace Convergence.UI
             var over = GearCatalog.Get(p.Look.Transmog.Get(cell.Slot));
             string realName = real != null ? real.DisplayName : "nothing";
             if (over == null || Appearance.SameLook(over, real))
-                return $"<color=#{Hex(Dim)}>{cell.Slot.ToString().ToUpper()}</color>\nas equipped  ({realName})";
+                return $"<color=#{Hex(Dim)}>{cell.Slot.Label().ToUpper()}</color>\nas equipped  ({realName})";
 
             var sb = new StringBuilder();
             sb.Append($"<size=21><color=#{Hex(CharacterScreen.TierColor(over.Tier))}>{over.DisplayName}</color></size>");

@@ -118,9 +118,12 @@ namespace Convergence.Chain
         static bool Allowed(GearSlot slot, string overrideId, Loadout equipped)
         {
             if (slot == GearSlot.Relic) return false;
+            var skin = GearCatalog.Get(overrideId);
+            // A piece that has since moved slot (the Wraith's Eye, Head to Ring) no longer
+            // disguises the old one.
+            if (skin != null && skin.Slot != slot) return false;
             if (slot != GearSlot.Weapon) return true;
 
-            var skin = GearCatalog.Get(overrideId);
             var held = GearCatalog.Get(equipped.Get(GearSlot.Weapon));
             if (skin == null || held == null) return true;   // nothing to disagree about
 

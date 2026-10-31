@@ -11,7 +11,7 @@ namespace Convergence.Progression
     ///
     /// FOUR BOARDS, ONE DESIGN. <see cref="MasteryBoard"/> is a single node layout; this stores
     /// unlocks scoped by element, so Fire's copy and Water's copy of the same node are separate
-    /// purchases. Ids are stored as "Fire:v2.tempo.speed.3".
+    /// purchases. Ids are stored as "Fire:v3.tempo.f1.0.2".
     ///
     /// BOARDS ARE ACTIVE ONLY FOR THE ELEMENT BEING PLAYED, which is load-bearing rather than
     /// flavour: global XP funds every board independently (spending in Water costs Earth nothing),
@@ -40,15 +40,50 @@ namespace Convergence.Progression
 
         static string Key(ElementType e, string nodeId) => $"{e}:{nodeId}";
 
+        /// <summary>Owned on that element's board. The centre - the element's release - always is.</summary>
         public bool IsUnlocked(ElementType e, string nodeId)
-            => _profile.Unlocked.Contains(Key(e, nodeId));
+            => nodeId == MasteryBoard.RebisId || _profile.Unlocked.Contains(Key(e, nodeId));
+
+        /// <summary>Whether a node is on this element's board at all. Every node is, on the grid -
+        /// the centre holds the release whether or not the element has a second to switch to.</summary>
+        public static bool Visible(ElementType e, MasteryNode node) => node != null;
+
+        // ---------------------------------------------------------------- forks and lane rules
+
+        /// <summary>The lane taken at a fork on this board, or -1 while none is.</summary>
+        public int ChosenLane(ElementType e, string fork)
+        {
+            if (string.IsNullOrEmpty(fork)) return -1;
+            foreach (var n in MasteryBoard.All)
+                if (n.Fork == fork && IsUnlocked(e, n.Id)) return n.Lane;
+            return -1;
+        }
+
+        /// <summary>A node's rule on this board: its own, or for a lane-following node the rule of
+        /// the lane taken at its fork (None until one is).</summary>
+        public Notable RuleOf(ElementType e, MasteryNode n)
+            => n == null ? Notable.None
+             : !n.FollowsLane ? n.Notable
+             : MasteryBoard.LaneRule(n, ChosenLane(e, n.RuleFork));
+
+        /// <summary>A node's principle on this board - a lane-following rule takes its rule's.</summary>
+        public Principle PrincipleOf(ElementType e, MasteryNode n)
+        {
+            if (!n.FollowsLane) return n.Principle;
+            var rule = RuleOf(e, n);
+            return rule != Notable.None ? MasteryBoard.PrincipleOf(rule) : n.Principle;
+        }
 
         /// <summary>
-        /// Whether a node is on this element's board at all. Only the Rebis can be absent: it is
-        /// hidden for an element with no second ability, since it would offer a choice of one.
+        /// The grid's only lock: a lane taken at a fork closes that fork's OTHER lanes on that
+        /// board, until reincarnation. The same fork further out is a fresh choice.
         /// </summary>
-        public static bool Visible(ElementType e, MasteryNode node)
-            => node != null && (node.Kind != NodeKind.Rebis || ElementInfo.SecondAbilityName(e) != null);
+        public bool ForkLocked(ElementType e, MasteryNode node)
+        {
+            if (node == null || string.IsNullOrEmpty(node.Fork)) return false;
+            int lane = ChosenLane(e, node.Fork);
+            return lane >= 0 && lane != node.Lane;
+        }
 
         // ---------------------------------------------------------------- totals
 
@@ -63,12 +98,23 @@ namespace Convergence.Progression
             {
                 if (!IsUnlocked(element, node.Id)) continue;
                 if (node.Stat != StatKind.None) GearRoller.Add(_points, node.Stat, node.Value);
-                if (node.Extra != BoardStat.None)
+                if (node.Extra == BoardStat.StatusPower)
+                {
+                    // All four at once: read as each status's own power, so nothing downstream
+                    // has to know the trunk stat exists.
+                    foreach (var each in new[] { BoardStat.BurnPower, BoardStat.SoakPower, BoardStat.BleedPower, BoardStat.StaggerPower })
+                    {
+                        _extras.TryGetValue(each, out var had);
+                        _extras[each] = had + node.Value;
+                    }
+                }
+                else if (node.Extra != BoardStat.None)
                 {
                     _extras.TryGetValue(node.Extra, out var cur);
                     _extras[node.Extra] = cur + node.Value;
                 }
-                if (node.Notable != Notable.None) _notables.Add(node.Notable);
+                var rule = RuleOf(element, node);
+                if (rule != Notable.None) _notables.Add(rule);
             }
             _computedFor = element;
             _dirty = false;
@@ -115,7 +161,7 @@ namespace Convergence.Progression
 
         /// <summary>
         /// Whether this element's board offers the CHOICE of a second ability: the element has one
-        /// built, and the Rebis is owned. False otherwise, whatever was bought.
+        /// built (the centre that switches it is always owned).
         /// </summary>
         public bool HasSecondAbility(ElementType element)
             => ElementInfo.SecondAbilityName(element) != null && Has(element, Notable.Rebis);
@@ -145,7 +191,7 @@ namespace Convergence.Progression
         {
             int total = 0;
             foreach (var node in MasteryBoard.All)
-                if (node.Principle == principle && IsUnlocked(element, node.Id)) total += node.PrincipleWeight;
+                if (IsUnlocked(element, node.Id) && PrincipleOf(element, node) == principle) total += node.PrincipleWeight;
             return total;
         }
 
@@ -180,29 +226,12 @@ namespace Convergence.Progression
             AlreadyOwned,
             /// <summary>Nothing adjacent is owned yet - the board is walked, not shopped.</summary>
             Unreachable,
-            /// <summary>A sibling branch's keystone was taken. Permanent until reincarnation.</summary>
-            KeystoneLocked,
+            /// <summary>Another lane of this fork was taken. Until reincarnation.</summary>
+            ForkLocked,
             /// <summary>Not enough unspent levels on this board.</summary>
             TooExpensive,
             /// <summary>Not on this element's board (the Rebis, for an element with one ability).</summary>
             Hidden,
-        }
-
-        /// <summary>
-        /// A keystone locks every SIBLING branch's keystone in the same domain, on that board,
-        /// permanently - only reincarnation reopens it. A branch's fillers are reached only through
-        /// its own keystone, so the locked branches are closed whole: the decision is the branch.
-        /// </summary>
-        public bool KeystoneLocked(ElementType element, MasteryNode node)
-        {
-            if (!node.Keystone) return false;
-            foreach (var other in MasteryBoard.All)
-            {
-                if (!other.Keystone || other.Domain != node.Domain || other.Branch == node.Branch)
-                    continue;
-                if (IsUnlocked(element, other.Id)) return true;
-            }
-            return false;
         }
 
         public Blocked Check(ElementType element, MasteryNode node)
@@ -210,17 +239,17 @@ namespace Convergence.Progression
             if (node == null) return Blocked.Unreachable;
             if (!Visible(element, node)) return Blocked.Hidden;
             if (IsUnlocked(element, node.Id)) return Blocked.AlreadyOwned;
-            if (KeystoneLocked(element, node)) return Blocked.KeystoneLocked;
+            if (ForkLocked(element, node)) return Blocked.ForkLocked;
             if (!IsReachable(element, node)) return Blocked.Unreachable;
             if (node.Cost > Remaining(element)) return Blocked.TooExpensive;
             return Blocked.None;
         }
 
-        /// <summary>A keystone is the mouth of its branch and the Rebis stands alone, so both are
-        /// always reachable. Everything else needs an owned neighbour.</summary>
+        /// <summary>The board is walked out from the centre: a node needs an owned neighbour (the
+        /// centre always is).</summary>
         public bool IsReachable(ElementType element, MasteryNode node)
         {
-            if (node.Keystone || node.Kind == NodeKind.Rebis) return true;
+            if (node.Kind == NodeKind.Rebis) return true;
             foreach (var id in node.Neighbours)
                 if (IsUnlocked(element, id)) return true;
             return false;
@@ -271,20 +300,24 @@ namespace Convergence.Progression
         {
             if (_profile.BoardVersion >= MasteryBoard.Version) return false;
 
-            // What each element had spent, measured on the ids before they go: the first rebuilt
-            // board (version 1) cost 4 a keystone ("_key") and 1 a filler.
+            // What each element had spent, measured on the ids before they go: version 1 cost 4 a
+            // keystone ("_key") and 1 a filler; version 2 4 a keystone (".key"), 2 a tincture, 4 an
+            // opus, 1 the Rebis and a filler.
             var refunded = new SortedDictionary<string, int>();
             foreach (var id in _profile.Unlocked)
             {
                 if (!Stale(id, out var e)) continue;
                 int colon = id.IndexOf(':');
                 if (colon <= 0) continue;
-                int cost = id.EndsWith("_key") ? 4 : 1;
+                int cost = id.EndsWith("_key") || id.EndsWith(".key") || id.EndsWith(".opus") ? 4
+                         : id.EndsWith(".tincture") ? 2 : 1;
                 refunded.TryGetValue(e.ToString(), out var had);
                 refunded[e.ToString()] = had + cost;
             }
             DropStale();
-            _profile.SecondAbilityChosen?.Clear();   // the old switch lived on a keystone that is gone
+            // Version 1's switch lived on a keystone that is gone; from version 2 on the choice
+            // stands (the centre still holds it).
+            if (_profile.BoardVersion < 2) _profile.SecondAbilityChosen?.Clear();
             _profile.BoardVersion = MasteryBoard.Version;
 
             if (refunded.Count > 0)

@@ -573,11 +573,12 @@ namespace Convergence.Core
             _account = await _accounts.LoadAsync(string.IsNullOrEmpty(resumed) ? AccountProfile.LocalId : resumed);
 
             // Saved loadouts store the slot as an int, so any reshuffle of GearSlot re-points them
-            // at the wrong slot. Prune anything whose item no longer belongs where it sits.
+            // at the wrong slot. Prune anything whose item no longer belongs where it sits - after
+            // the minted pieces are registered, or every one of them reads as unknown.
+            RegisterMintedGear(_profile);
             int dropped = _profile.Gear.DropStale();
             if (dropped > 0)
                 Debug.Log($"[ProfileStore] dropped {dropped} loadout entries that no longer match their slot.");
-            RegisterMintedGear(_profile);
             // A run left waiting carries its stake - looked up BEFORE the stake is judged stale.
             await LookUpWaitingRunAsync();
             await ForfeitStaleStake();
@@ -1976,8 +1977,8 @@ namespace Convergence.Core
                 if (_state != State.Hub) return false;   // a run started while the load was in flight
 
                 _profile = next;
-                _profile.Gear.DropStale();
                 RegisterMintedGear(_profile);
+                _profile.Gear.DropStale();
                 await LookUpWaitingRunAsync();
                 await ForfeitStaleStake();
                 Mastery = new Progression.BoardState(_profile.Mastery);

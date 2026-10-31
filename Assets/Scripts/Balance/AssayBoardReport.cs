@@ -15,7 +15,7 @@ namespace Convergence.Balance
     /// </summary>
     public static partial class Assay
     {
-        /// <summary>One way to spend on one domain: a branch and how far along it.</summary>
+        /// <summary>One way to spend on one path or diagonal: a route and how far along it.</summary>
         readonly struct DomainSpend
         {
             public readonly string Branch;
@@ -26,18 +26,29 @@ namespace Convergence.Balance
             public int Of(Principle p) => p == Principle.Sulfur ? Sulfur : p == Principle.Mercury ? Mercury : Salt;
         }
 
-        /// <summary>Every legal spend on a domain: nothing, or any prefix of any one of its branches
-        /// (the keystone first, then along the path).</summary>
-        static List<DomainSpend> Options(MasteryDomain domain)
+        /// <summary>A node's principle on a route whose forks took <paramref name="lane1"/> and
+        /// <paramref name="lane2"/> - what BoardState.PrincipleOf reads once those lanes are owned.</summary>
+        static Principle RoutePrinciple(MasteryNode n, int lane1, int lane2)
+        {
+            if (!n.FollowsLane) return n.Principle;
+            var rule = MasteryBoard.LaneRule(n, n.RuleSlot == 0 ? lane1 : lane2);
+            return rule != Notable.None ? MasteryBoard.PrincipleOf(rule) : n.Principle;
+        }
+
+        /// <summary>Every legal spend on one path (any prefix of any lane pair's route) or diagonal
+        /// (any prefix). The bridges are left out - they only add ways in, not points.</summary>
+        static List<DomainSpend> Options(string branch)
         {
             var options = new List<DomainSpend> { new DomainSpend("", 0, 0, 0, 0) };
-            foreach (var branch in MasteryBoard.BranchesOf(domain))
+            int lanes = MasteryBoard.PathOf(branch)?.Lanes.Length ?? 1;
+            for (int l1 = 0; l1 < lanes; l1++)
+            for (int l2 = 0; l2 < lanes; l2++)
             {
                 int cost = 0, su = 0, me = 0, sa = 0;
-                foreach (var node in MasteryBoard.All.Where(n => n.Branch == branch))
+                foreach (var node in MasteryBoard.Route(branch, l1, l2))
                 {
                     cost += node.Cost;
-                    switch (node.Principle)
+                    switch (RoutePrinciple(node, l1, l2))
                     {
                         case Principle.Sulfur: su += node.PrincipleWeight; break;
                         case Principle.Mercury: me += node.PrincipleWeight; break;
@@ -49,27 +60,25 @@ namespace Convergence.Balance
             return options;
         }
 
-        static readonly MasteryDomain[] BoardDomains =
-        {
-            MasteryDomain.DamageSource, MasteryDomain.Status, MasteryDomain.Survival,
-            MasteryDomain.Tempo, MasteryDomain.Space, MasteryDomain.RiftCapacity,
-        };
+        static IEnumerable<string> BoardBranches
+            => MasteryBoard.Paths.Select(p => p.Id).Concat(MasteryBoard.Diagonals.Select(d => d.Id));
 
         /// <summary>
         /// The most of principle <paramref name="a"/> a board of <paramref name="cap"/> levels can
         /// hold while holding at least <paramref name="floorB"/> of principle <paramref name="b"/>
-        /// (-1 when that floor cannot be met). Exact: every domain's every legal spend, by DP over
-        /// the budget.
+        /// (-1 when that floor cannot be met). Exact over every path's and diagonal's legal spends
+        /// (bridges aside), by DP over the budget.
         /// </summary>
         static int MaxPrinciple(Principle a, Principle b, int floorB, int cap)
         {
             // best[budget][pointsOfB capped at floorB] = most of A.
             var best = new Dictionary<(int Cost, int B), int> { [(0, 0)] = 0 };
-            foreach (var domain in BoardDomains)
+            foreach (var branch in BoardBranches)
             {
                 var next = new Dictionary<(int, int), int>();
+                var options = Options(branch);
                 foreach (var kv in best)
-                foreach (var o in Options(domain))
+                foreach (var o in options)
                 {
                     int cost = kv.Key.Cost + o.Cost;
                     if (cost > cap) continue;
@@ -89,25 +98,22 @@ namespace Convergence.Balance
         {
             var sb = new StringBuilder();
             var all = MasteryBoard.All;
-            int buyable = BoardDomains.Sum(d => Options(d).Max(o => o.Cost)) + MasteryBoard.RebisCost;
-            sb.Append($"Mastery board v{MasteryBoard.Version}: {all.Count} nodes, {MasteryBoard.Branches.Length} forked branches + the Rift ladder + the Rebis.\n");
-            sb.Append($"Buyable on one board (one branch a forked domain): {buyable} levels; the cap of {Tuning.Mastery.LevelCap} covers {(float)Tuning.Mastery.LevelCap / buyable:P0}.\n\n");
+            int pathLevels = MasteryBoard.Route(MasteryBoard.Paths[0].Id).Sum(n => n.Cost);
+            int buyable = BoardBranches.Sum(b => Options(b).Max(o => o.Cost))
+                        + all.Where(n => n.Branch.StartsWith("bridge.")).Sum(n => n.Cost);
+            sb.Append($"Mastery grid v{MasteryBoard.Version}: {all.Count} nodes - {MasteryBoard.Paths.Length} paths, {MasteryBoard.Diagonals.Length} diagonals, their bridges and the centre.\n");
+            sb.Append($"One path end to end: {pathLevels} levels. Buyable on one board (one lane a fork): {buyable}; the cap of {Tuning.Mastery.LevelCap} covers {(float)Tuning.Mastery.LevelCap / buyable:P0}.\n\n");
 
-            sb.Append($"{"branch",-12} {"principle",-9} {"primary",-26} {"secondary",-26} {"tincture",-14} opus\n");
-            foreach (var spec in MasteryBoard.Branches)
+            sb.Append($"{"path",-11} {"trunk",-22} {"lanes",-62} {"convergence",-14} capstone\n");
+            foreach (var p in MasteryBoard.Paths)
             {
-                var nodes = all.Where(n => n.Branch == spec.Id).ToList();
-                string P(Art.Gear.StatKind k, BoardStat x)
-                {
-                    float v = nodes.Where(n => (k != Art.Gear.StatKind.None && n.Stat == k) || (x != BoardStat.None && n.Extra == x)).Sum(n => n.Value);
-                    string label = k != Art.Gear.StatKind.None ? Chain.GearForge.Label(k) : MasteryBoard.Label(x);
-                    return x == BoardStat.Lifesteal ? $"{label} +{v * 100f:0.#}%" : $"{label} +{v:0.#}";
-                }
-                string primary = P(spec.Primary, spec.PrimaryExtra);
-                string secondary = P(spec.Secondary, BoardStat.None);
-                string key = spec.Keystone != Notable.None ? $" [{spec.Keystone}]" : "";
-                sb.Append($"{spec.Name + key,-12} {spec.Principle,-9} {primary,-26} {secondary,-26} {MasteryBoard.NameOf(spec.Tincture),-14} {MasteryBoard.NameOf(spec.Opus)}\n");
+                string lanes = string.Join(" / ", p.Lanes.Select(l => l.Name));
+                string conv = p.FollowsLane ? "(the lane's)" : MasteryBoard.NameOf(p.Convergence);
+                string cap2 = p.FollowsLane ? "(the lane's)" : MasteryBoard.NameOf(p.Capstone);
+                sb.Append($"{p.Name,-11} {p.Trunk.Name,-22} {lanes,-62} {conv,-14} {cap2}\n");
             }
+            foreach (var d in MasteryBoard.Diagonals)
+                sb.Append($"{d.Name,-11} {(d.A.Name.Length > 0 ? d.A.Name + " / " + d.B.Name : "Rift Capacity x2"),-85} {(d.End != Notable.None ? MasteryBoard.NameOf(d.End) : "-")}\n");
 
             int cap = Tuning.Mastery.LevelCap;
             var t = MasteryBoard.Thresholds;

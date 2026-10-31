@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "exportedAt": "2026-10-25T08:30:13.1950500Z",
+  "exportedAt": "2026-10-31T01:05:45.1910570Z",
   "costs": { "random": 1, "targeted": 4 },
   "tiers": {
     "Diamond": [
@@ -49,7 +49,7 @@
       { "id": "terra_band", "name": "Terra Band", "slot": "Weapon", "class": "Disc" },
       { "id": "umbra_bow", "name": "Umbra", "slot": "Weapon", "class": "Bow" },
       { "id": "void_fang_blades", "name": "Void Fang", "slot": "Weapon", "class": "Disc" },
-      { "id": "wraith_eye", "name": "Wraith's Eye", "slot": "Head" }
+      { "id": "wraith_eye", "name": "Wraith's Eye", "slot": "Ring" }
     ],
     "BlackDiamond": [
       { "id": "aether_greatsword", "name": "Aether Greatsword", "slot": "Weapon", "class": "Greatsword", "relic": { "id": "aether_stone", "name": "Cracked Stone", "slot": "Relic", "signature": "magnum_opus" } },
@@ -61,6 +61,7 @@
       { "id": "phantom_blade", "name": "Phantom", "slot": "Weapon", "class": "Greatsword", "relic": { "id": "phantom_relic", "name": "Phantom Mark", "slot": "Relic", "signature": "phantom_reckoning" } },
       { "id": "prima_materia_bow", "name": "Aether Longbow", "slot": "Weapon", "class": "Bow", "relic": { "id": "prima_stone", "name": "Liquid Stone", "slot": "Relic", "signature": "prima_materia_art" } },
       { "id": "shadow_blade", "name": "Shadow", "slot": "Weapon", "class": "Greatsword", "relic": { "id": "shadow_relic", "name": "Shadow Seal", "slot": "Relic", "signature": "shadow_echo" } },
+      { "id": "void_ring", "name": "Void Signet", "slot": "Ring" },
       { "id": "zanmato_blade", "name": "Zanmato", "slot": "Weapon", "class": "Greatsword", "relic": { "id": "zanmato_saya", "name": "Zanmato Saya", "slot": "Relic", "signature": "crosscut" } }
     ]
   },

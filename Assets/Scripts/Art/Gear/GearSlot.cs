@@ -25,7 +25,7 @@ namespace Convergence.Art.Gear
         Torso,
         Back,
         Neck,
-        Ring,       // right index finger
+        Ring,       // shown as ACCESSORY (GearSlots.Label); the name stays, saves and tokens use it
         Legs,
         Trinket,    // right hip
         Boots,
@@ -357,6 +357,13 @@ namespace Convergence.Art.Gear
     public static class GearSlots
     {
         public static readonly GearSlot[] All = (GearSlot[])System.Enum.GetValues(typeof(GearSlot));
+
+        /// <summary>
+        /// A slot's name as the player reads it. Ring is shown as ACCESSORY (the user's call,
+        /// 2026-10-30): a ring is two texels on a finger and the slot had one item, so it now holds
+        /// the Wraith's Eye too. The enum keeps "Ring" - saves, token data and the service use it.
+        /// </summary>
+        public static string Label(this GearSlot slot) => slot == GearSlot.Ring ? "Accessory" : slot.ToString();
 
         /// <summary>
         /// The eleven that carry POWER - Relic never does (it is carried, not worn) and Trinket

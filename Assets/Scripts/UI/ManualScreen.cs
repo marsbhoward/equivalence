@@ -14,8 +14,12 @@ namespace Convergence.UI
     {
         public bool IsOpen { get; private set; }
 
-        const float RowWidth = 420f, RowHeight = 76f, RowGap = 10f;
-        const float ColumnTop = 150f;
+        // Fifteen sections from just under the subtitle to the foot of the screen (1080 tall).
+        const float RowWidth = 420f, RowHeight = 52f, RowGap = 6f;
+        const float ColumnTop = 380f;
+
+        /// <summary>Defined words on a page, and their names in the notes under it.</summary>
+        const string TermHex = "f2d98c";
 
         GameObject _root;
         RectTransform _detail;
@@ -100,9 +104,14 @@ namespace Convergence.UI
                 new Vector2(0, -56), new Vector2(0, 0)),
                 entry.Title, 26, new Color(0.95f, 0.85f, 0.55f), TextAnchor.UpperLeft);
 
+            // Every word the page leans on, explained under it (Core.Glossary).
+            string text = Glossary.Highlight(entry.Body, TermHex);
+            string notes = Glossary.Footnotes(entry.Body, TermHex);
+            if (notes.Length > 0) text += $"\n\n<size=17><color=#8b8f9c>{notes}</color></size>";
             var body = UiKit.Label(UiKit.Rect(_detail, "body", new Vector2(0, 0), new Vector2(1, 1),
                 new Vector2(0, 0), new Vector2(0, -70)),
-                entry.Body, 20, new Color(0.85f, 0.86f, 0.90f), TextAnchor.UpperLeft);
+                text, 20, new Color(0.85f, 0.86f, 0.90f), TextAnchor.UpperLeft);
+            body.supportRichText = true;
             body.horizontalOverflow = HorizontalWrapMode.Wrap;
             body.verticalOverflow = VerticalWrapMode.Overflow;
         }

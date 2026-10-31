@@ -291,7 +291,7 @@ namespace Convergence.Chain
         {
             Art.Gear.GearSlot.Weapon => $"{tier} {Art.Gear.WeaponClasses.Name(weaponClass)}",
             Art.Gear.GearSlot.Relic => $"{tier} {Art.Gear.WeaponClasses.Name(weaponClass)} Relic",
-            _ => $"{tier} {slot}",
+            _ => $"{tier} {Art.Gear.GearSlots.Label(slot)}",
         };
         public Art.Gear.GearSlot Slot;
         public Art.Gear.LootTier Tier;
@@ -393,6 +393,9 @@ namespace Convergence.Chain
                 ? UnityEngine.Object.Instantiate(design)
                 : UnityEngine.ScriptableObject.CreateInstance<Art.Gear.GearItem>();
             item.hideFlags = UnityEngine.HideFlags.HideAndDontSave;
+            // The design decides where it is worn: a record minted before a design moved slot (the
+            // Wraith's Eye, Head to Ring 2026-10-30) follows it, and is saved that way from now on.
+            if (design != null) Slot = design.Slot;
             item.DesignId = design != null ? Design : null;
             item.ItemId = InstanceId;
             item.DisplayName = DisplayName;
