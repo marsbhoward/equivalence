@@ -16,8 +16,13 @@ export function db(): pg.Pool {
   if (pool) return pool;
   const url = process.env.DATABASE_URL;
   if (!url) throw new Error('DATABASE_URL is not set');
+  const schema = schemaName();
   pool = new pg.Pool({
     connectionString: url,
+    // An instance's own SCHEMA in a shared database (DATABASE_SCHEMA - the showcase's, the user's
+    // call 2026-10-31): every unqualified table it makes or reads lives there, so its data drops
+    // with the schema at the wipe and never meets the live service's.
+    ...(schema ? { options: `-c search_path=${schema}` } : {}),
     max: Number(process.env.DATABASE_POOL ?? 10),
     // Railway's private network needs no TLS; its public proxy and most hosts want it.
     ssl: /sslmode=require|\.rlwy\.net|\.railway\.app/.test(url) ? { rejectUnauthorized: false } : undefined,
@@ -26,6 +31,14 @@ export function db(): pg.Pool {
 }
 
 export const hasDatabase = () => !!process.env.DATABASE_URL;
+
+/** DATABASE_SCHEMA, checked to be a plain identifier (it goes into a connection option and DDL) - or null. */
+export function schemaName(): string | null {
+  const s = (process.env.DATABASE_SCHEMA ?? '').trim();
+  if (!s) return null;
+  if (!/^[a-z_][a-z0-9_]{0,62}$/.test(s)) throw new Error(`DATABASE_SCHEMA must be a lower-case identifier, not "${s}"`);
+  return s;
+}
 
 /** Closes the pool - the last step of a clean shutdown (lifecycle.ts). */
 export async function closeDb(): Promise<void> {
@@ -318,6 +331,9 @@ const MIGRATIONS: string[] = [
 
 /** Applies every migration not yet applied. Called once at start-up. */
 export async function migrate(): Promise<void> {
+  // The instance's own schema first - every migration below lands in it (search_path, db()).
+  const schema = schemaName();
+  if (schema) await q(`CREATE SCHEMA IF NOT EXISTS ${schema}`);
   await q(`CREATE TABLE IF NOT EXISTS schema_migrations (
              version INTEGER PRIMARY KEY, applied_at TIMESTAMPTZ NOT NULL DEFAULT now())`);
   const done = new Set((await q<{ version: number }>('SELECT version FROM schema_migrations')).map(r => r.version));

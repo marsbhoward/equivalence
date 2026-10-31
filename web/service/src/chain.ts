@@ -1,4 +1,5 @@
 import { Blockfrost, CML, Lucid, LucidEvolution, Network, UTxO, getAddressDetails } from '@lucid-evolution/lucid';
+import { chainWritesOff } from './readOnly.js';
 
 /**
  * One Lucid instance for the life of the process, wallet already selected from the service's own
@@ -11,6 +12,8 @@ import { Blockfrost, CML, Lucid, LucidEvolution, Network, UTxO, getAddressDetail
 let cached: Promise<LucidEvolution> | null = null;
 
 export function getLucid(): Promise<LucidEvolution> {
+  // A read-only instance (readOnly.ts) never signs - refused before any key is read.
+  if (chainWritesOff()) return Promise.reject(new Error('chain writes are off on this instance (CHAIN_WRITES=off)'));
   if (cached) return cached;
 
   const apiKey = requireEnv('BLOCKFROST_API_KEY');

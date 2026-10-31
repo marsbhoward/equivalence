@@ -1,3 +1,4 @@
+import { chainWritesOff, noChainWrites } from './readOnly.js';
 import express from 'express';
 import { internal } from './errors.js';
 import { mintDesign } from './routes/mintDesign.js';
@@ -114,7 +115,7 @@ app.get('/components/items', perIp('component-items', LIMITS.componentItems), bl
  * exposing it here reveals nothing the ledger will not. The SEED is the secret, and it never leaves
  * this process.
  */
-app.get('/service/address', publicRead, async (_req, res) => {
+app.get('/service/address', publicRead, noChainWrites, async (_req, res) => {
   try {
     res.json({ address: await serviceAddress() });
   } catch (e) {
@@ -122,6 +123,10 @@ app.get('/service/address', publicRead, async (_req, res) => {
   }
 });
 
+// READ-ONLY CHAIN (readOnly.ts): on an instance with CHAIN_WRITES=off every route that signs answers 403
+// before any work - registered ahead of the routes themselves. getLucid() refuses as well.
+app.use(['/op/mint-design', '/op/split-funds', '/op/dev/mint-character', '/write/open-boxes', '/write/dyes',
+  '/write/break-boxes', '/write/pfp'], noChainWrites);
 app.post('/op/mint-design', mintDesign);
 app.post('/op/split-funds', splitFunds);
 // Pause one feature without taking the server down (switches.ts, scripts/switch.mjs).
@@ -226,8 +231,12 @@ const port = Number(process.env.PORT ?? 8787);
     shutDownCleanly(server);
     // Extractions deferred while minting was paused mint when it reopens - and at start-up, in case
     // a restart cut a release short.
-    whenReopened(name => { if (name === 'minting') void releaseDeferred().then(n => n && console.log(`[deferred] released ${n} run(s)`)); });
-    void releaseDeferred().catch(e => console.error('[deferred] release at start-up failed:', e));
+    // Never on a read-only instance: it mints nothing, so it has nothing deferred (readOnly.ts).
+    if (chainWritesOff()) console.log('[equivalence-service] CHAIN_WRITES=off - read-only: nothing is signed or minted');
+    else {
+      whenReopened(name => { if (name === 'minting') void releaseDeferred().then(n => n && console.log(`[deferred] released ${n} run(s)`)); });
+      void releaseDeferred().catch(e => console.error('[deferred] release at start-up failed:', e));
+    }
   },
   (e) => {
     console.error('[equivalence-service] database migration failed:', e);

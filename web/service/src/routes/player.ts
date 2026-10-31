@@ -1,3 +1,4 @@
+import { chainWritesOff } from '../readOnly.js';
 import type { Request, Response } from 'express';
 import { internal } from '../errors.js';
 import { CML } from '@lucid-evolution/lucid';
@@ -245,7 +246,8 @@ export async function commitRun(req: Request, res: Response): Promise<void> {
       // NOTHING EARNED REACHES A WALLET WITHOUT A PFP (the user's rule, 2026-10-13): with no PFP for
       // this character, the boxes are HELD here - a record the client cannot write - not minted.
       const any = Object.keys(allowed).length > 0;
-      const mintable = any && (await pfpGate(address, (await characterUnits(profileId)).user)) === null;
+      // A read-only instance (readOnly.ts) mints nothing and defers nothing: what a run earned is held, in its database only.
+      const mintable = !chainWritesOff() && any && (await pfpGate(address, (await characterUnits(profileId)).user)) === null;
 
       // MINTING PAUSED (switches.ts): judged and recorded now, minted when minting resumes
       // (releaseDeferred) - a pause never costs a player what the run earned.

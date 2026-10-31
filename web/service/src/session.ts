@@ -187,11 +187,27 @@ async function bumpEpoch(address: string): Promise<number> {
 
 // ---- routes ------------------------------------------------------------------------------------
 
+/** Whether an address belongs to the network this instance reads (NETWORK: Mainnet = id 1, else 0). */
+function onThisNetwork(address: string): boolean {
+  try {
+    const want = (process.env.NETWORK ?? 'Preview').toLowerCase() === 'mainnet' ? 1 : 0;
+    return getAddressDetails(address).networkId === want;
+  } catch {
+    return false;
+  }
+}
+
 export function challenge(req: Request, res: Response): void {
   const address = String(req.query.address ?? '');
   const key = String(req.query.key ?? '');
   if (!forms(address)) {
     res.status(400).json({ error: 'address must be a key-based Cardano address' });
+    return;
+  }
+  // The wallet's network must be this instance's (NETWORK): a Preview wallet cannot sign in to the
+  // mainnet showcase, nor a mainnet one to Preview - its reads would find nothing, its saves be orphans.
+  if (!onThisNetwork(address)) {
+    res.status(400).json({ error: `this is the ${process.env.NETWORK ?? 'Preview'} service - switch your wallet's network` });
     return;
   }
   if (!publicKey(key)) {
