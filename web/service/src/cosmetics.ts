@@ -35,10 +35,10 @@ const POSE_GOLD_MAX = 3;
 /**
  * MILESTONES by format - the first clear of each floor, once per character. The Short Descent's
  * first floor-25 clear (its avatar) pays a Diamond box and a dye, 30 / 40 / 50 a dye each; Classic
- * is at the same DEPTH (its floors count once, the Short Descent's twice). The dye's rarity climbs
+ * is at the same DEPTH (its floors count once, the Short Descent's twice); the showcase has none. The dye's rarity climbs
  * with the milestone.
  */
-export const MILESTONES: Record<FormatId, number[]> = { short: [25, 30, 40, 50], classic: [50, 60, 80, 100] };
+export const MILESTONES: Record<FormatId, number[]> = { short: [25, 30, 40, 50], classic: [50, 60, 80, 100], showcase: [] };
 const MILESTONE_RARITY: DyeRarity[] = ['Uncommon', 'Uncommon', 'Rare', 'VeryRare'];
 /** The milestone (index) that also pays the Diamond box. */
 const MILESTONE_BOX_INDEX = 0;

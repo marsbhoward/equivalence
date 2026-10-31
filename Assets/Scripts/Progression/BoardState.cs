@@ -216,9 +216,9 @@ namespace Convergence.Progression
             return total;
         }
 
-        /// <summary>What this element's board may still spend, against the cap.</summary>
+        /// <summary>What this element's board may still spend, against the cap (the showcase's is lower).</summary>
         public int Remaining(ElementType element)
-            => Mathf.Max(0, Mathf.Min(_profile.For(element).Level, Tuning.Mastery.LevelCap) - Spent(element));
+            => Mathf.Max(0, Mathf.Min(_profile.For(element).Level, Tuning.Mastery.Cap) - Spent(element));
 
         public enum Blocked
         {

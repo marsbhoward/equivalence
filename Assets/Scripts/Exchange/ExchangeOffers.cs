@@ -68,7 +68,7 @@ namespace Convergence.Exchange
         /// DealAfter: they count in Classic floors, which a Short floor is two of.
         /// </summary>
         public static bool DealAfterInRun(int floor)
-            => Core.RunFormat.Short ? floor >= 1 && floor < Core.RunFormat.FinalFloor : DealAfter(floor);
+            => Core.RunFormat.Short ? floor >= 1 && floor < Core.RunFormat.EndFloor : DealAfter(floor);
 
         /// <summary>
         /// THE BRAND DEAL (Phase 4, decided 2026-10-20 - Slay the Spire's boss relics' kind): after a

@@ -59,6 +59,10 @@ namespace Convergence.Rifts
         /// <summary>The player's clear times this run, each as a ratio to that floor's estimate.</summary>
         public List<float> PaceRatios = new();
 
+        /// <summary>THE SHOWCASE's curation (SHOWCASE.md): whether this run has met a puzzle and a Rift
+        /// yet. Saved with the run, as the counters above are - a resume keeps its guarantees.</summary>
+        public bool HadPuzzle, HadRift;
+
         public FloorPlanner(int seed) { Seed = seed; }
 
         /// <summary>Everything the planner holds, copied - a run's snapshot keeps the planner as it
@@ -67,6 +71,7 @@ namespace Convergence.Rifts
         {
             SinceRift = SinceRift, SincePuzzle = SincePuzzle, QuietFloors = QuietFloors,
             LastPuzzle = LastPuzzle, PaceRatios = new List<float>(PaceRatios ?? new List<float>()),
+            HadPuzzle = HadPuzzle, HadRift = HadRift,
         };
 
         /// <summary>
@@ -100,7 +105,7 @@ namespace Convergence.Rifts
             var copy = new FloorPlanner(Seed)
             {
                 SinceRift = SinceRift, SincePuzzle = SincePuzzle, QuietFloors = QuietFloors,
-                LastPuzzle = LastPuzzle,
+                LastPuzzle = LastPuzzle, HadPuzzle = HadPuzzle, HadRift = HadRift,
             };
             return copy.Plan(floor, consumeDevForce: false);
         }
@@ -117,10 +122,10 @@ namespace Convergence.Rifts
             var copy = new FloorPlanner(Seed)
             {
                 SinceRift = SinceRift, SincePuzzle = SincePuzzle, QuietFloors = QuietFloors,
-                LastPuzzle = LastPuzzle,
+                LastPuzzle = LastPuzzle, HadPuzzle = HadPuzzle, HadRift = HadRift,
             };
             var plans = new List<FloorPlan>();
-            for (int f = from + 1; f <= Math.Min(Core.RunFormat.FinalFloor, from + count); f++)
+            for (int f = from + 1; f <= Math.Min(Core.RunFormat.EndFloor, from + count); f++)
             {
                 var plan = copy.Plan(f, consumeDevForce: false);
                 if (plan.Rift != RiftKind.None) copy.MarkRiftReached();
@@ -133,6 +138,40 @@ namespace Convergence.Rifts
 
         FloorPlan Plan(int floor, bool consumeDevForce)
         {
+            var plan = PlanCore(floor, consumeDevForce);
+            if (plan.Category == FloorCategory.Puzzle) HadPuzzle = true;
+            if (plan.Rift != RiftKind.None) HadRift = true;
+            return plan;
+        }
+
+        FloorPlan PlanCore(int floor, bool consumeDevForce)
+        {
+            // THE SHOWCASE (SHOWCASE.md, the user's calls): its last floor is the mini-boss and a Blue
+            // Rift, the only way out. Before it, still drawn by weight, but every run meets a puzzle
+            // (forced by two floors before the end) and a Rift (by the floor before the boss) - the
+            // curation, so ten floors show the game's range. The biome changes by itself: the Tower
+            // lasts 3-5 floors (Tuning.Biomes.FirstStretch*).
+            if (Core.RunFormat.Showcase)
+            {
+                int end = Core.RunFormat.EndFloor;
+                if (floor >= end) return new FloorPlan(floor, FloorCategory.Boss, RiftKind.Blue, true);
+                if (!IsBossFloor(floor) && DevForceCategory == null && DevForceRift == RiftKind.None)
+                {
+                    if (!HadPuzzle && floor >= Tuning.Floors.PuzzleMinFloor && floor >= end - 2)
+                    {
+                        SincePuzzle = 0;
+                        if (floor >= Tuning.Floors.RiftMinFloor) SinceRift++;
+                        return new FloorPlan(floor, FloorCategory.Puzzle, RiftKind.None, true);
+                    }
+                    if (!HadRift && floor >= Tuning.Floors.RiftMinFloor && floor >= end - 1)
+                    {
+                        SinceRift++;
+                        SincePuzzle++;
+                        return new FloorPlan(floor, FloorCategory.Rift, RiftKind.Blue, true);
+                    }
+                }
+            }
+
             // The avatar's exit is GUARANTEED, quiet stretch or not - beating one always earns its
             // way out. It still counts as a floor passed for the quiet stretch.
             if (IsAvatarFloor(floor))
@@ -374,7 +413,7 @@ namespace Convergence.Rifts
                 var p = new FloorPlanner(run * 7919 + 1);
                 int lastExit = 0, lastCollapse = 0;
                 bool baseStakePaid = false;
-                for (int floor = 1; floor <= Core.RunFormat.FinalFloor; floor++)
+                for (int floor = 1; floor <= Core.RunFormat.EndFloor; floor++)
                 {
                     var plan = p.Plan(floor);
                     if (!IsAvatarFloor(floor) && floor >= Tuning.Floors.RiftMinFloor)

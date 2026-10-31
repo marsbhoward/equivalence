@@ -6,6 +6,9 @@
  *   short     THE SHORT DESCENT: 50 floors, built to be cleared in about an hour. The avatar at 25
  *             rolls its own boxes; floor 50 is the end and carries the weekly guarantee - only for
  *             a clear inside the hour (before the GATE COLLAPSE).
+ *   showcase  THE SHOWCASE (SHOWCASE.md): the Short Descent's first ten floors, ending on the floor-10
+ *             mini-boss's Blue Rift. No avatar, no final-floor box, no weekly guarantee - nothing it
+ *             earns is minted (the user's call: no chain write). Run on its own instance.
  *
  * A run declares its format in its run-start save (routes/saves.ts) and the service records it with
  * the run (`run_progress.format`); every check after that reads the RUN's format, so a run is judged
@@ -18,12 +21,14 @@
  * The game's copies of these numbers are Tuning.GearRoll (avatar and final-floor chances),
  * Chain/FinalFloorReward and Core/RunFormat - keep them in step.
  */
-export type FormatId = 'classic' | 'short';
+export type FormatId = 'classic' | 'short' | 'showcase';
 
 export interface RunFormat {
   id: FormatId;
   /** The last floor - the run's end, and the floor whose box carries the weekly guarantee. */
   finalFloor: number;
+  /** Whether the final floor has a box at all (routes/finalFloor.ts) - the showcase's does not. */
+  finalBox: boolean;
   /** Avatar floors below the final one that roll their own Diamond / Black Diamond boxes. */
   rolledAvatars: number[];
   avatarDiamondChance: number;
@@ -67,6 +72,7 @@ export const FORMATS: Record<FormatId, RunFormat> = {
   classic: {
     id: 'classic',
     finalFloor: 100,
+    finalBox: true,
     rolledAvatars: [25, 50, 75],
     avatarDiamondChance: 0.02,
     avatarBlackDiamondChance: 0.005,
@@ -84,6 +90,7 @@ export const FORMATS: Record<FormatId, RunFormat> = {
   short: {
     id: 'short',
     finalFloor: 50,
+    finalBox: true,
     rolledAvatars: [25],
     avatarDiamondChance: 0.01,
     avatarBlackDiamondChance: 0.0025,
@@ -97,7 +104,31 @@ export const FORMATS: Record<FormatId, RunFormat> = {
     guaranteeClockSeconds: SHORT_GUARANTEE_SECONDS,
     walkInSeconds: 3,
   },
+  // The Short Descent's pace for ten floors, and no box of any kind decided by the service.
+  showcase: {
+    id: 'showcase',
+    finalFloor: 10,
+    finalBox: false,
+    rolledAvatars: [],
+    avatarDiamondChance: 0,
+    avatarBlackDiamondChance: 0,
+    guaranteedBlackDiamondChance: 0,
+    laterDiamondChance: 0,
+    laterBlackDiamondChance: 0,
+    goldBoxesMin: 0,
+    goldBoxesMax: 0,
+    minSecondsPerFloor: MIN_OVERRIDE ?? 15,
+    guaranteeClockSeconds: 0,
+    walkInSeconds: 3,
+  },
 };
+
+/** The format this service plays - the first it accepts (RUN_FORMATS). The game reads it from
+ *  /status (switches.ts) and starts its runs under it: the showcase instance names `showcase`. */
+export function primaryFormat(): FormatId {
+  const first = (process.env.RUN_FORMATS ?? 'short').split(',').map((s) => s.trim().toLowerCase()).find(Boolean);
+  return first && Object.prototype.hasOwnProperty.call(FORMATS, first) ? (first as FormatId) : 'short';
+}
 
 /** The format a run-start names - an unknown or missing name is null; a missing one means classic. */
 export function formatOf(name: unknown): RunFormat | null {

@@ -661,6 +661,55 @@ namespace Convergence.Core
         }
 
         /// <summary>
+        /// THE SHOWCASE (SHOWCASE.md): the Short Descent's first ten floors, on its own mainnet
+        /// instance, before the full beta - and wiped at it (the user's call, 2026-10-31). Read only
+        /// while RunFormat.Showcase; nothing here moves the real game.
+        /// </summary>
+        public static class Showcase
+        {
+            /// <summary>The run ends here: the first mini-boss, then its Blue Rift (FloorPlanner).</summary>
+            public const int EndFloor = 10;
+
+            /// <summary>
+            /// The mastery level an element's board may spend to (Tuning.Mastery.Cap) - my call, as
+            /// the user left it: 12 of the grid's levels fill most of one forked path, enough to feel
+            /// the board shape a build, far short of the full game's 50, which it is balanced past.
+            /// </summary>
+            public const int LevelCap = 12;
+
+            /// <summary>Stacks a taken boon or cost gains (RunModifiers.Take), up to its cap - the user's
+            /// faster exchange: nine deals reach a Rubedo's third stack and a maxed cost for the circle's
+            /// Albedos, which the full game builds over many more. Boons and costs alike.</summary>
+            public const int ExchangeStackStep = 2;
+
+            /// <summary>Enemy gear drops and Rift Box drops, on top of every other scale - the user's
+            /// higher drops: ten floors should end with gear to compare and boxes to secure.</summary>
+            public const float GearDropScale = 2f;
+            public const float RiftBoxDropScale = 6f;
+
+            /// <summary>The kit a new character starts the showcase with: a Bronze weapon of the class
+            /// the player picks, and Bronze in these armour slots, rolled at random (the user's call).</summary>
+            public const Art.Gear.LootTier KitTier = Art.Gear.LootTier.Bronze;
+            public static readonly Art.Gear.GearSlot[] KitArmour =
+            {
+                Art.Gear.GearSlot.Head, Art.Gear.GearSlot.Torso, Art.Gear.GearSlot.Legs,
+                Art.Gear.GearSlot.Boots, Art.Gear.GearSlot.Gloves,
+            };
+
+            /// <summary>The closing card's Discord (the user's, 2026-10-31).</summary>
+            public const string DiscordUrl = "https://discord.gg/V9qEGPcMW";
+
+            /// <summary>
+            /// TIPS - the closing card's support card (the user's: Cash App, Venmo, ADA). Each method shows
+            /// only once it is filled in; with none, the card is not drawn. Cash App and Venmo open their
+            /// pages; an ADA address (or $handle) is shown to copy.
+            /// </summary>
+            public const string CashAppTag = "MarsHoward";
+            public const string VenmoUser = "technicallyMars";
+            public const string AdaAddress = "$fourgod";   // an ADA Handle - wallets resolve it
+        }
+
+        /// <summary>
         /// The mastery board's economy. See Progression/MasteryBoard for the board itself.
         /// </summary>
         public static class Mastery
@@ -680,6 +729,9 @@ namespace Convergence.Core
             /// tasted, one untouched - which falls out of the cap rather than needing a rule.
             /// </summary>
             public const int LevelCap = 50;
+
+            /// <summary>The cap in force: the showcase's own (Tuning.Showcase.LevelCap), else LevelCap.</summary>
+            public static int Cap => RunFormat.Showcase ? Showcase.LevelCap : LevelCap;
         }
 
         /// <summary>

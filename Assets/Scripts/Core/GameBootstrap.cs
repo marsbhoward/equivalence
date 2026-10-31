@@ -451,8 +451,10 @@ namespace Convergence.Core
 
             // DEV: the format the toggle last chose (Tuning.Testing.FormatToggle). The Short Descent
             // is the default; only an internal build that chose Classic plays it.
-            RunFormat.Current = DevFormatEnabled && PlayerPrefs.GetInt(DevFormatPref, 0) == 1
-                ? RunFormatId.Classic : RunFormatId.ShortDescent;
+            // 0 the Short Descent, 1 Classic, 2 the showcase. Outside a dev build the SERVICE names the
+            // showcase (/status, read again before each run - see StartRun).
+            int devFormat = DevFormatEnabled ? PlayerPrefs.GetInt(DevFormatPref, 0) : 0;
+            RunFormat.Current = devFormat == 1 ? RunFormatId.Classic : devFormat == 2 ? RunFormatId.Showcase : RunFormatId.ShortDescent;
 
             _fade = UI.ScreenFade.Build(transform);
 
@@ -1082,7 +1084,7 @@ namespace Convergence.Core
         {
             if (_state != State.Playing || _transitioning || _spawning) return false;
             if (FloorRewardScreen.IsOpen || (ExchangeScreen.IsOpen || ChoiceList.IsOpen) || ConfirmDialog.IsOpen) return false;
-            floor = Mathf.Clamp(floor, 1, Core.RunFormat.FinalFloor);
+            floor = Mathf.Clamp(floor, 1, Core.RunFormat.EndFloor);
 
             foreach (var e in _alive) if (e) Destroy(e.gameObject);
             _alive.Clear();
@@ -1133,8 +1135,8 @@ namespace Convergence.Core
             if (floor <= 0)
             {
                 int from = _state == State.Playing ? _floor + 1 : 1;
-                for (floor = from; floor <= Core.RunFormat.FinalFloor && !IsBossFloor(floor); floor++) { }
-                if (floor > Core.RunFormat.FinalFloor) return "no boss floor left in this run";
+                for (floor = from; floor <= Core.RunFormat.EndFloor && !IsBossFloor(floor); floor++) { }
+                if (floor > Core.RunFormat.EndFloor) return "no boss floor left in this run";
             }
             if (!IsBossFloor(floor))
                 return $"floor {floor} is not a boss floor ({Core.RunFormat.WireName}: every {Tuning.Boss.RiftInterval}th, and the avatars)";
@@ -2040,8 +2042,10 @@ namespace Convergence.Core
             bool pressed = Controls.DevFormatTapped;
             if (pressed)
             {
-                RunFormat.Current = RunFormat.Short ? RunFormatId.Classic : RunFormatId.ShortDescent;
-                PlayerPrefs.SetInt(DevFormatPref, RunFormat.Short ? 0 : 1);
+                // Short -> Classic -> the showcase -> Short.
+                RunFormat.Current = RunFormat.Showcase ? RunFormatId.ShortDescent
+                                  : RunFormat.Short ? RunFormatId.Classic : RunFormatId.Showcase;
+                PlayerPrefs.SetInt(DevFormatPref, RunFormat.Showcase ? 2 : RunFormat.Short ? 0 : 1);
                 PlayerPrefs.Save();
             }
 
@@ -2053,7 +2057,9 @@ namespace Convergence.Core
                 UiKit.Legible(_devFormatLabel);
             }
             _devFormatLabel.gameObject.SetActive(true);
-            _devFormatLabel.text = RunFormat.Short
+            _devFormatLabel.text = RunFormat.Showcase
+                ? $"NEXT RUN: SHOWCASE  ({RunFormat.EndFloor} floors, the Blue Rift out)   [ F8 ]"
+                : RunFormat.Short
                 ? "NEXT RUN: SHORT DESCENT  (50 floors, 60 min)   [ F8 ]"
                 : "NEXT RUN: CLASSIC - INTERNAL  (100 floors)   [ F8 ]";
             return pressed;
@@ -2160,7 +2166,7 @@ namespace Convergence.Core
                       || ManualScreen.IsOpen || GearDisplayScreen.IsOpen || RiftScreen.IsOpen || StakeScreen.IsOpen
                       || PauseScreen.IsOpen || SettingsScreen.IsOpen || ControlsScreen.IsOpen
                       || HudSettingsScreen.IsOpen
-                      || InventoryScreen.IsOpen || UI.EndingScreen.IsOpen;
+                      || InventoryScreen.IsOpen || UI.EndingScreen.IsOpen || UI.ShowcaseEndScreen.IsOpen;
             bool modal = screenOpen || (_hub != null && _hub.Blocking);
 
             // The sigil door stays open for the day once the player has run, and shuts on its own
@@ -2584,14 +2590,104 @@ namespace Convergence.Core
                 // New runs PAUSED on the service (web/service/src/switches.ts): asked fresh, so a
                 // run is never started only for its first save to be refused.
                 await Chain.Service.ServiceStatus.RefreshAsync(force: true);
+                // The showcase instance names its format (/status): every run there is a showcase run.
+                if (Chain.Service.ServiceStatus.Format == "showcase") RunFormat.Current = RunFormatId.Showcase;
                 if (Chain.Service.ServiceStatus.Runs != null)
                 {
                     ConfirmDialog?.ShowNotice(_canvas.transform, "RUNS PAUSED", Chain.Service.ServiceStatus.Runs, "OK");
                     return;
                 }
+                // The showcase's first run: the player picks a weapon class (ShowcaseKit).
+                if (RunFormat.Showcase && NeedsShowcaseKit())
+                {
+                    AskShowcaseClass(() => StartRun(element, stake, insured));
+                    return;
+                }
                 await StartRunAsync(element, stake, insured);
             }
             catch (Exception e) { Debug.LogError($"[Convergence] StartRun failed: {e}"); }
+        }
+
+        // ---- the showcase's kit (SHOWCASE.md, the user's call 2026-10-31) ----
+
+        /// <summary>A character with no statted weapon of its own has not been given its showcase kit.
+        /// Once a character, not every run: what it earns is kept until the wipe.</summary>
+        bool NeedsShowcaseKit()
+            => _profile != null && !_profile.MintedGear.Exists(r => r.Slot == Art.Gear.GearSlot.Weapon);
+
+        /// <summary>Greatsword, discs or bow - then the kit, then <paramref name="then"/> (the run).</summary>
+        void AskShowcaseClass(Action then)
+        {
+            var classes = new[] { Art.Gear.WeaponClass.Greatsword, Art.Gear.WeaponClass.Disc, Art.Gear.WeaponClass.Bow };
+            Choices.Show(_canvas.transform, "CHOOSE YOUR WEAPON",
+                "A Bronze weapon of the kind you choose, and a set of Bronze armour rolled for you. What you find below is yours to keep.",
+                new List<(string, string)>
+                {
+                    ("GREATSWORD", "Two hands, slow and wide - every swing a commitment."),
+                    ("DISCS", "Heavy blows up close, ricocheting throws at range."),
+                    ("BOW", "Pure range: make space, then loose."),
+                },
+                i =>
+                {
+                    GiveShowcaseKit(classes[i]);
+                    then?.Invoke();
+                },
+                "BACK");
+        }
+
+        /// <summary>
+        /// A Bronze weapon of the class, and Bronze armour in Tuning.Showcase.KitArmour, each rolled
+        /// at random and equipped (statted, never minted - the showcase writes nothing to the chain).
+        /// Replaces the placeholder starter pieces. Saved as an equip is.
+        /// </summary>
+        void GiveShowcaseKit(Art.Gear.WeaponClass weaponClass)
+        {
+            var slots = new List<Art.Gear.GearSlot> { Art.Gear.GearSlot.Weapon };
+            slots.AddRange(Tuning.Showcase.KitArmour);
+            foreach (var slot in slots)
+            {
+                string instanceId = $"KIT-{slot}-{Guid.NewGuid():N}";
+                var (_, grants, primary, subs, ability, finisher) =
+                    Art.Gear.GearRoller.RollItem(slot, Tuning.Showcase.KitTier, instanceId.GetHashCode(), weaponClass);
+                var record = new MintedGearRecord
+                {
+                    InstanceId = instanceId,
+                    DisplayName = MintedGearRecord.NameFor(Tuning.Showcase.KitTier, slot, weaponClass),
+                    Slot = slot,
+                    Tier = Tuning.Showcase.KitTier,
+                    Grants = grants,
+                    PrimaryStat = primary,
+                    SubStats = subs,
+                    DefensiveAbility = ability,
+                    Finisher = finisher,
+                    Class = weaponClass,
+                    StatsVersion = Art.Gear.GearRoller.TablesVersion,
+                };
+                _profile.MintedGear.Add(record);
+                Art.Gear.GearCatalog.Register(record.ToGearItem());
+                _profile.Gear.Set(slot, instanceId);
+            }
+            _profile.Gear.DropStale();
+            _profile.Look.Transmog.Clear(Art.Gear.GearSlot.Weapon);
+            RepaintLive();
+            if (CharacterScreen != null) CharacterScreen.Refresh();
+            Debug.Log($"[Showcase] kit given: Bronze {weaponClass} and {Tuning.Showcase.KitArmour.Length} armour pieces");
+            _ = _store.UnlockAsync(_profile);
+        }
+
+        /// <summary>
+        /// THE SHOWCASE's ending (SHOWCASE.md): extracted through floor 10's Blue Rift - the closing
+        /// card (Discord, support, what the full beta holds), then the run ends as an extraction.
+        /// </summary>
+        void ShowShowcaseEnding()
+        {
+            var end = GetComponent<UI.ShowcaseEndScreen>();
+            if (end == null) end = gameObject.AddComponent<UI.ShowcaseEndScreen>();
+            int token = _runToken;
+            end.Show(_canvas.transform, Clock.Seconds, () =>
+            {
+                if (token == _runToken && _state == State.Playing) EndRun(survived: true);
+            });
         }
 
         /// <summary>The service no longer talks to this build (ServiceClient.Outdated) - the page
@@ -2691,7 +2787,7 @@ namespace Convergence.Core
             if (DevStartFloor > 1)
             {
                 // DEV (DevStartFloor): the run opens on a later floor - NextFloor builds _floor + 1.
-                _floor = Mathf.Min(DevStartFloor, Core.RunFormat.FinalFloor) - 1;
+                _floor = Mathf.Min(DevStartFloor, Core.RunFormat.EndFloor) - 1;
                 // The skipped floor is not a CLEARED one: the floor-start check reads "a floor with
                 // its reward not taken" as a clear to pay, and would pay it.
                 _rewardTaken = true;
@@ -3378,6 +3474,12 @@ namespace Convergence.Core
 
         IEnumerator NextFloor()
         {
+            // The showcase stops at its last floor - nothing builds a floor past it (its Rift is the way out).
+            if (Core.RunFormat.Showcase && _floor >= Core.RunFormat.EndFloor)
+            {
+                Debug.LogWarning($"[Showcase] no floor after {_floor} - the Rift is the way out");
+                yield break;
+            }
             LeaveGroundGear();
             // A Rift Box left lying stays with its floor too. It lives under _enemyRoot, which
             // outlives floors, and its collapse clock is scaled time - frozen through the
@@ -3883,7 +3985,7 @@ namespace Convergence.Core
             // THE SHORT DESCENT ENDS ON ITS FINAL FLOOR (SHORT-DESCENT.md): no door, no deal, no
             // reward - its box is paid and every box secured (RollFloorDrop), then the run ends as an
             // extraction. The avatar's dialogue and a cut scene go here when built. Classic carries on.
-            bool runEnds = Core.RunFormat.Short && _floor >= Rifts.RunLoot.FinalFloor;
+            bool runEnds = Core.RunFormat.Short && _floor >= Core.RunFormat.EndFloor;
             if (!runEnds) OpenFloorDoor();
             RollFloorDrop();
             int lying = GroundGearCount();
@@ -3891,6 +3993,15 @@ namespace Convergence.Core
                 _hud?.Flash(lying == 1 ? "a piece of gear is still on the floor"
                                        : $"{lying} pieces of gear are still on the floor");
             SettleFloorRift();
+            if (runEnds && Core.RunFormat.Showcase)
+            {
+                // THE SHOWCASE ends through its Blue Rift (FloorPlanner plans it on the last floor):
+                // no door, so the tear is the only way on, and extracting there opens the closing
+                // card (OpenRift). The clock's last floor closes now, as the Short Descent's does.
+                SaveRun(Chain.RunStage.Cleared, pending: 0);
+                _hud?.Flash("the Rift is open - step through to leave the descent");
+                return;
+            }
             if (runEnds)
             {
                 SaveRun(Chain.RunStage.Cleared, pending: 0);   // the run clock's last floor closes (the service times it)
@@ -3950,7 +4061,7 @@ namespace Convergence.Core
             // meets the same deals.
             // THE BRAND DEAL (Phase 4): after a mini-boss, one unrefusable pair - a form against a
             // brand - whether or not the floor would have had an ordinary deal.
-            bool brand = Exchange.ExchangeOffers.BrandDealAfter(_floor) && _floor < Core.RunFormat.FinalFloor;
+            bool brand = Exchange.ExchangeOffers.BrandDealAfter(_floor) && _floor < Core.RunFormat.EndFloor;
             if ((!Exchange.ExchangeOffers.DealAfterInRun(_floor) && !brand) || _planner == null)
             {
                 if (scry != null) _hud?.Flash(scry);
@@ -4151,7 +4262,7 @@ namespace Convergence.Core
         string ScryNextFloor()
         {
             int next = _floor + 1;
-            if (_planner == null || next > Core.RunFormat.FinalFloor) return null;
+            if (_planner == null || next > Core.RunFormat.EndFloor) return null;
             var plan = _planner.Peek(next);
             string rift = plan.Rift != Rifts.RiftKind.None ? $"  -  and a {plan.Rift} Rift" : "";
             return plan.Category switch
@@ -5122,7 +5233,9 @@ namespace Convergence.Core
                     // own terms rather than on a death.
                     _loot.SecureAll();
                     CloseRift();
-                    EndRun(survived: true);
+                    // The showcase's last Rift is its ending: the closing card, then the run ends.
+                    if (Core.RunFormat.Showcase && _floor >= Core.RunFormat.EndFloor) ShowShowcaseEnding();
+                    else EndRun(survived: true);
                 },
                 onPushOn: () =>
                 {
@@ -5620,7 +5733,8 @@ namespace Convergence.Core
         {
             if (_player == null) return;
             using (Rifts.RunRolls.Seeded(_planner?.Seed ?? 0, _floor, Rifts.RunRolls.Kind.KillBox, kill))
-                if (UnityEngine.Random.value >= Tuning.Boss.RiftBoxDropChance * chasers * Tuning.GearRoll.FormatDropScale) return;
+                if (UnityEngine.Random.value >= Tuning.Boss.RiftBoxDropChance * chasers * Tuning.GearRoll.FormatDropScale
+                                                * (Core.RunFormat.Showcase ? Tuning.Showcase.RiftBoxDropScale : 1f)) return;
             LayRiftBoxAt(at);
         }
 
@@ -5649,7 +5763,8 @@ namespace Convergence.Core
             using (Rifts.RunRolls.Seeded(_planner?.Seed ?? 0, _floor, Rifts.RunRolls.Kind.KillGear, kill))
             {
                 float band = RunFormat.EnemyBand(_floor) == 0 ? Tuning.GearRoll.BandZeroGearDropScale : 1f;
-                if (UnityEngine.Random.value >= Tuning.GearRoll.EnemyGearDropChance * chasers * Tuning.GearRoll.FormatDropScale * band) return;
+                if (UnityEngine.Random.value >= Tuning.GearRoll.EnemyGearDropChance * chasers * Tuning.GearRoll.FormatDropScale * band
+                                                * (Core.RunFormat.Showcase ? Tuning.Showcase.GearDropScale : 1f)) return;
                 drop = _loot.RollGear(_floor);
             }
             Debug.Log($"[Rift] floor {_floor} enemy dropped {drop.DisplayName} (on the ground)");
@@ -6680,7 +6795,7 @@ namespace Convergence.Core
             var s = w.Snapshot;
             // The run comes back in the FORMAT it started in (Core.RunFormat) - its rules are its own.
             if (!string.IsNullOrEmpty(s.Format))
-                Core.RunFormat.Current = s.Format == "short" ? Core.RunFormatId.ShortDescent : Core.RunFormatId.Classic;
+                Core.RunFormat.Current = Core.RunFormat.FromWire(s.Format);
             // The run clock carries on from the last beat heard (Core.RunClock) - never restarted.
             Clock.Restore(w.RunClock);
 
@@ -6803,8 +6918,10 @@ namespace Convergence.Core
             yield return new WaitForSecondsRealtime(0.4f);
             if (token != _runToken || _state != State.Playing || _player == null) { _spawning = false; yield break; }
 
-            OpenFloorDoor();
-            switch (s.Rift)
+            // The showcase's last floor has no door - its Blue Rift is the way out, open whatever was saved.
+            bool showcaseEnd = Core.RunFormat.Showcase && _floor >= Core.RunFormat.EndFloor;
+            if (!showcaseEnd) OpenFloorDoor();
+            switch (showcaseEnd ? RiftSave.Open : s.Rift)
             {
                 case RiftSave.Open:
                     if (TearRift())

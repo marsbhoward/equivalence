@@ -1,3 +1,4 @@
+import { primaryFormat } from './runFormat.js';
 import type { NextFunction, Request, Response } from 'express';
 import { internal } from './errors.js';
 import { hasDatabase, q } from './db.js';
@@ -8,7 +9,7 @@ import { hasDatabase, q } from './db.js';
  * operator call, not a redeploy:
  *
  *   POST /op/switches { name, paused, message }     (WRITE_TOKEN - scripts/switch.mjs)
- *   GET  /status  -> { paused: { <name>: <message> }, minClient }   public; the game shows them
+ *   GET  /status  -> { paused: { <name>: <message> }, minClient, format }   public; the game shows them
  *
  *   runs     no NEW run starts (the run-start save, /write/begin-run). Runs already going carry on.
  *   minting  nothing goes to the chain: opening boxes, dyes in and out, box tokens into charges, the
@@ -100,7 +101,8 @@ export async function status(_req: Request, res: Response): Promise<void> {
   try {
     const paused = Object.fromEntries([...(await pausedSwitches())].map(([k, v]) => [k, v || DEFAULT_MESSAGE[k]]));
     res.setHeader('Cache-Control', 'no-store');
-    res.json({ paused, minClient: MIN_CLIENT_BUILD });
+    // `format`: the run format this instance plays (runFormat.ts) - `showcase` switches the game into it.
+    res.json({ paused, minClient: MIN_CLIENT_BUILD, format: primaryFormat() });
   } catch (e) {
     internal(res, e, 'status', 503, 'unavailable');
   }

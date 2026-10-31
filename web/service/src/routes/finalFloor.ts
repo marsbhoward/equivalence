@@ -54,6 +54,8 @@ export async function claimFinalFloor(req: Request, res: Response): Promise<void
       // run, its snapshots on that floor, and the server's clock allowing it.
       const format = await runFormatOf(c, owner, profileId, runId);
       if (!format) return { status: 409, error: 'not_current_run', extra: {} } as const;
+      // The showcase's last floor has no box (runFormat.ts) - nothing to decide, nothing to mint.
+      if (!format.finalBox) return { status: 409, error: 'no_final_box', extra: { format: format.id } } as const;
       const run = await currentRunAt(c, owner, profileId, runId, format.finalFloor);
       if (!run.ok) return { status: run.status, error: run.error, extra: run.extra ?? {} } as const;
 

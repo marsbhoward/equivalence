@@ -7,6 +7,13 @@ namespace Convergence.Core
     ///                 floors   mini-bosses              avatars      depth of floor f
     ///     Classic     100      every 10th               25 50 75 100     f
     ///     Short       50       10 20 30 40              25 50            2f
+    ///     Showcase    10       10 (then the Blue Rift)  -                the Short Descent's
+    ///
+    /// THE SHOWCASE (SHOWCASE.md) is the Short Descent cut at its first mini-boss: every Short rule
+    /// (<see cref="Short"/> is true), its world and its pace, but the run ENDS at
+    /// <see cref="EndFloor"/>, on the boss's guaranteed Blue Rift. <see cref="FinalFloor"/> stays the
+    /// Short Descent's 50 - it is the world's last floor (the crimson hour, the Nigredo, the clock's
+    /// pace), not where this run stops. The service names it in /status on the showcase instance.
     ///
     /// TWO KINDS OF FLOOR NUMBER, and every reader must pick the right one:
     ///
@@ -29,7 +36,7 @@ namespace Convergence.Core
     ///
     /// A static resets to the Short Descent on a domain reload - set it again before a run if testing Classic.
     /// </summary>
-    public enum RunFormatId { Classic, ShortDescent }
+    public enum RunFormatId { Classic, ShortDescent, Showcase }   // APPEND-ONLY
 
     public static class RunFormat
     {
@@ -37,13 +44,25 @@ namespace Convergence.Core
         // reached through the dev toggle (Tuning.Testing.FormatToggle).
         public static RunFormatId Current = RunFormatId.ShortDescent;
 
-        public static bool Short => Current == RunFormatId.ShortDescent;
+        /// <summary>The Short Descent's rules - the showcase plays by them too.</summary>
+        public static bool Short => Current != RunFormatId.Classic;
+
+        public static bool Showcase => Current == RunFormatId.Showcase;
 
         /// <summary>The name the service knows the format by.</summary>
-        public static string WireName => Short ? "short" : "classic";
+        public static string WireName => Showcase ? "showcase" : Short ? "short" : "classic";
 
-        /// <summary>The run's last floor - its end, and the floor whose box carries the weekly guarantee.</summary>
+        /// <summary>The format a recorded name means - an empty or unknown one is Classic, as the service reads it.</summary>
+        public static RunFormatId FromWire(string name)
+            => name == "showcase" ? RunFormatId.Showcase : name == "short" ? RunFormatId.ShortDescent : RunFormatId.Classic;
+
+        /// <summary>The WORLD's last floor - the crimson hour, the Nigredo, the run clock's pace, and
+        /// (for Classic and the Short Descent) the floor whose box carries the weekly guarantee.</summary>
         public static int FinalFloor => Short ? 50 : 100;
+
+        /// <summary>Where THIS run ends: the final floor, or the showcase's floor 10. Run structure -
+        /// the last deal, the last plan, the run's completion - reads this.</summary>
+        public static int EndFloor => Showcase ? Tuning.Showcase.EndFloor : FinalFloor;
 
         /// <summary>Depth per floor ON AVERAGE: how many Classic floors one floor of this format
         /// stands for over the run. The ledger's per-floor counters step by it (RunModifiers.

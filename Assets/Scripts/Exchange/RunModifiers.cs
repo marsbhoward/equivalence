@@ -148,7 +148,9 @@ namespace Convergence.Exchange
                 _stacks[entry.Id] = 0;
                 _order.Add(entry);
             }
-            _stacks[entry.Id]++;
+            // The showcase's faster exchange: a stackable entry gains more than one, never past its cap.
+            int step = Core.RunFormat.Showcase && entry.Stackable ? Core.Tuning.Showcase.ExchangeStackStep : 1;
+            _stacks[entry.Id] = Mathf.Min(_stacks[entry.Id] + step, Mathf.Max(1, entry.MaxStacks));
             _lastOffered[entry.Id] = DealIndex;
             if (entry.Recurring) _restUntil[entry.Id] = DealIndex + T.RecurringRestDeals + 1;
             entry.OnTaken?.Invoke(Pending);

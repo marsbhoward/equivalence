@@ -17,6 +17,10 @@ namespace Convergence.Chain.Service
         public static string Minting { get; private set; }
         public static string Saves { get; private set; }
 
+        /// <summary>The run format this instance plays ("short", or "showcase" on the showcase's own
+        /// service - web/service/src/runFormat.ts primaryFormat). Null until read.</summary>
+        public static string Format { get; private set; }
+
         /// <summary>One line for the banner - every paused feature's message, or "".</summary>
         public static string Banner { get; private set; } = "";
 
@@ -24,7 +28,7 @@ namespace Convergence.Chain.Service
         static float _readAt = -999f;
 
         [System.Serializable] class Paused { public string runs; public string minting; public string saves; }
-        [System.Serializable] class Reply { public Paused paused; public int minClient; }
+        [System.Serializable] class Reply { public Paused paused; public int minClient; public string format; }
 
         /// <summary>Asks the service again, unless it was asked moments ago (<paramref name="force"/>
         /// asks anyway - before a run starts). A failure leaves the last answer standing.</summary>
@@ -42,6 +46,9 @@ namespace Convergence.Chain.Service
             Runs = Nonempty(p.runs);
             Minting = Nonempty(p.minting);
             Saves = Nonempty(p.saves);
+            Format = Nonempty(reply?.format);
+            // The showcase instance plays nothing else - the hub reads the format too (the mastery cap).
+            if (Format == "showcase") Core.RunFormat.Current = Core.RunFormatId.Showcase;
             Banner = string.Join("   ", new[] { Saves, Runs, Minting }.Where(m => m != null));
             if (reply != null && reply.minClient > ServiceClient.ClientBuild) ServiceClient.ReportOutdated();
         }
