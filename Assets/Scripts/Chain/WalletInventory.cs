@@ -1,4 +1,5 @@
 using System;
+using System.Linq;
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using UnityEngine;
@@ -119,6 +120,9 @@ namespace Convergence.Chain
 
         /// <summary>Set by the Editor's testing read: details come over HTTP from here too, not the bridge.</summary>
         static string _serviceUrl, _address;
+
+        /// <summary>Bumped by every new read, so a background pass for an older one stops (Prefetch).</summary>
+        static int _generation;
 
         /// <summary>Raised after a refresh and after details arrive, so a picker or the couch can redraw.</summary>
         public static event Action Changed;
@@ -254,6 +258,7 @@ namespace Convergence.Chain
                 _address = Web.ChainWallet.Address;
                 Take(string.IsNullOrEmpty(json) ? new Holdings() : JsonUtility.FromJson<Holdings>(json));
                 Debug.Log($"[Chain] wallet holds {Count} NFT(s) in {Policies.Count} polic{(Policies.Count == 1 ? "y" : "ies")}");
+                _ = Prefetch(_generation);
             }
             catch (Exception e)
             {
@@ -291,6 +296,7 @@ namespace Convergence.Chain
             Take(JsonUtility.FromJson<Holdings>(json));
             Debug.Log($"[Chain] wallet holds {Count} NFT(s) in {Policies.Count} policies, read from {serviceUrl}");
             Changed?.Invoke();
+            _ = Prefetch(_generation);
         }
 
         public static void Clear()
@@ -305,6 +311,7 @@ namespace Convergence.Chain
         static void Take(Holdings h)
         {
             h ??= new Holdings();
+            _generation++;
             _held = h.held ?? new List<string>();
             _heldSet = new HashSet<string>(_held);
             _policies = h.policies ?? new List<WalletPolicy>();
@@ -318,6 +325,76 @@ namespace Convergence.Chain
             var gone = new List<string>();
             foreach (var k in _details.Keys) if (!_heldSet.Contains(k)) gone.Add(k);
             foreach (var k in gone) _details.Remove(k);
+        }
+
+        /// <summary>Policies whose first page is read ahead, in the background.</summary>
+        const int PrefetchPolicies = 12;
+
+        /// <summary>
+        /// AFTER A READ, IN THE BACKGROUND (2026-10-31): the service warms the slow part itself -
+        /// names, and each policy's first pictures (web/service/src/warm.ts) - so this only:
+        ///   1. asks again for NAMES the first answer lacked, twice at most, a few seconds apart -
+        ///      merged in, nothing else of the read touched;
+        ///   2. reads the first page of each policy's details, one after another, so the art chooser
+        ///      opens a collection already listed. Pictures are NOT downloaded here: the game holds 24
+        ///      at most (WalletShowcaseSource), and preloading would only evict the ones in use.
+        /// A newer read (another wallet, a refresh) ends it.
+        /// </summary>
+        static async Task Prefetch(int generation)
+        {
+            try
+            {
+                foreach (var wait in new[] { 5f, 12f })
+                {
+                    if (!Policies.Any(p => string.IsNullOrEmpty(p.Name))) break;
+                    float until = Time.realtimeSinceStartup + wait;
+                    while (Time.realtimeSinceStartup < until) { await Task.Yield(); if (generation != _generation) return; }
+                    var json = await HoldingsJson();
+                    if (generation != _generation) return;
+                    if (json != null && MergeNames(JsonUtility.FromJson<Holdings>(json))) Changed?.Invoke();
+                }
+                int n = 0;
+                foreach (var p in Policies.ToList())
+                {
+                    if (generation != _generation || n++ >= PrefetchPolicies) return;
+                    if (HasMore(p.Policy) && !(_policyKeys?.ContainsKey(p.Policy) ?? false)) await LoadNextPageAsync(p.Policy);
+                }
+            }
+            catch (Exception e)
+            {
+                Debug.LogWarning($"[Chain] background wallet read stopped: {e.Message}");
+            }
+        }
+
+        /// <summary>The holdings again, by whichever path the last read used.</summary>
+        static async Task<string> HoldingsJson()
+        {
+            if (!string.IsNullOrEmpty(_serviceUrl))
+                return await Get($"{_serviceUrl.TrimEnd('/')}/components?address={_address}");
+            if (!Web.WebChainBridge.Available || string.IsNullOrEmpty(_address)) return null;
+            return await Web.WebChainBridge.Call("listComponents", new Web.ChainArgs { accountId = _address });
+        }
+
+        /// <summary>Names from a later answer into policies still unnamed. Whether any arrived.</summary>
+        static bool MergeNames(Holdings h)
+        {
+            if (h?.policies == null) return false;
+            bool any = false;
+            var named = new Dictionary<string, string>();
+            foreach (var p in h.policies) if (!string.IsNullOrEmpty(p.Name)) named[p.Policy] = p.Name;
+            var merged = new List<WalletPolicy>(_policies.Count);
+            foreach (var p in _policies)
+            {
+                if (string.IsNullOrEmpty(p.Name) && named.TryGetValue(p.Policy, out var name))
+                {
+                    merged.Add(new WalletPolicy { Policy = p.Policy, Name = name, Count = p.Count });
+                    any = true;
+                }
+                else merged.Add(p);
+            }
+            // A new list, so WalletShowcaseSource.Groups sees a different reference and rebuilds.
+            if (any) _policies = merged;
+            return any;
         }
 
         static string ServiceRoot => _serviceUrl ?? Service.ServiceClient.BaseUrl;

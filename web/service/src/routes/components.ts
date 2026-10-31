@@ -5,6 +5,7 @@ import { assetNameText, walletAssets } from '../blockfrost.js';
 import { imagePath } from './img.js';
 import { cardOf, htmlPath } from './nft.js';
 import { cachedAssetInfos } from '../assetCache.js';
+import { warmWallet } from '../warm.js';
 
 /**
  * What a wallet holds, POLICY FIRST (2026-10-31).
@@ -73,6 +74,8 @@ export async function components(req: Request, res: Response) {
     });
 
     res.json({ items: [], held, policies, truncated });
+    // The slow part - pictures, and the names not fetched above - starts now, in the background (warm.ts).
+    void warmWallet(address, byPolicy).catch(e => console.warn(`[warm] ${(e as Error).message}`));
   } catch (e) {
     // 502 rather than 500: the service is fine, the thing behind it did not answer. The game
     // deliberately KEEPS its previous list on a failed refresh rather than emptying it, so the

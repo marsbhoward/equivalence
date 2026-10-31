@@ -74,10 +74,12 @@ namespace Convergence.UI
             if (source != null) _groups.AddRange(source.Groups);
             _learned.Clear();
             _groups.Sort((a, b) => string.Compare(NameOf(a), NameOf(b), StringComparison.OrdinalIgnoreCase));
-            // Opens on the policy of what the frame shows - the head of its key.
+            // Opens on the policy of what the frame shows - the head of its key. An empty frame opens
+            // on the list alone, nothing chosen (the user's call, 2026-10-31): no collection's pictures
+            // are fetched until the player picks one.
             string policy = _current.Length >= 56 ? _current.Substring(0, 56) : null;
-            _group = Mathf.Max(0, _groups.FindIndex(g => g.Id == policy));
-            _groupPage = _group / GroupsPerPage;
+            _group = policy == null ? -1 : _groups.FindIndex(g => g.Id == policy);
+            _groupPage = Mathf.Max(0, _group) / GroupsPerPage;
             _page = 0;
 
             _root = new GameObject("ShowcasePicker", typeof(RectTransform));
@@ -174,6 +176,12 @@ namespace Convergence.UI
 
             _drawn = (_groups.Count, 0, false, false, 0);
             if (_groups.Count == 0) return;
+            if (_group < 0 || _group >= _groups.Count)
+            {
+                UiKit.Label(UiKit.Rect(_content, "pick", mid, mid, new Vector2(-420f, -40f), new Vector2(474f, 40f)),
+                    "pick a collection", 22, new Color(0.5f, 0.53f, 0.6f), TextAnchor.MiddleCenter);
+                return;
+            }
 
             // ---- the chosen policy's pieces, paged - loaded a page at a time as they are reached ----
             var group = _groups[_group];
@@ -304,6 +312,19 @@ namespace Convergence.UI
             return n;
         }
 
+        /// <summary>Names the source has now for policies this list drew unnamed. Whether any arrived.</summary>
+        bool NamesArrived()
+        {
+            bool any = false;
+            foreach (var s in _source.Groups)
+            {
+                if (!Readable(s.Name) || _learned.ContainsKey(s.Id)) continue;
+                int i = _groups.FindIndex(g => g.Id == s.Id);
+                if (i >= 0 && !Readable(_groups[i].Name)) { _learned[s.Id] = s.Name; any = true; }
+            }
+            return any;
+        }
+
         /// <summary>A name for the open policy from its loaded pieces, when the wallet read gave none.
         /// Returns whether one was learned, so the list redraws with it.</summary>
         bool LearnName(string id)
@@ -320,8 +341,11 @@ namespace Convergence.UI
         {
             if (!IsOpen) return;
 
+            // Names the wallet read gained since this opened (WalletInventory asks again for missing ones).
+            if (_source != null && NamesArrived()) Rebuild();
+
             // A page arrived, or a load started or ended: redraw. A picture arriving: swap it in.
-            if (_source != null && _groups.Count > 0)
+            if (_source != null && _group >= 0 && _group < _groups.Count)
             {
                 var id = _groups[_group].Id;
                 _source.Loaded(id, _items);

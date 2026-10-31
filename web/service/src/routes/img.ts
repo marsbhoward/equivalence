@@ -246,6 +246,12 @@ async function picture(unit: string, source: string, retry = false): Promise<Buf
   return p;
 }
 
+/** Fetches and caches a token's picture ahead of being asked (warm.ts). A failure is only recorded. */
+export async function warmPicture(unit: string, metadata: Record<string, unknown>): Promise<void> {
+  const source = imageField(metadata);
+  if (source) await picture(unit, source).catch(() => {});
+}
+
 export async function getImage(req: Request, res: Response): Promise<void> {
   const unit = String(req.params.unit ?? '').toLowerCase();
   if (!UNIT.test(unit)) {
