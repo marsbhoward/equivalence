@@ -68,3 +68,6 @@ web/service/dist/
 
 # Local package list - never commit
 my_packages.txt
+
+# Claude Code personal settings (permission rules)
+.claude/settings.local.json
