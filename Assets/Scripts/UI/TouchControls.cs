@@ -47,7 +47,7 @@ namespace Convergence.UI
 
         const float StickHome = 300f;      // from the bottom-left corner, both axes
         const float StickRadius = 150f;    // travel at full deflection
-        const float StickKnob = 78f;
+        const float StickKnob = 72f;     // 24 HUD texels (the mock); was 78
         const float StickZoneWidth = 0.46f;// fraction of the screen the stick may start in
         const float DeadZone = 0.16f;      // of StickRadius, before the character moves at all
 
@@ -90,6 +90,12 @@ namespace Convergence.UI
             /// <see cref="Progress"/>, so those keep the plain outline they always had.</summary>
             public Image Arc;
             public Text Label;
+            /// <summary>The look (the user's pick, 2026-10-31, "Glass, gold lining"): a fine white
+            /// EDGE on the disc's rim, a gold LINING just inside it, and an ICON over the label.
+            /// The meter ring outside stays white - gold is the button, white is its timing.</summary>
+            public Image Edge, Lining, Icon;
+            /// <summary>The icon this frame - ABILITY's follows the element. Null for a pill.</summary>
+            public System.Func<Sprite> IconOf;
             /// <summary>The key that fires this, under the label - shown only off touch.</summary>
             public Text Key;
             public string Keyboard;
@@ -169,8 +175,16 @@ namespace Convergence.UI
 
             // ThinRing, not Ring: Ring is the soft fat band every impact burst in the game
             // shares, and at this size it reads as a smudge rather than as an edge.
-            _stickBase = Disc(_root, "stick.base", StickRadius, Spr.ThinRing, new Color(1f, 1f, 1f, 0.22f));
-            _stickKnob = Disc(_root, "stick.knob", StickKnob, Spr.Circle, new Color(1f, 1f, 1f, 0.22f));
+            _stickBase = Disc(_root, "stick.base", StickRadius, Spr.ThinRing, new Color(1f, 1f, 1f, 0.35f));
+            _stickKnob = Disc(_root, "stick.knob", StickKnob, Spr.Circle, new Color(1f, 1f, 1f, 0.10f));
+            // The buttons' look on the stick: a gold lining inside the ring, and a glass knob with
+            // the same white edge and lining as a button. ThinRing draws its band at 0.92 of the
+            // base's radius, so the lining is measured in from there.
+            var gold = Gold; gold.a = 0.7f;
+            Ring(_stickBase, "lining", StickRadius * 0.92f, gold, pad: -LiningInset);
+            Ring(_stickKnob, "edge", StickKnob, new Color(1f, 1f, 1f, 0.40f), pad: 0f);
+            gold.a = 0.85f;
+            Ring(_stickKnob, "lining", StickKnob, gold, pad: -LiningInset);
             HomeStick();
 
             // ---- actions ----
@@ -187,17 +201,19 @@ namespace Convergence.UI
                    v => Controls.VirtualAttack = v, null,
                    progress: () => Controls.AttackProgress01?.Invoke() ?? 1f,
                    key: "LMB", pad: () => GamepadGlyphs.Attack, held: () => Controls.AttackHeld,
-                   dragAims: true);
+                   dragAims: true, icon: () => TouchIcons.Sword);
             Button("ABILITY", AbilityR, BottomRight, ThumbArc(64f, AbilityReach), Controls.Context.Arena,
                    v => Controls.VirtualRelease = v, () => Controls.ReleaseReady != null && Controls.ReleaseReady(),
                    progress: () => Controls.ReleaseProgress01?.Invoke() ?? 0f,
-                   key: "RMB", pad: () => GamepadGlyphs.Release, held: () => Controls.ReleaseHeld);
+                   key: "RMB", pad: () => GamepadGlyphs.Release, held: () => Controls.ReleaseHeld,
+                   icon: () => TouchIcons.Element(Art.Gear.Attunement.Current));
             // The chest's defensive ability. Low on the arc, clear of ATTACK's own radius -
             // shares Alt with the hub's crate-edit toggle, since the two contexts never overlap.
             Button("GUARD", AbilityR, BottomRight, ThumbArc(10f, AbilityReach), Controls.Context.Arena,
                    v => Controls.VirtualAlt = v, () => Controls.GuardReady != null && Controls.GuardReady(),
                    progress: () => Controls.GuardProgress01?.Invoke() ?? 1f,
-                   key: "Q", pad: () => GamepadGlyphs.Guard, held: () => Controls.GuardHeld);
+                   key: "Q", pad: () => GamepadGlyphs.Guard, held: () => Controls.GuardHeld,
+                   icon: () => TouchIcons.Shield);
             Pill("GEAR", PillW, TopRight, new Vector2(-120f, -86f), Controls.Context.Arena,
                  v => Controls.VirtualLoadout = v,
                  key: "C", pad: () => GamepadGlyphs.Menu, held: () => Controls.LoadoutHeld);
@@ -210,13 +226,14 @@ namespace Convergence.UI
             Button("USE", ActionR, BottomRight, Home, Controls.Context.Hub,
                    v => Controls.VirtualInteract = v, () => Controls.InteractTarget != null,
                    key: "E", pad: () => GamepadGlyphs.Interact, held: () => Controls.InteractHeld,
-                   tag: () => Controls.InteractTarget);
+                   tag: () => Controls.InteractTarget, icon: () => TouchIcons.Star);
             // A showcase Frame's "look closer", on the VirtualSecondAbility input - the arena no
             // longer claims it (a chosen second ability fires from ABILITY instead). Doing
             // nothing when nothing with art is focused, same as USE does when nothing is.
             Button("VIEW", SmallR, BottomRight, ThumbArc(38f, SmallReach), Controls.Context.Hub,
                    v => Controls.VirtualSecondAbility = v, null,
-                   key: "R", pad: () => GamepadGlyphs.SecondAbility, held: () => Controls.SecondAbilityHeld);
+                   key: "R", pad: () => GamepadGlyphs.SecondAbility, held: () => Controls.SecondAbilityHeld,
+                   icon: () => TouchIcons.Eye);
             Pill("GEAR", PillW, TopRight, new Vector2(-120f, -86f), Controls.Context.Hub,
                  v => Controls.VirtualLoadout = v,
                  key: "C", pad: () => GamepadGlyphs.Loadout, held: () => Controls.LoadoutHeld);
@@ -299,7 +316,7 @@ namespace Convergence.UI
                     System.Func<float> progress = null,
                     string key = null, System.Func<string> pad = null,
                     System.Func<bool> held = null, bool dragAims = false,
-                    System.Func<string> tag = null)
+                    System.Func<string> tag = null, System.Func<Sprite> icon = null)
         {
             var go = new GameObject("btn." + label.ToLower(), typeof(Image));
             go.transform.SetParent(_root, false);
@@ -321,6 +338,11 @@ namespace Convergence.UI
             // reads as the button itself being gone.
             var ringRt = Ring(rt, "ring.track", radius, new Color(1f, 1f, 1f, 0.30f));
             var arcRt = Ring(rt, "ring.arc", radius, new Color(1f, 1f, 1f, 0f));
+            // No meter, no ring: the edge and lining are the outline (a ring permanently full
+            // would read as a meter stuck at ready).
+            if (progress == null) ringRt.gameObject.SetActive(false);
+            var edge = Ring(rt, "edge", radius, Color.clear, pad: 0f).GetComponent<Image>();
+            var lining = Ring(rt, "lining", radius, Color.clear, pad: -LiningInset).GetComponent<Image>();
 
             var arc = arcRt.GetComponent<Image>();
             arc.type = Image.Type.Filled;
@@ -334,22 +356,40 @@ namespace Convergence.UI
             // No meter to draw: the ring stays an ordinary outline and this copy never draws.
             if (progress == null) arc.enabled = false;
 
-            var text = UiKit.Label(rt, label, radius > 90f ? 30 : 22,
-                                   new Color(1f, 1f, 1f, 0.75f), TextAnchor.MiddleCenter);
-            var trt = (RectTransform)text.transform;
-            trt.anchorMin = Vector2.zero; trt.anchorMax = Vector2.one;
-            trt.offsetMin = Vector2.zero; trt.offsetMax = Vector2.zero;
+            // The icon above the centre, the name under it (the mock's places, in icon texels:
+            // ATTACK's icon 5 up and name 15 down, a small button's 4 and 10). A button with no
+            // icon - PLACE, CRATE, HANG - keeps its name in the middle.
+            bool big = radius > 90f;
+            Image iconImg = null;
+            if (icon != null)
+            {
+                var igo = new GameObject("icon", typeof(Image));
+                igo.transform.SetParent(rt, false);
+                var irt = (RectTransform)igo.transform;
+                irt.anchorMin = irt.anchorMax = irt.pivot = new Vector2(0.5f, 0.5f);
+                irt.anchoredPosition = new Vector2(0f, (big ? 5f : 4f) * TouchIcons.Texel);
+                iconImg = igo.GetComponent<Image>();
+                iconImg.raycastTarget = false;
+                SetIcon(iconImg, icon());
+            }
 
-            // The key, in the disc's lower third - below the label without moving it, so the
-            // name sits in the same place on every device.
+            var text = UiKit.Label(rt, label, big ? 24 : 20, LabelGold, TextAnchor.MiddleCenter);
+            var trt = (RectTransform)text.transform;
+            trt.anchorMin = trt.anchorMax = trt.pivot = new Vector2(0.5f, 0.5f);
+            trt.sizeDelta = new Vector2(radius * 2f, 34f);
+            trt.anchoredPosition = new Vector2(0f, icon == null ? 0f : -(big ? 15f : 10f) * TouchIcons.Texel);
+
+            // The key under the name, still inside the disc, so the name sits in the same place
+            // on every device.
             Text keyText = null;
             if (key != null)
             {
-                keyText = UiKit.Label(rt, key, radius > 90f ? 20 : 15,
+                keyText = UiKit.Label(rt, key, big ? 20 : 15,
                                       new Color(1f, 1f, 1f, 0.5f), TextAnchor.MiddleCenter);
                 var krt = (RectTransform)keyText.transform;
-                krt.anchorMin = new Vector2(0f, 0.12f); krt.anchorMax = new Vector2(1f, 0.36f);
-                krt.offsetMin = Vector2.zero; krt.offsetMax = Vector2.zero;
+                krt.anchorMin = krt.anchorMax = krt.pivot = new Vector2(0.5f, 0.5f);
+                krt.sizeDelta = new Vector2(radius * 2f, 26f);
+                krt.anchoredPosition = trt.anchoredPosition - new Vector2(0f, big ? 34f : 26f);
             }
 
             // The tag rides above the ring, gold like every other "this is what it will do" line
@@ -368,10 +408,28 @@ namespace Convergence.UI
             _buttons.Add(new Btn
             {
                 Rect = rt, Ring = ringRt.GetComponent<Image>(), Arc = arc, Fill = fill, Label = text,
+                Edge = edge, Lining = lining, Icon = iconImg, IconOf = icon,
                 Key = keyText, Keyboard = key, Pad = pad, Held = held,
                 Show = show, Set = set, Enabled = enabled, Visible = visible, Progress = progress,
                 DragAims = dragAims, Anchor = anchor, Offset = offset, Tag = tagText, TagText = tag,
             });
+        }
+
+        /// <summary>The lining and the names: the hub prompts' gold (<see cref="TagLive"/>), and
+        /// its lit shade for a press.</summary>
+        static readonly Color Gold = new(0.85f, 0.71f, 0.35f, 1f);
+        static readonly Color GoldLit = new(0.96f, 0.84f, 0.50f, 1f);
+        static readonly Color LabelGold = new(0.85f, 0.71f, 0.35f, 0.95f);
+
+        /// <summary>How far inside the edge the gold lining runs, in canvas units - two and a
+        /// half icon texels, as in the mock.</summary>
+        const float LiningInset = 7.5f;
+
+        static void SetIcon(Image img, Sprite s)
+        {
+            if (img.sprite == s) return;
+            img.sprite = s;
+            ((RectTransform)img.transform).sizeDelta = TouchIcons.Size(s);
         }
 
         static readonly Color TagLive = new(0.85f, 0.71f, 0.35f, 0.95f);
@@ -379,8 +437,8 @@ namespace Convergence.UI
 
         /// <summary>
         /// A screen button in the top corner: a rounded bar with the same fill, outline and
-        /// labels as the discs, and no meter - none of them has a cooldown. The ring stands
-        /// <see cref="RingPad"/> outside it like a disc's, so every button's edge reads the same.
+        /// labels as the discs, and no meter - none of them has a cooldown. The same white edge
+        /// and gold lining as a disc, so every button's edge reads the same.
         /// </summary>
         void Pill(string label, float width, Vector2 anchor, Vector2 offset, Controls.Context show,
                   System.Action<bool> set,
@@ -401,22 +459,11 @@ namespace Convergence.UI
             fill.color = new Color(1f, 1f, 1f, 0.10f);
             fill.raycastTarget = false;
 
-            // Sized as Ring sizes a disc's: ThinRing's band sits at 0.92 of the slice, so the rect
-            // is grown until the band lands RingPad outside the bar.
-            float h = (PillH + 2f * RingPad) / 0.92f;
-            var ringGo = new GameObject("ring.track", typeof(Image));
-            ringGo.transform.SetParent(rt, false);
-            var ringRt = (RectTransform)ringGo.transform;
-            ringRt.anchorMin = ringRt.anchorMax = ringRt.pivot = new Vector2(0.5f, 0.5f);
-            ringRt.sizeDelta = new Vector2(width + (h - PillH), h);
-            var ring = ringGo.GetComponent<Image>();
-            ring.sprite = Spr.PillRing;
-            ring.type = Image.Type.Sliced;
-            ring.pixelsPerUnitMultiplier = Spr.PillMultiplier(h);
-            ring.color = new Color(1f, 1f, 1f, 0.30f);
-            ring.raycastTarget = false;
+            // The disc's edge and lining, as a capsule: no meter, so nothing stands outside it.
+            var edge = PillLine(rt, "edge", width, 0f);
+            var lining = PillLine(rt, "lining", width, -LiningInset);
 
-            var text = UiKit.Label(rt, label, 22, new Color(1f, 1f, 1f, 0.75f), TextAnchor.MiddleCenter);
+            var text = UiKit.Label(rt, label, 22, LabelGold, TextAnchor.MiddleCenter);
             var trt = (RectTransform)text.transform;
             trt.anchorMin = Vector2.zero; trt.anchorMax = Vector2.one;
             trt.offsetMin = Vector2.zero; trt.offsetMax = Vector2.zero;
@@ -435,10 +482,30 @@ namespace Convergence.UI
 
             _buttons.Add(new Btn
             {
-                Rect = rt, Ring = ring, Arc = null, Fill = fill, Label = text,
+                Rect = rt, Ring = null, Arc = null, Fill = fill, Label = text, Edge = edge, Lining = lining,
                 Key = keyText, Keyboard = key, Pad = pad, Held = held,
                 Show = show, Set = set, Anchor = anchor, Offset = offset, Pill = true,
             });
+        }
+
+        /// <summary>A capsule outline round a pill, <paramref name="pad"/> outside its edge (inside
+        /// when negative). Sized as Ring sizes a disc's: ThinRing's band sits at 0.92 of the slice,
+        /// so the rect is grown until the band lands where it is asked.</summary>
+        static Image PillLine(RectTransform pill, string name, float width, float pad)
+        {
+            float h = (PillH + 2f * pad) / 0.92f;
+            var go = new GameObject(name, typeof(Image));
+            go.transform.SetParent(pill, false);
+            var lrt = (RectTransform)go.transform;
+            lrt.anchorMin = lrt.anchorMax = lrt.pivot = new Vector2(0.5f, 0.5f);
+            lrt.sizeDelta = new Vector2(width + 2f * pad + (h - (PillH + 2f * pad)), h);
+            var img = go.GetComponent<Image>();
+            img.sprite = Spr.PillRing;
+            img.type = Image.Type.Sliced;
+            img.pixelsPerUnitMultiplier = Spr.PillMultiplier(h);
+            img.color = Color.clear;
+            img.raycastTarget = false;
+            return img;
         }
 
         /// <summary>
@@ -446,7 +513,7 @@ namespace Convergence.UI
         /// Not <see cref="Disc"/>: that one anchors bottom-left for the stick's benefit, and is
         /// sized to the radius it is given rather than past it.
         /// </summary>
-        static RectTransform Ring(Transform parent, string name, float radius, Color color)
+        static RectTransform Ring(Transform parent, string name, float radius, Color color, float pad = RingPad)
         {
             var go = new GameObject(name, typeof(Image));
             go.transform.SetParent(parent, false);
@@ -456,7 +523,7 @@ namespace Convergence.UI
             // ThinRing's band sits at 0.92 of the half-size, so the drawn light lands just
             // outside the disc - deriving the rect from the pad rather than the other way round
             // would put it a few units in from where RingPad says it is.
-            float half = (radius + RingPad) / 0.92f;
+            float half = (radius + pad) / 0.92f;
             rt.sizeDelta = new Vector2(half * 2f, half * 2f);
             var img = go.GetComponent<Image>();
             img.sprite = Spr.ThinRing;
@@ -712,6 +779,21 @@ namespace Convergence.UI
             PublishStick();
         }
 
+        /// <summary>Where a SHOWN button named <paramref name="label"/> sits, in screen pixels - what a
+        /// first-run hint points at (UI/FirstRunHints). False when none is on screen.</summary>
+        public bool ButtonCentre(string label, out Vector2 screen)
+        {
+            foreach (var b in _buttons)
+            {
+                if (!b.Rect.gameObject.activeInHierarchy || b.Label.text != label) continue;
+                b.Rect.GetWorldCorners(_corners);
+                screen = (_corners[0] + _corners[2]) * 0.5f;
+                return true;
+            }
+            screen = default;
+            return false;
+        }
+
         /// <summary>The stick's state for the HUD's wheel (<see cref="Controls.StickBase"/>).</summary>
         void PublishStick()
         {
@@ -905,8 +987,9 @@ namespace Convergence.UI
         }
 
         /// <summary>
-        /// Dim while filling, bright when the press would land. WHITE throughout, and that is a
-        /// rule rather than a default: every other cue on the character is its element, so a
+        /// The METER: dim while filling, bright when the press would land. WHITE throughout,
+        /// though the button's lining is gold - gold is the button, white is its timing - and that
+        /// is a rule rather than a default: every other cue on the character is its element, so a
         /// tinted ring would be filed with those - and this one says the same thing on a Fire
         /// character as on a Water one. It is also what a click looks like, which is what these
         /// want to be once there is sound.
@@ -918,15 +1001,22 @@ namespace Convergence.UI
         void Paint(Btn b, bool down)
         {
             bool live = b.Enabled == null || b.Enabled();
-            float a = down ? 0.34f : live ? 0.10f : 0.05f;
+            float a = down ? 0.30f : live ? 0.10f : 0.05f;
             b.Fill.color = new Color(1f, 1f, 1f, a);
-            b.Label.color = new Color(1f, 1f, 1f, down ? 0.95f : live ? 0.75f : 0.28f);
-
-            if (b.Arc == null || !b.Arc.enabled)
+            b.Edge.color = new Color(1f, 1f, 1f, down ? 0.85f : live ? 0.40f : 0.15f);
+            var lining = down ? GoldLit : Gold;
+            lining.a = down ? 1f : live ? 0.85f : 0.35f;
+            b.Lining.color = lining;
+            var name = LabelGold;
+            name.a = down || live ? 0.95f : 0.35f;
+            b.Label.color = name;
+            if (b.Icon != null)
             {
-                b.Ring.color = new Color(1f, 1f, 1f, down ? 0.85f : live ? 0.30f : 0.14f);
-                return;
+                SetIcon(b.Icon, b.IconOf());
+                b.Icon.color = new Color(1f, 1f, 1f, down ? 0.95f : live ? 0.90f : 0.55f);
             }
+
+            if (b.Arc == null || !b.Arc.enabled) return;
 
             float p = Mathf.Clamp01(b.Progress());
             b.Arc.fillAmount = p;
