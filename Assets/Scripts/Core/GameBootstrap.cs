@@ -607,7 +607,8 @@ namespace Convergence.Core
             if (staleNodes > 0)
                 Debug.Log($"[ProfileStore] dropped {staleNodes} mastery entries the board no longer has.");
             MasteryScreen.Init(() => _profile);
-            if (EnsureStarterGear(_profile))
+            bool seeded = EnsureShowcaseKit(_profile);
+            if (EnsureStarterGear(_profile) || seeded)
                 await _store.UnlockAsync(_profile);
             await MigrateLegacyRoom();
 
@@ -745,6 +746,8 @@ namespace Convergence.Core
             // (CharacterProfile.NewDefault), and counting it skipped the starters - new players
             // arrived with a pouch and nothing else.
             if (profile.Gear.WornCount() > 0) return false;
+            // The showcase holds no starters: its characters are given the kit (EnsureShowcaseKit).
+            if (RunFormat.Showcase) return false;
             profile.Gear.Set(Art.Gear.GearSlot.Weapon, "silver_blade");
             profile.Gear.Set(Art.Gear.GearSlot.Torso, "silver_plate");
             return true;
@@ -1874,6 +1877,13 @@ namespace Convergence.Core
         void OpenForge()
         {
             if (_profile == null) return;
+            // The showcase's new character chooses its weapon and defensive here (AskShowcaseKit).
+            if (RunFormat.Showcase && !ShowcaseKitChosen())
+            {
+                if (EnsureShowcaseKit(_profile)) _ = _store.UnlockAsync(_profile);
+                AskShowcaseKit(null);
+                return;
+            }
             ForgeScreen.Open(_canvas.transform, new UI.ForgeScreen.Context
             {
                 Boxes = _profile.Boxes,
@@ -2106,7 +2116,8 @@ namespace Convergence.Core
                 await LookUpWaitingRunAsync();
                 await ForfeitStaleStake();
                 Mastery = new Progression.BoardState(_profile.Mastery);
-                if (EnsureStarterGear(_profile)) await _store.UnlockAsync(_profile);
+                bool seeded = EnsureShowcaseKit(_profile);
+                if (EnsureStarterGear(_profile) || seeded) await _store.UnlockAsync(_profile);
                 await SettleEndedWaitingAsync();
 
                 Debug.Log($"[Convergence] now playing {_profile.DisplayName} ({_profile.ProfileId})");
@@ -2141,6 +2152,7 @@ namespace Convergence.Core
             {
                 var created = await _store.LoadAsync(id);   // absent id yields a fresh profile
                 created.Name = $"Character {_roster.Count + 2}";
+                EnsureShowcaseKit(created);
                 EnsureStarterGear(created);
                 await _store.UnlockAsync(created);
                 if (_state != State.Hub) return;
@@ -2309,6 +2321,11 @@ namespace Convergence.Core
             // Likewise the week: its reset turns the sigils to stone until the selector wakes them.
             if (_state == State.Hub && _hub != null)
             {
+                // The showcase's new character: its weapon and defensive wait at the forge.
+                if (RunFormat.Showcase && !ShowcaseKitChosen() && !screenOpen && _hub.ForgeAt is Vector3 forge
+                    && UI.FirstRunHints.Ready(-1, ignoreQuiet: true))
+                    UI.FirstRunHints.Offer("showcase-forge", "CHOOSE YOUR WEAPON AND DEFENSIVE AT THE FORGE",
+                        UI.FirstRunHints.OnScreen(forge));
                 _hub.HoldDoorOpen(_account != null && _account.RanToday);
                 _hub.SetSigilsStone(_account != null && _account.SigilsAsleep());
             }
@@ -2738,10 +2755,12 @@ namespace Convergence.Core
                     ConfirmDialog?.ShowNotice(_canvas.transform, "RUNS PAUSED", Chain.Service.ServiceStatus.Runs, "OK");
                     return;
                 }
-                // The showcase's first run: the player picks a weapon class (ShowcaseKit).
-                if (RunFormat.Showcase && NeedsShowcaseKit())
+                // The showcase: a character that has not chosen at the forge chooses here, before
+                // the run - nobody goes down unarmed.
+                if (RunFormat.Showcase && !ShowcaseKitChosen())
                 {
-                    AskShowcaseClass(() => StartRun(element, stake, insured));
+                    EnsureShowcaseKit(_profile);
+                    AskShowcaseKit(() => StartRun(element, stake, insured));
                     return;
                 }
                 await StartRunAsync(element, stake, insured);
@@ -2751,102 +2770,138 @@ namespace Convergence.Core
 
         // ---- the showcase's kit (SHOWCASE.md, the user's call 2026-10-31) ----
 
-        /// <summary>A character with no statted weapon of its own has not been given its showcase kit.
-        /// Once a character, not every run: what it earns is kept until the wipe.</summary>
-        bool NeedsShowcaseKit()
-            => _profile != null && !_profile.MintedGear.Exists(r => r.Slot == Art.Gear.GearSlot.Weapon);
-
-        /// <summary>Greatsword, discs or bow - then the kit, then <paramref name="then"/> (the run).</summary>
-        void AskShowcaseClass(Action then)
+        /// <summary>
+        /// THE SHOWCASE's KIT (the user's call, 2026-11-01; SHOWCASE.md): a new character is given the
+        /// whole kit AT CREATION - Bronze head, legs, boots and gloves, worn; a Bronze weapon of each
+        /// class, a Bronze chest for each defensive, and a relic for each class (its mobility art),
+        /// held in the inventory. The player is sent to the FORGE to choose a weapon and a defensive:
+        /// those are equipped, with the relic of the weapon's class, and the rest stay in the
+        /// inventory. A character given the earlier kit (a weapon chosen at its first run) has its
+        /// KIT- pieces already and is left alone. Statted, never minted - the showcase writes
+        /// nothing to the chain. True when it gave the kit (the caller saves).
+        /// </summary>
+        bool EnsureShowcaseKit(CharacterProfile profile)
         {
-            var classes = new[] { Art.Gear.WeaponClass.Greatsword, Art.Gear.WeaponClass.Disc, Art.Gear.WeaponClass.Bow };
+            if (!RunFormat.Showcase || profile == null) return false;
+            if (profile.MintedGear.Exists(r => r.InstanceId.StartsWith("KIT-"))) return false;
+
+            void Give(Art.Gear.GearSlot slot, Art.Gear.WeaponClass cls, Art.Gear.DefensiveAbility? ability, bool wear)
+                => GiveKitPiece(profile, slot, cls, ability, wear);
+
+            foreach (var slot in Tuning.Showcase.KitArmour)
+                if (slot != Art.Gear.GearSlot.Torso) Give(slot, Art.Gear.WeaponClass.Greatsword, null, wear: true);
+            foreach (Art.Gear.DefensiveAbility a in Enum.GetValues(typeof(Art.Gear.DefensiveAbility)))
+                Give(Art.Gear.GearSlot.Torso, Art.Gear.WeaponClass.Greatsword, a, wear: false);
+            foreach (var cls in ShowcaseClasses)
+            {
+                Give(Art.Gear.GearSlot.Weapon, cls, null, wear: false);
+                string relicId = $"KIT-Relic-{Guid.NewGuid():N}";
+                var relic = new MintedGearRecord
+                {
+                    InstanceId = relicId,
+                    Slot = Art.Gear.GearSlot.Relic,
+                    Tier = Tuning.Showcase.KitTier,
+                    Finisher = Tuning.Showcase.KitRelicArt(cls),
+                    Class = cls,
+                    StatsVersion = Art.Gear.GearRoller.TablesVersion,
+                };
+                relic.WearStandardRelic(Art.Gear.DemoGear.StandardRelicFor(Art.Gear.DemoGear.StableHash(relicId)));
+                profile.MintedGear.Add(relic);
+                Art.Gear.GearCatalog.Register(relic.ToGearItem());
+            }
+            profile.Gear.DropStale();
+            Debug.Log($"[Showcase] kit given at creation to {profile.DisplayName}: armour worn, weapons, chests and relics held");
+            return true;
+        }
+
+        /// <summary>One Bronze kit piece, rolled, registered and held (worn when <paramref name="wear"/>).</summary>
+        static MintedGearRecord GiveKitPiece(CharacterProfile profile, Art.Gear.GearSlot slot, Art.Gear.WeaponClass cls,
+                                             Art.Gear.DefensiveAbility? ability, bool wear)
+        {
+            string instanceId = $"KIT-{slot}-{Guid.NewGuid():N}";
+            var (_, grants, primary, subs, rolled, finisher) =
+                Art.Gear.GearRoller.RollItem(slot, Tuning.Showcase.KitTier, instanceId.GetHashCode(), cls);
+            var record = new MintedGearRecord
+            {
+                InstanceId = instanceId,
+                DisplayName = MintedGearRecord.NameFor(Tuning.Showcase.KitTier, slot, cls),
+                Slot = slot,
+                Tier = Tuning.Showcase.KitTier,
+                Grants = grants,
+                PrimaryStat = primary,
+                SubStats = subs,
+                DefensiveAbility = ability ?? rolled,
+                Finisher = finisher,
+                Class = cls,
+                StatsVersion = Art.Gear.GearRoller.TablesVersion,
+            };
+            profile.MintedGear.Add(record);
+            Art.Gear.GearCatalog.Register(record.ToGearItem());
+            if (wear) profile.Gear.Set(slot, instanceId);
+            return record;
+        }
+
+        static readonly Art.Gear.WeaponClass[] ShowcaseClasses =
+            { Art.Gear.WeaponClass.Greatsword, Art.Gear.WeaponClass.Disc, Art.Gear.WeaponClass.Bow };
+
+        /// <summary>The showcase character has a weapon in hand - chosen at the forge (or, for a
+        /// character from before, at its first run).</summary>
+        bool ShowcaseKitChosen()
+            => _profile != null && !string.IsNullOrEmpty(_profile.Gear.Get(Art.Gear.GearSlot.Weapon));
+
+        /// <summary>The forge's choice: a weapon, then a defensive - then <paramref name="then"/>.</summary>
+        void AskShowcaseKit(Action then)
+        {
             Choices.Show(_canvas.transform, "CHOOSE YOUR WEAPON",
-                "A Bronze weapon of the kind you choose, a set of Bronze armour rolled for you, a chest for each defensive to try, and a relic. What you find below is yours to keep.",
+                "Bronze, and yours to keep. The other two stay in your inventory - change at any time.",
                 new List<(string, string)>
                 {
                     ("GREATSWORD", "Two hands, slow and wide - every swing a commitment."),
                     ("DISCS", "Heavy blows up close, ricocheting throws at range."),
                     ("BOW", "Pure range: make space, then loose."),
                 },
-                i =>
+                w =>
                 {
-                    GiveShowcaseKit(classes[i]);
-                    then?.Invoke();
+                    var cls = ShowcaseClasses[w];
+                    var abilities = (Art.Gear.DefensiveAbility[])Enum.GetValues(typeof(Art.Gear.DefensiveAbility));
+                    Choices.Show(_canvas.transform, "CHOOSE YOUR DEFENSIVE",
+                        "Your chest carries it. The others stay in your inventory - change at any time.",
+                        new List<(string, string)>
+                        {
+                            ("DASH", "A quick dash, untouchable while it lasts."),
+                            ("BARRIER", "A dome that stops every hit from in front."),
+                            ("BULWARK", "Take less damage for a few seconds."),
+                            ("PARRY STANCE", "Meet a blow on time and turn it."),
+                        },
+                        d =>
+                        {
+                            ChooseShowcaseKit(cls, abilities[Mathf.Clamp(d, 0, abilities.Length - 1)]);
+                            then?.Invoke();
+                        },
+                        "BACK");
                 },
                 "BACK");
         }
 
-        /// <summary>
-        /// A Bronze weapon of the class, and Bronze armour in Tuning.Showcase.KitArmour, each rolled
-        /// at random and equipped (statted, never minted - the showcase writes nothing to the chain).
-        /// Replaces the placeholder starter pieces. Saved as an equip is.
-        /// </summary>
-        void GiveShowcaseKit(Art.Gear.WeaponClass weaponClass)
+        /// <summary>Equip the kit's weapon of <paramref name="cls"/>, its chest with
+        /// <paramref name="ability"/> and the relic of the class; everything else stays held.</summary>
+        void ChooseShowcaseKit(Art.Gear.WeaponClass cls, Art.Gear.DefensiveAbility ability)
         {
-            var slots = new List<Art.Gear.GearSlot> { Art.Gear.GearSlot.Weapon };
-            slots.AddRange(Tuning.Showcase.KitArmour);
-            // A CHEST FOR EVERY DEFENSIVE (the user's call, 2026-10-31): the torso carries the
-            // ability, so the kit holds one of each to try. The one rolled first is worn.
-            var abilities = (Art.Gear.DefensiveAbility[])Enum.GetValues(typeof(Art.Gear.DefensiveAbility));
-            int chests = 0;
-            for (int s = 0; s < slots.Count; s++)
-            {
-                var slot = slots[s];
-                string instanceId = $"KIT-{slot}-{Guid.NewGuid():N}";
-                var (_, grants, primary, subs, ability, finisher) =
-                    Art.Gear.GearRoller.RollItem(slot, Tuning.Showcase.KitTier, instanceId.GetHashCode(), weaponClass);
-                bool spare = false;
-                if (slot == Art.Gear.GearSlot.Torso && Tuning.Showcase.KitChestPerDefensive)
-                {
-                    // The first chest keeps its roll; each spare takes an ability not yet given.
-                    if (chests > 0)
-                    {
-                        spare = true;
-                        foreach (var a in abilities)
-                            if (!_profile.MintedGear.Exists(r => r.InstanceId.StartsWith("KIT-Torso-") && r.DefensiveAbility == a))
-                            { ability = a; break; }
-                    }
-                    if (++chests < abilities.Length) slots.Insert(s + 1, slot);
-                }
-                var record = new MintedGearRecord
-                {
-                    InstanceId = instanceId,
-                    DisplayName = MintedGearRecord.NameFor(Tuning.Showcase.KitTier, slot, weaponClass),
-                    Slot = slot,
-                    Tier = Tuning.Showcase.KitTier,
-                    Grants = grants,
-                    PrimaryStat = primary,
-                    SubStats = subs,
-                    DefensiveAbility = ability,
-                    Finisher = finisher,
-                    Class = weaponClass,
-                    StatsVersion = Art.Gear.GearRoller.TablesVersion,
-                };
-                _profile.MintedGear.Add(record);
-                Art.Gear.GearCatalog.Register(record.ToGearItem());
-                if (!spare) _profile.Gear.Set(slot, instanceId);
-            }
-            // The relic: a standard look at random, carrying the class's mobility art (Tuning.Showcase).
-            string relicId = $"KIT-Relic-{Guid.NewGuid():N}";
-            var relic = new MintedGearRecord
-            {
-                InstanceId = relicId,
-                Slot = Art.Gear.GearSlot.Relic,
-                Tier = Tuning.Showcase.KitTier,
-                Finisher = Tuning.Showcase.KitRelicArt(weaponClass),
-                Class = weaponClass,
-                StatsVersion = Art.Gear.GearRoller.TablesVersion,
-            };
-            relic.WearStandardRelic(Art.Gear.DemoGear.StandardRelicFor(Art.Gear.DemoGear.StableHash(relicId)));
-            _profile.MintedGear.Add(relic);
-            Art.Gear.GearCatalog.Register(relic.ToGearItem());
-            _profile.Gear.Set(Art.Gear.GearSlot.Relic, relicId);
-
+            var kit = _profile.MintedGear;
+            var weapon = kit.Find(r => r.InstanceId.StartsWith("KIT-") && r.Slot == Art.Gear.GearSlot.Weapon && r.Class == cls);
+            var chest = kit.Find(r => r.InstanceId.StartsWith("KIT-") && r.Slot == Art.Gear.GearSlot.Torso && r.DefensiveAbility == ability);
+            var relic = kit.Find(r => r.InstanceId.StartsWith("KIT-") && r.Slot == Art.Gear.GearSlot.Relic && r.Class == cls);
+            // A character from the earlier kit holds one weapon only: the class it asks for is given.
+            weapon ??= GiveKitPiece(_profile, Art.Gear.GearSlot.Weapon, cls, null, wear: false);
+            chest ??= GiveKitPiece(_profile, Art.Gear.GearSlot.Torso, cls, ability, wear: false);
+            if (weapon != null) _profile.Gear.Set(Art.Gear.GearSlot.Weapon, weapon.InstanceId);
+            if (chest != null) _profile.Gear.Set(Art.Gear.GearSlot.Torso, chest.InstanceId);
+            if (relic != null) _profile.Gear.Set(Art.Gear.GearSlot.Relic, relic.InstanceId);
             _profile.Gear.DropStale();
             _profile.Look.Transmog.Clear(Art.Gear.GearSlot.Weapon);
             RepaintLive();
             if (CharacterScreen != null) CharacterScreen.Refresh();
-            Debug.Log($"[Showcase] kit given: Bronze {weaponClass}, {Tuning.Showcase.KitArmour.Length} armour pieces and {chests} chests");
+            Debug.Log($"[Showcase] chose {cls} and {ability}");
             _ = _store.UnlockAsync(_profile);
         }
 

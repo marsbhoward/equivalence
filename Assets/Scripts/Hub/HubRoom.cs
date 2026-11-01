@@ -41,6 +41,9 @@ namespace Convergence.Hub
         Transform _root;
         PhotoBooth _booth;
         Forge _forge;
+
+        /// <summary>Where the forge stands, for a hint that points at it (the showcase's kit).</summary>
+        public Vector3? ForgeAt => _forge != null ? _forge.transform.position : (Vector3?)null;
         ManualShrine _shrine;
 
         GameObject _avatarGo;
