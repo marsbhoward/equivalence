@@ -443,13 +443,89 @@ namespace Convergence.Art.Gear
             // stood, so it moves BACK in the rig's frame by exactly what the figure travelled -
             // along the facing, that is: a step turned up or down the screen with the aim (the
             // Facing partial's StepDirection) carries both feet with it for the rest.
-            PoseLegs(cycle, hipsY, stance, -stance - step * StepDirection.x);
+            // Standing, the reach holds the back foot too, so the figure stretches into the cut
+            // rather than sliding; walking, the stride carries the feet and the figure just goes.
+            PoseLegs(cycle, hipsY, stance, -stance - (step + _reach * legs) * StepDirection.x);
 
-            _bodyStepVelocity = dt > 0f ? (step - _lastBodyStep) / dt : 0f;
+            // The reach moves the figure too, so it kicks the cape with the step.
+            _bodyStepVelocity = dt > 0f ? (step - _lastBodyStep + _reach - _lastReach) / dt : 0f;
             _lastBodyStep = step;
+            _lastReach = _reach;
         }
 
         /// <summary>The drawn step this frame, in rig units along the facing (see PlaceBody).</summary>
         float BodyStepNow => _poseBody.Step * (1f - BodyStanceWalkGive * _gaitWeight);
+
+        // ---- the reach: out to the strike and back ----
+        //
+        // The user's report (2026-11-01): swings read stiff - "a reach and return". The step above
+        // lands with the strike and HOLDS through the settle, and while walking it gives way to
+        // the stride entirely (BodyStanceWalkGive) - and basics are mostly thrown on the move, so
+        // most swings had no travel at all. The reach is the whole figure going out after the
+        // blade and coming back: a small draw back on the cock, out along the aim through the
+        // strike (eased out, landing as the blade does), a beat at full stretch, then home by the
+        // swing's end - so a chain starts each swing from where the figure stands. Drawing only,
+        // like the step (hitbox, camera, shadow stay put), and NOT given to the walk: a figure
+        // walking forward still lunges a little into each cut. On top of the step when standing.
+
+        /// <summary>This frame's reach, rig units along the aim (StepDirection).</summary>
+        float _reach;
+        /// <summary>The reach when the current swing started; blended out of as the body is.</summary>
+        float _entryReach;
+        float _lastReach;
+
+        /// <summary>The share of the reach drawn back on the cock.</summary>
+        const float ReachDrawBack = 0.3f;
+        /// <summary>The share of the settle held at full stretch before the return starts.</summary>
+        const float ReachHold = 0.15f;
+
+        /// <summary>Testing: scales every reach live (0 = the swing as it was before the reach).</summary>
+        public static float DevReachScale = 1f;
+
+        /// <summary>How far <paramref name="motion"/> reaches at full stretch, rig units. Zero for
+        /// what already travels or turns in place: the Spin (a revolution), the Impale art (the
+        /// player really dashes), the Flurry (rocks per cut on its own clock), the bow (pure range -
+        /// it makes space, never leans in).</summary>
+        static float ReachOf(AttackMotion motion) => motion switch
+        {
+            AttackMotion.Chop => 0.045f,
+            AttackMotion.Rise => 0.035f,
+            AttackMotion.Wind => 0.025f,     // drags back through the target; a short reach in
+            AttackMotion.Sweep => 0.040f,
+            AttackMotion.Thrust => 0.055f,
+            AttackMotion.Jab => 0.035f,
+            AttackMotion.Impale => 0.050f,
+            AttackMotion.WhirlThrow => 0.035f,
+            AttackMotion.Slam => 0.045f,
+            AttackMotion.Plant => 0.020f,
+            AttackMotion.Throw => 0.040f,
+            AttackMotion.Cast => 0.040f,
+            AttackMotion.Spin or AttackMotion.Lunge or AttackMotion.Flurry => 0f,
+            _ => ComboOf(motion) != null ? 0.040f : 0f,
+        };
+
+        /// <summary>The reach for <paramref name="motion"/> at <paramref name="k"/>, on the same
+        /// beats as its body (StrikePhases). A motion that strikes to its very end has no return
+        /// to draw, so none.</summary>
+        float ReachAt(AttackMotion motion, float k, float seconds)
+        {
+            if (DevArmsOnly || HeldBow) return 0f;
+            float amount = ReachOf(motion) * DevReachScale;
+            if (amount == 0f) return 0f;
+            StrikePhases(motion, seconds, out float cockEnd, out float strikeEnd);
+            if (strikeEnd >= 1f) return 0f;
+            k = Mathf.Clamp01(k);
+            float back = cockEnd > 0f ? -ReachDrawBack : 0f;
+            if (k < cockEnd)
+                return amount * back * Mathf.Sin(k / cockEnd * Mathf.PI * 0.5f);
+            if (k < strikeEnd)
+            {
+                float t = (k - cockEnd) / Mathf.Max(0.0001f, strikeEnd - cockEnd);
+                t = 1f - (1f - t) * (1f - t);
+                return amount * Mathf.Lerp(back, 1f, t);
+            }
+            float u = (k - strikeEnd) / Mathf.Max(0.0001f, 1f - strikeEnd);
+            return amount * (1f - Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(ReachHold, 1f, u)));
+        }
     }
 }

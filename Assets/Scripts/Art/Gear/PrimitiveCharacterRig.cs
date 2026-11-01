@@ -1018,6 +1018,39 @@ namespace Convergence.Art.Gear
             return new Vector2(v.x * c - v.y * s, v.x * s + v.y * c);
         }
 
+        /// <summary>How fast the figure's reach shift may follow what the arc asks, per second:
+        /// a held lunge builds over ~0.1 s; a stretch lasting a frame or two barely moves it.</summary>
+        const float ReachShiftSharpness = 14f;
+
+        /// <summary>The figure's reach shift the arc is allowed this frame (see EaseReachShift).</summary>
+        float _reachShiftAllow;
+
+        /// <summary>The figure's drawn reach shift, eased on its way back (see the swing's arm
+        /// solve), and the side it was last on.</summary>
+        float _reachShiftShown, _reachShiftSign = 1f;
+
+        /// <summary>
+        /// <paramref name="slide"/> (the motion's shoulder slide) shortened so the grip at
+        /// <paramref name="slide"/> + <paramref name="arm"/> asks the figure to travel no more than
+        /// the eased allowance past full reach and the shoulder's shove. Shortened ALONG the slide,
+        /// so the blade's angle and the off hand's place on the hilt are kept.
+        /// </summary>
+        Vector3 EaseReachShift(Vector3 slide, Vector2 arm, float reach, float dt)
+        {
+            Vector2 a = slide;
+            float limit = reach + MaxShoulderShove;
+            float wanted = Mathf.Max(0f, (a + arm).magnitude - limit);
+            _reachShiftAllow = Mathf.Lerp(_reachShiftAllow, wanted, 1f - Mathf.Exp(-ReachShiftSharpness * dt));
+            float allow = Mathf.Min(wanted, _reachShiftAllow);
+            float aa = Vector2.Dot(a, a);
+            if (wanted <= allow + 1e-5f || aa < 1e-8f) return slide;
+            // |s·a + arm| = limit + allow, the larger root (s in 0..1 as |arm| <= reach).
+            float r = limit + allow, ab = Vector2.Dot(a, arm);
+            float disc = ab * ab - aa * (Vector2.Dot(arm, arm) - r * r);
+            float sc = Mathf.Clamp01((-ab + Mathf.Sqrt(Mathf.Max(0f, disc))) / aa);
+            return new Vector3(a.x * sc, a.y * sc, slide.z);
+        }
+
         /// <summary>
         /// Two-bone reach: the shoulder and elbow angles that put the hand point at
         /// <paramref name="target"/> (measured from the shoulder's REST position, in its parent's
@@ -5537,6 +5570,7 @@ namespace Convergence.Art.Gear
             _entryBodySpin = _poseBodySpin;
             _entryArmReach = _poseArmReach;
             _entryBody = _poseBody;
+            _entryReach = _reach;
         }
 
         public void PlayAttack(AttackMotion motion, float duration, bool alt)
@@ -5575,6 +5609,7 @@ namespace Convergence.Art.Gear
             _entryBodySpin = _poseBodySpin;
             _entryArmReach = _poseArmReach;
             _entryBody = _poseBody;
+            _entryReach = _reach;
 
             // Out of the CARRY, though, the arm is not where _poseArmSwing says - the grip blend
             // owns it, and that blend IS the travel into the swing. Blending in from the walk's
@@ -5780,6 +5815,7 @@ namespace Convergence.Art.Gear
             // puts the feet back on the ground rather than stranding it in the air.
             _hopHeight = 0f;
             bool wantWeaponBehind = false;
+            bool reachPosed = false;   // a live swing wrote _reach; otherwise it eases home
 
             if (_chargeTimer > 0f)
             {
@@ -5895,6 +5931,10 @@ namespace Convergence.Art.Gear
                 _poseArmReach = swingReach;
                 _poseBody = swingWhole;
                 _hopHeight = HopAt(k, _attackLength);
+                // Out to the strike and back (the Body partial); a held wind-up waits on frame zero.
+                float reach = _attackHold > 0f ? 0f : ReachAt(_motion, k, _attackLength);
+                _reach = entry < 1f ? Mathf.Lerp(_entryReach, reach, 1f - (1f - entry) * (1f - entry)) : reach;
+                reachPosed = true;
 
                 // The alt-swing starts with the blade on the far side of the body and CROSSES to
                 // the near side as it comes through. Swapping the depth at the crossover is what
@@ -5956,6 +5996,11 @@ namespace Convergence.Art.Gear
                 _poseArmReach = Vector3.Lerp(_poseArmReach, Vector3.zero, ease);
                 _poseBody = SwingBody.Lerp(_poseBody, default, ease);
             }
+
+            // A swing let go early (the settle released, a charge, a hit) eases its reach home
+            // rather than snapping the figure back.
+            if (!reachPosed)
+                _reach = Mathf.Lerp(_reach, 0f, 1f - Mathf.Exp(-PoseRecoverySharpness * dt));
 
             // The hips, legs and crouch, now that this frame's body is known.
             PlaceBody(cycle, gaitHipsY, dt);
@@ -6079,6 +6124,13 @@ namespace Convergence.Art.Gear
             {
                 Vector2 upper = _elbowFront.localPosition;
                 Vector2 grip = FrontGripPoint;
+                // A grip swung past full stretch for a frame or two (the middle of a fast arc,
+                // where the authored slide and the arm both point forward) lurched the whole
+                // figure out and back - 0.14 in 50 ms on a Rise. The figure may only go as far as
+                // a SMOOTHED allowance; the rest of the slide is taken off armReach itself, so
+                // both hands (the off hand reads armReach too) fall short together.
+                armReach = EaseReachShift(armReach, Rotate(upper + grip, armSwing),
+                                          upper.magnitude + grip.magnitude, dt);
                 // A turning rig turns the WHOLE pose - the grip's orbit as well as the arm - about
                 // the shoulder (the Facing partial); otherwise only the arm takes the aim.
                 Vector2 target = _aimViews
@@ -6086,6 +6138,20 @@ namespace Convergence.Art.Gear
                     : (Vector2)armReach + Rotate(upper + grip, swingFrontA);   // from rest
                 SolveArmReach(upper, grip, target, _facingAway ? BackViewNearBendSign : ArmBendSign,
                               out swingFrontA, out swingFrontE, out frontShove, out _reachShift);
+                // ...and comes back as smoothly: when the arc stops asking, the figure eases home
+                // and the elbow bends to take up what it still carries (a second solve, the
+                // target brought in by that much), so the hand stays on its grip.
+                float got = Mathf.Abs(_reachShift.x);
+                if (got > 1e-5f) _reachShiftSign = Mathf.Sign(_reachShift.x);
+                _reachShiftShown = got >= _reachShiftShown ? got
+                    : Mathf.Lerp(_reachShiftShown, got, 1f - Mathf.Exp(-ReachShiftSharpness * dt));
+                if (_reachShiftShown > got + 1e-4f)
+                {
+                    var carried = new Vector2((_reachShiftShown - got) * _reachShiftSign, 0f);
+                    SolveArmReach(upper, grip, target - carried, _facingAway ? BackViewNearBendSign : ArmBendSign,
+                                  out swingFrontA, out swingFrontE, out frontShove, out var still);
+                    _reachShift = still + carried;
+                }
                 // Turned away, the arm on the hilt's side is the one in sight (TurnedAwayGrip).
                 if (_facingAway) SetAwayGripSide(_armFrontRest.x + target.x);
                 swingWrist = Mathf.DeltaAngle(swingFrontA + swingFrontE, armSwing + poseAim);
@@ -6319,7 +6385,7 @@ namespace Convergence.Art.Gear
 
             // The swing's step into the strike - drawing only, like the reach shift (the user's
             // call): the player's own transform, hitbox and shadow stay put. See the Body partial.
-            float drawnStep = BodyStepNow;
+            float drawnStep = BodyStepNow + _reach;
             if (Mathf.Abs(drawnStep) > 1e-5f)
             {
                 var along = StepDirection * drawnStep;   // turned up or down with the aim
