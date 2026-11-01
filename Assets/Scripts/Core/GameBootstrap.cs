@@ -563,17 +563,14 @@ namespace Convergence.Core
                 : _player.Blade != null && _player.Blade.Airborne ? 1f
                 : _player.Resource != null ? _player.Resource.Fill01 : 0f;
 
-            // A wallet signed in on an earlier visit comes back QUIETLY - no popup - before anything
-            // loads, so the hub opens on the wallet's characters rather than flashing the guest's.
-            string resumed = "";
-            if (StoreFactory.UsingService && Chain.Web.ChainWallet.Available)
-            {
-                resumed = await Chain.Web.ChainWallet.ResumeAsync();
-                if (!string.IsNullOrEmpty(resumed) &&
-                    await Chain.Service.ServiceIdentity.AttachWalletAsync(resumed, Chain.Web.ChainWallet.Session)
-                        == Chain.Service.ServiceIdentity.Graduation.Failed)
-                    resumed = "";
-            }
+            // THE TITLE (UI.TitleScreen): who is playing is settled before anything loads, so the
+            // hub opens on the right characters. A wallet signed in on an earlier visit comes back
+            // QUIETLY - no popup - and is offered to continue.
+            string resumed = await ChooseAtTitleAsync();
+            if (!string.IsNullOrEmpty(resumed) &&
+                await Chain.Service.ServiceIdentity.AttachWalletAsync(resumed, Chain.Web.ChainWallet.Session)
+                    == Chain.Service.ServiceIdentity.Graduation.Failed)
+                resumed = "";
 
             // The showcase instance names its format before anything loads - what a character
             // holds there (GearOwnership.StartersHeld) and its kit depend on it.
@@ -627,6 +624,77 @@ namespace Convergence.Core
             ShowHub();
         }
 
+        /// <summary>
+        /// The title's ways in (the user's call, 2026-11-01): continue as the wallet this browser
+        /// signed in with; play as this browser's guest - CONTINUE if it has played here, NEW GAME
+        /// if not; or CONNECT any wallet extension the browser has (one button each, none when there
+        /// are none - the Editor and a native build have none). Answers the wallet address to load,
+        /// or "" for the guest. A connect that fails or is refused comes back to the choices.
+        /// </summary>
+        async System.Threading.Tasks.Task<string> ChooseAtTitleAsync()
+        {
+            bool web = StoreFactory.UsingService && Chain.Web.ChainWallet.Available;
+            string resumed = web ? await Chain.Web.ChainWallet.ResumeAsync() : "";
+            string[] wallets = web ? await Chain.Web.ChainWallet.ListAsync() : Array.Empty<string>();
+            bool returning = !StoreFactory.UsingService || !string.IsNullOrEmpty(Chain.Service.ServiceIdentity.GuestToken);
+
+            // Not `??`: a missing component comes back as Unity's fake null, which `??` keeps.
+            var title = gameObject.GetComponent<UI.TitleScreen>();
+            if (title == null) title = gameObject.AddComponent<UI.TitleScreen>();
+            string status = "";
+            while (true)
+            {
+                var options = new List<UI.TitleScreen.Option>();
+                var acts = new List<string>();   // "resume", "guest", or a wallet's key
+                if (!string.IsNullOrEmpty(resumed))
+                {
+                    options.Add(new UI.TitleScreen.Option("CONTINUE", "signed in as " + Chain.Web.ChainWallet.Short(resumed), true));
+                    acts.Add("resume");
+                    options.Add(new UI.TitleScreen.Option("PLAY WITHOUT A WALLET", "signs this browser out"));
+                    acts.Add("guest");
+                }
+                else
+                {
+                    options.Add(new UI.TitleScreen.Option(returning ? "CONTINUE" : "NEW GAME",
+                        returning ? "this browser's characters" : "no sign-in needed", true));
+                    acts.Add("guest");
+                    foreach (var w in wallets)
+                    {
+                        options.Add(new UI.TitleScreen.Option(w.ToUpperInvariant(), "", wallet: true));
+                        acts.Add(w);
+                    }
+                }
+
+                int pick = await title.ChooseAsync(_canvas.transform, options, status);
+                string act = acts[Mathf.Clamp(pick, 0, acts.Count - 1)];
+                if (act == "resume") break;
+                if (act == "guest")
+                {
+                    if (!string.IsNullOrEmpty(resumed))
+                    {
+                        await Chain.Web.ChainWallet.DisconnectAsync(false);
+                        Chain.Service.ServiceIdentity.DetachWallet();
+                        resumed = "";
+                    }
+                    break;
+                }
+
+                // A wallet: say what its popup is about to ask before it asks - an unexplained
+                // popup reads as something going wrong, a signature request as a payment.
+                title.SetStatus($"Opening {act}...", busy: true);
+                var address = await Chain.Web.ChainWallet.ConnectAsync(act, step => title.SetStatus(step switch
+                {
+                    Chain.Web.ChainWallet.Step.Access => "Step 1 of 2: allow Equivalence in your wallet's window. It shares your address, nothing else.",
+                    Chain.Web.ChainWallet.Step.Sign => "Step 2 of 2: sign the message in your wallet's window. It proves the address is yours - free, and not a transaction.",
+                    _ => "",
+                }, busy: true));
+                if (!string.IsNullOrEmpty(address)) { resumed = address; break; }
+                status = $"{act} did not connect. Try again, or play without a wallet.";
+            }
+            title.Close();
+            return resumed;
+        }
+
         // ---- what a player holds (GearOwnership; the user's call, 2026-10-31) ----
 
         /// <summary>DEV: play the Editor as an ordinary player - no gear made in development
@@ -673,7 +741,10 @@ namespace Convergence.Core
         /// </summary>
         static bool EnsureStarterGear(CharacterProfile profile)
         {
-            if (profile.Gear.Count > 0) return false;
+            // WORN slots, not every entry: a new character already carries its default relic
+            // (CharacterProfile.NewDefault), and counting it skipped the starters - new players
+            // arrived with a pouch and nothing else.
+            if (profile.Gear.WornCount() > 0) return false;
             profile.Gear.Set(Art.Gear.GearSlot.Weapon, "silver_blade");
             profile.Gear.Set(Art.Gear.GearSlot.Torso, "silver_plate");
             return true;
@@ -2230,7 +2301,7 @@ namespace Convergence.Core
                       || PauseScreen.IsOpen || SettingsScreen.IsOpen || ControlsScreen.IsOpen
                       || HudSettingsScreen.IsOpen
                       || InventoryScreen.IsOpen || UI.EndingScreen.IsOpen || UI.ShowcaseEndScreen.IsOpen
-                      || UI.FirstRunHints.IsOpen;
+                      || UI.FirstRunHints.IsOpen || UI.TitleScreen.IsOpen;
             bool modal = screenOpen || (_hub != null && _hub.Blocking);
 
             // The sigil door stays open for the day once the player has run, and shuts on its own

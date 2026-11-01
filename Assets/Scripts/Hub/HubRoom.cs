@@ -1835,7 +1835,7 @@ namespace Convergence.Hub
 
             var titleRow = UiKit.Rect(full, "title", new Vector2(0, 1), new Vector2(0, 1),
                 new Vector2(56, -116), new Vector2(700, -52));
-            UiKit.Label(titleRow, "CONVERGENCE", 44, new Color(0.93f, 0.94f, 0.97f));
+            UiKit.Label(titleRow, "EQUIVALENCE", 44, new Color(0.93f, 0.94f, 0.97f));
             _titleRow = titleRow;
 
             var subRow = UiKit.Rect(full, "sub", new Vector2(0, 1), new Vector2(0, 1),
