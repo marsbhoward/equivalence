@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 
 namespace Convergence.Core
@@ -36,6 +37,35 @@ namespace Convergence.Core
         /// the south wall.</summary>
         public static Vector2 SouthSpawnPoint => new(0f, -HalfExtents.y + DoorWallInset);
 
+        /// <summary>The foot of the north wall's face - where a door IN the wall stands. Keep
+        /// <see cref="NorthDoorPoint"/> for "in front of the door" (what placement keeps clear).</summary>
+        public static float NorthWallFoot => HalfExtents.y - Tuning.Scenery.WallInset;
+
+        // ------------------------------------------------------------------ doorways in the north wall
+
+        // x of each open doorway, keyed by the door holding it. Plain (not readonly): a domain
+        // reload re-runs every door's OnEnable, which registers it again.
+        static Dictionary<int, float> _gaps = new();
+
+        /// <summary>Bumped whenever a doorway opens or closes; Core.NorthWall rebuilds its
+        /// colliders when this moves.</summary>
+        public static int NorthGapVersion { get; private set; }
+
+        public static IEnumerable<float> NorthGaps => _gaps.Values;
+
+        public static void OpenNorthGap(int owner, float x)
+        {
+            _gaps ??= new Dictionary<int, float>();
+            if (_gaps.TryGetValue(owner, out float was) && Mathf.Approximately(was, x)) return;
+            _gaps[owner] = x;
+            NorthGapVersion++;
+        }
+
+        public static void CloseNorthGap(int owner)
+        {
+            if (_gaps != null && _gaps.Remove(owner)) NorthGapVersion++;
+        }
+
         // ------------------------------------------------------------------ the room shape
 
         // Cells of the shape grid, bottom row first. Null = no shape (the open rectangle). Set and
@@ -45,8 +75,79 @@ namespace Convergence.Core
         // TWO KINDS OF NOT-FLOOR. A WALL stops bodies, sight and shots. A CHASM stops nothing in
         // the air - sight and shots cross it - but nothing stands on it: a body over one falls
         // (EnemyController.TickChasm, PlayerController's edge). Neither is standing room.
-        static bool[] _wall, _chasm;
+        static bool[] _wall, _chasm, _edge;
         static int _cols, _rows;
+
+        // ------------------------------------------------------------------ open edges
+        //
+        // THE ROOM'S EDGE IS A LIP, NOT A WALL (the user's call, 2026-11-01): on an ordinary floor
+        // the west, east and south sides - and every outline cell a composed room opened to them -
+        // end at the place's void (a drop, a lake, brine, cloud). The north wall stays: the camera
+        // sees its face and the door is cut into it.
+        //
+        // A BARRIER holds every body at an open edge (the outer walls' colliders, and a collider
+        // over each opened outline cell): the player is never charged a fall there, dash or no
+        // dash. NOTHING ELSE TOUCHES IT. A wall that stands interacts; an open edge never does -
+        // shots fly on over the void, a harpoon has nothing to snag, the thrown blade does not
+        // rebound, sight is not cut. An enemy THROWN at an open edge goes over it as into a chasm
+        // (EnemyController.ThrowIfChasm) - the glide leaves physics, so the barrier never sees it.
+
+        /// <summary>True while the floor's west, east and south sides are open edges.</summary>
+        public static bool EdgesOpen { get; private set; }
+
+        /// <summary>True while the void past the open edges is water (a fall there sinks).</summary>
+        public static bool EdgeIsWater { get; private set; }
+
+        /// <summary>Set by the floor's dressing, before anything is placed.</summary>
+        public static void SetOpenEdges(bool open, bool water)
+        {
+            EdgesOpen = open;
+            EdgeIsWater = open && water;
+        }
+
+        /// <summary>The raised dais before the door this floor (Hazards.RoomShape.Dais), in world
+        /// units; zero size when there is none. Its cells are floor - only its edge holds bodies.</summary>
+        public static Rect Dais;
+
+        /// <summary>Would a round thing of radius <paramref name="r"/> at <paramref name="p"/>
+        /// straddle the dais's edge or its face? (Wholly on it, or wholly off it, is fine.)</summary>
+        public static bool NearDaisEdge(Vector2 p, float r)
+        {
+            if (Dais.width <= 0f) return false;
+            var d = Dais;
+            bool outside = p.x < d.xMin - r || p.x > d.xMax + r || p.y < d.yMin - Tuning.Rooms.DaisFace - r;
+            bool inside = p.x > d.xMin + r && p.x < d.xMax - r && p.y > d.yMin + r;
+            return !outside && !inside;
+        }
+
+        /// <summary>The inner faces of the outer walls - where the floor ends.</summary>
+        public static Vector2 Inner => HalfExtents - Vector2.one * Tuning.Scenery.WallInset;
+
+        /// <summary>Is <paramref name="p"/> past an open side of the room by more than
+        /// <paramref name="inset"/> - over the void beyond the floor's edge?</summary>
+        public static bool PastOpenEdge(Vector2 p, float inset = 0f)
+        {
+            if (!EdgesOpen) return false;
+            var i = Inner;
+            if (p.y > i.y) return false;   // the north wall
+            return p.x < -i.x - inset || p.x > i.x + inset || p.y < -i.y - inset;
+        }
+
+        /// <summary>
+        /// <see cref="Clamp"/> for a SHOT: held only by the sides that are walls. An open side
+        /// lets it fly on - past the edge by <see cref="Tuning.Edge.ShotReach"/> it is gone
+        /// (<see cref="ShotGone"/>), which is the mover's call to make.
+        /// </summary>
+        public static Vector2 ShotClamp(Vector2 p, float margin = 0.6f)
+        {
+            if (!EdgesOpen) return Clamp(p, margin);
+            float far = Tuning.Edge.ShotReach + 1f;
+            return new Vector2(Mathf.Clamp(p.x, -HalfExtents.x - far, HalfExtents.x + far),
+                               Mathf.Clamp(p.y, -HalfExtents.y - far, HalfExtents.y - margin));
+        }
+
+        /// <summary>Has a shot flown far enough out over an open edge to be gone?</summary>
+        public static bool ShotGone(Vector2 p) => PastOpenEdge(p, Tuning.Edge.ShotReach);
 
         /// <summary>True while the floor has a shape (walls, chasms or both).</summary>
         public static bool HasWalls => _wall != null;
@@ -60,11 +161,13 @@ namespace Convergence.Core
 
         /// <summary>Install a shape (each array cols x rows, bottom row first; chasm may be null),
         /// or clear it with null.</summary>
-        public static void SetWalls(bool[] wall, bool[] chasm, int cols, int rows, bool chasmIsWater = false)
+        public static void SetWalls(bool[] wall, bool[] chasm, int cols, int rows, bool chasmIsWater = false,
+                                    bool[] edge = null)
         {
             _wall = wall;
             ChasmIsWater = wall != null && chasmIsWater;
             _chasm = wall != null ? chasm : null;
+            _edge = wall != null ? edge : null;
             _cols = cols;
             _rows = rows;
             HasChasms = false;
@@ -85,8 +188,65 @@ namespace Convergence.Core
         static bool ChasmAt(int x, int y)
             => _chasm != null && x >= 0 && y >= 0 && x < _cols && y < _rows && _chasm[y * _cols + x];
 
-        /// <summary>Not standing room: a wall or a chasm.</summary>
-        static bool BlockedAt(int x, int y) => WallAt(x, y) || ChasmAt(x, y);
+        /// <summary>An outline cell opened into the void (an open edge inside the grid).</summary>
+        static bool EdgeAt(int x, int y)
+            => _edge != null && x >= 0 && y >= 0 && x < _cols && y < _rows && _edge[y * _cols + x];
+
+        /// <summary>Not standing room: a wall, a chasm or an opened edge.</summary>
+        static bool BlockedAt(int x, int y) => WallAt(x, y) || ChasmAt(x, y) || EdgeAt(x, y);
+
+        /// <summary>Void of either kind - a chasm, an opened edge cell, or past an open side
+        /// (cells off the grid on an open side).</summary>
+        static bool VoidAt(int x, int y)
+        {
+            if (x < 0 || y < 0 || x >= _cols || y >= _rows)
+                return EdgesOpen && y < _rows;
+            return ChasmAt(x, y) || EdgeAt(x, y);
+        }
+
+        static Vector2Int CellOf(Vector2 p)
+        {
+            var q = p + HalfExtents;
+            var cell = CellSize;
+            return new Vector2Int(Mathf.FloorToInt(q.x / cell.x), Mathf.FloorToInt(q.y / cell.y));
+        }
+
+        /// <summary>True while anything on the floor is void a body can be thrown into.</summary>
+        public static bool HasVoid => HasChasms || EdgesOpen;
+
+        /// <summary>
+        /// Is <paramref name="p"/> over void a THROWN body falls into - a chasm, or an open edge -
+        /// at least <paramref name="inset"/> in from the lip? (<see cref="DeepInChasm"/> is the
+        /// chasm alone: what the player's own walk and landings are judged against.)
+        /// </summary>
+        public static bool DeepInVoid(Vector2 p, float inset = 0f)
+        {
+            if (DeepInChasm(p, inset)) return true;
+            if (PastOpenEdge(p, inset)) return true;
+            if (_edge == null) return false;
+            var c = CellOf(p);
+            if (!EdgeAt(c.x, c.y)) return false;
+            return inset <= 0f || !Near(p, inset, (x, y) => !VoidAt(x, y));
+        }
+
+        /// <summary>Is <paramref name="p"/> over an open edge's void - past an open side, or in
+        /// an outline cell opened into it? (Chasms are not edges.)</summary>
+        public static bool OpenEdgeAt(Vector2 p)
+        {
+            if (PastOpenEdge(p)) return true;
+            if (_edge == null) return false;
+            var c = CellOf(p);
+            return EdgeAt(c.x, c.y);
+        }
+
+        /// <summary>Does a body falling at <paramref name="p"/> go into WATER (it sinks) rather
+        /// than down a drop?</summary>
+        public static bool WaterAt(Vector2 p)
+        {
+            var c = CellOf(p);
+            bool edge = PastOpenEdge(p) || EdgeAt(c.x, c.y);
+            return edge ? EdgeIsWater : ChasmIsWater;
+        }
 
         /// <summary>Is any cell matching <paramref name="test"/> within <paramref name="margin"/>
         /// of <paramref name="p"/> (or under it)? Circle against each cell's rectangle.</summary>
@@ -115,13 +275,20 @@ namespace Convergence.Core
         /// to the room's edge ends at the outer wall's inner face instead.</summary>
         public static float ChasmLipBelow(Vector2 p)
         {
+            // Off the floor's open edge there is no near lip: the body falls clear in front of
+            // the cliff, nothing swallowing it.
+            if (PastOpenEdge(p)) return NoLip;
             var cell = CellSize;
             var local = p + HalfExtents;
             int x = Mathf.FloorToInt(local.x / cell.x), y = Mathf.FloorToInt(local.y / cell.y);
-            if (!ChasmAt(x, y)) return p.y;
-            while (y > 0 && ChasmAt(x, y - 1)) y--;
-            return y == 0 ? -HalfExtents.y + 0.3f : y * cell.y - HalfExtents.y;
+            if (!VoidAt(x, y)) return p.y;
+            while (y > 0 && VoidAt(x, y - 1)) y--;
+            if (y == 0) return EdgesOpen ? NoLip : -HalfExtents.y + 0.3f;
+            return y * cell.y - HalfExtents.y;
         }
+
+        /// <summary>A lip far below anything drawn: nothing is cut.</summary>
+        public const float NoLip = -1000f;
 
         /// <summary>Is there a chasm under <paramref name="p"/> or within <paramref name="margin"/>
         /// of it - the edge the player's walk stops at, and the band the enemy route keeps off.</summary>
@@ -153,6 +320,14 @@ namespace Convergence.Core
         /// clear of interior walls and chasms? (The outer bound is the caller's own business.)</summary>
         public static bool RectOnFloor(Rect rect, float margin = 0f)
         {
+            // A pit (or anything laid as a rect) never cuts the dais or its face.
+            if (Dais.width > 0f)
+            {
+                var d = Dais;
+                var near = new Rect(d.xMin - margin - 0.2f, d.yMin - Tuning.Rooms.DaisFace - margin - 0.2f,
+                                    d.width + 2f * margin + 0.4f, d.height + Tuning.Rooms.DaisFace + 2f * margin + 0.4f);
+                if (near.Overlaps(rect)) return false;
+            }
             if (_wall == null) return true;
             var cell = CellSize;
             int x0 = Mathf.FloorToInt((rect.xMin - margin + HalfExtents.x) / cell.x);

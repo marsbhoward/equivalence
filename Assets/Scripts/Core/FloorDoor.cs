@@ -67,9 +67,14 @@ namespace Convergence.Core
         float _openT = -1f;
         System.Collections.Generic.List<SpriteRenderer> _grooves = new();
 
+        /// <param name="inWall">Cut into the north wall's face at <paramref name="pos"/>'s x (its y
+        /// is ignored) and WALKED THROUGH - the user's call, 2026-11-01. False: standing on the
+        /// floor at <paramref name="pos"/>, passed by coming near (the labyrinth's, in its maze).</param>
         public static FloorDoor Spawn(Vector2 pos, Transform player, Transform parent,
-                                      ElementType element, System.Action onPassed, bool shut = false)
+                                      ElementType element, System.Action onPassed, bool shut = false,
+                                      bool inWall = false)
         {
+            if (inWall) pos.y = Arena.NorthWallFoot;
             var go = new GameObject("FloorDoor");
             go.transform.SetParent(parent, false);
             go.transform.position = pos;
@@ -90,9 +95,6 @@ namespace Convergence.Core
             Slab(doorL, -1, HalfWidth, Height);
             Slab(doorR, +1, HalfWidth, Height);
 
-            float slide = shut ? 0f : OpenGap * 0.5f;
-            doorL.localPosition = new Vector3(-slide, 0f, 0f);
-            doorR.localPosition = new Vector3(slide, 0f, 0f);
 
             // The run's own element, carved across the seam. Sized and cut exactly the way the
             // hub door builds its own marks - see SigilDoor.Half/Mark - just the one mark rather
@@ -105,6 +107,7 @@ namespace Convergence.Core
             var groove = new Color(tint.r, tint.g, tint.b, 1f);
 
             var d = go.AddComponent<FloorDoor>();
+            d._inWall = inWall;
             for (int side = 0; side < 2; side++)
             {
                 bool left = side == 0;
@@ -124,10 +127,45 @@ namespace Convergence.Core
             d._doorL = doorL;
             d._doorR = doorR;
             d._gap = gap;
-            d.SetGap(shut ? 0f : OpenGap, 1f);
-            if (!shut) Convergence.Art.Lighting.Glow.Attach(go, 1.4f, Color.white, 0.5f);
+            d.Part(shut ? 0f : 1f);
+            if (!shut) Convergence.Art.Lighting.Glow.Attach(go, inWall ? 2.2f : 1.4f, Color.white, inWall ? 0.75f : 0.5f);
+            d.SyncGap();
             return d;
         }
+
+        bool _inWall;
+
+        /// <summary>Open by <paramref name="k"/> (0 shut, 1 standing open). On the floor the
+        /// leaves slide a hair apart; in the wall they FOLD back into their jambs - drawn
+        /// narrower, as a leaf swung inward is seen edge-on - so the doorway between them is wide
+        /// enough to walk into.</summary>
+        void Part(float k)
+        {
+            if (_inWall)
+            {
+                float fold = Tuning.Door.OpenFold * k;
+                float s = (HalfWidth - fold) / HalfWidth;
+                if (_doorL) { _doorL.localPosition = new Vector3(-fold, 0f, 0f); _doorL.localScale = new Vector3(s, 1f, 1f); }
+                if (_doorR) { _doorR.localPosition = new Vector3(fold, 0f, 0f); _doorR.localScale = new Vector3(s, 1f, 1f); }
+                SetGap(Mathf.Max(k > 0f ? 1f / Combat.TexelFx.Body : 0f, fold * 2f), 1f);
+                return;
+            }
+            float slide = OpenGap * 0.5f * k;
+            if (_doorL) _doorL.localPosition = new Vector3(-slide, 0f, 0f);
+            if (_doorR) _doorR.localPosition = new Vector3(slide, 0f, 0f);
+            SetGap(Mathf.Max(k > 0f ? 1f / Combat.TexelFx.Body : 0f, slide * 2f), 1f);
+        }
+
+        /// <summary>An open door in the wall holds a doorway in the north wall's collider
+        /// (Core.NorthWall); shut, gone or on the floor, it holds none.</summary>
+        void SyncGap()
+        {
+            if (_inWall && !Shut && !_done && isActiveAndEnabled) Arena.OpenNorthGap(GetHashCode(), transform.position.x);
+            else Arena.CloseNorthGap(GetHashCode());
+        }
+
+        void OnEnable() => SyncGap();
+        void OnDisable() => Arena.CloseNorthGap(GetHashCode());
 
         void SetGap(float width, float alpha)
         {
@@ -184,15 +222,18 @@ namespace Convergence.Core
                         Convergence.Art.Lighting.Glow.Attach(gameObject, 1.4f, Color.white, 0.5f);
                     }
                     float k = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01((_openT - SeamSeconds) / OpenSeconds));
-                    float slide = OpenGap * 0.5f * k;
-                    if (_doorL) _doorL.localPosition = new Vector3(-slide, 0f, 0f);
-                    if (_doorR) _doorR.localPosition = new Vector3(slide, 0f, 0f);
-                    SetGap(Mathf.Max(1f / Combat.TexelFx.Body, slide * 2f), 1f);
-                    if (k >= 1f) Shut = false;
+                    Part(k);
+                    if (k >= 1f) { Shut = false; SyncGap(); }
                 }
             }
             if (Shut || _done || _player == null) return;
-            if (Vector2.Distance(transform.position, _player.position) > TriggerRadius) return;
+            if (_inWall)
+            {
+                // Walked INTO the doorway, past the face's foot - not merely up to it.
+                Vector2 d = (Vector2)_player.position - (Vector2)transform.position;
+                if (d.y < Tuning.Door.WalkInDepth || Mathf.Abs(d.x) > Tuning.Door.GapHalfWidth) return;
+            }
+            else if (Vector2.Distance(transform.position, _player.position) > TriggerRadius) return;
 
             _done = true;
 

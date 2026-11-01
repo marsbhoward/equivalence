@@ -53,6 +53,39 @@ namespace Convergence.Art.Lighting
 
         public static float Darkness => _field != null ? _field._darkness : 0f;
 
+        // ------------------------------------------------------------------ the edge
+
+        // EDGES FALL INTO THE DARK (the user's call, 2026-11-01): on a floor with open edges the
+        // darkness thickens with distance from the ground - or, in the bright places, turns to
+        // haze - so the room fades out at its lip instead of stopping. A coarse map of 0..1 laid
+        // by Art.Biomes.Ground once per floor; 1 everywhere off the map. Plain statics: a domain
+        // reload drops it and the room is simply lit as before until the next floor.
+        static float[] _edge;
+        static int _edgeW, _edgeH;
+        static Vector2 _edgeOrigin;
+        static float _edgeCell, _edgeAlpha;
+        static Color _edgeShade;
+
+        /// <summary>Lay the floor's edge map: <paramref name="map"/> (w x h, bottom row first,
+        /// cells of <paramref name="cell"/> units from <paramref name="origin"/>), how dark the
+        /// edge goes at 1 (<paramref name="alpha"/>) and in what colour.</summary>
+        public static void SetEdge(float[] map, int w, int h, Vector2 origin, float cell, float alpha, Color shade)
+        {
+            _edge = map; _edgeW = w; _edgeH = h; _edgeOrigin = origin; _edgeCell = cell;
+            _edgeAlpha = alpha; _edgeShade = shade;
+            if (_field != null) _field._next = 0f;
+        }
+
+        public static void ClearEdge() => _edge = null;
+
+        static float EdgeAt(float wx, float wy)
+        {
+            if (_edge == null) return 0f;
+            int x = Mathf.FloorToInt((wx - _edgeOrigin.x) / _edgeCell), y = Mathf.FloorToInt((wy - _edgeOrigin.y) / _edgeCell);
+            if (x < 0 || y < 0 || x >= _edgeW || y >= _edgeH) return 1f;
+            return _edge[y * _edgeW + x];
+        }
+
         /// <summary>The place's shade colour, as last set - so a fight can lift the dark without changing its colour.</summary>
         public static Color Shade => _field != null ? _field._shade : Color.black;
 
@@ -121,6 +154,18 @@ namespace Convergence.Art.Lighting
                 float wash = _wash[i];
                 Color col = wash > 0f ? Color.Lerp(_shade, _tint[i], q) : k > 0f ? Color.Lerp(_shade, _tint[i], k) : _shade;
                 float a = Mathf.Lerp(dark, Mathf.Max(warm, wash), q);
+                if (_edge != null)
+                {
+                    // Stepped like the light, so the fade is bands rather than a smooth haze; a
+                    // light still cuts into it (a torch at the lip lights the drop below it).
+                    float e = Mathf.Floor(EdgeAt((wx + 0.5f) / Ppu, (wy + 0.5f) / Ppu) * bands + 0.5f) / bands;
+                    if (e > 0f)
+                    {
+                        float lit = 1f - q;
+                        col = Color.Lerp(col, _edgeShade, e * lit);
+                        a = Mathf.Lerp(a, Mathf.Max(a, _edgeAlpha), e * lit);
+                    }
+                }
                 _px[i] = new Color32((byte)(col.r * 255f), (byte)(col.g * 255f), (byte)(col.b * 255f), (byte)(a * 255f));
             }
             _tex.SetPixels32(_px);

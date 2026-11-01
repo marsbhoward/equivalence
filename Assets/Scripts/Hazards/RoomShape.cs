@@ -25,6 +25,9 @@ namespace Convergence.Hazards
     /// rectangle. Seeded per floor (FloorPlanner.ShapeSeed), with System.Random so a preview
     /// does not move UnityEngine.Random's state.
     /// </summary>
+    /// <summary>The landmark set pieces (RoomShape.Landmark). Append only.</summary>
+    public enum LandmarkKind { Head, Fallen }
+
     public sealed partial class RoomShape
     {
         public const int Cols = 24, Rows = 14;
@@ -39,14 +42,37 @@ namespace Convergence.Hazards
         /// <summary>True when the grid has any chasm cell.</summary>
         public readonly bool HasChasm;
 
-        RoomShape(string name, string[] grid, bool lake = false)
+        /// <summary>
+        /// LANDMARKS (the user's call, 2026-11-01): set pieces bigger than a cell - a toppled giant
+        /// head, a fallen column or log. Their cells are ordinary wall ('#') to every rule (they
+        /// stop bodies and shots; a wall that is there interacts); only the picture differs, one
+        /// drawing over the whole footprint (Hazards.LandmarkArt) instead of a block per cell.
+        /// </summary>
+        public struct Landmark
+        {
+            /// <summary>The footprint: west column, NORTH row, width and height in cells.</summary>
+            public int Col, Row, W, H;
+            public LandmarkKind Kind;
+            public bool Flip;
+        }
+        public readonly Landmark[] Landmarks = System.Array.Empty<Landmark>();
+
+        /// <summary>A raised DAIS before the door: the top <see cref="DaisRows"/> rows across
+        /// <see cref="DaisCols"/>, climbed by steps facing the door. Its edge holds bodies like an
+        /// open edge's barrier (shots and sight pass over it); the cells stay floor.</summary>
+        public readonly bool Dais;
+        public const int DaisCol0 = 8, DaisCols = 8, DaisRows = 3, DaisStepCol0 = 11, DaisSteps = 2;
+
+        RoomShape(string name, string[] grid, bool lake = false, Landmark[] landmarks = null, bool dais = false)
         {
             Name = name; Grid = grid; Lake = lake;
+            if (landmarks != null) Landmarks = landmarks;
+            Dais = dais;
             foreach (var row in grid) if (row.IndexOf('~') >= 0) { HasChasm = true; break; }
         }
 
         /// <summary>This shape with its chasms drawn as a lake (or as a drop).</summary>
-        public RoomShape AsLake(bool lake) => lake == Lake || !HasChasm ? this : new RoomShape(Name, Grid, lake);
+        public RoomShape AsLake(bool lake) => lake == Lake || !HasChasm ? this : new RoomShape(Name, Grid, lake, Landmarks, Dais);
 
         /// <summary>The name with the chasm style, for logs and dev tools: "maw (lake)".</summary>
         public string Describe => Lake ? $"{Name} (lake)" : Name;

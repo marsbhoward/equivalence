@@ -213,9 +213,10 @@ namespace Convergence.Combat
             var next = (Vector2)transform.position + _dir * (_speed * dt);
 
             // Dies at the wall rather than clamping into it - a bolt that stops at the edge and
-            // keeps existing there reads as a bug, not a miss.
-            var clamped = Arena.Clamp(next, 0.1f);
-            if ((clamped - next).sqrMagnitude > 0.0001f) { Expire(); return; }
+            // keeps existing there reads as a bug, not a miss. An open edge is no wall: the bolt
+            // flies on over the void until it is gone.
+            var clamped = Arena.ShotClamp(next, 0.1f);
+            if ((clamped - next).sqrMagnitude > 0.0001f || Arena.ShotGone(next)) { Expire(); return; }
 
             switch (HazardQuery.CheckCrossing(transform.position, next))
             {

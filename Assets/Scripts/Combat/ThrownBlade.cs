@@ -163,7 +163,9 @@ namespace Convergence.Combat
             if (!_returning)
             {
                 var next = (Vector2)transform.position + _dir * (OutSpeed * dt);
-                var clamped = Arena.Clamp(next, 0.35f);
+                // Only a WALL throws it back; past an open edge it flies on to its far point and
+                // comes home from there, unbitten (the user's call, 2026-11-01).
+                var clamped = Arena.ShotClamp(next, 0.35f);
 
                 // A Blue force field nulls the throw outright - and because a blade always has to
                 // come back to the hand (see Finish's own doc comment), this routes through Finish

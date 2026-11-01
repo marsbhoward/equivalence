@@ -238,8 +238,26 @@ namespace Convergence.Hazards
                         name.Append('+').Append(stamp.Name).Append(twin ? " x2" : "");
                 }
 
+                // A landmark - one set piece bigger than a cell - and maybe a dais before the door.
+                var landmarks = new List<Landmark>();
+                if (rng.NextDouble() < Tuning.Rooms.LandmarkChance)
+                {
+                    var kind = (LandmarkKind)rng.Next(2);
+                    int lw = kind == LandmarkKind.Head ? 3 : 4, lh = kind == LandmarkKind.Head ? 2 : 1;
+                    var piece = new string[lh + 2];
+                    for (int r = 0; r < lh + 2; r++)
+                        piece[r] = r == 0 || r == lh + 1 ? new string('.', lw + 2) : "." + new string('#', lw) + ".";
+                    if (TryLayAt(grid, piece, rng, out int lr, out int lc))
+                    {
+                        landmarks.Add(new Landmark { Col = lc + 1, Row = lr + 1, W = lw, H = lh, Kind = kind, Flip = rng.Next(2) == 1 });
+                        name.Append('+').Append(kind == LandmarkKind.Head ? "head" : "fallen");
+                    }
+                }
+                bool dais = rng.NextDouble() < Tuning.Rooms.DaisChance && DaisFits(grid);
+                if (dais) name.Append("+dais");
+
                 var rows = Rows_(grid);
-                if (Validate(rows) == null && !IsOpen(rows)) return new RoomShape(name.ToString(), rows);
+                if (Validate(rows) == null && !IsOpen(rows)) return new RoomShape(name.ToString(), rows, false, landmarks.ToArray(), dais);
             }
             return null;
         }
@@ -260,6 +278,39 @@ namespace Convergence.Hazards
             if (Validate(Rows_(grid)) == null) return true;
             for (int r = 0; r < Rows; r++) grid[r] = before[r];
             return false;
+        }
+
+        /// <summary>Lays a piece where it fits (as <see cref="Place"/>, no twin) and keeps it only if
+        /// the room still validates; says where.</summary>
+        static bool TryLayAt(char[][] grid, string[] piece, System.Random rng, out int row, out int col)
+        {
+            row = col = -1;
+            int h = piece.Length, w = piece[0].Length;
+            var spots = new List<(int r, int c)>();
+            for (int r = 0; r + h <= Rows; r++)
+            for (int c = 0; c + w <= Cols; c++)
+                if (Fits(grid, piece, r, c)) spots.Add((r, c));
+            while (spots.Count > 0)
+            {
+                int i = rng.Next(spots.Count);
+                var (pr, pc) = spots[i];
+                spots.RemoveAt(i);
+                var before = new char[Rows][];
+                for (int r = 0; r < Rows; r++) before[r] = (char[])grid[r].Clone();
+                Lay(grid, piece, pr, pc);
+                if (Validate(Rows_(grid)) == null) { row = pr; col = pc; return true; }
+                for (int r = 0; r < Rows; r++) grid[r] = before[r];
+            }
+            return false;
+        }
+
+        /// <summary>The dais's footprint and a cell round its sides and front are all open floor.</summary>
+        static bool DaisFits(char[][] grid)
+        {
+            for (int r = 0; r <= DaisRows; r++)
+            for (int c = DaisCol0 - 1; c <= DaisCol0 + DaisCols; c++)
+                if (grid[r][c] != '.') return false;
+            return true;
         }
 
         static bool IsOpen(string[] rows)

@@ -1629,7 +1629,8 @@ namespace Convergence.Core
 
             // Containing walls.
             float t = 0.6f;
-            MakeWall(new Vector2(0, HalfHeight), new Vector2(HalfWidth * 2f + t, t));
+            // The north wall leaves a doorway wherever an open door stands in it (NorthWall).
+            NorthWall.Build(_arenaRoot, HalfHeight, HalfWidth + t * 0.5f, t);
             MakeWall(new Vector2(0, -HalfHeight), new Vector2(HalfWidth * 2f + t, t));
             MakeWall(new Vector2(-HalfWidth, 0), new Vector2(t, HalfHeight * 2f + t));
             MakeWall(new Vector2(HalfWidth, 0), new Vector2(t, HalfHeight * 2f + t));
@@ -1650,6 +1651,9 @@ namespace Convergence.Core
             int seed = _planner != null ? _planner.SceneSeed(floor) : floor * 7919 + 1;
             // The BIOME first - everything built on this floor asks it (Art.Biomes.Biome).
             Art.Biomes.Biome.Set(Art.Biomes.Biome.For(_planner != null ? _planner.Seed : 0, floor));
+            // The room's edge: a lip over the place's void on every ordinary floor (Arena's open
+            // edges). A boss's floor keeps its walls - its arena is a set piece of its own.
+            Arena.SetOpenEdges(!IsBossFloor(floor), Art.Biomes.Biome.EdgeIsWater);
             // The room tone follows the place; a boss floor lays a heartbeat over it.
             Convergence.Audio.Ambience.Set(Art.Biomes.Biome.Bed(floor), IsBossFloor(floor));
             Hazards.Column.LookSeed = seed;   // which columns stand whole and which are broken
@@ -4822,7 +4826,7 @@ namespace Convergence.Core
                 _activeDoor = null;
                 if (token != _runToken) return;
                 StartCoroutine(FloorTransition());
-            });
+            }, inWall: true);
         }
 
         /// <summary>
@@ -5470,7 +5474,7 @@ namespace Convergence.Core
                     _puzzleDoor = null;
                     if (token != _runToken) return;
                     StartCoroutine(FloorTransition());
-                }, shut: true);
+                }, shut: true, inWall: !(_puzzle is Puzzles.MazePuzzle));
 
             // Far left or right, from the seed, OPEN from the moment the room is entered: the
             // player may decline the puzzle at any point, before trying it or after failing it.
@@ -5496,7 +5500,7 @@ namespace Convergence.Core
                 _sideDoor = null;
                 if (token != _runToken) return;
                 StartCoroutine(AdjacentRoom());
-            });
+            }, inWall: !(_puzzle is Puzzles.MazePuzzle));
         }
 
         // ------------------------------------------------------------------ the close view

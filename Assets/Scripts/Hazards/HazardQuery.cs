@@ -55,6 +55,8 @@ namespace Convergence.Hazards
                 var go = col.gameObject;
                 if (go == ignoreA || go == ignoreB) continue;
                 if (go.GetComponent<EnemyController>() != null) continue;
+                // An open edge's barrier holds bodies only - sight crosses it like the void.
+                if (go.GetComponent<Barrier>() != null) continue;
 
                 var field = go.GetComponent<ForceField>();
                 if (field != null)

@@ -1194,7 +1194,7 @@ namespace Convergence.Enemies
         /// </summary>
         void ThrowIfChasm(DamageInfo info)
         {
-            if (_fellIn || !Arena.HasChasms || !info.Displaces || _health.Anchored || _health.IsDead) return;
+            if (_fellIn || !Arena.HasVoid || !info.Displaces || _health.Anchored || _health.IsDead) return;
             float k = info.Knockback.magnitude;
             if (k < 0.001f) return;
 
@@ -1207,7 +1207,8 @@ namespace Convergence.Enemies
                 var p = from + dir * d;
                 // A wall on the line stops the throw: nothing is thrown THROUGH stone.
                 if (Arena.WallBetween(from, p)) return;
-                if (!Arena.DeepInChasm(p, Tuning.Chasm.FallInset)) continue;
+                // A chasm, or over an open edge - the room's lip is a chasm's to a thrown body.
+                if (!Arena.DeepInVoid(p, Tuning.Chasm.FallInset)) continue;
                 StartCoroutine(Thrown(p + dir * 0.25f));
                 return;
             }
@@ -1248,7 +1249,7 @@ namespace Convergence.Enemies
             foreach (var col in GetComponentsInChildren<Collider2D>()) col.enabled = false;
 
             var start = transform.position;
-            if (Arena.ChasmIsWater) yield return ChasmFall.Sink(transform);
+            if (Arena.WaterAt(start)) yield return ChasmFall.Sink(transform);
             else yield return ChasmFall.Drop(transform, thrown);
 
             // The fall is an ordinary death: the run's ledger hears it through Died like any

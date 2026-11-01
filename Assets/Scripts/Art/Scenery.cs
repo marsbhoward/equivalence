@@ -180,6 +180,13 @@ namespace Convergence.Art
         /// <summary>The theme the live arena is wearing.</summary>
         public static Theme Current { get; private set; } = Default;
 
+        /// <summary>The arena being dressed (its "Floor" and "Scenery" children) - for the
+        /// pieces built after the room's shape is known (Biomes.Ground).</summary>
+        public static Transform Root => _lastRoot;
+
+        /// <summary>The live theme's wall stone - what the ground's cliff faces are cut from.</summary>
+        public static Color WallStone => Stones[Mathf.Clamp(Current.WallStone, 0, Stones.Length - 1)].Wall;
+
         /// <summary>
         /// Dress the arena under <paramref name="arenaRoot"/>: swaps the procedural floor's tile
         /// (an authored floor is left alone) and rebuilds the boundary and the light. Last floor's
@@ -198,6 +205,8 @@ namespace Convergence.Art
                 var size = fsr.size;
                 fsr.sprite = Biomes.Biome.Is(Biomes.BiomeKind.Forest) ? Biomes.ForestArt.Ground()
                            : Biomes.Biome.Is(Biomes.BiomeKind.SaltFlats) ? Biomes.SaltArt.Ground()
+                           : Biomes.Biome.Is(Biomes.BiomeKind.Caves) ? Biomes.CaveArt.Ground()
+                           : Biomes.Biome.Is(Biomes.BiomeKind.SnowyPeaks) ? Biomes.PeakArt.Ground()
                            : FloorTile(theme.Floor, theme.Stone, theme.Accent, theme.Mix);
                 fsr.size = size;
             }
@@ -266,6 +275,8 @@ namespace Convergence.Art
                 if (Biomes.Biome.Is(Biomes.BiomeKind.Forest)) { BuildForest(); return; }
                 if (Biomes.Biome.Is(Biomes.BiomeKind.SkyRuin)) { BuildSky(); return; }
                 if (Biomes.Biome.Is(Biomes.BiomeKind.SaltFlats)) { BuildSalt(); return; }
+                if (Biomes.Biome.Is(Biomes.BiomeKind.Caves)) { BuildPlace(Biomes.CaveArt.Beyond(), Biomes.CaveArt.Top(), Biomes.CaveArt.Face(_faceW, _faceH, _t.Seed), new Color(0f, 0f, 0f, 0.35f)); return; }
+                if (Biomes.Biome.Is(Biomes.BiomeKind.SnowyPeaks)) { BuildPlace(Biomes.PeakArt.Beyond(), Biomes.PeakArt.Top(), Biomes.PeakArt.Face(_faceW, _faceH, _t.Seed), new Color(0.10f, 0.14f, 0.28f, 0.22f)); return; }
                 var windows = Lit ? PlaceWindows() : new List<Window>();
                 if (_drawWalls) BuildBoundary(windows);
                 if (_drawWalls) BuildSconces(windows);
@@ -308,20 +319,24 @@ namespace Convergence.Art
                 // The far edge of each top falls away into the dark: a shadowed lip.
                 var lip = Mul(_wall.Wall, 0.55f);
                 Edge(new Vector2(-_w - band, _capTop), new Vector2(_w + band, _capTop + 2f / Ppu), lip);
-                Edge(new Vector2(-_w - band, -_h - band - 2f / Ppu), new Vector2(_w + band, -_h - band), lip);
-                Edge(new Vector2(-_w - band - 2f / Ppu, -_h - band), new Vector2(-_w - band, _capTop), lip);
-                Edge(new Vector2(_w + band, -_h - band), new Vector2(_w + band + 2f / Ppu, _capTop), lip);
+                // The sides and the south are open edges on most floors: their lips are the ground's.
+                if (!Open)
+                {
+                    Edge(new Vector2(-_w - band, -_h - band - 2f / Ppu), new Vector2(_w + band, -_h - band), lip);
+                    Edge(new Vector2(-_w - band - 2f / Ppu, -_h - band), new Vector2(-_w - band, _capTop), lip);
+                    Edge(new Vector2(_w + band, -_h - band), new Vector2(_w + band + 2f / Ppu, _capTop), lip);
 
-                // Where a top meets the room: a dark line, the lit arris above it.
-                var line = Mul(_wall.Wall, 0.35f);
-                var arris = Shade(_wall.Wall, 0.10f);
-                float px = 1f / Ppu;
-                Edge(new Vector2(-_w, -_h - px), new Vector2(_w, -_h), line);
-                Edge(new Vector2(-_w, -_h - 3f * px), new Vector2(_w, -_h - px), arris);
-                Edge(new Vector2(-_w, -_h), new Vector2(-_w + px, _faceTop), line);
-                Edge(new Vector2(-_w - 2f * px, -_h - 3f * px), new Vector2(-_w, _faceTop), arris);
-                Edge(new Vector2(_w - px, -_h), new Vector2(_w, _faceTop), line);
-                Edge(new Vector2(_w, -_h - 3f * px), new Vector2(_w + 2f * px, _faceTop), arris);
+                    // Where a top meets the room: a dark line, the lit arris above it.
+                    var line = Mul(_wall.Wall, 0.35f);
+                    var arris = Shade(_wall.Wall, 0.10f);
+                    float px = 1f / Ppu;
+                    Edge(new Vector2(-_w, -_h - px), new Vector2(_w, -_h), line);
+                    Edge(new Vector2(-_w, -_h - 3f * px), new Vector2(_w, -_h - px), arris);
+                    Edge(new Vector2(-_w, -_h), new Vector2(-_w + px, _faceTop), line);
+                    Edge(new Vector2(-_w - 2f * px, -_h - 3f * px), new Vector2(-_w, _faceTop), arris);
+                    Edge(new Vector2(_w - px, -_h), new Vector2(_w, _faceTop), line);
+                    Edge(new Vector2(_w, -_h - 3f * px), new Vector2(_w + 2f * px, _faceTop), arris);
+                }
 
                 BuildFace(windows);
 
@@ -700,6 +715,28 @@ namespace Convergence.Art
             }
 
             /// <summary>
+            /// A newer place's boundary (the caves, the peaks) from its own pieces: what lies past,
+            /// the tops, the north face, the contact shade. Built for open edges - on a walled floor
+            /// (a boss's) the sides take the same tops.
+            /// </summary>
+            void BuildPlace(Sprite beyond, Sprite top, Color[] face, Color shade)
+            {
+                float band = Tuning.Scenery.TopBand, far = _capTop + _m;
+                Tiled("beyond.n", beyond, new Vector2(-_w - _m, _capTop), new Vector2(_w + _m, far), -9);
+                Tiled("beyond.s", beyond, new Vector2(-_w - _m, -_h - _m), new Vector2(_w + _m, -_h - band), -9);
+                Tiled("beyond.w", beyond, new Vector2(-_w - _m, -_h - _m), new Vector2(-_w - band, far), -9);
+                Tiled("beyond.e", beyond, new Vector2(_w + band, -_h - _m), new Vector2(_w + _m, far), -9);
+                Tiled("top.s", top, new Vector2(-_w - band, -_h - band), new Vector2(_w + band, -_h), -8);
+                Tiled("top.w", top, new Vector2(-_w - band, -_h - band), new Vector2(-_w, _capTop), -8);
+                Tiled("top.e", top, new Vector2(_w, -_h - band), new Vector2(_w + band, _capTop), -8);
+                Tiled("cap.n", top, new Vector2(-_w - band, _faceTop), new Vector2(_w + band, _capTop), -8);
+                Renderer("face", Make(face, _faceW, _faceH, new Vector2(0.5f, 0f)), new Vector3(0f, _h, 0f), -8);
+                Quad("shadow.n", Spr.Square, new Vector2(0f, _h - 0.1f), new Vector2(_w * 2f, 0.2f), shade, -7);
+                Quad("shadow.w", Spr.Square, new Vector2(-_w + 0.06f, 0f), new Vector2(0.12f, _h * 2f), shade, -7);
+                Quad("shadow.e", Spr.Square, new Vector2(_w - 0.06f, 0f), new Vector2(0.12f, _h * 2f), shade, -7);
+            }
+
+            /// <summary>
             /// Iron sconces along the north face, each a small flickering flame and a light
             /// (Art.Lighting) - kept clear of the door and of every window. Drawn texel by texel at
             /// the walls' density; the flame's frames are made once and shared.
@@ -799,8 +836,25 @@ namespace Convergence.Art
 
             // -------------------------------------------------------------- pieces
 
+            /// <summary>The floor's west, east and south sides are open edges (Core.Arena): no wall
+            /// tops or dark beyond there - the ground ends at its lip (Biomes.Ground) over the void.
+            /// The north wall, its cap and what lies past it stay, cut to the wall's own width.</summary>
+            static bool Open => Convergence.Core.Arena.EdgesOpen;
+
+            static bool OpenSide(string name)
+                => Open && (name == "beyond.s" || name == "beyond.w" || name == "beyond.e"
+                            || name == "top.s" || name == "top.w" || name == "top.e"
+                            || name == "shadow.w" || name == "shadow.e" || name == "shadow.s");
+
             void Tiled(string name, Sprite tile, Vector2 min, Vector2 max, int order)
             {
+                if (OpenSide(name)) return;
+                if (Open && name == "beyond.n")
+                {
+                    float band = Tuning.Scenery.TopBand;
+                    min.x = Mathf.Max(min.x, -_w - band);
+                    max.x = Mathf.Min(max.x, _w + band);
+                }
                 var go = new GameObject(name);
                 go.transform.SetParent(_root, false);
                 go.transform.localPosition = (min + max) * 0.5f;
@@ -822,6 +876,7 @@ namespace Convergence.Art
 
             void Quad(string name, Sprite s, Vector2 centre, Vector2 size, Color c, int order)
             {
+                if (OpenSide(name)) return;
                 var sr = Renderer(name, s, new Vector3(centre.x, centre.y, name.StartsWith("shadow") ? 0.01f : 0f), order);
                 sr.color = c;
                 sr.transform.localScale = new Vector3(size.x, size.y, 1f);

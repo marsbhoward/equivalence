@@ -4658,6 +4658,20 @@ namespace Convergence.Core
             public const float SaltDarkness = 0.25f;
             public static readonly UnityEngine.Color SaltShade = new(0.16f, 0.09f, 0.14f);
 
+            /// <summary>How many places the run's stretches draw from - the first ones in
+            /// BiomeKind. The CAVES and the SNOWY PEAKS (appended 2026-11-01) are a first pass,
+            /// reached only by Biome.DevForceNext until the user signs them off; raise this to 6
+            /// then.</summary>
+            public const int InRotation = 4;
+
+            /// <summary>The caves: the darkest place, lit by its crystals.</summary>
+            public const float CavesDarker = 0.14f;
+            public static readonly UnityEngine.Color CavesShade = new(0.01f, 0.02f, 0.04f);
+
+            /// <summary>The peaks: open to a cold sky.</summary>
+            public const float PeaksDarkness = 0.4f;
+            public static readonly UnityEngine.Color PeaksShade = new(0.08f, 0.11f, 0.22f);
+
             public const int FireflyCount = 14;
             public const float FireflyRadius = 0.9f, FireflyIntensity = 0.75f;
             public static readonly UnityEngine.Color FireflyColor = new(1f, 0.95f, 0.55f);
@@ -6618,6 +6632,94 @@ namespace Convergence.Core
             public const float DoorClearance = 1.6f;
         }
 
+        /// <summary>The floor's exit, cut into the north wall (the user's call, 2026-11-01): walked
+        /// through, never pressed. The labyrinth keeps its door on the floor (its own maze).</summary>
+        public static class Door
+        {
+            /// <summary>Half the opening the north wall's collider leaves while a door in it stands
+            /// open - wider than the leaves' parting, so a body never snags on a jamb.</summary>
+            public const float GapHalfWidth = 0.5f;
+
+            /// <summary>How far past the face's foot the player must walk before the floor changes:
+            /// into the doorway, not merely up to it.</summary>
+            public const float WalkInDepth = 0.3f;
+
+            /// <summary>How far each leaf folds back into its jamb when the door stands open.</summary>
+            public const float OpenFold = 0.36f;
+        }
+
+        /// <summary>Open edges (Core.Arena): the room ends at a lip over the place's void, held
+        /// by a barrier that only bodies feel (the user's call, 2026-11-01).</summary>
+        public static class Edge
+        {
+            /// <summary>How far past an open edge a shot flies before it is gone - out over the
+            /// void and off the screen's near half, never stopping at the lip.</summary>
+            public const float ShotReach = 6f;
+        }
+
+        /// <summary>Foreground framing past the open edges (Art.Biomes.Foreground).</summary>
+        public static class Foreground
+        {
+            /// <summary>Its depth against the room's 1: nearer the camera, so it sweeps past.</summary>
+            public const float Depth = 1.35f;
+
+            /// <summary>How far past the south lip and the side lips the shapes stand (units), and
+            /// how far apart along them.</summary>
+            public const float SouthOut = 2.6f, SideOut = 2.8f, Spacing = 4.2f;
+
+            /// <summary>A shape with a body behind it thins to this, over this long.</summary>
+            public const float Behind = 0.3f, FadeSeconds = 0.25f;
+        }
+
+        /// <summary>The ground drawn in the room's own shape (Art.Biomes.Ground) and the void
+        /// under it, on floors with open edges.</summary>
+        public static class Ground
+        {
+            /// <summary>The ground takes the tiled floor's order; the void lies under everything.</summary>
+            public const int Order = -10, VoidOrder = -16;
+
+            /// <summary>Texture reach past the floor's sides and south edge (units): room for the
+            /// cliff face and for water to deepen before the void plane takes over.</summary>
+            public const float Pad = 2.4f;
+
+            /// <summary>Texture reach above the north face's foot (units) - the side water runs on
+            /// up past the wall's ends; the face and its cap draw over the middle.</summary>
+            public const float TopReach = 3.2f;
+
+            /// <summary>How far the void plane runs past the arena (units) - the camera can centre a
+            /// player at the edge, and parallax layers sit over it.</summary>
+            public const float VoidMargin = 16f;
+
+            /// <summary>The blur radius (floor texels) that rounds the cells' corners, and the level
+            /// the blurred mask must keep. Both ways: a convex corner gives way, a concave one fills
+            /// in - by well under a body's radius (0.42 = 16 texels), so the barrier never stands
+            /// visibly off the drawn lip and no reachable floor is drawn as void.</summary>
+            public const int RoundTexels = 11;
+            public const float RoundThreshold = 0.5f;
+
+            /// <summary>A drop's cliff face under a south-facing lip, in floor texels.</summary>
+            public const int FaceTexels = 26;
+
+            /// <summary>Over how many texels water deepens from the shallows to deep.</summary>
+            public const float ShallowTexels = 90f;
+
+            /// <summary>The edge's dark (Lighting.LightField): how far in from the lip it starts and
+            /// how far out over the void it is whole, in floor texels.</summary>
+            public const float EdgeInside = 14f, EdgeOutside = 80f;
+
+            /// <summary>Fog over the drops (Art.Biomes.EdgeFog): how many puffs, how far out over
+            /// the void they lie (floor texels), how far they drift (units) and how slowly.</summary>
+            public const int FogPuffs = 10;
+            public const float FogNear = 8f, FogFar = 48f, FogDrift = 0.7f, FogSeconds = 23f;
+
+            /// <summary>The caves' crystals at the lip: how many, and each one's light radius.</summary>
+            public const int CaveCrystals = 9;
+            public const float CrystalLight = 2.8f;
+
+            /// <summary>The tower's shaft, far below the lip.</summary>
+            public static readonly UnityEngine.Color ShaftDark = new(0.035f, 0.03f, 0.045f);
+        }
+
         public static class Rooms
         {
             /// <summary>Floors before this are always the open rectangle - the basics are learned
@@ -6648,6 +6750,14 @@ namespace Convergence.Core
             public const float ComposedChasmChance = 0.8f, LargeChasmShare = 0.5f;
             /// <summary>Stamps laid per composed room (each may bring its mirrored twin).</summary>
             public const int StampsMin = 2, StampsMax = 4;
+
+            /// <summary>A composed room's chance of a landmark (a set piece bigger than a cell) and of
+            /// a raised dais before the door.</summary>
+            public const float LandmarkChance = 0.5f, DaisChance = 0.35f;
+
+            /// <summary>The dais's face below its front edge (units): its height, and the depth of
+            /// the barrier along it.</summary>
+            public const float DaisFace = 0.45f;
             /// <summary>Chance a stamp is laid with its east-west twin - symmetry is most of what
             /// makes a composed room read as designed.</summary>
             public const float MirroredPairChance = 0.55f;

@@ -51,14 +51,14 @@ namespace Convergence.Hazards
         static bool Forest => Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.Forest);
         // The SALT's is a brine sinkhole: a crystal-white rim, the shallows mirroring a pale sky, turquoise deep.
         static bool Salt => Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.SaltFlats);
-        static Color Lip => Salt ? new(0.92f, 0.90f, 0.88f) : Forest ? new(0.13f, 0.11f, 0.07f) : new(0.24f, 0.20f, 0.16f);
-        static Color BankTop => Salt ? new(0.82f, 0.74f, 0.80f) : Forest ? new(0.17f, 0.21f, 0.10f) : new(0.30f, 0.25f, 0.20f);
-        static Color BankLow => Salt ? new(0.46f, 0.40f, 0.52f) : Forest ? new(0.05f, 0.08f, 0.05f) : new(0.11f, 0.10f, 0.10f);
-        static Color Foam => Salt ? new(1f, 1f, 1f) : Forest ? new(0.58f, 0.70f, 0.56f) : new(0.70f, 0.84f, 0.88f);
-        static Color Shallow => Salt ? new(0.64f, 0.70f, 0.84f) : Forest ? new(0.12f, 0.27f, 0.21f) : new(0.17f, 0.40f, 0.47f);
-        static Color Mid => Salt ? new(0.16f, 0.50f, 0.54f) : Forest ? new(0.05f, 0.16f, 0.14f) : new(0.08f, 0.23f, 0.34f);
-        static Color Deep => Salt ? new(0.06f, 0.26f, 0.32f) : Forest ? new(0.02f, 0.065f, 0.06f) : new(0.03f, 0.09f, 0.17f);
-        static Color RippleColor => Salt ? new(0.96f, 0.96f, 1f) : Forest ? new(0.58f, 0.76f, 0.64f) : new(0.72f, 0.88f, 0.95f);
+        internal static Color Lip => Salt ? new(0.92f, 0.90f, 0.88f) : Forest ? new(0.13f, 0.11f, 0.07f) : new(0.24f, 0.20f, 0.16f);
+        internal static Color BankTop => Salt ? new(0.82f, 0.74f, 0.80f) : Forest ? new(0.17f, 0.21f, 0.10f) : new(0.30f, 0.25f, 0.20f);
+        internal static Color BankLow => Salt ? new(0.46f, 0.40f, 0.52f) : Forest ? new(0.05f, 0.08f, 0.05f) : new(0.11f, 0.10f, 0.10f);
+        internal static Color Foam => Salt ? new(1f, 1f, 1f) : Forest ? new(0.58f, 0.70f, 0.56f) : new(0.70f, 0.84f, 0.88f);
+        internal static Color Shallow => Salt ? new(0.64f, 0.70f, 0.84f) : Forest ? new(0.12f, 0.27f, 0.21f) : new(0.17f, 0.40f, 0.47f);
+        internal static Color Mid => Salt ? new(0.16f, 0.50f, 0.54f) : Forest ? new(0.05f, 0.16f, 0.14f) : new(0.08f, 0.23f, 0.34f);
+        internal static Color Deep => Salt ? new(0.06f, 0.26f, 0.32f) : Forest ? new(0.02f, 0.065f, 0.06f) : new(0.03f, 0.09f, 0.17f);
+        internal static Color RippleColor => Salt ? new(0.96f, 0.96f, 1f) : Forest ? new(0.58f, 0.76f, 0.64f) : new(0.72f, 0.88f, 0.95f);
 
         // Serialized and not readonly - a domain reload would otherwise leave rings frozen
         // mid-spread (WaterPit's note).

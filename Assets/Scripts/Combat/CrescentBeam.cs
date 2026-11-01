@@ -105,8 +105,8 @@ namespace Convergence.Combat
             }
             if (Corpse.StopsShot(from, to, out _)) spent = true;
 
-            var clamped = Arena.Clamp(to, 0.2f);
-            if (Vector2.Distance(clamped, to) > 0.001f) spent = true;   // the outer wall
+            var clamped = Arena.ShotClamp(to, 0.2f);
+            if (Vector2.Distance(clamped, to) > 0.001f) spent = true;   // the outer wall (an open edge is none)
             if (!spent) Sweep(from, clamped);
 
             transform.position = clamped;

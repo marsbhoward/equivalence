@@ -116,7 +116,7 @@ namespace Convergence.Combat
                 next = Curve(_start, _end, _t, _side);
 
                 var crossing = HazardQuery.CheckCrossing(prev, next);
-                var clamped = Arena.Clamp(next, 0.3f);
+                var clamped = Arena.ShotClamp(next, 0.3f);   // an open edge turns nothing back
                 bool wall = crossing == SightResult.Blocked || crossing == SightResult.Nulled
                             || Vector2.Distance(clamped, next) > 0.001f;
                 if (wall) next = prev;

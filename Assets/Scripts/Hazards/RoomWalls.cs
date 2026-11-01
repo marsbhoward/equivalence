@@ -28,9 +28,13 @@ namespace Convergence.Hazards
     {
         [SerializeField] bool[] _wall;
         [SerializeField] bool[] _chasm;
+        [SerializeField] bool[] _edge;
         [SerializeField] int _cols, _rows;
         [SerializeField] string _shapeName;
         [SerializeField] bool _lake;
+        [SerializeField] Rect _dais;
+        /// <summary>Textures and sprites made for this room alone (the dais's face), freed with it.</summary>
+        readonly List<Object> _made = new();
 
         static RoomWalls _current;
 
@@ -52,8 +56,9 @@ namespace Convergence.Hazards
                 _current = null;
             }
             Arena.SetWalls(null, null, 0, 0);
+            Arena.Dais = default;
             Enemies.NavField.MarkDirty();
-            if (shape == null || parent == null) return;
+            if (shape == null || parent == null) { Art.Biomes.Ground.Build(); return; }
 
             var go = new GameObject($"room.{shape.Name}");
             go.transform.SetParent(parent, false);
@@ -61,17 +66,21 @@ namespace Convergence.Hazards
             walls.Build(shape);
             _current = walls;
             Debug.Log($"[Room] {shape.Describe}");
+            // The ground in the room's own shape, now the shape is known (open edges).
+            Art.Biomes.Ground.Build();
         }
 
         void OnEnable()
         {
             if (_wall == null || _wall.Length == 0) return;
             _current = this;
-            Arena.SetWalls(_wall, _chasm, _cols, _rows, _lake);
+            Arena.SetWalls(_wall, _chasm, _cols, _rows, _lake, _edge);
+            Arena.Dais = _dais;
         }
 
         void OnDestroy()
         {
+            foreach (var o in _made) if (o != null) Destroy(o);
             if (_current != this) return;
             _current = null;
             Arena.SetWalls(null, null, 0, 0);
@@ -109,37 +118,84 @@ namespace Convergence.Hazards
             // A WALL for the stone's neighbour tests: '#' and '%', and outside the room.
             bool Solid(int x, int y) { char c = At(x, y); return c == '#' || c == '%'; }
 
+            _edge = OpenEdges(At);
             for (int y = 0; y < _rows; y++)
             for (int x = 0; x < _cols; x++)
             {
-                _wall[y * _cols + x] = Solid(x, y);
+                bool edge = _edge[y * _cols + x];
+                _wall[y * _cols + x] = Solid(x, y) && !edge;
                 _chasm[y * _cols + x] = At(x, y) == '~';
             }
+            bool Edge(int x, int y) => x >= 0 && y >= 0 && x < _cols && y < _rows && _edge[y * _cols + x];
+            // A permanent wall that still STANDS ('#', not opened into the void).
+            bool Stands(int x, int y) => At(x, y) == '#' && !Edge(x, y);
 
             Vector2 Corner(int x, int y) => new Vector2(x * cell.x, y * cell.y) - half;
 
             // ---- permanent walls: one collider per horizontal run ----
-            for (int y = 0; y < _rows; y++)
+            Runs(this.gameObject, Stands);
+
+            // ---- the opened edge: a BARRIER, one collider per run, felt by bodies alone ----
+            // On its own object, marked, so sight (HazardQuery.Query) passes over it as it passes
+            // over the void - an open edge never cuts a line.
+            var barrier = new GameObject("barrier");
+            barrier.transform.SetParent(transform, false);
+            barrier.AddComponent<Barrier>();
+            Runs(barrier, Edge);
+
+            void Runs(GameObject owner, System.Func<int, int, bool> take)
             {
-                int x = 0;
-                while (x < _cols)
+                for (int y = 0; y < _rows; y++)
                 {
-                    if (At(x, y) != '#') { x++; continue; }
-                    int start = x;
-                    while (x < _cols && At(x, y) == '#') x++;
-                    var box = gameObject.AddComponent<BoxCollider2D>();
-                    var lo = Corner(start, y);
-                    box.size = new Vector2((x - start) * cell.x, cell.y);
-                    box.offset = lo + box.size * 0.5f;
+                    int x = 0;
+                    while (x < _cols)
+                    {
+                        if (!take(x, y)) { x++; continue; }
+                        int start = x;
+                        while (x < _cols && take(x, y)) x++;
+                        var box = owner.AddComponent<BoxCollider2D>();
+                        var lo = Corner(start, y);
+                        box.size = new Vector2((x - start) * cell.x, cell.y);
+                        box.offset = lo + box.size * 0.5f;
+                    }
                 }
             }
+
+            // ---- landmarks: one picture over each footprint, its cells walls to every rule ----
+            var landmarkCell = new bool[_cols * _rows];
+            foreach (var lm in shape.Landmarks)
+            {
+                int yBottom = _rows - 1 - (lm.Row + lm.H - 1);
+                for (int dy = 0; dy < lm.H; dy++)
+                for (int dx = 0; dx < lm.W; dx++)
+                    landmarkCell[(yBottom + dy) * _cols + lm.Col + dx] = true;
+                var foot = Corner(lm.Col, yBottom);
+                var go = new GameObject($"landmark.{lm.Kind}");
+                go.transform.SetParent(transform, false);
+                go.transform.position = new Vector3(foot.x + lm.W * cell.x * 0.5f, foot.y, 0f);
+                var sr = go.AddComponent<SpriteRenderer>();
+                sr.sprite = LandmarkArt.For(lm.Kind, lm.W, lm.H, lm.Flip);
+                DepthSorted.Attach(go, 0f, true, sr);
+                var shadow = new GameObject("shadow");
+                shadow.transform.SetParent(go.transform, false);
+                shadow.transform.position = new Vector3(foot.x + lm.W * cell.x * 0.5f, foot.y - cell.y * 0.08f, 0f);
+                shadow.transform.localScale = new Vector3(lm.W * cell.x * 0.95f, cell.y * 0.16f, 1f);
+                var ss = shadow.AddComponent<SpriteRenderer>();
+                ss.sprite = Spr.Square;
+                ss.color = new Color(0f, 0f, 0f, 0.32f);
+                ss.sortingOrder = SortingOrders.GroundDecal;
+            }
+
+            // ---- the dais before the door: its edge a barrier, but for the steps ----
+            _dais = default;
+            if (shape.Dais) BuildDais(cell, Corner);
+            Arena.Dais = _dais;
 
             // ---- the stone, one block per cell ----
             for (int y = 0; y < _rows; y++)
             for (int x = 0; x < _cols; x++)
             {
-                char c = At(x, y);
-                if (c != '#') continue;
+                if (!Stands(x, y) || landmarkCell[y * _cols + x]) continue;
                 Block(transform, x, y, cell, Corner(x, y), Neighbours(x, y, Solid), cracked: false);
             }
 
@@ -171,16 +227,20 @@ namespace Convergence.Hazards
             // ---- chasms: one cell of void each, a lip wherever it meets something standing ----
             // Outside the room counts as chasm here, so a chasm against the outer wall shows the
             // wall's own face going down rather than a lip that is not there.
-            bool Void(int x, int y) => x < 0 || y < 0 || x >= _cols || y >= _rows || At(x, y) == '~';
+            bool Void(int x, int y) => x < 0 || y < 0 || x >= _cols || y >= _rows || At(x, y) == '~' || Edge(x, y);
+            // Which void is WATER: the chasms on a lake floor, the opened edge where the place's
+            // void is water (Arena.EdgeIsWater).
+            // The opened edge cells are the GROUND's to draw (Art.Biomes.Ground): its lip, its
+            // cliff or bank, the place's void past it. Only the chasms are drawn here.
+            bool Wet(int x, int y) => At(x, y) == '~' && _lake;
             // A LAKE is drawn as one surface per connected body of water instead (LakeSurface):
             // its shore is rounded and its depth runs out from the bank, neither of which a cell
             // drawn alone can know.
-            if (_lake) LakeSurface.BuildAll(transform, _cols, _rows, cell, Corner, (x, y) => At(x, y) == '~', Void);
-            else
+            if (_lake) LakeSurface.BuildAll(transform, _cols, _rows, cell, Corner, Wet, Void);
             for (int y = 0; y < _rows; y++)
             for (int x = 0; x < _cols; x++)
             {
-                if (At(x, y) != '~') continue;
+                if (At(x, y) != '~' || Wet(x, y)) continue;
                 var c = Corner(x, y);
                 var go = new GameObject($"chasm.{x}.{y}");
                 go.transform.SetParent(transform, false);
@@ -196,7 +256,113 @@ namespace Convergence.Hazards
 
             // Published HERE, not only in OnEnable: AddComponent runs OnEnable before Build has
             // filled the mask, so the first floor in a shape was placed as if it were open.
-            Arena.SetWalls(_wall, _chasm, _cols, _rows, _lake);
+            Arena.SetWalls(_wall, _chasm, _cols, _rows, _lake, _edge);
+        }
+
+        /// <summary>
+        /// A raised DAIS across the door's approach (RoomShape.Dais; the user's call, 2026-11-01):
+        /// its top is floor, a low face below its front edge, steps cut in the face before the
+        /// door. A thin BARRIER along the face and down each side holds bodies - they climb by the
+        /// steps - and nothing else (shots and sight pass over, as over an open edge).
+        /// </summary>
+        void BuildDais(Vector2 cell, System.Func<int, int, Vector2> corner)
+        {
+            int c0 = RoomShape.DaisCol0, c1 = c0 + RoomShape.DaisCols;
+            int yLow = _rows - RoomShape.DaisRows;
+            var lo = corner(c0, yLow);
+            float x0 = lo.x, x1 = corner(c1, yLow).x, y0 = lo.y, y1 = Arena.HalfExtents.y;
+            _dais = new Rect(x0, y0, x1 - x0, y1 - y0);
+            float face = Tuning.Rooms.DaisFace, t = 0.16f;
+            float s0 = corner(RoomShape.DaisStepCol0, yLow).x, s1 = corner(RoomShape.DaisStepCol0 + RoomShape.DaisSteps, yLow).x;
+
+            var barrier = new GameObject("dais");
+            barrier.transform.SetParent(transform, false);
+            barrier.AddComponent<Barrier>();
+            void Box(float ax, float ay, float bx, float by)
+            {
+                var box = barrier.AddComponent<BoxCollider2D>();
+                box.size = new Vector2(bx - ax, by - ay);
+                box.offset = new Vector2((ax + bx) * 0.5f, (ay + by) * 0.5f);
+            }
+            Box(x0 - t, y0 - face, s0, y0);            // the face, west of the steps
+            Box(s1, y0 - face, x1 + t, y0);            // and east of them
+            Box(x0 - t, y0, x0, y1);                   // the west side
+            Box(x1, y0, x1 + t, y1);                   // the east side
+
+            // The face: coursed stone, darker toward its foot, the steps cut into it.
+            const float Ppu = Art.Scenery.Ppu;
+            int W = Mathf.RoundToInt((x1 - x0) * Ppu), H = Mathf.RoundToInt(face * Ppu);
+            int sa = Mathf.RoundToInt((s0 - x0) * Ppu), sb = Mathf.RoundToInt((s1 - x0) * Ppu);
+            var stone = Art.Scenery.WallStone;
+            var px = new Color32[W * H];
+            for (int y = 0; y < H; y++)
+            for (int x = 0; x < W; x++)
+            {
+                float k = 1f - y / (float)H;
+                Color c;
+                if (x >= sa && x < sb)
+                {
+                    // Three treads, each lit along its nose.
+                    int tread = y * 3 / H;
+                    bool nose = y % (H / 3) == H / 3 - 1;
+                    c = Color.Lerp(stone * 1.9f, stone * 1.3f, tread / 3f);
+                    if (nose) c = stone * 2.3f;
+                    if (x == sa || x == sb - 1) c = stone * 0.6f;
+                }
+                else
+                {
+                    c = Color.Lerp(stone * 1.45f, stone * 0.85f, k);
+                    if (y == H - 1) c = stone * 2.1f;                   // the lit arris
+                    if (y == H / 2 || (x + (y > H / 2 ? 9 : 0)) % 18 == 0) c = stone * 0.7f;
+                }
+                c.a = 1f;
+                px[y * W + x] = c;
+            }
+            var tex = new Texture2D(W, H, TextureFormat.RGBA32, false)
+            { filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp, hideFlags = HideFlags.HideAndDontSave };
+            tex.SetPixels32(px);
+            tex.Apply();
+            var spr = Sprite.Create(tex, new Rect(0, 0, W, H), new Vector2(0f, 1f), Ppu, 0, SpriteMeshType.FullRect);
+            _made.Add(tex); _made.Add(spr);
+            var go = new GameObject("dais.face");
+            go.transform.SetParent(transform, false);
+            go.transform.position = new Vector3(x0, y0, 0f);
+            var sr = go.AddComponent<SpriteRenderer>();
+            sr.sprite = spr;
+            sr.sortingOrder = Tuning.Ground.Order + 1;
+        }
+
+        /// <summary>
+        /// The outline cells opened into the void: every connected run of permanent wall ('#')
+        /// that reaches an open side of the grid (west, east, south) - a composed room's outline,
+        /// a fixed shape's corner blocks. A wall touching only the north wall, or standing free in
+        /// the room, still stands: walls that are there interact. Walkability is unchanged (wall
+        /// and void are both not floor), so no shape's validation is undone. Bottom row first.
+        /// </summary>
+        bool[] OpenEdges(System.Func<int, int, char> at)
+        {
+            var edge = new bool[_cols * _rows];
+            if (!Arena.EdgesOpen) return edge;
+            var stack = new Stack<Vector2Int>();
+            void Seed(int x, int y)
+            {
+                if (at(x, y) != '#' || edge[y * _cols + x]) return;
+                edge[y * _cols + x] = true;
+                stack.Push(new Vector2Int(x, y));
+            }
+            for (int y = 0; y < _rows; y++) { Seed(0, y); Seed(_cols - 1, y); }
+            for (int x = 0; x < _cols; x++) Seed(x, 0);
+            while (stack.Count > 0)
+            {
+                var p = stack.Pop();
+                foreach (var d in new[] { Vector2Int.up, Vector2Int.down, Vector2Int.left, Vector2Int.right })
+                {
+                    var n = p + d;
+                    if (n.x < 0 || n.y < 0 || n.x >= _cols || n.y >= _rows) continue;
+                    Seed(n.x, n.y);
+                }
+            }
+            return edge;
         }
 
         /// <summary>Which sides of cell (x, y) face open floor: bit 0 north, 1 south, 2 west, 3 east.</summary>

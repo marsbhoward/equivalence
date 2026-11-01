@@ -4,7 +4,7 @@ using Convergence.Core;
 namespace Convergence.Art.Biomes
 {
     /// <summary>A place the tower has bled into. Append only.</summary>
-    public enum BiomeKind { Tower, Forest, SkyRuin, SaltFlats }
+    public enum BiomeKind { Tower, Forest, SkyRuin, SaltFlats, Caves, SnowyPeaks }
 
     /// <summary>
     /// BIOMES (the user's calls, 2026-10-22; design in memory and the mock
@@ -42,7 +42,7 @@ namespace Convergence.Art.Biomes
             int at = 1 + rng.Next(Tuning.Biomes.FirstStretchMin, Tuning.Biomes.FirstStretchMax + 1);
             var kind = BiomeKind.Tower;
             if (floor < at) return kind;
-            int kinds = System.Enum.GetValues(typeof(BiomeKind)).Length;
+            int kinds = Mathf.Min(Tuning.Biomes.InRotation, System.Enum.GetValues(typeof(BiomeKind)).Length);
             while (true)
             {
                 // never the same place twice running
@@ -62,6 +62,8 @@ namespace Convergence.Art.Biomes
             if (Current == BiomeKind.Forest) d += Tuning.Biomes.ForestDarker;
             if (Current == BiomeKind.SkyRuin) d *= Tuning.Biomes.SkyDarkness;   // open to the sky
             if (Current == BiomeKind.SaltFlats) d *= Tuning.Biomes.SaltDarkness; // white crust, glaring
+            if (Current == BiomeKind.Caves) d += Tuning.Biomes.CavesDarker;      // lit by its crystals
+            if (Current == BiomeKind.SnowyPeaks) d *= Tuning.Biomes.PeaksDarkness;
             return Mathf.Clamp01(d);
         }
 
@@ -70,6 +72,8 @@ namespace Convergence.Art.Biomes
             BiomeKind.Forest => Tuning.Biomes.ForestShade,
             BiomeKind.SkyRuin => Tuning.Biomes.SkyShade,
             BiomeKind.SaltFlats => Tuning.Biomes.SaltShade,
+            BiomeKind.Caves => Tuning.Biomes.CavesShade,
+            BiomeKind.SnowyPeaks => Tuning.Biomes.PeaksShade,
             _ => Tuning.Lighting.ShadeColor,
         };
 
@@ -86,7 +90,46 @@ namespace Convergence.Art.Biomes
         public static bool ForcesLake => Current == BiomeKind.Forest || Current == BiomeKind.SaltFlats;
 
         /// <summary>A sky ruin's are always a drop - into the sky.</summary>
-        public static bool ForcesDrop => Current == BiomeKind.SkyRuin;
+        public static bool ForcesDrop => Current == BiomeKind.SkyRuin || Current == BiomeKind.Caves || Current == BiomeKind.SnowyPeaks;
+
+        /// <summary>The void past the room's open edges (Core.Arena) is WATER here - the
+        /// forest's black lake, the salt's brine - and a body thrown over sinks. Elsewhere it is
+        /// a drop: the tower's shaft, the sky.</summary>
+        public static bool EdgeIsWater => ForcesLake;
+
+        /// <summary>How the room fades out past its lip (Lighting.LightField's edge): the dark
+        /// places into the dark, the bright ones into haze - its strength at the far edge, and
+        /// its colour.</summary>
+        public static float EdgeDark => Current switch
+        {
+            BiomeKind.SkyRuin => 0.42f,
+            BiomeKind.SaltFlats => 0.38f,
+            BiomeKind.Forest => 0.8f,
+            BiomeKind.Caves => 0.82f,
+            BiomeKind.SnowyPeaks => 0.4f,
+            _ => 0.74f,
+        };
+
+        public static Color EdgeShade => Current switch
+        {
+            BiomeKind.SkyRuin => new Color(0.80f, 0.86f, 0.95f),
+            BiomeKind.SaltFlats => new Color(0.96f, 0.94f, 0.92f),
+            BiomeKind.Forest => new Color(0.01f, 0.04f, 0.03f),
+            BiomeKind.Caves => new Color(0.005f, 0.012f, 0.025f),
+            BiomeKind.SnowyPeaks => new Color(0.84f, 0.88f, 0.95f),
+            _ => new Color(0.02f, 0.02f, 0.035f),
+        };
+
+        /// <summary>The fog low over the drops (EdgeFog): its colour and how thick at its heart.</summary>
+        public static Color FogColor => Current switch
+        {
+            BiomeKind.SkyRuin => new Color(1f, 1f, 1f, 0.34f),
+            BiomeKind.SaltFlats => new Color(1f, 0.98f, 0.96f, 0.30f),
+            BiomeKind.Forest => new Color(0.62f, 0.74f, 0.66f, 0.20f),
+            BiomeKind.Caves => new Color(0.40f, 0.62f, 0.66f, 0.16f),
+            BiomeKind.SnowyPeaks => new Color(0.96f, 0.98f, 1f, 0.36f),
+            _ => new Color(0.52f, 0.52f, 0.62f, 0.16f),
+        };
 
         // ------------------------------------------------------------------ rooms (RoomShape.Compose)
         //
@@ -101,6 +144,8 @@ namespace Convergence.Art.Biomes
             BiomeKind.Forest => name switch { "cave" => 2.5f, "octagon" => 1.5f, "rect" => 0.6f, _ => 1f },
             BiomeKind.SkyRuin => name switch { "notched" => 2f, "corner" => 2f, "waist" => 1.5f, "rect" => 0.7f, _ => 1f },
             BiomeKind.SaltFlats => name switch { "rect" => 1.6f, "waist" => 1.5f, "cave" => 0.4f, "notched" => 0.6f, _ => 1f },
+            BiomeKind.Caves => name switch { "cave" => 3f, "octagon" => 1.4f, "rect" => 0.4f, _ => 1f },
+            BiomeKind.SnowyPeaks => name switch { "corner" => 2f, "notched" => 1.6f, "waist" => 1.3f, _ => 1f },
             _ => 1f,
         };
 
