@@ -115,6 +115,17 @@ namespace Convergence.Core
         /// <summary>This frame, a press cancelled a weapon art held to aim - see HoldingArt.</summary>
         public static bool ArtHoldCancelled { get { Sync(); return _artHoldCancelled; } }
 
+        /// <summary>
+        /// A first-run hint holds the world still (UI/FirstRunHints): while set, every world action
+        /// - attack, ability, guard, interact, VIEW, alt - reads as up, so the press that dismisses
+        /// a hint over the timing bar is never judged as the strike, nor a swing, nor a guard. The
+        /// hint holds it until every button is let go, so no edge appears when it clears.
+        /// </summary>
+        public static bool WorldBlocked;
+        /// <summary>Any world action's button down this frame, read raw - the hint's "go on".</summary>
+        public static bool WorldPressed { get { Sync(); return _worldPressed; } }
+        static bool _worldPressed;
+
         static int _artHeldFrame = -10, _artAimShownFrame = -10;
         static bool _artHoldCancelled;
 
@@ -692,6 +703,14 @@ namespace Convergence.Core
             // settings: the two never meet, since settings is hub-only and loot is run-only.
             Edge(ref _inventory, ref _inventoryPrev,
                  (kb != null && kb.iKey.isPressed) || (pad != null && pad.selectButton.isPressed));
+
+            // ---- a first-run hint holds the world still (see WorldBlocked) ----
+            _worldPressed = _attack || _release || _guard || _interact || _secondAbility || _alt;
+            if (WorldBlocked)
+            {
+                _attack = _attackPrev = _release = _releasePrev = _guard = _guardPrev = false;
+                _interact = _interactPrev = _secondAbility = _secondAbilityPrev = _alt = _altPrev = false;
+            }
 
             // ---- a weapon art held to aim: another press cancels it, and is swallowed ----
             _artHoldCancelled = false;

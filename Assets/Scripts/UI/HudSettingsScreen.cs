@@ -24,8 +24,8 @@ namespace Convergence.UI
         int _openedFrame = -1;
         System.Action _onBack;
 
-        RectTransform _overlayRect, _touchRect, _deskRect, _sizeRect, _handRect, _keysRect, _backRect;
-        Text _overlayText, _touchText, _deskText, _sizeText, _handText, _keysText, _about;
+        RectTransform _overlayRect, _touchRect, _deskRect, _sizeRect, _handRect, _keysRect, _hintsRect, _backRect;
+        Text _overlayText, _touchText, _deskText, _sizeText, _handText, _keysText, _hintsText, _about;
         readonly List<RectTransform> _focus = new();
 
         public void Open(Transform canvas, System.Action onBack)
@@ -45,8 +45,8 @@ namespace Convergence.UI
             GamePause.Release(this);
             if (_root) Destroy(_root);
             _root = null;
-            _overlayRect = _touchRect = _deskRect = _sizeRect = _handRect = _keysRect = _backRect = null;
-            _overlayText = _touchText = _deskText = _sizeText = _handText = _keysText = _about = null;
+            _overlayRect = _touchRect = _deskRect = _sizeRect = _handRect = _keysRect = _hintsRect = _backRect = null;
+            _overlayText = _touchText = _deskText = _sizeText = _handText = _keysText = _hintsText = _about = null;
             _onBack = null;
         }
 
@@ -74,7 +74,8 @@ namespace Convergence.UI
             _deskRect = Row(full, 0, bg, fg, out _deskText);
             _sizeRect = Row(full, 1, bg, fg, out _sizeText, half: -1);
             _handRect = Row(full, 1, bg, fg, out _handText, half: 1);
-            _keysRect = Row(full, 2, bg, fg, out _keysText);
+            _keysRect = Row(full, 2, bg, fg, out _keysText, half: -1);
+            _hintsRect = Row(full, 2, bg, fg, out _hintsText, half: 1);
             _backRect = Row(full, 3, bg, fg, out var back);
             back.text = "BACK";
 
@@ -119,7 +120,8 @@ namespace Convergence.UI
             _deskText.text = Dial("HUD ON KEYS & PAD", Name(HudPrefs.DeskLayout, touch: false));
             _sizeText.text = $"SIZE  {HudPrefs.SizeNames[HudPrefs.Size]}";
             _handText.text = HudPrefs.LeftHanded ? "LEFT-HANDED" : "RIGHT-HANDED";
-            _keysText.text = Dial("KEY HINTS", HudPrefs.KeyHints ? "ON" : "OFF");
+            _keysText.text = $"KEY HINTS  {(HudPrefs.KeyHints ? "ON" : "OFF")}";
+            _hintsText.text = $"TIPS  {(HudPrefs.FirstRunHints ? "ON" : "OFF")}";
 
             _about.text = HudPrefs.OnScreen == HudPrefs.Overlay.Off
                 ? "With the on-screen controls off, a phone has no stick or buttons at all."
@@ -142,7 +144,7 @@ namespace Convergence.UI
 
             _focus.Clear();
             _focus.Add(_overlayRect); _focus.Add(_touchRect); _focus.Add(_deskRect);
-            _focus.Add(_sizeRect); _focus.Add(_handRect); _focus.Add(_keysRect); _focus.Add(_backRect);
+            _focus.Add(_sizeRect); _focus.Add(_handRect); _focus.Add(_keysRect); _focus.Add(_hintsRect); _focus.Add(_backRect);
             Controls.SetFocusCandidates(_focus);
 
             // Spent here, so SETTINGS - reopened by the hand-off this same frame - does not read
@@ -157,6 +159,12 @@ namespace Convergence.UI
             else if (Hit(_sizeRect, p)) HudPrefs.Size = Step(HudPrefs.Size, 3, _sizeRect, p);
             else if (Hit(_handRect, p)) HudPrefs.LeftHanded = !HudPrefs.LeftHanded;
             else if (Hit(_keysRect, p)) HudPrefs.KeyHints = !HudPrefs.KeyHints;
+            else if (Hit(_hintsRect, p))
+            {
+                // Back on shows every first-run hint again (FirstRunHints).
+                HudPrefs.FirstRunHints = !HudPrefs.FirstRunHints;
+                if (HudPrefs.FirstRunHints) FirstRunHints.ClearSeen();
+            }
             else return;
             Audio.Sfx.Play(Audio.Sound.HitLight);
             Refresh();

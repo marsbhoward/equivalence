@@ -190,6 +190,10 @@ namespace Convergence.Chain
         /// rare dye or a pose twice. Additive.</summary>
         public System.Collections.Generic.List<string> CosmeticsDecided = new();
 
+        /// <summary>The first-run hints this character has been shown (UI/FirstRunHints keys:
+        /// move, bar, aim, guard, exchange, rift) - each shows once per character. Additive.</summary>
+        public System.Collections.Generic.List<string> HintsSeen = new();
+
                 /// <summary>Name for display, never blank.</summary>
         public string DisplayName => string.IsNullOrWhiteSpace(Name) ? ProfileId : Name;
     }

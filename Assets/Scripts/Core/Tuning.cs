@@ -661,6 +661,24 @@ namespace Convergence.Core
         }
 
         /// <summary>
+        /// FIRST-RUN HINTS (UI/FirstRunHints; the user's picks, 2026-10-31: a callout that
+        /// pauses, six moments, once per character). Unscaled seconds - a hint holds the game.
+        /// </summary>
+        public static class Hints
+        {
+            /// <summary>No hint in a floor's first seconds - the first look at a room stays clear.</summary>
+            public const float FloorQuietSeconds = 2f;
+            /// <summary>Seconds after one hint closes before another may open - short, since the
+            /// aim hint (a finisher is next) is followed at once by the bar's (it is pressed).</summary>
+            public const float GapSeconds = 1.5f;
+            /// <summary>A hint ignores presses this long after it opens, so the press that
+            /// brought its moment on (the finisher's own tap) cannot dismiss it unread.</summary>
+            public const float ReadSeconds = 0.4f;
+            /// <summary>World units: an enemy winding up this close asks the Guard hint.</summary>
+            public const float GuardReach = 4f;
+        }
+
+        /// <summary>
         /// THE SHOWCASE (SHOWCASE.md): the Short Descent's first ten floors, on its own mainnet
         /// instance, before the full beta - and wiped at it (the user's call, 2026-10-31). Read only
         /// while RunFormat.Showcase; nothing here moves the real game.

@@ -2333,6 +2333,11 @@ namespace Convergence.Player
         /// its last _barSeconds.</summary>
         bool _barShown;
 
+        /// <summary>The timing bar while it fills and nothing has been pressed - what the first-run
+        /// hint points at (UI/FirstRunHints). Null otherwise.</summary>
+        public Transform StrikeBarFilling
+            => _barLive && _barShown && _verdict == StrikeVerdict.Pending && _bar != null ? _bar.transform : null;
+
         /// <summary>How long THIS finisher's bar is on screen: its weight's lead plus the judged
         /// segments, stretched over a delayed finisher's own delay up to DelayedBarSeconds.</summary>
         float _barSeconds;

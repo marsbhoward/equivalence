@@ -455,6 +455,8 @@ namespace Convergence.UI
         void Update()
         {
             if (!IsOpen) return;
+            // A first-run hint over the deals takes every press until it is let go.
+            if (FirstRunHints.Blocking) return;
 
             // Dissolving: the row fades out and hands over to whatever was underneath it.
             if (_dissolve >= 0f)

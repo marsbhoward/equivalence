@@ -71,6 +71,13 @@ namespace Convergence.Core
         }
 
         /// <summary>The key (or pad button) under each button's name, off touch.</summary>
+        /// <summary>First-run hints (UI/FirstRunHints). Turning them back on shows them all again.</summary>
+        public static bool FirstRunHints
+        {
+            get => Get("hints", 1, 1) == 1;
+            set => Set("hints", value ? 1 : 0);
+        }
+
         public static bool KeyHints
         {
             get => Get("keys", 1, 1) == 1;

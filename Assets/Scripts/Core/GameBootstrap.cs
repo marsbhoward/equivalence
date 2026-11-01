@@ -165,6 +165,9 @@ namespace Convergence.Core
         Hud _hud;
         Canvas _canvas;
         Canvas _touchCanvas;
+        UI.TouchControls _touchControls;
+        /// <summary>The run whose showcase Blue Rift has opened - the "rift" hint's moment.</summary>
+        int _riftHintRun = -1;
         Camera _cam;
         UI.ScreenFade _fade;
 
@@ -517,7 +520,11 @@ namespace Convergence.Core
             // screens while that is all it shows, or an opaque screen hid its only way out.
             _touchCanvas = UiKit.CreateCanvas("touch", 8);
             _touchCanvas.transform.SetParent(transform, false);
-            UI.TouchControls.Build(_touchCanvas.transform);
+            _touchControls = UI.TouchControls.Build(_touchCanvas.transform);
+
+            // First-run hints: a callout that pauses, each once per character (UI/FirstRunHints).
+            UI.FirstRunHints.Build(transform);
+            UI.FirstRunHints.Profile = () => _profile;
 
             // Its own canvas ABOVE the screens (10), not below like the touch overlay - a gamepad
             // cursor has to keep working while a modal is open, since that is exactly when it is
@@ -2218,7 +2225,8 @@ namespace Convergence.Core
                       || ManualScreen.IsOpen || GearDisplayScreen.IsOpen || RiftScreen.IsOpen || StakeScreen.IsOpen
                       || PauseScreen.IsOpen || SettingsScreen.IsOpen || ControlsScreen.IsOpen
                       || HudSettingsScreen.IsOpen
-                      || InventoryScreen.IsOpen || UI.EndingScreen.IsOpen || UI.ShowcaseEndScreen.IsOpen;
+                      || InventoryScreen.IsOpen || UI.EndingScreen.IsOpen || UI.ShowcaseEndScreen.IsOpen
+                      || UI.FirstRunHints.IsOpen;
             bool modal = screenOpen || (_hub != null && _hub.Blocking);
 
             // The sigil door stays open for the day once the player has run, and shuts on its own
@@ -2296,6 +2304,11 @@ namespace Convergence.Core
             // Everything below drives the game itself, and a modal is by definition covering it.
             // Without this, a click meant for the mastery grid fell through to the element cards
             // underneath and started a run, and Esc aimed at a confirm prompt re-opened it.
+            // The first deal of a character's first exchange gets its hint, over the deals.
+            if (_state == State.Playing && ExchangeScreen.IsOpen && UI.FirstRunHints.Ready(_floor, ignoreQuiet: true))
+                UI.FirstRunHints.Offer("exchange", "TAKE ONE. EVERY DEAL HAS A COST.", null);
+
+            if (UI.FirstRunHints.Blocking) return;
             if (MasteryScreen.IsOpen || ConfirmDialog.IsOpen || FloorRewardScreen.IsOpen ||
                 TransmutationScreen.IsOpen || ShowcasePicker.IsOpen || UI.HubThemeScreen.IsOpen || (ExchangeScreen.IsOpen || ChoiceList.IsOpen) ||
                 TransmuteScreen.IsOpen ||
@@ -2374,6 +2387,7 @@ namespace Convergence.Core
                 _alive.RemoveAll(e => e == null);
                 _hud?.SetFloorInfo(_floor, _alive.Count, _player ? _player.Kills : 0, GroundGearCount());
                 TickRunBeat();
+                TickHints();
 
                 // Practice-dummy mode holds the floor open forever: its target is never in
                 // _alive, so without this the floor would read as cleared on the first frame and
@@ -4086,6 +4100,7 @@ namespace Convergence.Core
                 // card (OpenRift). The clock's last floor closes now, as the Short Descent's does.
                 SaveRun(Chain.RunStage.Cleared, pending: 0);
                 _hud?.Flash("the Rift is open - step through to leave the descent");
+                _riftHintRun = _runToken;
                 return;
             }
             if (runEnds)
@@ -6527,6 +6542,66 @@ namespace Convergence.Core
             change?.Invoke(s);
             _runSave = s;
             _keeper.Save(s);
+        }
+
+        /// <summary>
+        /// The run's first-run hints (UI/FirstRunHints), asked in the order a new player meets
+        /// them; each shows once per character, one at a time. The exchange's is asked in Update,
+        /// over its screen.
+        /// </summary>
+        void TickHints()
+        {
+            if (_player == null || !UI.FirstRunHints.Ready(_floor)) return;
+            bool touch = Controls.TouchMode, pad = Controls.GamepadMode;
+            var me = UI.FirstRunHints.OnScreen(_player.transform.position);
+            const string green = "<color=#7fd27f>GREEN</color>";
+
+            if (!UI.FirstRunHints.Seen("move"))
+            {
+                UI.FirstRunHints.Offer("move",
+                    touch ? "DRAG ON THE LEFT TO MOVE  -  ATTACK TO SWING"
+                    : pad ? $"LEFT STICK TO MOVE  -  {GamepadGlyphs.Attack} TO ATTACK"
+                    : "WASD TO MOVE  -  CLICK TO ATTACK", me);
+                return;
+            }
+
+            var bar = _player.StrikeBarFilling;
+            if (bar != null)
+            {
+                UI.FirstRunHints.Offer("bar",
+                    touch ? $"TAP ATTACK AS THE BAR REACHES {green}"
+                    : pad ? $"{GamepadGlyphs.Attack} AS THE BAR REACHES {green}"
+                    : $"CLICK AS THE BAR REACHES {green}", UI.FirstRunHints.OnScreen(bar.position));
+                return;
+            }
+
+            if (_player.ArtAimPossible && !UI.FirstRunHints.Seen("aim"))
+            {
+                Vector2? at = me;
+                if (touch && _touchControls != null && _touchControls.ButtonCentre("ATTACK", out var b)) at = b;
+                UI.FirstRunHints.Offer("aim",
+                    touch ? "HOLD ATTACK AND DRAG TO AIM THE ART"
+                    : pad ? $"HOLD {GamepadGlyphs.Attack} AND AIM WITH THE RIGHT STICK"
+                    : "HOLD THE MOUSE BUTTON AND POINT TO AIM THE ART", at);
+                return;
+            }
+
+            if (!UI.FirstRunHints.Seen("guard"))
+            {
+                foreach (var e in _alive)
+                {
+                    if (e == null || e.TelegraphRemaining <= 0f) continue;
+                    if (Vector2.Distance(e.transform.position, _player.transform.position) > Tuning.Hints.GuardReach) continue;
+                    UI.FirstRunHints.Offer("guard",
+                        $"A WIND-UP: {(touch ? "GUARD" : pad ? GamepadGlyphs.Guard : "Q")} TO DEFEND",
+                        UI.FirstRunHints.OnScreen(e.transform.position), me);
+                    return;
+                }
+            }
+
+            if (_riftHintRun == _runToken && _rift != null)
+                UI.FirstRunHints.Offer("rift", "THE BLUE RIFT ENDS THE SHOWCASE  -  STEP THROUGH",
+                    UI.FirstRunHints.OnScreen(_rift.transform.position), me);
         }
 
         /// <summary>Health and armour since the last snapshot, sent while they move - polled from Update.</summary>
