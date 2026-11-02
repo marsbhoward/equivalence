@@ -106,6 +106,17 @@
       // at dpr 1 a texel would land on a fraction of a physical pixel on every phone.
       devicePixelRatio: window.devicePixelRatio || 1,
       matchWebGLToCanvasSize: true,
+      // An error the PAGE did not raise - Safari's share sheet ("Add to Home Screen") and extensions
+      // run scripts of their own, and one from another origin reaches window.onerror only as a bare
+      // "Script error." - is logged, not shown: Unity's default puts up a fatal-looking alert for it
+      // while the game runs on untouched. Anything else goes to Unity's own handler (false).
+      errorHandler: function (message) {
+        if (typeof message === 'string' && /^Script error\.?$/.test(message)) {
+          console.warn('[Equivalence] ignored an opaque error from a script outside the page');
+          return true;
+        }
+        return false;
+      },
     }).then(function (instance) {
       document.querySelector("#unity-loading").style.display = "none";
       window.unityInstance = instance;      // the connector may need it for host -> game calls
