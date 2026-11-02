@@ -83,6 +83,13 @@ namespace Convergence.Art.Gear
             return item;
         }
 
+        /// <summary>Pauldrons that stay over the cape turned away - wings (GearItem.PauldronsOverCape).</summary>
+        static GearItem OverCape(GearItem item)
+        {
+            item.PauldronsOverCape = true;
+            return item;
+        }
+
         /// <summary>A back piece that hangs still - a bedroll, a pack - rather than swinging as a cape.</summary>
         static GearItem Still(GearItem item)
         {

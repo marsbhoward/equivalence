@@ -1167,6 +1167,10 @@ namespace Convergence.Art.Gear
         /// read by ApplyLayerOrder. A plain bool, so it survives a reload.</summary>
         bool _shroudOverCloak;
 
+        /// <summary>The worn shoulder piece's <see cref="GearItem.PauldronsOverCape"/> - set by Apply,
+        /// read by ApplyLayerOrder.</summary>
+        bool _pauldronsOverCape;
+
         /// <summary>
         /// Where Apply placed <see cref="RigLayer.Trinket"/>, torso-local, as authored - on the
         /// character's LEFT hip in the default facing - and whether the relic there asks to STAY
@@ -3148,6 +3152,7 @@ namespace Convergence.Art.Gear
             _pauldronFollow = PauldronFollow;
             _hasScarf = false;
             _shroudOverCloak = false;
+            _pauldronsOverCape = false;
             if (_scarfCloth != null) _scarfCloth.Active = false;
             _hoodOn = false;
             _drapeBack = null;
@@ -3191,6 +3196,8 @@ namespace Convergence.Art.Gear
                     _drapeSwings = true;
                 if (item.Slot == GearSlot.Neck && item.ShroudOverCloak)
                     _shroudOverCloak = true;
+                if (item.Slot == GearSlot.Shoulders && item.PauldronsOverCape)
+                    _pauldronsOverCape = true;
 
                 if (item.Slot == GearSlot.Back && item.HasHood)
                 {
@@ -3731,7 +3738,7 @@ namespace Convergence.Art.Gear
         /// then the hands and the ring, all under the body - a grip in front of the chest is
         /// hidden behind the back, one out to the side shows with the fist closed over it - and
         /// the upper arms directly over the body's top layer with both pauldrons straight over
-        /// them, everything else (the head, the cape) still above. The table it replaces drew both
+        /// them, everything else (the head, the cape, the drape) still above. The table it replaces drew both
         /// whole arms under everything but OVER the weapon, so the arms crossed the hilt they held
         /// and nothing showed them leaving the shoulders.
         /// </summary>
@@ -3754,8 +3761,10 @@ namespace Convergence.Art.Gear
             var hiddenUppers = frontVisible ? new[] { RigLayer.ArmBack, RigLayer.GlovesBack }
                                             : new[] { RigLayer.ArmFront, RigLayer.GlovesFront };
             var pauldrons = new[] { RigLayer.ShouldersBack, RigLayer.Shoulders };
-            var body = new[] { RigLayer.Torso, RigLayer.TorsoArmor, RigLayer.BackOver,
-                               RigLayer.Tasset, RigLayer.Belt };
+            // NOT BackOver: the drape ranks over the cape (DrapeOverCape), and counting it put the
+            // upper arm and both pauldrons over the cape - a cloak's wearer turned away showed
+            // their shoulder plates through it (the user's report, 2026-11-02).
+            var body = new[] { RigLayer.Torso, RigLayer.TorsoArmor, RigLayer.Tasset, RigLayer.Belt };
 
             // Each group keeps its own internal order (arm before glove, back before front).
             List<RigLayer> Take(RigLayer[] group)
@@ -4578,6 +4587,14 @@ namespace Convergence.Art.Gear
                 table = Inserted(table, RigLayer.NeckOver, RigLayer.Hood, above: true);
             else if (_shroudOverCloak && _facingAway)
                 table = Inserted(table, RigLayer.NeckOver, RigLayer.BackOver, above: true);
+
+            // Pauldrons that stand out past the cape (GearItem.PauldronsOverCape - Wingward's wings)
+            // are seen over it from behind too; every other pair is covered by the cape.
+            if (_pauldronsOverCape && _facingAway)
+            {
+                table = Reranked(table, RigLayer.ShouldersBack, after: RigLayer.Back);
+                table = Reranked(table, RigLayer.Shoulders, after: RigLayer.ShouldersBack);
+            }
 
             foreach (var layer in RigLayers.All)
             {

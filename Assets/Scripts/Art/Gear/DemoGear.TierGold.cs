@@ -893,7 +893,7 @@ namespace Convergence.Art.Gear
                     ".aaaaa................................",
                     "......................................"), seals: false));
 
-            items.Add(Look("tier_wingward_shoulders", "Wingward Pauldrons", GearSlot.Shoulders, LootTier.Gold,
+            items.Add(OverCape(Look("tier_wingward_shoulders", "Wingward Pauldrons", GearSlot.Shoulders, LootTier.Gold,
                 Grid(RigLayer.Shoulders, "tier_wingward_shoulders.shoulders", -8f, 16.5f, "aE9C569 bDBA73A c997529 d654D1B eF4DC8D",
                     "..........a.......",
                     ".....aaaaabbbbcc..",
@@ -943,7 +943,7 @@ namespace Convergence.Art.Gear
                     "...........acaddca",
                     "............adccdd",
                     "..............adcd",
-                    "................a.")));
+                    "................a."))));
 
             items.Add(Look("tier_wingward_torso", "Wingward Scale", GearSlot.Torso, LootTier.Gold,
                 Grid(RigLayer.TorsoArmor, "tier_wingward_torso.torsoarmor", 0.5f, 14f, "a52958E b2A6A68 cE9C569 dF4DC8D eDBA73A f997529 g654D1B h4F3C20",

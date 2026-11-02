@@ -423,6 +423,11 @@ namespace Convergence.Art.Gear
                  "the head too, where the hood would cover them. The Drifter's Shroud.")]
         public bool ShroudOverCloak;
 
+        [Tooltip("Shoulders slot only. The pauldrons stand out past any cape and stay OVER it while " +
+                 "the rig faces away - wings, not plates (Wingward). Every other pair is covered by " +
+                 "the cape from behind, as the outer garment.")]
+        public bool PauldronsOverCape;
+
         [Tooltip("Back slot only. This cloak has a cowl (RigLayer.Hood, painted alongside the " +
                  "cape body on RigLayer.Back): the mane clips the same way it does under a " +
                  "helmet rather than being disabled outright, and any equipped scarf's tail " +

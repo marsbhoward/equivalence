@@ -257,6 +257,8 @@ for (const id of want) {
     const look = `Look("${itemId}", "${set.name} ${SLOT_NAMES[id][slot]}", GearSlot.${slot}, LootTier.${set.tier},\n` +
       layers.map(l => grid(l, l.rows, l.pal, `${itemId}.${l.rig.toLowerCase()}`)).join(',\n') + ')';
     const helm = layers[0].back;
+    // Wingward's pauldrons are wings: seen over its mantle from behind as well (the user's call)
+    if (slot === 'Shoulders' && id === 'wingward') { cs += `            items.Add(OverCape(${look}));\n\n`; continue; }
     cs += `            items.Add(${still ? `Still(${look})` : helm
       ? `Helm(${look},\n${grid(layers[0], helm.rows, helm.pal, itemId + '.back')}, seals: ${!!SEALED[id]})` : look});\n\n`;
   }
