@@ -56,6 +56,11 @@ export const themes = () => designs().themes ?? [];
 /** What a collectible id is: a hub theme ("hub.*") or a pose. */
 export const collectibleKind = (id: string): 'theme' | 'pose' => (id.startsWith('hub.') ? 'theme' : 'pose');
 export const dyeChannels = (piece: string): number => designs().dyeable?.[piece] ?? 0;
+/** A design recoloured for free (statted gear's looks) - the game's DemoGear.FreeDye. */
+export const isFreeDye = (piece: string): boolean => (designs().freeDye ?? []).includes(piece);
+/** A colour a free piece may take: Common or Uncommon - the game's Chain.Recolour.FreeSwatch. */
+export const freeSwatch = (id: string): boolean =>
+  swatches().some((s) => s.id === id && (s.rarity === 'Common' || s.rarity === 'Uncommon'));
 
 function pickWeighted<T>(items: T[], weight: (t: T) => number): T | null {
   const total = items.reduce((a, t) => a + weight(t), 0);
@@ -184,7 +189,8 @@ export interface Price { charges: number; dyes: Record<string, number>; refusal?
 /**
  * ONE CHARGE per piece whose colours change, plus ONE DYE per channel set to a colour it was not
  * already wearing; putting a channel back as authored costs no dye. The last change to a piece is
- * what it ends as. The game's Chain.Recolour.Cost - keep them in step.
+ * what it ends as. A FREE piece (isFreeDye) costs nothing in a Common or Uncommon colour.
+ * The game's Chain.Recolour.Cost - keep them in step.
  */
 export function recolourCost(current: Map<string, (string | null)[]>, changes: Change[]): Price {
   const price: Price = { charges: 0, dyes: {} };
@@ -195,6 +201,13 @@ export function recolourCost(current: Map<string, (string | null)[]>, changes: C
     seen.add(c.piece);
     const channels = dyeChannels(c.piece);
     if (channels <= 0) return { ...price, refusal: `${c.piece} cannot be dyed` };
+    if (isFreeDye(c.piece)) {
+      for (let ch = 0; ch < channels; ch++) {
+        const want = c.swatches[ch] || null;
+        if (want && !freeSwatch(want)) return { ...price, refusal: `'${want}' is a dye to spend, not a free colour` };
+      }
+      continue;
+    }
     const was = current.get(c.piece) ?? [];
     let changed = false;
     for (let ch = 0; ch < channels; ch++) {

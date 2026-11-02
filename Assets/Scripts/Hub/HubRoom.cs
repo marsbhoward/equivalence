@@ -183,6 +183,16 @@ namespace Convergence.Hub
 
         public ICharacterRig AvatarRig => _rig;
 
+        /// <summary>The sigil door - the stake screen shows it, live (UI/StakeScreen).</summary>
+        public SigilDoor Door => _door;
+
+        /// <summary>The standing character, hidden while a screen looks at the door it stands in
+        /// front of (the stake screen), and shown again after.</summary>
+        public void HideAvatar(bool hide)
+        {
+            if (_rig?.Transform != null) _rig.Transform.gameObject.SetActive(!hide);
+        }
+
         /// <summary>
         /// Where to point a camera to say "this is the hub" in one glance - the sigil door.
         ///
@@ -886,18 +896,18 @@ namespace Convergence.Hub
                         Title = "PORTRAIT BOOTH",
                         Sub = Chain.Web.ChainWallet.Connected
                             ? Chain.Web.ChainWallet.Short(Chain.Web.ChainWallet.Address)
-                            : "no wallet connected",
-                        Body = _booth.CachedLine,
-                        Key = NeedsWallet ? "[ E ]  connect a wallet"
-                            : _booth.Actionable ? "[ E ]  take a portrait" : "[ E ]  refresh",
+                            : "",
+                        // Everyone poses and keeps a picture (UI/BoothScreen); a wallet's portrait
+                        // line follows when there is one to say.
+                        Body = "Pose, frame and save a picture." +
+                               (Chain.Web.ChainWallet.Connected && !RunFormat.Showcase ? "\n" + _booth.CachedLine : ""),
+                        Key = "[ E ]  step in",
                         Accent = new Color(0.78f, 0.30f, 0.42f),
                     },
                 () =>
                 {
                     if (_editMode) { BeginCarryFixture("booth"); return; }
-                    // With no wallet, the portrait's own callback connects one first (GameBootstrap.TakePortrait).
-                    if (NeedsWallet || _booth.Actionable) _onTakePortrait?.Invoke();
-                    else RefreshBooth();   // e.g. the player just equipped the missing piece
+                    _onTakePortrait?.Invoke();   // the booth screen (GameBootstrap.TakePortrait)
                 },
                 on => _booth.SetFocus(on));
             _points.Add(boothPoint);
@@ -978,7 +988,7 @@ namespace Convergence.Hub
                         Sub = _forge.HasBoxAction
                             ? "something to spend"
                             : "nothing to spend - floors drop boxes and gear",
-                        Body = "Trade a box for gear, combine and upgrade what you own - or dye your Diamond armour.",
+                        Body = "Trade a box for gear, combine and upgrade what you own - or recolour your capes, scarves and Diamond armour.",
                         // Always opens: the DYE tab previews colours whatever is held.
                         Key = "[ E ]  open",
                         Accent = new Color(1f, 0.55f, 0.15f),

@@ -33,11 +33,11 @@ namespace Convergence.Core
     {
         public const float TriggerRadius = 1.0f;
 
-        // Matches Tuning.Hub.DoorHalfWidth / DoorHeight and SigilDoor's own OpenGap - the same
-        // fixture, not a re-proportioned copy of it.
+        // Matches Tuning.Hub.DoorHalfWidth / DoorHeight - the same fixture, not a re-proportioned
+        // copy of it - and it opens the same way: FRENCH DOORS (SigilDoor.SwingHinge).
         const float HalfWidth = 0.45f;
         const float Height = 1.95f;
-        const float OpenGap = 0.15f;
+        const float SeamGap = 0.15f;
 
         static readonly Color Stone = new(0.30f, 0.31f, 0.36f);
         static readonly Color StoneDeep = new(0.19f, 0.20f, 0.24f);
@@ -63,6 +63,8 @@ namespace Convergence.Core
         /// </summary>
         public bool Shut { get; private set; }
         Transform _doorL, _doorR;
+        /// <summary>Each leaf's hinge chain on its outer edge, left then right (SigilDoor.HingeChain).</summary>
+        Transform[] _hinge = new Transform[6];
         SpriteRenderer _gap;
         float _openT = -1f;
         System.Collections.Generic.List<SpriteRenderer> _grooves = new();
@@ -87,11 +89,16 @@ namespace Convergence.Core
             // pivoted on that edge hangs off the leaf and slides with it as one piece - except
             // here nothing ever slides again once it is placed.
             // The light through the gap, between the frame and the leaves; sized each frame.
-            var gap = Quad(go.transform, "gap", OpenGap, Height, Color.white, SortingOrders.GroundDecal + 2);
+            var gap = Quad(go.transform, "gap", SeamGap, Height, Color.white, SortingOrders.GroundDecal + 2);
             gap.transform.localPosition = new Vector3(0f, Height * 0.5f, 0f);
 
-            var doorL = Leaf(go.transform, "door-l");
-            var doorR = Leaf(go.transform, "door-r");
+            // Hung from hinges on their OUTER edges, the hub door's French doors.
+            var (lo, lm, li) = Hub.SigilDoor.HingeChain(go.transform, -1, HalfWidth);
+            var (ro, rm, ri) = Hub.SigilDoor.HingeChain(go.transform, +1, HalfWidth);
+            var doorL = Leaf(li, "door-l");
+            doorL.localPosition = new Vector3(HalfWidth, 0f, 0f);
+            var doorR = Leaf(ri, "door-r");
+            doorR.localPosition = new Vector3(-HalfWidth, 0f, 0f);
             Slab(doorL, -1, HalfWidth, Height);
             Slab(doorR, +1, HalfWidth, Height);
 
@@ -126,6 +133,7 @@ namespace Convergence.Core
             d.Shut = shut;
             d._doorL = doorL;
             d._doorR = doorR;
+            d._hinge = new[] { lo, lm, li, ro, rm, ri };
             d._gap = gap;
             d.Part(shut ? 0f : 1f);
             if (!shut) Convergence.Art.Lighting.Glow.Attach(go, inWall ? 2.2f : 1.4f, Color.white, inWall ? 0.75f : 0.5f);
@@ -135,25 +143,18 @@ namespace Convergence.Core
 
         bool _inWall;
 
-        /// <summary>Open by <paramref name="k"/> (0 shut, 1 standing open). On the floor the
-        /// leaves slide a hair apart; in the wall they FOLD back into their jambs - drawn
-        /// narrower, as a leaf swung inward is seen edge-on - so the doorway between them is wide
-        /// enough to walk into.</summary>
+        /// <summary>Open by <paramref name="k"/> (0 shut, 1 standing open): the leaves swing on their
+        /// outer hinges like the hub door's (the user's call, 2026-11-02), on the floor and in the
+        /// wall alike, and the light fills the doorway behind them.</summary>
         void Part(float k)
         {
-            if (_inWall)
+            if (_hinge != null && _hinge.Length == 6)
             {
-                float fold = Tuning.Door.OpenFold * k;
-                float s = (HalfWidth - fold) / HalfWidth;
-                if (_doorL) { _doorL.localPosition = new Vector3(-fold, 0f, 0f); _doorL.localScale = new Vector3(s, 1f, 1f); }
-                if (_doorR) { _doorR.localPosition = new Vector3(fold, 0f, 0f); _doorR.localScale = new Vector3(s, 1f, 1f); }
-                SetGap(Mathf.Max(k > 0f ? 1f / Combat.TexelFx.Body : 0f, fold * 2f), 1f);
-                return;
+                float deg = Tuning.Hub.DoorSwingDegrees * k;
+                Hub.SigilDoor.SwingHinge(_hinge[0], _hinge[1], _hinge[2], -1f, deg);
+                Hub.SigilDoor.SwingHinge(_hinge[3], _hinge[4], _hinge[5], +1f, deg);
             }
-            float slide = OpenGap * 0.5f * k;
-            if (_doorL) _doorL.localPosition = new Vector3(-slide, 0f, 0f);
-            if (_doorR) _doorR.localPosition = new Vector3(slide, 0f, 0f);
-            SetGap(Mathf.Max(k > 0f ? 1f / Combat.TexelFx.Body : 0f, slide * 2f), 1f);
+            SetGap(k > 0f ? HalfWidth * 2f : 0f, 1f);
         }
 
         /// <summary>An open door in the wall holds a doorway in the north wall's collider
@@ -197,7 +198,8 @@ namespace Convergence.Core
         Color _markLit;
         const float SeamSeconds = 0.2f;
 
-        const float OpenSeconds = 0.7f;
+        /// <summary>The swing, the hub door's pace (stone is heavy).</summary>
+        static float OpenSeconds => Tuning.Hub.DoorSwingSeconds;
 
         void Update()
         {

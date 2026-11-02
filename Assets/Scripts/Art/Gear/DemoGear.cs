@@ -170,34 +170,39 @@ namespace Convergence.Art.Gear
             // the cape's own spring; see AnimateScarf. Named by colour, on purpose - a tier is a
             // rarity, not a palette, and these four are the same silhouette wearing four
             // different dyes, not four different rarities.
-            var scarletPal = Palette.Of(new Palette.Ramp(new Color(0.74f, 0.16f, 0.19f)));
-            var azurePal   = Palette.Of(new Palette.Ramp(new Color(0.20f, 0.42f, 0.74f)));
-            var verdantPal = Palette.Of(new Palette.Ramp(new Color(0.22f, 0.56f, 0.30f)));
-            var amberPal   = Palette.Of(new Palette.Ramp(new Color(0.82f, 0.55f, 0.16f)));
+            var scarletRamp = new Palette.Ramp(new Color(0.74f, 0.16f, 0.19f));
+            var azureRamp   = new Palette.Ramp(new Color(0.20f, 0.42f, 0.74f));
+            var verdantRamp = new Palette.Ramp(new Color(0.22f, 0.56f, 0.30f));
+            var amberRamp   = new Palette.Ramp(new Color(0.82f, 0.55f, 0.16f));
+            var scarletPal = Palette.Of(scarletRamp);
+            var azurePal   = Palette.Of(azureRamp);
+            var verdantPal = Palette.Of(verdantRamp);
+            var amberPal   = Palette.Of(amberRamp);
             // Charcoal, a step above black_hood's own cloth so the cowl under the chin reads as a
             // second layer inside the hood - the Errant set's (DemoGear.Errant.cs).
-            var ashenPal   = Palette.Of(new Palette.Ramp(new Color(0.27f, 0.27f, 0.30f), lift: 0.24f));
+            var ashenRamp  = new Palette.Ramp(new Color(0.27f, 0.27f, 0.30f), lift: 0.24f);
+            var ashenPal   = Palette.Of(ashenRamp);
 
             items.Add(Scarf(Make("scarlet_scarf", "Scarlet Scarf", GearSlot.Neck, LootTier.Silver, 0f,
                 Pixels(RigLayer.Neck, "gear.neck.scarlet", ScarfCollarRows, scarletPal, 0f, ScarfCollarY, ppu: BodyPpu),
                 Pixels(RigLayer.NeckBack, "gear.neck.scarlet.tail", ScarfTailRowsData, scarletPal,
-                       ScarfTailX, ScarfTailY, ppu: BodyPpu))));
+                       ScarfTailX, ScarfTailY, ppu: BodyPpu)), scarletRamp));
             items.Add(Scarf(Make("azure_scarf", "Azure Scarf", GearSlot.Neck, LootTier.Silver, 0f,
                 Pixels(RigLayer.Neck, "gear.neck.azure", ScarfCollarRows, azurePal, 0f, ScarfCollarY, ppu: BodyPpu),
                 Pixels(RigLayer.NeckBack, "gear.neck.azure.tail", ScarfTailRowsData, azurePal,
-                       ScarfTailX, ScarfTailY, ppu: BodyPpu))));
+                       ScarfTailX, ScarfTailY, ppu: BodyPpu)), azureRamp));
             items.Add(Scarf(Make("verdant_scarf", "Verdant Scarf", GearSlot.Neck, LootTier.Silver, 0f,
                 Pixels(RigLayer.Neck, "gear.neck.verdant", ScarfCollarRows, verdantPal, 0f, ScarfCollarY, ppu: BodyPpu),
                 Pixels(RigLayer.NeckBack, "gear.neck.verdant.tail", ScarfTailRowsData, verdantPal,
-                       ScarfTailX, ScarfTailY, ppu: BodyPpu))));
+                       ScarfTailX, ScarfTailY, ppu: BodyPpu)), verdantRamp));
             items.Add(Scarf(Make("amber_scarf", "Amber Scarf", GearSlot.Neck, LootTier.Silver, 0f,
                 Pixels(RigLayer.Neck, "gear.neck.amber", ScarfCollarRows, amberPal, 0f, ScarfCollarY, ppu: BodyPpu),
                 Pixels(RigLayer.NeckBack, "gear.neck.amber.tail", ScarfTailRowsData, amberPal,
-                       ScarfTailX, ScarfTailY, ppu: BodyPpu))));
+                       ScarfTailX, ScarfTailY, ppu: BodyPpu)), amberRamp));
             items.Add(Scarf(Make("ashen_scarf", "Ashen Scarf", GearSlot.Neck, LootTier.Silver, 0f,
                 Pixels(RigLayer.Neck, "gear.neck.ashen", ScarfCollarRows, ashenPal, 0f, ScarfCollarY, ppu: BodyPpu),
                 Pixels(RigLayer.NeckBack, "gear.neck.ashen.tail", ScarfTailRowsData, ashenPal,
-                       ScarfTailX, ScarfTailY, ppu: BodyPpu))));
+                       ScarfTailX, ScarfTailY, ppu: BodyPpu)), ashenRamp));
 
             // A shroud over the shoulders, after the user's desert-ranger reference - see
             // DemoGear.WraithCloak.cs.
@@ -1685,6 +1690,14 @@ namespace Convergence.Art.Gear
         {
             item.HasFlowingScarf = true;
             return item;
+        }
+
+        /// <summary>A scarf DYEABLE on its own ramp (one cloth channel) - the look a rolled Neck
+        /// wears, recoloured free at the Forge (DemoGear.FreeDye).</summary>
+        static GearItem Scarf(GearItem item, Palette.Ramp ramp)
+        {
+            item.DyeChannels = new[] { DyeChannel.Of("Cloth", DyeMaterial.Cloth, ramp) };
+            return Scarf(item);
         }
 
         /// <summary>

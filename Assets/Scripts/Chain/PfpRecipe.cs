@@ -97,7 +97,7 @@ namespace Convergence.Chain
                 Gear = JsonUtility.ToJson(profile.Gear),
                 Name = profile.DisplayName,
                 MaxFloor = profile.BestFloor,
-                Pose = profile.Items != null && profile.Items.HasPose(profile.Pose) ? profile.Pose : "",
+                Pose = Core.Tuning.Cosmetics.MayPose(profile, profile.Pose) ? profile.Pose : "",
                 Dyes = WornDyes(profile),
             };
 

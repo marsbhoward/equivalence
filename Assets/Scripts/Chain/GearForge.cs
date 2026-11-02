@@ -39,11 +39,30 @@ namespace Convergence.Chain
 
         /// <summary>Whether a piece takes part in combining at all. Relics hold no stats and never
         /// combine; Diamond/Black Diamond are cosmetic; a pre-sub-stat record with no known primary
-        /// can't be matched against anything.</summary>
+        /// can't be matched against anything; a piece at full stars in the top tier has nowhere to
+        /// go - Gold, or in the showcase Bronze (<see cref="Ceiling"/>). Staking reads this too.</summary>
         public static bool Combinable(MintedGearRecord r)
             => r != null && r.Slot != GearSlot.Relic && r.PrimaryStat != StatKind.None &&
                r.Tier is LootTier.Bronze or LootTier.Silver or LootTier.Gold &&
-               !(r.Tier == LootTier.Gold && r.UpgradeLevel >= GearRoller.MaxLevel);
+               !AtCeiling(r);
+
+        /// <summary>The top tier gear can be combined into: Gold, or the showcase's
+        /// (Tuning.Showcase.GearCeiling - Bronze).</summary>
+        public static LootTier Ceiling => Core.RunFormat.Showcase ? Core.Tuning.Showcase.GearCeiling : LootTier.Gold;
+
+        /// <summary>A piece at full stars in the <see cref="Ceiling"/> tier (or past it).</summary>
+        public static bool AtCeiling(MintedGearRecord r)
+            => r != null && r.UpgradeLevel >= GearRoller.MaxLevel && StatRank(r.Tier) >= StatRank(Ceiling);
+
+        /// <summary>A statted tier's place, low to high - never the enum's value: Bronze was
+        /// appended after Diamond (LootTier).</summary>
+        static int StatRank(LootTier tier) => tier switch
+        {
+            LootTier.Bronze => 0,
+            LootTier.Silver => 1,
+            LootTier.Gold => 2,
+            _ => 3,
+        };
 
         // ------------------------------------------------------------------ salvage
 

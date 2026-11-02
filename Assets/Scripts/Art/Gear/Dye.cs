@@ -100,6 +100,34 @@ namespace Convergence.Art.Gear
 
         public Color Base => Tones[3];
 
+        /// <summary>
+        /// A BAKED channel's exact colours (null on a ramp channel): a tier look is a baked grid
+        /// (DemoGear.Grid) whose palette letters are free-form, so the ramp groups (k s d b l h) a
+        /// Diamond set's channel is matched on do not exist there. Its cloth is named colour by
+        /// colour instead, and each palette entry that IS one of them is repainted
+        /// (<see cref="DyeRecipe.DyeEach"/>) - still from the rows, never a texel match on the
+        /// finished sprite. <see cref="Tones"/>[3] holds the base, for whatever reads <see cref="Base"/>.
+        /// </summary>
+        public Color[] Exact;
+        /// <summary>Which of <see cref="Exact"/> is the base the dye's lightness lands on.</summary>
+        public int ExactBase;
+
+        /// <summary>A baked channel (<see cref="Exact"/>): <paramref name="hexes"/> are the cloth's
+        /// colours as the baked palette writes them ("6D1D19"), <paramref name="baseHex"/> among them.</summary>
+        public static DyeChannel Baked(string name, DyeMaterial material, string baseHex, params string[] hexes)
+        {
+            var exact = new Color[hexes.Length];
+            int b = 0;
+            for (int i = 0; i < hexes.Length; i++)
+            {
+                ColorUtility.TryParseHtmlString("#" + hexes[i], out exact[i]);
+                if (string.Equals(hexes[i], baseHex, StringComparison.OrdinalIgnoreCase)) b = i;
+            }
+            var tones = new Color[6];
+            for (int t = 0; t < 6; t++) tones[t] = exact[b];
+            return new DyeChannel { Name = name, Material = material, Tones = tones, Exact = exact, ExactBase = b };
+        }
+
         public static DyeChannel Of(string name, DyeMaterial material, Palette.Ramp ramp, params float[] farShades)
         {
             var shades = new float[farShades.Length + 1];
@@ -231,6 +259,45 @@ namespace Convergence.Art.Gear
             return outTones;
         }
 
+        /// <summary>
+        /// A BAKED channel's colours dyed <paramref name="dye"/> (DyeChannel.Exact): the same rules as
+        /// <see cref="Dye"/> - lightness re-anchored on the base, chroma and hue drift by a tone's
+        /// place below or above it - for any number of tones, placed on the six-tone profile by
+        /// their lightness rather than by slot. No spacing floor: the colours keep the spacing the
+        /// art was drawn with.
+        /// </summary>
+        public static Color[] DyeEach(Color[] source, int baseIndex, DyeMaterial material, Color dye)
+        {
+            var p = For(material);
+            var d = ToLch(dye);
+            float srcBase = ToLab(source[baseIndex]).x;
+            float newBase = Mathf.Clamp(d.x, p.MinL, p.MaxL);
+            var outTones = new Color[source.Length];
+            for (int i = 0; i < source.Length; i++)
+            {
+                float li = ToLab(source[i]).x;
+                bool above = li >= srcBase;
+                float L = above
+                    ? newBase + (li - srcBase) * (1f - newBase) / Mathf.Max(1f - srcBase, 0.08f)
+                    : newBase * li / Mathf.Max(srcBase, 1e-3f);
+                if (i == baseIndex) L = newBase;
+                L = Mathf.Clamp(L, 0.02f, p.MaxGlowL);
+                // The tone's place on the profile: 0..3 below the base (Line..Base), 3..5 above.
+                float at = above ? 3f + 2f * Mathf.Clamp01((li - srcBase) / Mathf.Max(1f - srcBase, 0.08f))
+                                 : 3f * Mathf.Clamp01(li / Mathf.Max(srcBase, 1e-3f));
+                int lo = Mathf.Clamp(Mathf.FloorToInt(at), 0, 4);
+                float chroma = Mathf.Lerp(p.Chroma[lo], p.Chroma[lo + 1], at - lo);
+                float c = d.y * p.ChromaScale * chroma;
+                float h = d.z;
+                if (at < 3f) h = Toward(h, CoolHue, p.ShadowDrift * (3f - at) / 3f);
+                else if (at > 3f) h = Toward(h, WarmHue, p.LightDrift * (at - 3f) / 2f);
+                var col = FromLchClipped(L, c, h);
+                col.a = source[i].a;
+                outTones[i] = col;
+            }
+            return outTones;
+        }
+
         static float Toward(float h, float target, float degrees)
         {
             float delta = Mathf.DeltaAngle(h, target);
@@ -356,7 +423,9 @@ namespace Convergence.Art.Gear
                 var swatch = c < swatchIds.Length ? DyeCatalog.Get(swatchIds[c]) : null;
                 sb.Append('.').Append(swatch != null ? swatch.Id.Substring(4) : "-");
                 if (swatch == null || channels[c] == null) continue;
-                tones[c] = DyeRecipe.Dye(channels[c].Tones, channels[c].Material, swatch.Color);
+                tones[c] = channels[c].Exact != null
+                    ? DyeRecipe.DyeEach(channels[c].Exact, channels[c].ExactBase, channels[c].Material, swatch.Color)
+                    : DyeRecipe.Dye(channels[c].Tones, channels[c].Material, swatch.Color);
                 any = true;
             }
             if (any) tag = sb.ToString();
@@ -383,7 +452,32 @@ namespace Convergence.Art.Gear
                     result[group[t]] = new Color(c.r * shade, c.g * shade, c.b * shade, was.a);
                 }
             }
+            // Baked channels: each palette entry that is one of the channel's exact colours.
+            foreach (var kv in pal)
+            {
+                if (!TryMatchExact(kv.Value, channels, out int ch, out int i) || tones[ch] == null) continue;
+                result ??= new Dictionary<char, Color>(pal.Count);
+                if (result.Count == 0) foreach (var e in pal) result[e.Key] = e.Value;
+                var c = tones[ch][i];
+                result[kv.Key] = new Color(c.r, c.g, c.b, kv.Value.a);
+            }
             return result;
+        }
+
+        /// <summary>Which baked channel (and which of its colours) a palette entry is.</summary>
+        static bool TryMatchExact(Color colour, DyeChannel[] channels, out int channel, out int index)
+        {
+            channel = -1; index = -1;
+            for (int c = 0; c < channels.Length; c++)
+            {
+                var exact = channels[c]?.Exact;
+                if (exact == null) continue;
+                for (int i = 0; i < exact.Length; i++)
+                    if (Mathf.Abs(colour.r - exact[i].r) <= MatchTolerance && Mathf.Abs(colour.g - exact[i].g) <= MatchTolerance
+                        && Mathf.Abs(colour.b - exact[i].b) <= MatchTolerance)
+                    { channel = c; index = i; return true; }
+            }
+            return false;
         }
 
         /// <summary>
@@ -403,6 +497,8 @@ namespace Convergence.Art.Gear
                 foreach (var group in Groups)
                     if (pal.TryGetValue(group[3], out var b) && TryMatch(b, channels, out int ch, out _))
                         hit[ch] = true;
+                foreach (var kv in pal)
+                    if (TryMatchExact(kv.Value, channels, out int ch, out _)) hit[ch] = true;
                 for (int c = 0; c < hit.Length; c++) if (hit[c]) reach[c]++;
             }
             return reach;
@@ -432,7 +528,9 @@ namespace Convergence.Art.Gear
             for (int c = 0; c < channels.Length; c++)
             {
                 var ch = channels[c];
-                if (ch == null) continue;
+                // A baked channel is matched colour by colour (TryMatchExact), never as a ramp group:
+                // a baked palette's letters can spell one (its 'b' is just a letter there).
+                if (ch == null || ch.Exact != null) continue;
                 foreach (var s in ch.Shades)
                 {
                     float err = Mathf.Max(Mathf.Abs(groupBase.r - ch.Base.r * s),

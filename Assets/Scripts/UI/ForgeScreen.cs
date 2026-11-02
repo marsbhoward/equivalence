@@ -514,7 +514,9 @@ namespace Convergence.UI
         void BuildCombineGroups(List<List<MintedGearRecord>> groups)
         {
             Subtitle("two matching pieces become one - same slot, tier, stars and primary stat" +
-                     " (and class / ability). No boxes needed.");
+                     " (and class / ability). No boxes needed." +
+                     // The showcase stops at Bronze 3 stars (GearForge.Ceiling).
+                     (RunFormat.Showcase ? "  Gear progression stops at Bronze 3 stars in the showcase." : ""));
 
             if (groups.Count == 0)
             {

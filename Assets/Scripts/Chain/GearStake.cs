@@ -42,7 +42,8 @@ namespace Convergence.Chain
 
         /// <summary>The floor a stake at <paramref name="level"/> stars must clear before an
         /// extraction pays. See Tuning.Stake.</summary>
-        public static int GateFloor(int level) => Core.RunFormat.Short
+        public static int GateFloor(int level) => Core.RunFormat.Showcase ? Core.Tuning.Showcase.StakeGate
+            : Core.RunFormat.Short
             ? level switch
             {
                 0 => Tuning.Stake.ShortGateBase,

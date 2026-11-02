@@ -38,6 +38,9 @@ interface Manifest {
   swatches?: { id: string; name: string; rarity: DyeRarity }[];
   /** Every dyeable design and how many dye channels it has (1 main, or main + accent). */
   dyeable?: Record<string, number>;
+  /** Dyeable designs recoloured FOR FREE in Common/Uncommon swatches - statted gear's looks
+   *  (DemoGear.FreeDye: the tier backs and the scarves). */
+  freeDye?: string[];
   /** The rolled portrait poses (PoseCatalog) - ids are permanent. */
   poses?: { id: string; name: string }[];
   /** The HUB THEMES (Hub.HubThemes) a character can earn - each a whole room: floor, wall and every

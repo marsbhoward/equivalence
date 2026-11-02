@@ -706,17 +706,30 @@ namespace Convergence.Core
             public const float RiftBoxDropScale = 6f;
 
             /// <summary>The kit a new character starts the showcase with: a Bronze weapon of the class
-            /// the player picks, and Bronze in these armour slots, rolled at random (the user's call).</summary>
+            /// the player picks, and Bronze in these armour slots, rolled at random (the user's call).
+            /// EVERY SLOT BUT THE ACCESSORY (the user's call, 2026-11-02): shoulders, back, belt and a
+            /// scarf at the neck joined head, torso, legs, boots and gloves.</summary>
             public const Art.Gear.LootTier KitTier = Art.Gear.LootTier.Bronze;
             public static readonly Art.Gear.GearSlot[] KitArmour =
             {
-                Art.Gear.GearSlot.Head, Art.Gear.GearSlot.Torso, Art.Gear.GearSlot.Legs,
-                Art.Gear.GearSlot.Boots, Art.Gear.GearSlot.Gloves,
+                Art.Gear.GearSlot.Head, Art.Gear.GearSlot.Neck, Art.Gear.GearSlot.Shoulders,
+                Art.Gear.GearSlot.Back, Art.Gear.GearSlot.Torso, Art.Gear.GearSlot.Belt,
+                Art.Gear.GearSlot.Legs, Art.Gear.GearSlot.Boots, Art.Gear.GearSlot.Gloves,
             };
 
             /// <summary>The kit holds a Bronze chest for EVERY defensive ability, one worn, so each
             /// can be tried (the user's call, 2026-10-31).</summary>
             public const bool KitChestPerDefensive = true;
+
+            /// <summary>THE STAKE IN THE SHOWCASE (the user's call, 2026-11-02): every stake's gate is the
+            /// showcase's last floor, the floor-10 boss - the full game's gates (20 and up) are past its
+            /// end, so a stake could never pay.</summary>
+            public const int StakeGate = 10;
+
+            /// <summary>The highest gear goes in the showcase (the user's call, 2026-11-02): a piece of
+            /// this tier at full stars no longer combines or stakes (GearForge.Combinable) - progression
+            /// past it is the full game's. Bronze 3 stars.</summary>
+            public const Art.Gear.LootTier GearCeiling = Art.Gear.LootTier.Bronze;
 
             /// <summary>The kit's relic: a standard look at random, carrying the class's MOBILITY art
             /// (the user's call, 2026-10-31: mobility relics for the demo; any look, any art).</summary>
@@ -5011,6 +5024,17 @@ namespace Convergence.Core
             public const float DoorHeight = 1.95f;
 
             /// <summary>
+            /// The sigil door swings open like FRENCH DOORS (the user's call, 2026-11-02, mock "Stake D"):
+            /// each leaf hinged on its outer edge, swinging toward the room this far. A leaf at angle t
+            /// is cos t as wide and its free edge drops by w * sin t * <see cref="DoorSwingDrop"/> - the
+            /// approved mock's look under the camera's tilt (tan of CameraTiltDegrees).
+            /// </summary>
+            public const float DoorSwingDegrees = 70f;
+            /// <summary>Shut to open, the mock's pace - stone is heavy.</summary>
+            public const float DoorSwingSeconds = 1.6f;
+            public static float DoorSwingDrop => UnityEngine.Mathf.Tan(CameraTiltDegrees * UnityEngine.Mathf.Deg2Rad);
+
+            /// <summary>
             /// How close the character must be for a door to offer itself.
             ///
             /// Was 2.2, which is generous for a door and too generous for a room with furniture
@@ -6699,9 +6723,6 @@ namespace Convergence.Core
             /// <summary>How far past the face's foot the player must walk before the floor changes:
             /// into the doorway, not merely up to it.</summary>
             public const float WalkInDepth = 0.3f;
-
-            /// <summary>How far each leaf folds back into its jamb when the door stands open.</summary>
-            public const float OpenFold = 0.36f;
         }
 
         /// <summary>Open edges (Core.Arena): the room ends at a lip over the place's void, held
@@ -7550,6 +7571,21 @@ namespace Convergence.Core
         /// </summary>
         public static class Cosmetics
         {
+            /// <summary>
+            /// The poses EVERY character has at the portrait booth (the user's call, 2026-11-02: three
+            /// to five, all can use) - on a picture and on the portrait NFT alike; the rest of
+            /// PoseCatalog stays earned. Mine, from the booth's sheet of all ten: four that stand
+            /// upright and differ in silhouette - the blade level, point down, upright, across the
+            /// chest. Overhead, Hanging, Coil and Leap tilt the whole body; Planted leaves debris that
+            /// never fades while the booth holds the pause.
+            /// </summary>
+            public static readonly string[] OpenPoses = { "pose.guard", "pose.vigil", "pose.salute", "pose.ready" };
+
+            /// <summary>Whether a character may stand in <paramref name="pose"/>: an open pose, or one it earned.</summary>
+            public static bool MayPose(Chain.CharacterProfile profile, string pose)
+                => !string.IsNullOrEmpty(pose)
+                   && (System.Array.IndexOf(OpenPoses, pose) >= 0 || (profile?.Items != null && profile.Items.HasPose(pose)));
+
             /// <summary>A Diamond box broken for dye charges: one set's worth (7 pieces).</summary>
             public const int ChargesPerBox = 7;
 

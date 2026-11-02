@@ -140,7 +140,9 @@ namespace Convergence.Rifts
             float pulse = near ? 1f : 0.85f + 0.15f * Mathf.Sin(_t * beat);
             _box.color = new Color(hot.r * pulse, hot.g * pulse, hot.b * pulse, 1f);
 
-            if (!near || !Controls.InteractTapped) return;
+            if (!near) return;
+            Controls.OfferUse("RIFT BOX");   // the touch USE half (Controls.ArenaUse)
+            if (!Controls.InteractTapped) return;
 
             _taken = true;
             TexelFx.BeamDrop(transform.position, TexelFx.Rift, LootBeam.Height, TexelFx.Air);

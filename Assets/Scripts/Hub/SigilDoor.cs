@@ -43,9 +43,14 @@ namespace Convergence.Hub
         public bool Focused { get; private set; }
 
         Transform _doorL, _doorR;
+        /// <summary>Each leaf's hinge chain, outer edge first: a rotation, a scale and a rotation -
+        /// together the shear a leaf swinging toward the room draws as (see <see cref="Swing"/>).
+        /// Index 0 the left leaf, 1 the right.</summary>
+        Transform[] _hingeOuter, _hingeMid, _hingeInner;
         SpriteRenderer _light, _slabL, _slabR;
         [SerializeField] Convergence.Art.Lighting.Glow _glow;
-        internal float OpenShare => _openT;
+        // The light's rays fall only for the room - the stake screen's doorway is dark (Stage).
+        internal float OpenShare => _staged ? 0f : _openT;
 
         // Two renderers per mark - the left half on the left door, the right half on the right.
         // Mark i lives at [2i] and [2i+1]. NOT readonly: a domain reload cannot write back into a
@@ -75,9 +80,6 @@ namespace Convergence.Hub
         /// a 0.4 mark it separates into a visible second glyph and reads as a drop shadow.</summary>
         const float CutDepth = 0.010f;
 
-        /// <summary>Total parting when fully open - each door slides half of it.</summary>
-        const float OpenGap = 0.15f;
-
         /// <param name="x">Position along the north wall.</param>
         /// <param name="wallY">The wall line - the doors stand up the face from here.</param>
         public static SigilDoor Build(Transform parent, ElementType[] order, ElementType initial,
@@ -105,7 +107,8 @@ namespace Convergence.Hub
                              Frame, SortingOrders.GroundDecal + 1);
             frame.transform.localPosition = new Vector3(0f, h * 0.5f, 0f);
 
-            d._light = Quad(go.transform, "light", OpenGap * 1.15f, h,
+            // The whole doorway: the leaves swing clear of it (Swing), so the light fills it.
+            d._light = Quad(go.transform, "light", halfW * 2f, h,
                             Color.white, SortingOrders.GroundDecal + 2);
             d._light.transform.localPosition = new Vector3(0f, h * 0.5f, 0f);
 
@@ -115,8 +118,15 @@ namespace Convergence.Hub
 
             // Each door's ORIGIN sits on the seam, so a half-glyph pivoted at its own seam edge
             // lands exactly on the join and the whole thing slides as one piece.
-            d._doorL = Leaf(go.transform, "door-l");
-            d._doorR = Leaf(go.transform, "door-r");
+            // FRENCH DOORS: each leaf hangs from a hinge chain on its OUTER edge, the leaf's own
+            // origin still on the seam, so everything cut across the seam swings with it.
+            d._hingeOuter = new Transform[2]; d._hingeMid = new Transform[2]; d._hingeInner = new Transform[2];
+            for (int i = 0; i < 2; i++)
+                (d._hingeOuter[i], d._hingeMid[i], d._hingeInner[i]) = HingeChain(go.transform, i == 0 ? -1 : 1, halfW);
+            d._doorL = Leaf(d._hingeInner[0], "door-l");
+            d._doorL.localPosition = new Vector3(halfW, 0f, 0f);
+            d._doorR = Leaf(d._hingeInner[1], "door-r");
+            d._doorR.localPosition = new Vector3(-halfW, 0f, 0f);
             d._slabL = Slab(d._doorL, -1, halfW, h);
             d._slabR = Slab(d._doorR, +1, halfW, h);
 
@@ -164,6 +174,28 @@ namespace Convergence.Hub
 
         public void SetFocus(bool on) => Focused = on;
 
+        bool _staged, _stoneBefore;
+
+        /// <summary>
+        /// The stake screen's door (UI/StakeScreen): plain stone - no mark lit, the user's call - and
+        /// swung open from SHUT while the screen is up, so the screen opens on the doors parting.
+        /// Off puts the marks back as they were; the doors close or stay as focus and the day say.
+        /// </summary>
+        public void Stage(bool on)
+        {
+            if (on == _staged) return;
+            _staged = on;
+            if (on) { _stoneBefore = _stone; _stone = true; _openT = 0f; }
+            else _stone = _stoneBefore;
+            Apply(_lit);
+        }
+
+        /// <summary>How far open the doors are, 0 to 1, eased as they are drawn.</summary>
+        public float OpenEased => Mathf.SmoothStep(0f, 1f, _openT);
+
+        /// <summary>Where the stake screen's camera looks: the doors' middle, in world space.</summary>
+        public Vector3 Centre => transform.position + new Vector3(0f, Tuning.Hub.DoorHeight * 0.5f, 0f);
+
         /// <summary>No mark lit - the week's reset, until the selector wakes them.</summary>
         public void SetStone(bool on)
         {
@@ -204,8 +236,10 @@ namespace Convergence.Hub
             // Slower than the glow, because stone is heavy. Smoothstepped in Apply so the doors
             // settle into open rather than stopping dead. Held open for the day, they stay parted
             // after the player walks away; the mark's glow still follows the focus alone.
-            float open = Focused || _heldOpen ? 1f : 0f;
-            _openT = Mathf.MoveTowards(_openT, open, Time.unscaledDeltaTime * 3.2f);
+            float open = Focused || _heldOpen || _staged ? 1f : 0f;
+            // Stepped at most a twentieth of a second a frame: opening the stake screen costs a
+            // long frame, and an unclamped step there skipped the swing it opens on.
+            _openT = Mathf.MoveTowards(_openT, open, Mathf.Min(Time.unscaledDeltaTime, 0.05f) / Tuning.Hub.DoorSwingSeconds);
 
             float breath = Focused ? 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 3.4f) : 0f;
             Apply(_lit + breath * _lit * 0.35f);
@@ -215,16 +249,15 @@ namespace Convergence.Hub
         {
             if (_light == null || _doorL == null || _doorR == null) return;
 
-            float slide = OpenGap * 0.5f * Mathf.SmoothStep(0f, 1f, _openT);
-            _doorL.localPosition = new Vector3(-slide, 0f, 0f);
-            _doorR.localPosition = new Vector3(slide, 0f, 0f);
+            Swing(Tuning.Hub.DoorSwingDegrees * Mathf.SmoothStep(0f, 1f, _openT));
 
             // BLINDING WHITE, not the element's colour - the sketch's own label for it is the
             // "white opening". Tinting it made a fire door glow salmon, which reads as a coloured
             // panel rather than as light. The element is carried by the lit sigil instead, which
             // is also what keeps it readable while the doors are shut and there is no light at all.
-            _light.color = new Color(1f, 1f, 1f, _openT);
-            if (_glow != null) _glow.Intensity = _openT * Mathf.Lerp(0.8f, 1f, lit);
+            // Staged for the stake screen the doorway is DARK - the void is drawn in it there.
+            _light.color = _staged ? new Color(0.075f, 0.075f, 0.09f, _openT) : new Color(1f, 1f, 1f, _openT);
+            if (_glow != null) _glow.Intensity = _staged ? 0f : _openT * Mathf.Lerp(0.8f, 1f, lit);
 
             // The slabs take a little of the light nearest the seam once it is showing.
             // Deliberately NOT tinted by the element. Warming the slabs even 10% toward the
@@ -258,9 +291,53 @@ namespace Convergence.Hub
             }
         }
 
+        /// <summary>
+        /// Swings both leaves to <paramref name="degrees"/> about their outer hinges (the user's
+        /// French doors, mock "Stake D"). Seen through the tilted camera a leaf turning toward the
+        /// room keeps its hinge, narrows to cos t and drops its free edge by
+        /// w * sin t * DoorSwingDrop - in the hinge's frame, with x running toward the seam, the
+        /// matrix [[cos t, 0], [-sin t * drop, 1]]. A transform cannot shear, so the matrix is
+        /// split (closed-form 2x2 SVD) into rotate * scale * rotate over the three hinge nodes;
+        /// its determinant is cos t, positive below 90 degrees, so neither scale flips.
+        /// </summary>
+        void Swing(float degrees)
+        {
+            if (_hingeOuter == null || _hingeOuter.Length < 2 || _hingeOuter[0] == null) return;
+            for (int i = 0; i < 2; i++)
+                SwingHinge(_hingeOuter[i], _hingeMid[i], _hingeInner[i], i == 0 ? -1f : 1f, degrees);
+        }
+
+        /// <summary>A leaf's hinge chain on its OUTER edge (<paramref name="side"/> -1 left, +1
+        /// right): rotate, scale, rotate - hang the leaf under the last, its seam
+        /// <paramref name="halfW"/> in from the hinge. Shared with the arena's FloorDoor.</summary>
+        public static (Transform Outer, Transform Mid, Transform Inner) HingeChain(Transform parent, int side, float halfW)
+        {
+            var outer = Leaf(parent, side < 0 ? "hinge-l" : "hinge-r");
+            outer.localPosition = new Vector3(side * halfW, 0f, 0f);
+            var mid = Leaf(outer, "scale");
+            var inner = Leaf(mid, "turn");
+            return (outer, mid, inner);
+        }
+
+        /// <summary>Poses one leaf's hinge chain at <paramref name="degrees"/> - see <see cref="Swing"/>.</summary>
+        public static void SwingHinge(Transform outer, Transform mid, Transform inner, float side, float degrees)
+        {
+            if (outer == null || mid == null || inner == null) return;
+            float t = degrees * Mathf.Deg2Rad;
+            // Left leaf: x toward the seam is +x, the free edge drops as x grows. Right: mirrored.
+            float a = Mathf.Cos(t), b = 0f, cc = side * Mathf.Sin(t) * Tuning.Hub.DoorSwingDrop, dd = 1f;
+            float e = (a + dd) * 0.5f, f = (a - dd) * 0.5f, g = (cc + b) * 0.5f, h = (cc - b) * 0.5f;
+            float q = Mathf.Sqrt(e * e + h * h), r = Mathf.Sqrt(f * f + g * g);
+            float a1 = Mathf.Atan2(g, f), a2 = Mathf.Atan2(h, e);
+            float theta = (a2 - a1) * 0.5f, phi = (a2 + a1) * 0.5f;
+            outer.localRotation = Quaternion.Euler(0f, 0f, phi * Mathf.Rad2Deg);
+            mid.localScale = new Vector3(q + r, q - r, 1f);
+            inner.localRotation = Quaternion.Euler(0f, 0f, theta * Mathf.Rad2Deg);
+        }
+
         // ------------------------------------------------------------------ construction
 
-        static Transform Leaf(Transform parent, string name)
+        internal static Transform Leaf(Transform parent, string name)
         {
             var go = new GameObject(name);
             go.transform.SetParent(parent, false);

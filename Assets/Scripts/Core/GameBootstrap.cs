@@ -196,6 +196,7 @@ namespace Convergence.Core
         public UI.GearDisplayScreen GearDisplayScreen { get; private set; }
         public UI.RiftScreen RiftScreen { get; private set; }
         public UI.StakeScreen StakeScreen { get; private set; }
+        public UI.BoothScreen BoothScreen { get; private set; }
         public UI.PauseScreen PauseScreen { get; private set; }
         public UI.SettingsScreen SettingsScreen { get; private set; }
         public UI.ControlsScreen ControlsScreen { get; private set; }
@@ -476,6 +477,8 @@ namespace Convergence.Core
             GearDisplayScreen = gameObject.AddComponent<UI.GearDisplayScreen>();
             RiftScreen = gameObject.AddComponent<UI.RiftScreen>();
             StakeScreen = gameObject.AddComponent<UI.StakeScreen>();
+            BoothScreen = gameObject.AddComponent<UI.BoothScreen>();
+            BoothScreen.Init(() => _profile, TakePortraitIn, BeginConnectWallet);
             PauseScreen = gameObject.AddComponent<UI.PauseScreen>();
             SettingsScreen = gameObject.AddComponent<UI.SettingsScreen>();
             ControlsScreen = gameObject.AddComponent<UI.ControlsScreen>();
@@ -2018,27 +2021,23 @@ namespace Convergence.Core
         /// irreversible choice in the hub uses, and it must not be reachable except by pressing
         /// the booth's own interact key - see PhotoBooth's and HubRoom.RefreshBooth's docs.
         /// </summary>
-        async void TakePortrait()
+        void TakePortrait()
+        {
+            if (_hub == null || _profile == null || BoothScreen.IsOpen) return;
+            // The booth (UI/BoothScreen): a pose, a picture, and - for a wallet that can write - the
+            // portrait NFT, which comes back here as TakePortraitIn.
+            BoothScreen.Open(_canvas.transform, _profile.LastElement);
+        }
+
+        /// <summary>The booth's portrait button: the pose chosen there (an open pose or an earned one,
+        /// Tuning.Cosmetics.MayPose), held on the figure in the room while the question is asked.</summary>
+        void TakePortraitIn(string pose)
         {
             if (_hub == null || _profile == null) return;
-            // No wallet yet: the booth's key is "connect a wallet", and it lands here.
             if (!Chain.Web.ChainWallet.Connected) { BeginConnectWallet(); return; }
-
-            // A character holding earned POSES chooses one first (Art.Gear.PoseCatalog), seen on the
-            // figure in the booth while the question is asked; standing is always offered.
-            var owned = new List<Art.Gear.PoseDef>();
-            foreach (var pose in Art.Gear.PoseCatalog.All)
-                if (_profile.Items != null && _profile.Items.HasPose(pose.Id)) owned.Add(pose);
-            if (owned.Count == 0) { _profile.Pose = ""; ConfirmPortrait(); return; }
-
-            var answers = new List<(string Label, string Detail)> { ("Standing", "As the character stands.") };
-            foreach (var pose in owned) answers.Add((pose.Name, pose.Description));
-            Choices.Show(_canvas.transform, "Which pose?", "Earned poses are the character's own.", answers, pick =>
-            {
-                _profile.Pose = pick <= 0 ? "" : owned[pick - 1].Id;
-                _hub?.AvatarRig?.HoldPose(pick <= 0 ? null : owned[pick - 1]);
-                ConfirmPortrait();
-            }, "Not yet");
+            _profile.Pose = Tuning.Cosmetics.MayPose(_profile, pose) ? pose : "";
+            _hub?.AvatarRig?.HoldPose(Art.Gear.PoseCatalog.Get(_profile.Pose));
+            ConfirmPortrait();
         }
 
         /// <summary>The portrait's question and take, once the pose is chosen. The booth's figure lets
@@ -2316,6 +2315,7 @@ namespace Convergence.Core
                       || TransmuteScreen.IsOpen
                       || TxScreen.IsOpen || CharacterScreen.IsOpen || ForgeScreen.IsOpen
                       || ManualScreen.IsOpen || GearDisplayScreen.IsOpen || RiftScreen.IsOpen || StakeScreen.IsOpen
+                      || BoothScreen.IsOpen
                       || PauseScreen.IsOpen || SettingsScreen.IsOpen || ControlsScreen.IsOpen
                       || HudSettingsScreen.IsOpen
                       || InventoryScreen.IsOpen || UI.EndingScreen.IsOpen || UI.ShowcaseEndScreen.IsOpen
@@ -2411,7 +2411,7 @@ namespace Convergence.Core
                 TransmutationScreen.IsOpen || ShowcasePicker.IsOpen || UI.HubThemeScreen.IsOpen || (ExchangeScreen.IsOpen || ChoiceList.IsOpen) ||
                 TransmuteScreen.IsOpen ||
                 TxScreen.IsOpen || ForgeScreen.IsOpen || ManualScreen.IsOpen ||
-                GearDisplayScreen.IsOpen || RiftScreen.IsOpen || StakeScreen.IsOpen ||
+                GearDisplayScreen.IsOpen || RiftScreen.IsOpen || StakeScreen.IsOpen || BoothScreen.IsOpen ||
                 PauseScreen.IsOpen || SettingsScreen.IsOpen || ControlsScreen.IsOpen ||
                 HudSettingsScreen.IsOpen || InventoryScreen.IsOpen) return;
 
@@ -2528,6 +2528,11 @@ namespace Convergence.Core
                 // stopped the floor from ever clearing.
                 // ASKED FOR, never walked into: a player who wants to keep going should be able to
                 // cross the floor past an open tear without a screen stopping them.
+                // Both offer the touch USE half while in reach (Controls.ArenaUse).
+                if (_rift != null && _rift.Usable && _rift.PlayerInside && !RiftScreen.IsOpen)
+                    Controls.OfferUse("THE RIFT");
+                else if (_rift != null && _rift.Sealed && !_redSummoned && _plan.Rift == Rifts.RiftKind.Red
+                         && _rift.PlayerNear) Controls.OfferUse("THE SEAL");
                 if (_rift != null && _rift.Usable && _rift.PlayerInside && !RiftScreen.IsOpen
                     && Controls.InteractTapped) OpenRift();
                 // A dormant Red Rift breaks open only on the player's word: [ E ] at the tear, then
@@ -2737,8 +2742,10 @@ namespace Convergence.Core
             if (_state != State.Hub || StakeScreen == null || StakeScreen.IsOpen) return;
             if (_waiting != null) { AskWaitingRun(); return; }
             var candidates = GearStake.Candidates(_profile);
-            if (candidates.Count == 0) { StartRun(element); return; }
-            StakeScreen.Open(_canvas.transform, candidates, _profile.RiftBoxes,
+            // NOT ON A CHARACTER'S FIRST RUN (the user's call, 2026-11-02): a wager on gear the
+            // player has never fought in is a question asked too early.
+            if (candidates.Count == 0 || _profile.TotalRuns == 0) { StartRun(element); return; }
+            StakeScreen.Open(_canvas.transform, candidates, _profile.RiftBoxes, _hub,
                 onChoose: (chosen, insured) => StartRun(element, chosen, insured),
                 onCancel: null);
         }
@@ -2789,7 +2796,7 @@ namespace Convergence.Core
         bool EnsureShowcaseKit(CharacterProfile profile)
         {
             if (!RunFormat.Showcase || profile == null) return false;
-            if (profile.MintedGear.Exists(r => r.InstanceId.StartsWith("KIT-"))) return false;
+            if (profile.MintedGear.Exists(r => r.InstanceId.StartsWith("KIT-"))) return TopUpShowcaseKit(profile);
 
             void Give(Art.Gear.GearSlot slot, Art.Gear.WeaponClass cls, Art.Gear.DefensiveAbility? ability, bool wear)
                 => GiveKitPiece(profile, slot, cls, ability, wear);
@@ -2818,6 +2825,30 @@ namespace Convergence.Core
             profile.Gear.DropStale();
             Debug.Log($"[Showcase] kit given at creation to {profile.DisplayName}: armour worn, weapons, chests and relics held");
             return true;
+        }
+
+        /// <summary>
+        /// A character given the kit before a slot joined it (the user's call, 2026-11-02: shoulders,
+        /// back, belt and a scarf) is given the missing pieces - worn where the slot is empty, held
+        /// otherwise. True when it gave any (the caller saves).
+        /// </summary>
+        static bool TopUpShowcaseKit(CharacterProfile profile)
+        {
+            bool gave = false;
+            foreach (var slot in Tuning.Showcase.KitArmour)
+            {
+                if (slot == Art.Gear.GearSlot.Torso) continue;   // the chests are one per defensive, given at creation
+                if (profile.MintedGear.Exists(r => r.InstanceId.StartsWith($"KIT-{slot}-"))) continue;
+                GiveKitPiece(profile, slot, Art.Gear.WeaponClass.Greatsword, null,
+                             wear: string.IsNullOrEmpty(profile.Gear.Get(slot)));
+                gave = true;
+            }
+            if (gave)
+            {
+                profile.Gear.DropStale();
+                Debug.Log($"[Showcase] kit topped up for {profile.DisplayName}: the slots added since it was given");
+            }
+            return gave;
         }
 
         /// <summary>One Bronze kit piece, rolled, registered and held (worn when <paramref name="wear"/>).</summary>

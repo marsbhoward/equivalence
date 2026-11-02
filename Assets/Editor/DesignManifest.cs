@@ -80,7 +80,12 @@ namespace Convergence.EditorTools
             dyeable.Sort((a, b) => string.CompareOrdinal(a.ItemId, b.ItemId));
             for (int i = 0; i < dyeable.Count; i++)
                 sb.Append($"    {Q(dyeable[i].ItemId)}: {dyeable[i].DyeChannels.Length}").Append(i < dyeable.Count - 1 ? ",\n" : "\n");
-            sb.Append("  },\n  \"poses\": [\n");
+            // The ones recoloured for free (DemoGear.FreeDye) - statted gear's looks.
+            sb.Append("  },\n  \"freeDye\": [\n");
+            var free = dyeable.FindAll(d => DemoGear.FreeDye(d.ItemId));
+            for (int i = 0; i < free.Count; i++)
+                sb.Append($"    {Q(free[i].ItemId)}").Append(i < free.Count - 1 ? ",\n" : "\n");
+            sb.Append("  ],\n  \"poses\": [\n");
             for (int i = 0; i < PoseCatalog.All.Length; i++)
                 sb.Append($"    {{ \"id\": {Q(PoseCatalog.All[i].Id)}, \"name\": {Q(PoseCatalog.All[i].Name)} }}")
                   .Append(i < PoseCatalog.All.Length - 1 ? ",\n" : "\n");

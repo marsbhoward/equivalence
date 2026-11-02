@@ -169,8 +169,16 @@ namespace Convergence.Chain
             return item != null && item.DyeChannels is { Length: > 0 } && string.IsNullOrEmpty(item.StackKey) ? item : null;
         }
 
+        /// <summary>
+        /// A colour a FREE piece (DemoGear.FreeDye - the tier backs and the scarves) may take: the
+        /// Common and Uncommon swatches. The Rare ones are what the dye economy sells, so they stay
+        /// on Diamond armour. The service's copy is cosmetics.ts freeSwatch.
+        /// </summary>
+        public static bool FreeSwatch(DyeSwatch swatch) => swatch != null && swatch.Rarity is DyeRarity.Common or DyeRarity.Uncommon;
+
         /// <summary>What <paramref name="changes"/> would cost on top of what <paramref name="items"/>
-        /// already wears. Several changes to one piece are priced as its final colours.</summary>
+        /// already wears. Several changes to one piece are priced as its final colours. A FREE piece
+        /// (DemoGear.FreeDye) costs nothing, in any of the colours it may take (FreeSwatch).</summary>
         public static Price Cost(CharacterItems items, IReadOnlyList<PieceDye> changes)
         {
             var price = new Price();
@@ -182,6 +190,15 @@ namespace Convergence.Chain
                 var design = Dyeable(c.Piece);
                 if (design == null) { price.Refusal = $"{c.Piece} cannot be dyed"; return price; }
                 int channels = design.DyeChannels.Length;
+                if (DemoGear.FreeDye(c.Piece))
+                {
+                    for (int ch = 0; ch < channels && ch < c.Swatches.Count; ch++)
+                    {
+                        if (string.IsNullOrEmpty(c.Swatches[ch])) continue;
+                        if (!FreeSwatch(DyeCatalog.Get(c.Swatches[ch]))) { price.Refusal = $"'{c.Swatches[ch]}' is a dye to spend, not a free colour"; return price; }
+                    }
+                    continue;
+                }
                 var was = items.SwatchesOn(c.Piece, channels);
                 bool changed = false;
                 for (int ch = 0; ch < channels; ch++)

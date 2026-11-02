@@ -122,13 +122,39 @@ namespace Convergence.UI
 
         // ------------------------------------------------------------------ step 1: the sets
 
+        /// <summary>The DYE tab's own "set" of the character's statted capes and scarves - recoloured
+        /// for free (DemoGear.FreeDye), so they sit apart from the Diamond sets.</summary>
+        const string FreeSet = "@free";
+
+        /// <summary>The free looks the character's statted gear wears, one per design - a dye is
+        /// keyed by DESIGN, so two Hoplite Capes wear one colour.</summary>
+        List<GearItem> FreePieces()
+            => (_ctx.MintedGear ?? new List<MintedGearRecord>())
+                .Where(r => r != null && string.IsNullOrEmpty(r.Design))
+                .Select(r => r.Look).Where(DemoGear.FreeDye).Distinct()
+                .Select(GearCatalog.Get).Where(p => p != null && p.DyeChannels is { Length: > 0 })
+                .OrderBy(p => p.Slot).ThenBy(p => p.DisplayName).ToList();
+
         void BuildDyeSets()
         {
             var sets = ArmourSets.All().Where(id => ArmourSets.Pieces(id).Any(p => p.DyeChannels is { Length: > 0 })).ToList();
+            // The capes and scarves first: on a statted character (the showcase) they are all there is.
+            if (FreePieces().Count > 0) sets.Insert(0, FreeSet);
             var items = DyeItems;
             for (int i = 0; i < sets.Count; i++)
             {
                 string id = sets[i];
+                if (id == FreeSet)
+                {
+                    var free = FreePieces();
+                    int freeDyed = free.Count(p => items.Dyed.Any(d => d.Piece == p.ItemId));
+                    var freeCard = Card(i, 5, 330f, 96f, 16f, -70f);
+                    UiKit.Label(UiKit.Rect(freeCard, "n", Vector2.zero, Vector2.one, new Vector2(12, 6), new Vector2(-12, -6)),
+                        "CAPES & SCARVES\n" + (freeDyed > 0 ? $"{freeDyed} recoloured" : "free to recolour"),
+                        18, PoweredInk, TextAnchor.MiddleLeft);
+                    _actions.Add((freeCard, () => { _dyeSet = FreeSet; Rebuild(); }));
+                    continue;
+                }
                 var pieces = ArmourSets.Pieces(id);
                 int dyed = pieces.Count(p => items.Dyed.Any(d => d.Piece == p.ItemId));
                 int pending = pieces.Count(p => _dyePending.ContainsKey(p.ItemId));
@@ -145,7 +171,8 @@ namespace Convergence.UI
 
         void BuildDyeSet()
         {
-            var pieces = ArmourSets.Pieces(_dyeSet).Where(p => p.DyeChannels is { Length: > 0 }).ToList();
+            var pieces = _dyeSet == FreeSet ? FreePieces()
+                : ArmourSets.Pieces(_dyeSet).Where(p => p.DyeChannels is { Length: > 0 }).ToList();
             for (int i = 0; i < pieces.Count; i++)
             {
                 var piece = pieces[i];
@@ -226,8 +253,10 @@ namespace Convergence.UI
             var items = DyeItems;
             var session = Session();
             var price = Recolour.Cost(items, session);
+            bool free = DemoGear.FreeDye(piece.ItemId);
             var options = new List<DyeSwatch> { null };
-            options.AddRange(DyeCatalog.All);
+            // A free piece takes the Common and Uncommon colours, for nothing (Recolour.FreeSwatch).
+            options.AddRange(free ? DyeCatalog.All.Where(Recolour.FreeSwatch) : DyeCatalog.All);
             const int cols = 5;
             const float w = 250f, h = 80f, gap = 12f, x0 = -380f, y0 = -170f;
             for (int i = 0; i < options.Count; i++)
@@ -238,12 +267,14 @@ namespace Convergence.UI
                 int have = sw == null ? 0 : items.DyesOf(sw.Id);
                 int need = sw != null && price.Dyes.TryGetValue(sw.Id, out int n) ? n : 0;
                 // A colour the piece already wears costs no dye; one not held can still be previewed.
-                bool reachable = sw == null || current || have > need || authored[_dyeChannel] == sw.Id;
+                bool reachable = free || sw == null || current || have > need || authored[_dyeChannel] == sw.Id;
                 var card = UiKit.Panel(_content, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
                     new Vector2(x, y - h), new Vector2(x + w, y), current ? new Color(0.36f, 0.25f, 0.1f) : SwatchFrame);
                 if (sw != null)
                     UiKit.Panel(card, new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(8, 8), new Vector2(60, -8), sw.Color);
-                string label = sw == null ? "as authored" : $"{sw.Name}\n{have} held · {(sw.Rarity == DyeRarity.VeryRare ? "Very Rare" : sw.Rarity.ToString())}";
+                string label = sw == null ? "as authored"
+                             : free ? $"{sw.Name}\nfree"
+                             : $"{sw.Name}\n{have} held · {(sw.Rarity == DyeRarity.VeryRare ? "Very Rare" : sw.Rarity.ToString())}";
                 UiKit.Label(UiKit.Rect(card, "n", Vector2.zero, Vector2.one, new Vector2(sw == null ? 12 : 70, 4), new Vector2(-6, -4)),
                     label, 16, reachable ? Ink : Dim, TextAnchor.MiddleLeft);
                 string id = sw?.Id;

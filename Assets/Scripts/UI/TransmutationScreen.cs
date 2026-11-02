@@ -351,7 +351,8 @@ namespace Convergence.UI
             // underneath never touches what the arena, hub, or any other screen draws.
             float mid = (left + rowL) * 0.5f;
             var helmText = Button(left, mid - 5f, top, bottom, () => { _toggleHelm?.Invoke(); Refresh(); });
-            _refresh.Add(() => helmText.text = _profile().HelmHidden ? "HELMET\nhidden" : "HELMET\nshown");
+            // Each names what a press WILL do, not what is so now (the user's call, 2026-11-02).
+            _refresh.Add(() => helmText.text = _profile().HelmHidden ? "SHOW\nHELMET" : "HIDE\nHELMET");
 
             var weaponText = Button(mid + 5f, rowL, top, bottom, () =>
             {
@@ -359,7 +360,7 @@ namespace Convergence.UI
                 _preview.Rig?.SetWeaponHidden(_weaponHiddenInPreview);
                 Refresh();
             });
-            _refresh.Add(() => weaponText.text = _weaponHiddenInPreview ? "WEAPON\nhidden here" : "WEAPON\nshown");
+            _refresh.Add(() => weaponText.text = _weaponHiddenInPreview ? "SHOW\nWEAPON" : "HIDE\nWEAPON");
 
             var clearText = Button(rowR, right, top, bottom, () =>
             {

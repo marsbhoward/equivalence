@@ -2054,6 +2054,7 @@ namespace Convergence.Player
             bool releasePressed = Core.Controls.ReleaseTapped;
             if (Blade != null)
             {
+                Core.Controls.OfferUse("BLINK");   // the touch USE half (Controls.ArenaUse)
                 if (Core.Controls.InteractTapped) Blade.TeleportOwner();
             }
             else if (releasePressed && Resource != null && Resource.CanRelease)

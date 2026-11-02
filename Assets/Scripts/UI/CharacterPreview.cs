@@ -42,10 +42,18 @@ namespace Convergence.UI
         Canvas _canvas;
 
         public RenderTexture Texture => _rt;
+
+        /// <summary>What the camera clears to - the booth's pose cards set their own glass.</summary>
+        public Color Background { set { if (_cam != null) _cam.backgroundColor = value; } }
         public ICharacterRig Rig => _rig;
 
-        public void Build(ElementType element, int width = 512, int height = 720)
+        /// <summary>Where this one stands: <see cref="Origin"/>, shifted along x for a second preview
+        /// open at the same time (the booth's pose thumbnails), so neither camera sees the other's rig.</summary>
+        float _origin = Origin;
+
+        public void Build(ElementType element, int width = 512, int height = 720, float shift = 0f)
         {
+            _origin = Origin + shift;
             _fittedLook = null;
             // The instance outlives the screen that opened it, so a close-up from the last visit
             // must not be what the next one opens on.
@@ -53,7 +61,7 @@ namespace Convergence.UI
             _steps = 0;
             _pan = Vector2.zero;
             _holder = new GameObject("preview-character");
-            _holder.transform.position = new Vector3(Origin, Origin, 0f);
+            _holder.transform.position = new Vector3(_origin, Origin, 0f);
             _rig = CharacterRigFactory.Build(_holder, element, 0);
 
             // The preview is the one place gear is actually studied, so it stands at ease with
@@ -78,7 +86,7 @@ namespace Convergence.UI
             _rt = NewTexture(width, height);
 
             var camGo = new GameObject("preview-camera");
-            camGo.transform.position = new Vector3(Origin, Origin + 0.05f, -10f);
+            camGo.transform.position = new Vector3(_origin, Origin + 0.05f, -10f);
             _cam = camGo.AddComponent<Camera>();
             _cam.orthographic = true;
             _cam.orthographicSize = 0.72f;

@@ -35,6 +35,9 @@ namespace Convergence.Art.Gear
         public static string TierLookFor(GearSlot slot, LootTier tier, WeaponClass weaponClass, int seed)
         {
             if (!TierSets.TryGetValue(tier, out var sets) || sets.Length == 0) return null;
+            // A rolled Neck wears a SCARF (the user's call, 2026-11-02: scarves are stat-bearing drops,
+            // recoloured at the Forge) - one of the five, whatever its tier.
+            if (slot == GearSlot.Neck) return ScarfLooks[(int)((uint)(seed * 0x9E3779B1) % (uint)ScarfLooks.Length)];
             string piece = slot switch
             {
                 GearSlot.Head or GearSlot.Shoulders or GearSlot.Torso or GearSlot.Gloves or
@@ -60,6 +63,47 @@ namespace Convergence.Art.Gear
             AddTierBronze(items);
             AddTierSilver(items);
             AddTierGold(items);
+            TierBackDyes(items);
+        }
+
+        /// <summary>The scarves a rolled Neck wears (DemoGear.cs, each dyeable on its own ramp).</summary>
+        static readonly string[] ScarfLooks = { "scarlet_scarf", "azure_scarf", "verdant_scarf", "amber_scarf", "ashen_scarf" };
+
+        /// <summary>
+        /// Looks a player recolours at the Forge FOR FREE (the user's call, 2026-11-02): the tier
+        /// backs and the scarves - statted gear, which never trades, so a colour is not something to
+        /// sell. Rare swatches stay the dye economy's (Chain.Recolour.FreeSwatch). The service reads
+        /// the list from designs.json ("freeDye").
+        /// </summary>
+        public static bool FreeDye(string design)
+            => !string.IsNullOrEmpty(design) && (System.Array.IndexOf(ScarfLooks, design) >= 0 || _freeBacks.Contains(design));
+
+        static readonly HashSet<string> _freeBacks = new();
+
+        /// <summary>
+        /// Every tier back's CLOTH as one baked channel (DyeChannel.Baked): its colours as the baked
+        /// palette writes them, darkest first, the main body's colour the base - read off the grids'
+        /// counts. Trim, clasps, the Athanor flask and the bedroll's caps are left as drawn.
+        /// </summary>
+        static void TierBackDyes(List<GearItem> items)
+        {
+            void Back(string id, DyeMaterial material, string baseHex, params string[] cloth)
+            {
+                var item = items.Find(i => i.ItemId == id);
+                if (item == null) return;
+                item.DyeChannels = new[] { DyeChannel.Baked("Cloth", material, baseHex, cloth) };
+                _freeBacks.Add(id);
+            }
+            Back("tier_hoplite_back", DyeMaterial.Cloth, "6D1D19", "471311", "6D1D19", "9B2A24");
+            Back("tier_wayfarer_back", DyeMaterial.Cloth, "56602F", "282C16", "3C4321", "56602F", "7D864F", "A4AD6F");
+            Back("tier_athanor_back", DyeMaterial.Leather, "7A4A2A",
+                 "22150D", "342014", "4A2E1C", "55341D", "64422A", "7A4A2A", "95623E", "B17C53", "E7B66C");
+            Back("tier_hauberk_back", DyeMaterial.Cloth, "3D4147", "282B2F", "3D4147", "575D66");
+            Back("tier_kettle_back", DyeMaterial.Cloth, "213727", "162419", "213727", "2F4F37");
+            Back("tier_sentinel_back", DyeMaterial.Cloth, "2C3A5C", "141B2A", "1F2940", "2C3A5C", "4E5F86");
+            Back("tier_sol_back", DyeMaterial.Cloth, "D4D0C4", "949289", "D4D0C4", "E5E3DC");
+            Back("tier_cataphract_back", DyeMaterial.Cloth, "8A1A2A", "3F0C13", "61121D", "8A1A2A", "B2404B");
+            Back("tier_wingward_back", DyeMaterial.Cloth, "2A6A68", "1D4A49", "2A6A68", "52958E");
         }
 
         /// <summary>One look: an authored piece only a rolled record wears.</summary>

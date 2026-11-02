@@ -256,6 +256,27 @@ namespace Convergence.Core
         /// </summary>
         public static string InteractTarget;
 
+        /// <summary>
+        /// What USE would act on IN A RUN this frame, by name, or null - a drop in reach, the open
+        /// Rift, the Red Rift's seal, a thrown blade to blink to. Raised every frame by whatever is
+        /// in reach (<see cref="OfferUse"/>) rather than written by one owner, since the things that
+        /// answer Interact in a run are separate objects with their own reach. While it is set the
+        /// touch ABILITY button splits and its top half is USE (the user's call, 2026-11-02: on
+        /// keyboard both are E already). Lasts one frame past the last offer, so the order Updates
+        /// run in never flickers it.
+        /// </summary>
+        public static string ArenaUse => Time.frameCount - _useOfferFrame <= 1 ? _useOffer : null;
+
+        /// <summary>Something in a run answers Interact this frame - see <see cref="ArenaUse"/>.</summary>
+        public static void OfferUse(string what)
+        {
+            _useOffer = string.IsNullOrEmpty(what) ? "USE" : what;
+            _useOfferFrame = Time.frameCount;
+        }
+
+        static string _useOffer;
+        static int _useOfferFrame = -10;
+
         static bool _started;
 
         static void Start()
@@ -758,8 +779,10 @@ namespace Convergence.Core
 
             // The release is the EDGE of the held state, computed here like every other edge in
             // this file, rather than read off a device control that only one of the two input
-            // paths has.
-            _pointerUp = mouseUp || (heldPrev && !_pointerHeld);
+            // paths has. A finger that went down AND up between two frames (TouchControls.QuickTap)
+            // is a press with no held frame at all - it releases on the frame it lands, or a
+            // screen that commits on release (the mastery board) never heard the tap.
+            _pointerUp = mouseUp || (heldPrev && !_pointerHeld) || (fingerDown && !fingerHeld);
 
             // A MOUSE HAS A POSITION WITHOUT A BUTTON; A FINGER DOES NOT. That asymmetry is the
             // whole reason for the last two branches, and leaving the hover case out was a real
@@ -784,7 +807,11 @@ namespace Convergence.Core
                      // drag - and a mouse parked over the loadout preview held that screen's
                      // gesture forever.
                      : _gamepadMode ? _gamepadCursor
-                     : mouse != null ? mouse.position.ReadValue()
+                     // A FINGER'S RELEASE IS WHERE IT LIFTED. A mobile browser's echoed mouse
+                     // (GhostMouseSeconds) lands at a tap's point only after the touch has ended,
+                     // so on the release frame it still stood at the LAST tap - the mastery board
+                     // read every lift as a drag from there and no node ever opened.
+                     : mouse != null && !ghost ? mouse.position.ReadValue()
                      : prev;
 
             // Zeroed on the frame the pointer goes down, or a drag begins with a jump from

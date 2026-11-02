@@ -99,7 +99,9 @@ namespace Convergence.Rifts
                                                                bob + Mathf.Sin(a) * 0.14f, 0f);
             }
 
-            if (!near || !Controls.InteractTapped) return;
+            if (!near) return;
+            Controls.OfferUse(_record?.DisplayName);   // the touch USE half (Controls.ArenaUse)
+            if (!Controls.InteractTapped) return;
 
             _taken = true;
             TexelFx.BeamDrop(transform.position, TexelFx.RampOf(_tint), LootBeam.Height, TexelFx.Air);
