@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#0b0b10">
+  <meta name="referrer" content="same-origin">
+  <title>Equivalence - Wallet</title>
+  <link rel="stylesheet" href="link.css">
+</head>
+<body>
+  <main>
+    <p class="mark">EQUIVALENCE</p>
+    <h1 id="title">Wallet</h1>
+    <p id="lead">Loading...</p>
+
+    <form id="enter" hidden>
+      <label for="code">The code on your game screen</label>
+      <input id="code" autocomplete="off" autocapitalize="characters" spellcheck="false" maxlength="9" placeholder="ABC-DEF">
+      <button type="submit" class="primary">Continue</button>
+    </form>
+
+    <p id="code-shown" class="code" hidden></p>
+    <div id="wallets" class="ways"></div>
+    <p id="note" class="note"></p>
+    <button id="copy" type="button" hidden>Copy this page's link</button>
+  </main>
+  <script src="link.js"></script>
+</body>
+</html>

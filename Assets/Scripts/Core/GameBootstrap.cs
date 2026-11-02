@@ -661,7 +661,8 @@ namespace Convergence.Core
                     acts.Add("guest");
                     foreach (var w in wallets)
                     {
-                        options.Add(new UI.TitleScreen.Option(w.ToUpperInvariant(), "", wallet: true));
+                        options.Add(new UI.TitleScreen.Option(Chain.Web.ChainWallet.Label(w),
+                            w == Chain.Web.ChainWallet.AppWallet ? "Eternl, VESPR or another" : "", wallet: true));
                         acts.Add(w);
                     }
                 }
@@ -682,15 +683,16 @@ namespace Convergence.Core
 
                 // A wallet: say what its popup is about to ask before it asks - an unexplained
                 // popup reads as something going wrong, a signature request as a payment.
-                title.SetStatus($"Opening {act}...", busy: true);
-                var address = await Chain.Web.ChainWallet.ConnectAsync(act, step => title.SetStatus(step switch
+                bool app = act == Chain.Web.ChainWallet.AppWallet;
+                title.SetStatus(app ? "Finish in your wallet app - the steps are on screen." : $"Opening {act}...", busy: true);
+                var address = await Chain.Web.ChainWallet.ConnectAsync(act, app ? null : step => title.SetStatus(step switch
                 {
                     Chain.Web.ChainWallet.Step.Access => "Step 1 of 2: allow Equivalence in your wallet's window. It shares your address, nothing else.",
                     Chain.Web.ChainWallet.Step.Sign => "Step 2 of 2: sign the message in your wallet's window. It proves the address is yours - free, and not a transaction.",
                     _ => "",
                 }, busy: true));
                 if (!string.IsNullOrEmpty(address)) { resumed = address; break; }
-                status = $"{act} did not connect. Try again, or play without a wallet.";
+                status = $"{(app ? "The wallet app" : act)} did not connect. Try again, or play without a wallet.";
             }
             title.Close();
             return resumed;
@@ -1478,15 +1480,19 @@ namespace Convergence.Core
         void OfferWallet(string[] wallets, int i)
         {
             bool last = i == wallets.Length - 1;
-            ConfirmDialog.Show(_canvas.transform, $"CONNECT {wallets[i].ToUpperInvariant()}?",
-                "Your wallet asks twice: once to let Equivalence see your address, then to sign a message " +
-                "proving it is yours. Signing is free and is not a transaction - nothing moves. This browser " +
-                "remembers it afterwards. If the wallet has no characters of its own, this browser's " +
+            bool app = wallets[i] == Chain.Web.ChainWallet.AppWallet;
+            ConfirmDialog.Show(_canvas.transform, $"CONNECT {Chain.Web.ChainWallet.Label(wallets[i])}?",
+                (app
+                    ? "Sign in from your wallet app (Eternl, VESPR or another): the game shows a code and a " +
+                      "button that opens the app. Signing is free and is not a transaction - nothing moves. "
+                    : "Your wallet asks twice: once to let Equivalence see your address, then to sign a message " +
+                      "proving it is yours. Signing is free and is not a transaction - nothing moves. ") +
+                "This browser remembers it afterwards. If the wallet has no characters of its own, this browser's " +
                 "characters and room move onto it.",
                 "Connect", last ? "Not now" : "Another wallet",
                 async () =>
                 {
-                    var address = await Chain.Web.ChainWallet.ConnectAsync(wallets[i], WalletStep);
+                    var address = await Chain.Web.ChainWallet.ConnectAsync(wallets[i], app ? null : WalletStep);
                     if (!string.IsNullOrEmpty(address)) ConnectWallet(address);
                     _hub?.RefreshBooth();
                 },

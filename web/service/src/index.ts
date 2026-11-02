@@ -25,6 +25,8 @@ import { mintPortrait, portraitStatus, readPortrait, renewPortrait, submitPortra
 import { beatRun, claimRun, endRun, loadRun, saveRun } from './routes/runs.js';
 import { hasDatabase, migrate } from './db.js';
 import { playRouter } from './play.js';
+import { linkChallenge, linkProve, linkRequest, linkWitness, pollLink, signedLink, signLink, startLink } from './link.js';
+import { linkPage } from './linkPage.js';
 import { activatePlay, putPlayFile, rollbackPlay } from './routes/playUpload.js';
 import { LIMITS, overall, perIdentity, perIp } from './rateLimit.js';
 import { shutDownCleanly, track } from './lifecycle.js';
@@ -141,6 +143,23 @@ app.get('/auth/challenge', login, challenge);
 app.post('/auth/prove', login, prove);
 app.get('/auth/session', sessionIp, requireSession, sessionStatus);
 app.post('/auth/signout-everywhere', sessionIp, requireSession, signOutEverywhere);
+
+// Device links (link.ts): a wallet in another browser - a phone's wallet app - signs for the game.
+const linkIp = perIp('link', LIMITS.link);
+const linkPoll = perIp('link-poll', LIMITS.linkPoll);
+app.post('/link/start', linkIp, startLink);
+app.get('/link/poll', linkPoll, pollLink);
+app.post('/link/sign', linkIp, requireSession, signLink);
+app.get('/link/signed', linkPoll, requireSession, signedLink);
+app.get('/link/req', linkIp, linkRequest);
+app.get('/link/challenge', login, linkChallenge);
+app.post('/link/prove', login, linkProve);
+app.post('/link/witness', linkIp, linkWitness);
+// The page the wallet's browser opens (web/service/link) - /link and /link/.
+app.get('/link', (req, res, next) => (req.path === '/link' && !req.originalUrl.startsWith('/link/')
+  ? res.redirect(301, '/link/' + (req.originalUrl.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?')) : ''))
+  : next()));
+app.use('/link', linkPage());
 
 // The connector's /write/<kind> convention (equivalence-chain.ts `write()`).
 app.use('/write', requireSession, perIdentity('write', LIMITS.write));

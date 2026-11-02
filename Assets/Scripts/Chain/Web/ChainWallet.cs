@@ -46,6 +46,22 @@ namespace Convergence.Chain.Web
 
         public static event Action Changed;
 
+        /// <summary>
+        /// The WALLET APP (device links, web/service/src/link.ts): a phone browser with no wallet
+        /// injected signs through our /link page opened in the wallet app's own browser. The
+        /// connector offers it in listWallets and draws its own panel while it waits.
+        /// </summary>
+        public const string AppWallet = "wallet-app";
+
+        /// <summary>Which wallet is connected - a CIP-30 key, or <see cref="AppWallet"/>.</summary>
+        public static string Key { get; private set; } = "";
+
+        /// <summary>Signatures happen in another app - a wallet call can take minutes, not seconds.</summary>
+        public static bool Remote => Key == AppWallet;
+
+        /// <summary>A wallet key as a button says it.</summary>
+        public static string Label(string key) => key == AppWallet ? "WALLET APP" : (key ?? "").ToUpperInvariant();
+
         /// <summary>Wallet keys the page can see - "eternl", "lace". Names, not addresses.</summary>
         public static async Task<string[]> ListAsync()
         {
@@ -83,6 +99,7 @@ namespace Convergence.Chain.Web
                 onStep?.Invoke(Step.Access);
                 var address = await WebChainBridge.Call("connect", new ChainArgs { wallet = walletKey });
                 Address = address ?? "";
+                Key = Connected ? walletKey : "";
                 Proven = false;
                 Session = "";
 
@@ -101,7 +118,7 @@ namespace Convergence.Chain.Web
             catch (Exception e)
             {
                 Debug.LogWarning($"[Chain] connect({walletKey}) refused or failed: {e.Message}");
-                Address = ""; Proven = false; Session = "";
+                Address = ""; Proven = false; Session = ""; Key = "";
                 onStep?.Invoke(Step.Done);
                 Changed?.Invoke();
                 return "";
@@ -125,9 +142,10 @@ namespace Convergence.Chain.Web
                 var r = string.IsNullOrEmpty(json) ? null : JsonUtility.FromJson<Resumed>(json);
                 if (r == null || string.IsNullOrEmpty(r.address)) return "";
                 Address = r.address;
+                Key = r.wallet ?? "";
                 Session = await WebChainBridge.Call("session") ?? "";
                 Proven = !string.IsNullOrEmpty(Session);
-                if (!Proven) { Address = ""; return ""; }
+                if (!Proven) { Address = ""; Key = ""; return ""; }
                 await WalletInventory.RefreshAsync();
                 Debug.Log($"[Chain] resumed {r.wallet}: {Short(Address)}");
                 Changed?.Invoke();
@@ -189,7 +207,7 @@ namespace Convergence.Chain.Web
         {
             try { await WebChainBridge.Call(everywhere ? "signOutEverywhere" : "disconnect"); }
             catch (Exception e) { Debug.LogWarning($"[Chain] {(everywhere ? "sign out everywhere" : "disconnect")}: {e.Message}"); }
-            Address = ""; Proven = false; Session = "";
+            Address = ""; Proven = false; Session = ""; Key = "";
             WalletInventory.Clear();
             Changed?.Invoke();
         }

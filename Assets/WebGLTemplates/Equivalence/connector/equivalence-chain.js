@@ -136,19 +136,183 @@ ${bodyHash}`;
     return false;
   }
   var sameAddress = (a, b) => a.toLowerCase() === b.toLowerCase();
+  var APP = "wallet-app";
+  var mobile = () => /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) || navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1;
+  var inWalletApp = (url) => `web+cardano://browse/v1?uri=${encodeURIComponent(url)}`;
+  var linkUrl = (code) => new URL(`${SERVICE}/link/?c=${code}`, location.href).href;
+  var POLL_MS = 2e3;
+  function linkPanel(opts, wait) {
+    const style = document.createElement("style");
+    style.textContent = `
+    #eq-link { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center;
+      background: rgba(5,5,8,.82); font: 15px/1.45 system-ui, -apple-system, sans-serif; color: #cfc6b4;
+      padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+    #eq-link .p { width: min(560px, calc(100% - 32px)); max-height: 100%; overflow: auto; background: #0b0b10;
+      border: 1px solid #3a3226; padding: 18px 20px; text-align: center; }
+    #eq-link h2 { margin: 0 0 6px; font-size: 18px; font-weight: 600; letter-spacing: .06em; color: #e2c487; }
+    #eq-link p { margin: 0 0 10px; }
+    #eq-link .code { font: 600 28px/1.2 ui-monospace, Menlo, monospace; letter-spacing: .2em; color: #e2c487;
+      border: 1px solid #3a3226; padding: 6px; margin: 6px auto 12px; max-width: 260px; }
+    #eq-link .row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-bottom: 10px; }
+    #eq-link a, #eq-link button { flex: 1 1 150px; font: inherit; letter-spacing: .05em; text-decoration: none;
+      color: #cfc6b4; background: rgba(255,255,255,.03); border: 1px solid #3a3226; padding: 10px 12px; cursor: pointer; }
+    #eq-link a.go { color: #0b0b10; background: #e2c487; border-color: #e2c487; font-weight: 600; }
+    #eq-link .small { color: #8a8aa4; font-size: 13px; }
+    #eq-link .status { min-height: 1.4em; color: #8a8aa4; font-size: 13px; margin: 0; }`;
+    const root = document.createElement("div");
+    root.id = "eq-link";
+    const url = linkUrl(opts.code);
+    root.innerHTML = `<div class="p" role="dialog" aria-modal="true">
+      <h2></h2><p class="lead"></p><div class="code"></div>
+      <div class="row"><a class="go">Open wallet app</a><button type="button" class="copy">Copy link</button></div>
+      <p class="small"></p>
+      <p class="status"></p>
+      <div class="row"><button type="button" class="cancel">Cancel</button></div></div>`;
+    const q = (sel) => root.querySelector(sel);
+    q("h2").textContent = opts.title;
+    q(".lead").textContent = opts.lead;
+    q(".code").textContent = `${opts.code.slice(0, 3)}-${opts.code.slice(3)}`;
+    q(".go").href = inWalletApp(url);
+    q(".small").textContent = `Opens in Eternl or VESPR. Another wallet: copy the link into its browser, or go to ${new URL(url).host}/link there and type the code.`;
+    q(".copy").addEventListener("click", () => {
+      var _a2;
+      (_a2 = navigator.clipboard) == null ? void 0 : _a2.writeText(url).then(() => {
+        q(".copy").textContent = "Link copied";
+      }, () => {
+      });
+    });
+    for (const t of ["keydown", "keyup", "pointerdown", "touchstart", "wheel"]) root.addEventListener(t, (e) => e.stopPropagation());
+    document.head.appendChild(style);
+    document.body.appendChild(root);
+    let cancelled = false;
+    return new Promise((resolve, reject) => {
+      q(".cancel").addEventListener("click", () => {
+        cancelled = true;
+        reject(new Error("cancelled"));
+      });
+      wait(() => cancelled, (s) => {
+        q(".status").textContent = s;
+      }).then(resolve, reject);
+    }).finally(() => {
+      root.remove();
+      style.remove();
+    });
+  }
+  function pollUntil(cancelled, expiresAt, ask) {
+    return new Promise((resolve, reject) => {
+      let timer = 0;
+      let asking = false;
+      const stop = () => {
+        clearTimeout(timer);
+        document.removeEventListener("visibilitychange", now);
+      };
+      const tick = async () => {
+        if (cancelled()) {
+          stop();
+          return;
+        }
+        if (Date.now() > expiresAt) {
+          stop();
+          reject(new Error("the code expired - try again"));
+          return;
+        }
+        if (asking) return;
+        asking = true;
+        try {
+          const r = await ask();
+          if (r !== void 0) {
+            stop();
+            resolve(r);
+            return;
+          }
+        } catch (e) {
+          stop();
+          reject(e);
+          return;
+        } finally {
+          asking = false;
+        }
+        timer = window.setTimeout(tick, POLL_MS);
+      };
+      const now = () => {
+        if (document.visibilityState === "visible") {
+          clearTimeout(timer);
+          void tick();
+        }
+      };
+      document.addEventListener("visibilitychange", now);
+      void tick();
+    });
+  }
+  async function linkSignIn() {
+    const started = await (await service("/link/start", {
+      method: "POST",
+      body: JSON.stringify({ key: await publicName() })
+    })).json();
+    const done = JSON.parse(await linkPanel({
+      title: "Connect your wallet app",
+      lead: "Open the wallet app and sign in there - it checks this code. Signing is free and is not a transaction.",
+      code: started.code
+    }, (cancelled, status) => {
+      status("Waiting for the wallet...");
+      return pollUntil(cancelled, started.expiresAt, async () => {
+        const r = await (await service(`/link/poll?code=${started.code}&poll=${encodeURIComponent(started.poll)}`)).json();
+        if (r.state === "expired") throw new Error("the code expired - try again");
+        return r.state === "done" ? JSON.stringify(r) : void 0;
+      });
+    }));
+    session = done.session;
+    if (!session) throw new Error("the service issued no session");
+    return { address: done.address, expiresAt: Number(done.expiresAt) || Date.now() };
+  }
+  async function linkSign(cbor, what) {
+    const req = await (await service("/link/sign", { method: "POST", body: JSON.stringify({ cbor, what }) })).json();
+    return linkPanel({
+      title: "Approve in your wallet app",
+      lead: "The wallet shows exactly what this moves. Come back here when it is approved.",
+      code: req.code
+    }, (cancelled, status) => {
+      status("Waiting for the wallet...");
+      return pollUntil(cancelled, req.expiresAt, async () => {
+        const r = await (await service(`/link/signed?code=${req.code}`)).json();
+        if (r.state === "expired") throw new Error("the code expired - try again");
+        if (r.state === "declined") throw new Error("declined in the wallet");
+        return r.state === "signed" ? String(r.witness) : void 0;
+      });
+    });
+  }
+  var appApi = {
+    signTx: () => Promise.reject(new Error("the wallet app signs through signTx()")),
+    signData: () => Promise.reject(new Error("the wallet app signed in through its link"))
+  };
+  function signTx(cbor, what) {
+    if (!api) throw new Error("no wallet connected");
+    return walletKey === APP ? linkSign(cbor, what) : api.signTx(cbor, true);
+  }
   var hex = (s) => Array.from(new TextEncoder().encode(s)).map((b) => b.toString(16).padStart(2, "0")).join("");
   var connector = {
     // ---- identity ---------------------------------------------------------------------------
     listWallets() {
-      const c = window.cardano;
-      if (!c) return "";
-      return Object.keys(c).filter((k) => {
-        var _a2;
-        return typeof ((_a2 = c[k]) == null ? void 0 : _a2.enable) === "function";
-      }).join(",");
+      var _a2;
+      const c = (_a2 = window.cardano) != null ? _a2 : {};
+      const found = Object.keys(c).filter((k) => {
+        var _a3;
+        return typeof ((_a3 = c[k]) == null ? void 0 : _a3.enable) === "function";
+      });
+      if (!found.length && mobile()) found.push(APP);
+      return found.join(",");
     },
     async connect({ wallet }) {
       var _a2, _b, _c;
+      if (wallet === APP) {
+        const linked = await linkSignIn();
+        api = appApi;
+        address = linked.address;
+        walletKey = APP;
+        heldAt = Date.now();
+        remember(APP, linked.expiresAt);
+        return address;
+      }
       const provider = (_a2 = window.cardano) == null ? void 0 : _a2[wallet];
       if (!provider) throw new Error(`wallet "${wallet}" is not installed`);
       api = await provider.enable();
@@ -163,6 +327,13 @@ ${bodyHash}`;
       var _a2, _b, _c;
       const kept = recalled();
       if (!kept) return "";
+      if (kept.wallet === APP) {
+        if (!await sessionHolds(kept.address).catch(() => false)) return "";
+        api = appApi;
+        address = kept.address;
+        walletKey = APP;
+        return JSON.stringify({ wallet: APP, address });
+      }
       const provider = (_a2 = window.cardano) == null ? void 0 : _a2[kept.wallet];
       if (!provider || typeof provider.isEnabled !== "function") return "";
       if (!await provider.isEnabled().catch(() => false)) return "";
@@ -271,7 +442,7 @@ ${bodyHash}`;
           count: Number(count) || 1
         })
       })).json();
-      const witness = await api.signTx(built.cbor, true);
+      const witness = await signTx(built.cbor, "open-boxes");
       const done = await service("/write/open-boxes/submit", {
         method: "POST",
         body: JSON.stringify({ openId: built.openId, witness })
@@ -314,7 +485,7 @@ ${bodyHash}`;
       body: JSON.stringify({ profileId, address: accountId, recipe: datum })
     });
     const { pfpId, cbor } = await built.json();
-    const witness = await api.signTx(cbor, true);
+    const witness = await signTx(cbor, endpoint.endsWith("/renew") ? "pfp-renew" : "pfp");
     const done = await service("/write/pfp/submit", {
       method: "POST",
       body: JSON.stringify({ pfpId, witness })
@@ -326,7 +497,7 @@ ${bodyHash}`;
   async function burn(endpoint, body) {
     if (!api) throw new Error("no wallet connected");
     const built = await (await service(endpoint, { method: "POST", body: JSON.stringify(body) })).json();
-    const witness = await api.signTx(built.cbor, true);
+    const witness = await signTx(built.cbor, endpoint.includes("dyes") ? "dyes" : "break-boxes");
     const done = await service(`${endpoint}/submit`, {
       method: "POST",
       body: JSON.stringify({ burnId: built.burnId, witness })

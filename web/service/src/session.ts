@@ -60,6 +60,8 @@ interface Challenge {
   expires: number;
   /** The session key's public half, `<x>.<y>` - what the session will be bound to. */
   key: string;
+  /** A DEVICE LINK's code (link.ts): the key is another device's, and the message says so. */
+  link?: string;
 }
 const challenges = new Map<string, Challenge>();
 /** Outstanding challenges at most - a ceiling on memory under a flood the per-IP limit spreads out. */
@@ -75,6 +77,8 @@ export const loginMessage = (address: string, nonce: string, c: Omit<Challenge, 
   `Only sign this on https://${c.domain}. It proves this address is yours: it moves nothing, ` +
   `costs nothing and approves no transaction.\n\n` +
   `URI: https://${c.domain}\n` +
+  (c.link ? `Device link: ${c.link} - sign only if this code is on your own game screen right now. ` +
+    `The device showing it is signed in, not this page.\n` : '') +
   `Session key: ${thumbprint(c.key)}\n` +
   `Nonce: ${nonce}\n` +
   `Issued At: ${new Date(c.issuedAt).toISOString()}\n` +
@@ -90,7 +94,7 @@ function domainOf(req: Request): string {
 const hexOf = (s: string) => Buffer.from(s, 'utf8').toString('hex');
 
 /** Both forms of an address - CIP-30 hands out hex, Blockfrost and the ledger want bech32. */
-function forms(address: string): { bech32: string; hex: string; keyHash: string } | null {
+export function forms(address: string): { bech32: string; hex: string; keyHash: string } | null {
   try {
     const d = getAddressDetails(address);
     const keyHash = d.paymentCredential?.type === 'Key' ? d.paymentCredential.hash : '';
@@ -198,8 +202,11 @@ function onThisNetwork(address: string): boolean {
 }
 
 export function challenge(req: Request, res: Response): void {
-  const address = String(req.query.address ?? '');
-  const key = String(req.query.key ?? '');
+  openChallenge(req, res, String(req.query.address ?? ''), String(req.query.key ?? ''));
+}
+
+/** A challenge for `address` bound to `key` - this browser's own, or with `link` another device's. */
+export function openChallenge(req: Request, res: Response, address: string, key: string, link?: string): void {
   if (!forms(address)) {
     res.status(400).json({ error: 'address must be a key-based Cardano address' });
     return;
@@ -223,24 +230,35 @@ export function challenge(req: Request, res: Response): void {
   }
 
   const nonce = randomBytes(16).toString('hex');
-  const c: Challenge = { address, domain: domainOf(req), issuedAt: now, expires: now + CHALLENGE_MS, key };
+  const c: Challenge = { address, domain: domainOf(req), issuedAt: now, expires: now + CHALLENGE_MS, key, ...(link ? { link } : {}) };
   challenges.set(nonce, c);
   res.json({ nonce, message: loginMessage(address, nonce, c), expiresAt: c.expires });
 }
 
 export async function prove(req: Request, res: Response): Promise<void> {
-  const { address, nonce, signature, key } = (req.body ?? {}) as Record<string, string>;
+  const r = await proveChallenge((req.body ?? {}) as Record<string, string>);
+  if ('session' in r) res.json(r);
+  else res.status(r.status).json({ error: r.error });
+}
+
+export type Proved = { session: string; address: string; expiresAt: number };
+
+/**
+ * A signed challenge traded for a session bound to the challenge's key. `link`: only a challenge
+ * opened for that device link is accepted (link.ts) - and a link's challenge never here without it,
+ * so a page cannot take another device's session for itself.
+ */
+export async function proveChallenge(body: Record<string, string>, link?: string): Promise<Proved | { status: number; error: string }> {
+  const { address, nonce, signature, key } = body;
   const c = nonce ? challenges.get(nonce) : undefined;
   // Spent whatever happens next: one nonce, one attempt.
   if (nonce) challenges.delete(nonce);
-  if (!c || c.expires < Date.now() || c.address !== address) {
-    res.status(401).json({ error: 'unknown or expired challenge - ask for a new one' });
-    return;
+  if (!c || c.expires < Date.now() || c.address !== address || c.link !== link) {
+    return { status: 401, error: 'unknown or expired challenge - ask for a new one' };
   }
   const f = forms(address);
   if (!f || !signature || !key) {
-    res.status(400).json({ error: 'address, nonce, signature and key are required' });
-    return;
+    return { status: 400, error: 'address, nonce, signature and key are required' };
   }
 
   let ok = false;
@@ -249,17 +267,15 @@ export async function prove(req: Request, res: Response): Promise<void> {
   } catch {
     ok = false;
   }
-  if (!ok) {
-    res.status(401).json({ error: 'signature does not prove this address' });
-    return;
-  }
+  if (!ok) return { status: 401, error: 'signature does not prove this address' };
 
   try {
     const expiresAt = Date.now() + SESSION_MS;
-    const body = `v2.${f.bech32}.${expiresAt}.${await epochOf(f.bech32)}.${c.key}`;
-    res.json({ session: `${body}.${mac(body)}`, address: f.bech32, expiresAt });
+    const token = `v2.${f.bech32}.${expiresAt}.${await epochOf(f.bech32)}.${c.key}`;
+    return { session: `${token}.${mac(token)}`, address: f.bech32, expiresAt };
   } catch (e) {
-    internal(res, e, 'prove', 503, 'unavailable');
+    console.error('[prove]', e);
+    return { status: 503, error: 'unavailable' };
   }
 }
 

@@ -92,6 +92,24 @@ namespace Convergence.Chain.Web
         public const float TimeoutSeconds = 90f;
 
         /// <summary>
+        /// The same for a call the WALLET APP answers (ChainWallet.Remote): the player switches
+        /// apps, reads, signs and comes back - the link's own code lasts ten minutes, and expires
+        /// the wait itself (web/service/src/link.ts). This only keeps C# from giving up first.
+        /// </summary>
+        public const float RemoteTimeoutSeconds = 660f;
+
+        /// <summary>The calls that wait on a wallet signature.</summary>
+        static readonly string[] Signing =
+            { "connect", "proveOwnership", "openBoxes", "assemblePfp", "updatePfp", "renewPfp", "depositDyes", "breakBoxes" };
+
+        static float TimeoutFor(string method, ChainArgs args)
+        {
+            if (Array.IndexOf(Signing, method) < 0) return TimeoutSeconds;
+            bool remote = method == "connect" ? args?.wallet == ChainWallet.AppWallet : ChainWallet.Remote;
+            return remote ? RemoteTimeoutSeconds : TimeoutSeconds;
+        }
+
+        /// <summary>
         /// Deliberately NOT readonly, and null-guarded on every use - the documented trap. A
         /// static collection is wiped by a domain reload while everything around it survives,
         /// and an emptied request table means every outstanding await never completes.
@@ -137,7 +155,7 @@ namespace Convergence.Chain.Web
             _pending[id] = new Pending
             {
                 Task = tcs,
-                Deadline = Time.realtimeSinceStartup + TimeoutSeconds,
+                Deadline = Time.realtimeSinceStartup + TimeoutFor(method, args),
                 Method = method,
             };
 
@@ -187,7 +205,7 @@ namespace Convergence.Chain.Web
             {
                 var p = _pending[id];
                 _pending.Remove(id);
-                p.Task.TrySetException(new ChainException($"{p.Method}: no response in {TimeoutSeconds:0}s"));
+                p.Task.TrySetException(new ChainException($"{p.Method}: no response in time"));
             }
         }
 

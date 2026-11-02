@@ -139,6 +139,10 @@ export const LIMITS = {
   img: { burst: 60, perMinute: 240 },
   /** A piece's live HTML (routes/nft.ts) - one per close-up view opened. */
   nft: { burst: 10, perMinute: 30 },
+  /** Device links (link.ts): making one and the page's look-ups - a code is typed a few times at most. */
+  link: { burst: 10, perMinute: 30 },
+  /** The game waiting on a link: a poll every two seconds while its screen is up. */
+  linkPoll: { burst: 20, perMinute: 60 },
   /** CSP violation reports (play.ts) - a page can fire a burst; nothing past this is worth logging. */
   csp: { burst: 20, perMinute: 30 },
   writeIp: { burst: 30, perMinute: 60 },

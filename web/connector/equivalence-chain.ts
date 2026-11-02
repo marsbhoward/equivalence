@@ -200,6 +200,164 @@ async function sessionHolds(forAddress: string): Promise<boolean> {
  *  as the wallet gave them, and a mismatch only costs one extra signature. */
 const sameAddress = (a: string, b: string) => a.toLowerCase() === b.toLowerCase();
 
+// ---- a wallet in another browser (device links, web/service/src/link.ts) ---------------------------
+//
+// On a phone the game runs in Safari or from the Home Screen, where no wallet can inject itself. The
+// WALLET APP choice signs through our /link page opened in the wallet's own browser instead: the
+// sign-in there earns a session bound to THIS browser's key, and each transaction is posted to the
+// service, signed on that page, and its witness collected here. Everything else in this file is
+// unchanged by it - only signData at sign-in and signTx go elsewhere.
+//
+// TODO (the user's note, 2026-11-01): a DESKTOP-TO-MOBILE route - the game on a computer, the
+// wallet on a phone: a QR code of the link on this panel, scanned by the wallet app. The page and
+// the codes already serve it; offering WALLET APP on desktop and drawing the QR are what is left.
+
+/** The key listWallets offers for it, and ChainWallet.AppWallet names on the C# side. */
+const APP = 'wallet-app';
+
+const mobile = () => /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ||
+  (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+/** CIP-158: opens a page inside a wallet app's browser (Eternl, VESPR). */
+const inWalletApp = (url: string) => `web+cardano://browse/v1?uri=${encodeURIComponent(url)}`;
+
+const linkUrl = (code: string) => new URL(`${SERVICE}/link/?c=${code}`, location.href).href;
+
+const POLL_MS = 2000;
+
+/** The panel over the game while a link is open - the game cannot draw a link the browser will
+ *  follow from a tap, so this does. Resolves when `wait` settles; Cancel rejects. */
+function linkPanel(opts: { title: string; lead: string; code: string },
+                   wait: (cancelled: () => boolean, status: (s: string) => void) => Promise<string>): Promise<string> {
+  const style = document.createElement('style');
+  style.textContent = `
+    #eq-link { position: fixed; inset: 0; z-index: 20; display: flex; align-items: center; justify-content: center;
+      background: rgba(5,5,8,.82); font: 15px/1.45 system-ui, -apple-system, sans-serif; color: #cfc6b4;
+      padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left); }
+    #eq-link .p { width: min(560px, calc(100% - 32px)); max-height: 100%; overflow: auto; background: #0b0b10;
+      border: 1px solid #3a3226; padding: 18px 20px; text-align: center; }
+    #eq-link h2 { margin: 0 0 6px; font-size: 18px; font-weight: 600; letter-spacing: .06em; color: #e2c487; }
+    #eq-link p { margin: 0 0 10px; }
+    #eq-link .code { font: 600 28px/1.2 ui-monospace, Menlo, monospace; letter-spacing: .2em; color: #e2c487;
+      border: 1px solid #3a3226; padding: 6px; margin: 6px auto 12px; max-width: 260px; }
+    #eq-link .row { display: flex; gap: 8px; flex-wrap: wrap; justify-content: center; margin-bottom: 10px; }
+    #eq-link a, #eq-link button { flex: 1 1 150px; font: inherit; letter-spacing: .05em; text-decoration: none;
+      color: #cfc6b4; background: rgba(255,255,255,.03); border: 1px solid #3a3226; padding: 10px 12px; cursor: pointer; }
+    #eq-link a.go { color: #0b0b10; background: #e2c487; border-color: #e2c487; font-weight: 600; }
+    #eq-link .small { color: #8a8aa4; font-size: 13px; }
+    #eq-link .status { min-height: 1.4em; color: #8a8aa4; font-size: 13px; margin: 0; }`;
+  const root = document.createElement('div');
+  root.id = 'eq-link';
+  const url = linkUrl(opts.code);
+  root.innerHTML = `<div class="p" role="dialog" aria-modal="true">
+      <h2></h2><p class="lead"></p><div class="code"></div>
+      <div class="row"><a class="go">Open wallet app</a><button type="button" class="copy">Copy link</button></div>
+      <p class="small"></p>
+      <p class="status"></p>
+      <div class="row"><button type="button" class="cancel">Cancel</button></div></div>`;
+  const q = (sel: string) => root.querySelector(sel) as HTMLElement;
+  q('h2').textContent = opts.title;
+  q('.lead').textContent = opts.lead;
+  q('.code').textContent = `${opts.code.slice(0, 3)}-${opts.code.slice(3)}`;
+  (q('.go') as HTMLAnchorElement).href = inWalletApp(url);
+  q('.small').textContent = `Opens in Eternl or VESPR. Another wallet: copy the link into its browser, ` +
+    `or go to ${new URL(url).host}/link there and type the code.`;
+  q('.copy').addEventListener('click', () => {
+    navigator.clipboard?.writeText(url).then(() => { q('.copy').textContent = 'Link copied'; }, () => { /* no clipboard */ });
+  });
+  // Keys and taps stay on the panel, not the game underneath.
+  for (const t of ['keydown', 'keyup', 'pointerdown', 'touchstart', 'wheel']) root.addEventListener(t, e => e.stopPropagation());
+  document.head.appendChild(style);
+  document.body.appendChild(root);
+
+  let cancelled = false;
+  return new Promise<string>((resolve, reject) => {
+    q('.cancel').addEventListener('click', () => { cancelled = true; reject(new Error('cancelled')); });
+    wait(() => cancelled, s => { q('.status').textContent = s; }).then(resolve, reject);
+  }).finally(() => { root.remove(); style.remove(); });
+}
+
+/** Asks `ask` every two seconds, and at once when the page comes back from the wallet app, until it
+ *  answers something other than undefined. */
+function pollUntil<T>(cancelled: () => boolean, expiresAt: number, ask: () => Promise<T | undefined>): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    let timer = 0;
+    let asking = false;
+    const stop = () => { clearTimeout(timer); document.removeEventListener('visibilitychange', now); };
+    const tick = async () => {
+      if (cancelled()) { stop(); return; }
+      if (Date.now() > expiresAt) { stop(); reject(new Error('the code expired - try again')); return; }
+      if (asking) return;
+      asking = true;
+      try {
+        const r = await ask();
+        if (r !== undefined) { stop(); resolve(r); return; }
+      } catch (e) {
+        stop(); reject(e); return;
+      } finally {
+        asking = false;
+      }
+      timer = window.setTimeout(tick, POLL_MS);
+    };
+    const now = () => { if (document.visibilityState === 'visible') { clearTimeout(timer); void tick(); } };
+    document.addEventListener('visibilitychange', now);
+    void tick();
+  });
+}
+
+/** WALLET APP sign-in: a code for this browser's key; the session arrives when the page has signed. */
+async function linkSignIn(): Promise<{ address: string; expiresAt: number }> {
+  const started = await (await service('/link/start', {
+    method: 'POST', body: JSON.stringify({ key: await publicName() }),
+  })).json();
+  const done = JSON.parse(await linkPanel({
+    title: 'Connect your wallet app',
+    lead: 'Open the wallet app and sign in there - it checks this code. Signing is free and is not a transaction.',
+    code: started.code,
+  }, (cancelled, status) => {
+    status('Waiting for the wallet...');
+    return pollUntil(cancelled, started.expiresAt, async () => {
+      const r = await (await service(`/link/poll?code=${started.code}&poll=${encodeURIComponent(started.poll)}`)).json();
+      if (r.state === 'expired') throw new Error('the code expired - try again');
+      return r.state === 'done' ? JSON.stringify(r) : undefined;
+    });
+  }));
+  session = done.session;
+  if (!session) throw new Error('the service issued no session');
+  return { address: done.address, expiresAt: Number(done.expiresAt) || Date.now() };
+}
+
+/** A transaction the service built, signed in the wallet app (partial) - its witness, as signTx gives it. */
+async function linkSign(cbor: string, what: string): Promise<string> {
+  const req = await (await service('/link/sign', { method: 'POST', body: JSON.stringify({ cbor, what }) })).json();
+  return linkPanel({
+    title: 'Approve in your wallet app',
+    lead: 'The wallet shows exactly what this moves. Come back here when it is approved.',
+    code: req.code,
+  }, (cancelled, status) => {
+    status('Waiting for the wallet...');
+    return pollUntil(cancelled, req.expiresAt, async () => {
+      const r = await (await service(`/link/signed?code=${req.code}`)).json();
+      if (r.state === 'expired') throw new Error('the code expired - try again');
+      if (r.state === 'declined') throw new Error('declined in the wallet');
+      return r.state === 'signed' ? String(r.witness) : undefined;
+    });
+  });
+}
+
+/** Stands in for the CIP-30 api when the wallet is the WALLET APP, so "is a wallet connected" holds.
+ *  Nothing calls it directly: transactions go through signTx() below, and sign-in was the link's. */
+const appApi = {
+  signTx: () => Promise.reject(new Error('the wallet app signs through signTx()')),
+  signData: () => Promise.reject(new Error('the wallet app signed in through its link')),
+} as unknown as Cip30Api;
+
+/** The one way this file signs a transaction: the injected wallet, or the wallet app via a link. */
+function signTx(cbor: string, what: string): Promise<string> {
+  if (!api) throw new Error('no wallet connected');
+  return walletKey === APP ? linkSign(cbor, what) : api.signTx(cbor, true);
+}
+
 /** Hex-encode for CIP-30 signData, which takes a hex payload rather than raw text. */
 const hex = (s: string) =>
   Array.from(new TextEncoder().encode(s)).map(b => b.toString(16).padStart(2, '0')).join('');
@@ -209,14 +367,26 @@ export const connector: EquivalenceChain = {
   // ---- identity ---------------------------------------------------------------------------
 
   listWallets() {
-    const c = (window as any).cardano;
-    if (!c) return '';
+    const c = (window as any).cardano ?? {};
     // Only things that actually look like a CIP-30 provider - the namespace collects other keys,
     // and offering one with no enable() is a button that cannot work.
-    return Object.keys(c).filter(k => typeof c[k]?.enable === 'function').join(',');
+    const found = Object.keys(c).filter(k => typeof c[k]?.enable === 'function');
+    // A phone browser with none injected: the wallet is an app - offer it (device links). Inside a
+    // wallet's own browser one IS injected, and that is used directly.
+    if (!found.length && mobile()) found.push(APP);
+    return found.join(',');
   },
 
   async connect({ wallet }) {
+    if (wallet === APP) {
+      const linked = await linkSignIn();
+      api = appApi;
+      address = linked.address;
+      walletKey = APP;
+      heldAt = Date.now();
+      remember(APP, linked.expiresAt);
+      return address;
+    }
     const provider = (window as any).cardano?.[wallet];
     if (!provider) throw new Error(`wallet "${wallet}" is not installed`);
 
@@ -235,6 +405,14 @@ export const connector: EquivalenceChain = {
     // still honours the session. Anything less resolves '' and the player connects as usual.
     const kept = recalled();
     if (!kept) return '';
+    if (kept.wallet === APP) {
+      // The wallet app is not here to ask - the session alone says who this is.
+      if (!(await sessionHolds(kept.address).catch(() => false))) return '';
+      api = appApi;
+      address = kept.address;
+      walletKey = APP;
+      return JSON.stringify({ wallet: APP, address });
+    }
     const provider = (window as any).cardano?.[kept.wallet];
     if (!provider || typeof provider.isEnabled !== 'function') return '';
     if (!(await provider.isEnabled().catch(() => false))) return '';
@@ -383,7 +561,7 @@ export const connector: EquivalenceChain = {
         profileId, tier, count: Number(count) || 1,
       }),
     })).json();
-    const witness = await api.signTx(built.cbor, true);
+    const witness = await signTx(built.cbor, 'open-boxes');
     const done = await service('/write/open-boxes/submit', {
       method: 'POST',
       body: JSON.stringify({ openId: built.openId, witness }),
@@ -455,7 +633,7 @@ async function trophy(endpoint: string, profileId: string, accountId: string, da
   const { pfpId, cbor } = await built.json();
 
   // partial: true - the service's witness is already on it and must not be discarded.
-  const witness = await api.signTx(cbor, true);
+  const witness = await signTx(cbor, endpoint.endsWith('/renew') ? 'pfp-renew' : 'pfp');
 
   const done = await service('/write/pfp/submit', {
     method: 'POST',
@@ -474,7 +652,7 @@ async function trophy(endpoint: string, profileId: string, accountId: string, da
 async function burn(endpoint: string, body: Record<string, unknown>) {
   if (!api) throw new Error('no wallet connected');
   const built = await (await service(endpoint, { method: 'POST', body: JSON.stringify(body) })).json();
-  const witness = await api.signTx(built.cbor, true);
+  const witness = await signTx(built.cbor, endpoint.includes('dyes') ? 'dyes' : 'break-boxes');
   const done = await service(`${endpoint}/submit`, {
     method: 'POST',
     body: JSON.stringify({ burnId: built.burnId, witness }),

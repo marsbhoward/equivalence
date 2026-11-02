@@ -74,7 +74,7 @@ function csp(file: string): string {
   return header;
 }
 
-function pageHeaders(res: Response, file: string) {
+export function pageHeaders(res: Response, file: string) {
   const mode = (process.env.CSP_MODE ?? 'enforce').toLowerCase();
   if (mode !== 'off') {
     res.setHeader(mode === 'report-only' ? 'Content-Security-Policy-Report-Only' : 'Content-Security-Policy', csp(file));
