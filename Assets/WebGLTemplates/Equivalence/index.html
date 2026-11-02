@@ -111,7 +111,8 @@
       // "Script error." - is logged, not shown: Unity's default puts up a fatal-looking alert for it
       // while the game runs on untouched. Anything else goes to Unity's own handler (false).
       errorHandler: function (message) {
-        if (typeof message === 'string' && /^Script error\.?$/.test(message)) {
+        // (the loader appends a line break and any stack to the message - hence the trim)
+        if (typeof message === 'string' && /^Script error\.?$/.test(message.trim())) {
           console.warn('[Equivalence] ignored an opaque error from a script outside the page');
           return true;
         }
