@@ -7,7 +7,8 @@ namespace Convergence.Art.Gear
     //
     // A Bronze, Silver or Gold piece is a stat roll with no art of its own (Chain.MintedGearRecord);
     // these are the PICTURES it wears. The user's approved sets (2026-10-31): three per tier, eight
-    // pieces each. Bronze is built (DemoGear.TierBronze.cs, generated); Silver and Gold follow.
+    // pieces each, and a greatsword, a disc pair and a bow per set (DemoGear.Tier<Tier>.cs, generated
+    // by Tools/tier-art/regen.sh).
     //
     // PER PIECE, HASHED (the user's call, 2026-11-02): each rolled piece wears the set its own
     // instance id hashes to, so a drop is any of its tier's sets and the same piece always looks the
@@ -21,6 +22,8 @@ namespace Convergence.Art.Gear
         static readonly Dictionary<LootTier, string[]> TierSets = new()
         {
             [LootTier.Bronze] = new[] { "hoplite", "wayfarer", "athanor" },
+            [LootTier.Silver] = new[] { "hauberk", "kettle", "sentinel" },
+            [LootTier.Gold] = new[] { "sol", "cataphract", "wingward" },
         };
 
         /// <summary>
@@ -52,13 +55,31 @@ namespace Convergence.Art.Gear
 
         public static bool IsTierLook(string id) => !string.IsNullOrEmpty(id) && id.StartsWith("tier_");
 
-        static void AddTierLooks(List<GearItem> items) => AddTierBronze(items);
+        static void AddTierLooks(List<GearItem> items)
+        {
+            AddTierBronze(items);
+            AddTierSilver(items);
+            AddTierGold(items);
+        }
 
         /// <summary>One look: an authored piece only a rolled record wears.</summary>
         static GearItem Look(string id, string name, GearSlot slot, LootTier tier, params LayerSprite[] layers)
         {
             var item = Make(id, name, slot, tier, 0f, layers);
             item.ForgeOnly = true;
+            return item;
+        }
+
+        /// <summary>
+        /// A helm with its view from BEHIND (GearItem.HelmBack): the same silhouette with the face
+        /// opening closed, baked from the front (bake.js backOf) - without one the rig switched the
+        /// helm off whenever the wearer turned away. <paramref name="seals"/> for one that wraps the
+        /// jaw (a coif, a hood): no hair escapes it.
+        /// </summary>
+        static GearItem Helm(GearItem item, LayerSprite back, bool seals)
+        {
+            item.HelmBack = back;
+            item.SealsHead = seals;
             return item;
         }
 

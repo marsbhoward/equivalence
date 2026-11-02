@@ -53,7 +53,7 @@ for (const id of want) {
   const tier = TIER[id];
   // ---- the greatsword
   {
-    const ls = SWORDS[id].draw(), grip = ls[1];
+    const ls = SWORDS[id].draw(), grip = ls.find(l => { const b = l.mask().bbox(); return b.w === 4 && b.h === 12; });
     const gb = grip.mask().bbox();
     const g = rowsOf(flatten(ls), 0, 0, 15, 78);
     const px = gb.x0 + 1 - g.x0, py = gb.y0 + 6 - g.y0;
@@ -72,7 +72,7 @@ for (const id of want) {
     const strung = flatten(ls), bare = flatten(body);
     const [sRows, uRows, base] = rowsShared([strung, bare], [0, 0, 1, 78]);
     // the stave's centre on the middle row: the grip
-    const stave = body[0]; let a = 1e9, b = -1e9;
+    const stave = body.find(l => l.depth === 1); let a = 1e9, b = -1e9;   // every bow draws its stave at depth 1 let a = 1e9, b = -1e9;
     for (const [k] of stave.c) if (KY(k) === BOW_CY) { a = Math.min(a, KX(k)); b = Math.max(b, KX(k)); }
     const px = Math.floor((a + b + 1) / 2) - base.x0, py = BOW_CY - base.y0;
     // the string: its column and top row
