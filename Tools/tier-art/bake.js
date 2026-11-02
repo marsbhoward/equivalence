@@ -51,7 +51,7 @@ function pieces(set, slot) {
   if (slot === 'Torso') ls = ls.filter(l => !isSleeve(l));
   if (slot === 'Gloves') ls = [...set.Torso().filter(isSleeve), ...ls];
   switch (slot) {
-    case 'Head': return [{ rig: 'HeadArmor', frame: 'head', layers: ls, helm: true }];
+    case 'Head': return [{ rig: 'HeadArmor', frame: 'head', layers: ls, helm: true, set: set.id }];
     case 'Shoulders': return [{ rig: 'Shoulders', frame: 'torso', layers: ls.filter(l => !l.far) },
                               { rig: 'ShouldersBack', frame: 'torso', layers: ls.filter(l => l.far) }];
     case 'Torso': return [{ rig: 'TorsoArmor', frame: 'torso', layers: ls }];
@@ -126,6 +126,67 @@ function backOf(layers) {
   return g;
 }
 
+// HELMS DRAWN FROM BEHIND (the user's call, 2026-11-02): where the face rule only flattened the
+// front - a helm whose front carries its design (a brow band, goggles, a mask, a nasal) - the back
+// is drawn as the piece is from behind, in the mock's own shapes and shaders, centred on the skull.
+const BACKS = {
+  // the crest, and a plain bronze bowl to a flared neck guard
+  hoplite: () => {
+    const back = L(DEPTH.helmBack), helm = L(DEPTH.helm);
+    const crest = ell(17.5, -1, 19, 12).clip(rect(-30, -30, 60, -1));
+    back.fill(crest, dome(M.red, 17.5, -1, 19, 12));
+    for (let x = -1; x <= 36; x += 3) back.line(17.5, 1, x, -10, tone(M.red, 1));
+    const bowl = U(ell(17.5, 11, 18.5, 14.5).clip(rect(-30, -30, 60, 11)),
+                   poly([[-1, 11], [36, 11], [37, 23], [39, 27], [-4, 27], [-2, 23]]));
+    helm.fill(bowl, dome(M.bronze, 15, 6, 22, 22));
+    helm.over(rect(-10, 24, 50, 24), tone(M.bronze, 4));
+    helm.over(rect(-10, 25, 50, 27), (x, y) => tone(M.bronze, y === 27 ? 1 : 2));
+    return [back, helm];
+  },
+  // the cap and its band; of the goggles only the strap shows, buckled at the back
+  athanor: () => {
+    const helm = L(DEPTH.helm);
+    helm.fill(ell(17.5, 10, 18, 12.5).clip(rect(-30, -30, 60, 9)), dome(M.leather, 14, 4, 20, 15));
+    helm.over(rect(-30, 7, 60, 9), (x, y) => tone(M.bronzeDk, y === 7 ? 4 : 2));
+    helm.over(rect(-30, 2, 60, 3), (x, y) => tone(M.leatherDk, y === 2 ? 3 : 1));
+    helm.over(rect(16, 1, 19, 4), (x, y, m) => bevel(M.bronze, 1, 3)(x, y, m));
+    return [helm];
+  },
+  // mail all round the head to the shoulders, the riveted skullcap on top
+  hauberk: () => {
+    const helm = L(DEPTH.helm);
+    helm.fill(ell(17.5, 13, 20, 18).clip(rect(-30, -30, 60, 34)), mail(M.steel));
+    helm.fill(ell(17.5, 7, 17.5, 11).clip(rect(-30, -30, 60, 5)), dome(M.steel, 14, 1, 18, 12));
+    helm.over(rect(-30, 4, 60, 5), (x, y) => tone(M.steelDk, y === 4 ? 4 : 2));
+    for (let x = 3; x <= 33; x += 6) rivet(helm, x, 4, M.steel);
+    return [helm];
+  },
+  // the crest of feathers, and a smooth gold bowl to the nape, its rim lit
+  sol: () => {
+    const back = L(DEPTH.helmBack), helm = L(DEPTH.helm);
+    for (const deg of [-24, -12, 0, 12, 24]) {
+      const a = deg * Math.PI / 180, len = 11 - Math.abs(deg) * 0.1, bx = 17.5, by = -8;
+      feather(back, bx + Math.sin(a) * len, by - Math.cos(a) * len, 2.4, len, deg, M.gold);
+    }
+    back.fill(rect(16, -9, 19, -1), (x) => tone(M.goldDk, x < 17 ? 4 : 2));
+    const bowl = U(ell(17.5, 10, 18, 13.5).clip(rect(-30, -30, 60, 12)),
+                   poly([[-0.5, 12], [35.5, 12], [36, 22], [38, 27], [-3, 27], [-1, 22]]));
+    helm.fill(bowl, dome(M.gold, 15, 6, 21, 21));
+    helm.over(band(bowl, 1).clip(rect(-40, 22, 80, 40)), tone(M.gold, 4));
+    for (const [x, y] of [[6, 4], [12, 1], [24, 2], [30, 6], [4, 18], [31, 18]]) helm.dot(x, y, tone(M.gold, 2));
+    return [back, helm];
+  },
+  // the hood's back, falling to the shoulders, a seam down its middle
+  cataphract: () => {
+    const helm = L(DEPTH.helm);
+    const hood = U(ell(17.5, 11, 20, 16).clip(rect(-30, -30, 60, 20)), poly([[-3, 18], [38, 18], [39, 32], [31, 37], [6, 37], [-3, 32]]));
+    helm.fill(hood, dome(M.crimson, 13, 6, 24, 22));
+    helm.line(17.5, -3, 17.5, 35, tone(M.crimson, 1));
+    helm.over(rect(-30, 35, 60, 37), tone(M.goldDk, 3));
+    return [helm];
+  },
+};
+
 function gridRows(grid, x0, y0, w, h, what) {
   const pal = new Map(), rows = [];
   for (let y = y0; y < y0 + h; y++) {
@@ -153,7 +214,7 @@ function bakeLayer(p) {
     }
     grid = g2;
   }
-  let back = p.helm ? backOf(p.layers) : null;
+  let back = p.helm ? (BACKS[p.set] ? flatten(BACKS[p.set]()) : backOf(p.layers)) : null;
   const thin = p.layers.length && p.layers.every(l => l.outR && l.outR < OUT_R) ? p.layers[0].outR : 0;
   if (thin) { grid = ringed(grid, thin); if (back) back = ringed(back, thin); }
   const box = gridBox(back ? new Map([...grid, ...back]) : grid);
