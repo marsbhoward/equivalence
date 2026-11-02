@@ -4858,6 +4858,62 @@ namespace Convergence.Core
         /// is visible at once, which is the entire point of a room used as a menu. HubRoom
         /// narrows HalfWidth at runtime on a taller aspect so the side doors can never be cropped.
         /// </summary>
+        /// <summary>
+        /// The transmutation circle, arena and hub (the user's picks off the circle mock, 2026-11-01):
+        /// today's two grooves with the title's sigil inside, at the CHARACTER's density, the glyphs
+        /// drawn rather than blown-up bitmaps; contacts light the rim a third at a time and draw the
+        /// Tree of Life over the sigil (left pillar, right, middle); transmuting, a ring of light
+        /// gathers in from the rim to the tree, taking the light from what it passes.
+        /// </summary>
+        public static class Circle
+        {
+            /// <summary>Texels a unit: armour and weapons at 75 under the arena's 4/3 visual scale -
+            /// the character's on screen (TexelFx.Body x 2).</summary>
+            public const float Ppu = 56.25f;
+            /// <summary>The inner groove's radius, a share of the outer.</summary>
+            public const float InnerShare = 0.74f;
+            public const int OuterGroove = 3, InnerGroove = 2, SigilGroove = 2, TreeStroke = 2;
+            /// <summary>A glyph's half-size, in units, and its stroke's half-width in texels.</summary>
+            public const float GlyphHalf = 0.17f, GlyphStroke = 0.62f;
+            /// <summary>The glyphs' pulse while the player is in it (radians a second; a third apart).</summary>
+            public const float BeatSpeed = 2.2f;
+            /// <summary>How long a contact's newest glyph shows white, and a pillar takes to draw in.</summary>
+            public const float FlashSeconds = 1f / 3f, TreeDrawSeconds = 0.6f;
+            /// <summary>Transmuting: the ring of light's trip from the rim to the centre, its width (a
+            /// share of the radius), the tree's white flare and its settling to <see cref="FlareFloor"/>.</summary>
+            public const float WaveSeconds = 0.55f, WaveBand = 0.16f, FlareWhite = 0.12f, FlareSettle = 0.33f, FlareFloor = 0.35f;
+            /// <summary>When the spent circle starts to burn down, and how long that takes.</summary>
+            public const float BurnAt = 1f, BurnSeconds = 0.6f;
+            /// <summary>The hub's pulse when the circle is used: one gathering, as long as the arena's.</summary>
+            public const float HubPulseSeconds = 1f;
+        }
+
+        /// <summary>
+        /// The title screen's RIFT FLAKES (the user's picks off the rift mock, 2026-11-01): sparse
+        /// texel flakes in the rift's white, cyan and violet with some of the sigil's gold, rising from
+        /// the bottom centre past the mark, a faint cyan light below. Behind the choices.
+        /// </summary>
+        public static class Title
+        {
+            /// <summary>The flakes' texel grid across the screen (a texel ~1/320 of the width).</summary>
+            public const int FlakeTexelsAcross = 320;
+            public const int Flakes = 40;
+            /// <summary>Where they rise from: the spread either side of the centre, a share of the width.</summary>
+            public const float Spread = 0.17f;
+            /// <summary>How high they rise before they are gone (a share of the height, the least of it).</summary>
+            public const float Reach = 0.78f, ReachMin = 0.55f;
+            /// <summary>Rise speed, a share of the height a second.</summary>
+            public const float SpeedMin = 0.035f, SpeedMax = 0.085f;
+            /// <summary>Sway either side, in texels; its rate in radians a second.</summary>
+            public const float SwayMin = 2f, SwayMax = 8f, SwayRateMin = 0.4f, SwayRateMax = 1.3f;
+            /// <summary>Shimmer rate, radians a second.</summary>
+            public const float TwinkleMin = 3f, TwinkleMax = 10f;
+            /// <summary>A choice taken: the flakes rush up, the rush dying away at this rate a second.</summary>
+            public const float GustBoost = 2.5f, GustDecay = 0.9f;
+            /// <summary>The light below: its width and height (shares of the screen) and strongest alpha.</summary>
+            public const float GlowWidth = 0.5f, GlowHeight = 0.42f, GlowAlpha = 0.5f, GlowBreath = 1.3f;
+        }
+
         public static class Hub
         {
             /// <summary>Distance from centre to each side wall. Doors are mounted on these.</summary>

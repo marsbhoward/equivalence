@@ -305,7 +305,7 @@ namespace Convergence.Hub
                 () =>
                 {
                     if (_editMode) BeginCarryFixture("circle");
-                    else _onTransmute?.Invoke();
+                    else { _circle.Use(); _onTransmute?.Invoke(); }
                 },
                 on => _circle.SetFocus(on));
             _points.Add(circlePoint);

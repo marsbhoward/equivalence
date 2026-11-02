@@ -31,6 +31,9 @@ namespace Convergence.Hazards
         [SerializeField] int _lit;
         [SerializeField] bool _claimed, _fading, _spent;
         [SerializeField] float _fade = 1f, _flash;
+        /// <summary>The ring's own clock, and when the newest mark was lit on it - the Tree of Life's
+        /// pillar for that contact draws in from then (CircleArt).</summary>
+        [SerializeField] float _clock, _litAt;
 
         public Vector2 Centre => transform.position;
         public int Lit => _lit;
@@ -47,9 +50,10 @@ namespace Convergence.Hazards
             var r = go.AddComponent<TransmutationRing>();
             r._player = player;
 
-            // Cut into the floor: a ring you stand in (the user's pick, group 4 - "three glyphs").
-            int rt = Mathf.CeilToInt(Radius * Combat.TexelFx.Body) + 2;
-            r._art = Combat.TexelPicture.Attach<CircleArt>(go.transform, "circle", Vector2.zero, rt, rt, rt, SortingOrders.GroundCarved, clip: true);
+            // Cut into the floor: a ring you stand in, at the character's density (Tuning.Circle).
+            int rt = Mathf.CeilToInt(Radius * Tuning.Circle.Ppu) + 2;
+            r._art = Combat.TexelPicture.Attach<CircleArt>(go.transform, "circle", Vector2.zero, rt, rt, rt, SortingOrders.GroundCarved,
+                Tuning.Circle.Ppu, clip: true);
             return r;
         }
 
@@ -60,6 +64,7 @@ namespace Convergence.Hazards
             if (Spent || _lit >= ContactsNeeded || !PlayerInside) return;
             _lit++;
             _flash = 1f;   // the glyph lights white, then settles gold
+            _litAt = _clock;
         }
 
         /// <summary>True ONCE, when the third mark is lit - the run then transmutes.</summary>
@@ -70,7 +75,7 @@ namespace Convergence.Hazards
             return true;
         }
 
-        /// <summary>The transmutation happened: the circle flares white and goes.</summary>
+        /// <summary>The transmutation happened: the light gathers in from the rim to the tree, and it burns down.</summary>
         public void Complete()
         {
             _spent = true;
@@ -85,89 +90,85 @@ namespace Convergence.Hazards
         internal float FadeShare => _fade;
         internal float CompleteAge => _completeAge;
         internal bool Inside => PlayerInside && !Spent;
+        internal float LitAge => _clock - _litAt;
 
         void Update()
         {
-            _flash = Mathf.Max(0f, _flash - Time.deltaTime * 3f);
+            _clock += Time.deltaTime;
+            _flash = Mathf.Max(0f, _flash - Time.deltaTime / Tuning.Circle.FlashSeconds);
             if (_completeAge >= 0f)
             {
                 _completeAge += Time.deltaTime;
-                if (_completeAge > 0.7f) _fading = true;
+                if (_completeAge > Tuning.Circle.BurnAt) _fading = true;
             }
             if (_fading)
             {
-                _fade -= Time.deltaTime / 0.8f;
+                _fade -= Time.deltaTime / Tuning.Circle.BurnSeconds;
                 if (_fade <= 0f) { Destroy(gameObject); return; }
             }
         }
     }
 
     /// <summary>
-    /// The transmutation circle (the user's pick, group 4 - "three glyphs"): a double ring CUT into
-    /// the floor with the three principles' glyphs between its grooves. Each contact lights one gold
-    /// (white for a moment first). When it transmutes, gold runs round the outer groove from the
-    /// top, the whole circle flashes white and burns down. Its grooves warm toward gold while the
-    /// player stands in it.
+    /// The arena's transmutation circle (the user's picks off the circle mock, 2026-11-01; drawn by
+    /// <see cref="CircleFigureArt"/>): today's grooves with the sigil inside, warming while the player
+    /// stands in it, the glyphs pulsing in turn. Each contact lights a third of the rim clockwise from
+    /// the top and its glyph (white a moment, then gold), and draws a pillar of the Tree of Life over
+    /// the sigil - left, right, then the middle. Transmuting, a ring of light gathers in from the rim,
+    /// taking the light from what it passes, and the tree flares as it arrives; then it burns down.
     /// </summary>
-    public class CircleArt : Combat.TexelPicture
+    public class CircleArt : CircleFigureArt
     {
         [SerializeField] TransmutationRing _r;
-
-        /// <summary>The three principles' glyphs, five texels square, top row first (shared with the hub's circle).</summary>
-        internal static readonly string[][] Glyph =
-        {
-            new[] { "..x..", ".x.x.", "xxxxx", "..x..", ".xxx." },   // Sulfur: the triangle over the cross
-            new[] { "x...x", ".xxx.", ".x.x.", ".xxx.", "..x.." },   // Mercury: horns, the circle, the cross
-            new[] { ".xxx.", "x...x", "xxxxx", "x...x", ".xxx." },   // Salt: the circle barred
-        };
-        static readonly Color32 GoldLit = new(242, 194, 90, 255), GoldHot = new(255, 227, 154, 255), White = new(255, 255, 255, 255);
 
         protected override bool Draw()
         {
             if (_r == null) _r = GetComponentInParent<TransmutationRing>();
             if (_r == null) return false;
-            float fade = _r.FadeShare, R = TransmutationRing.Radius * Ppu, Ri = R * 0.74f;
-            var lip = Lerp(Combat.TexelFx.GrooveLip, GoldLit, _r.Inside ? 0.35f + 0.15f * Mathf.Sin(Age * 5f) : 0f);
-            Groove(R, 3, lip, fade);
-            Groove(Ri, 2, lip, fade);
+            float fade = _r.FadeShare, R = Outer(TransmutationRing.Radius), Ri = Inner(R);
+            float t = _r.CompleteAge;
+            bool gathering = t >= 0f;
+            float waveR = gathering ? WaveR(R, t) : float.MaxValue;
+            bool inside = _r.Inside;
+            int lit = _r.Lit;
+
+            var lip = inside ? Lerp(Combat.TexelFx.GrooveLip, GoldLit, 0.35f + 0.15f * Mathf.Sin(Age * 5f)) : Combat.TexelFx.GrooveLip;
+            (Color32, Color32) Tones(int x, int y)
+                => (Combat.TexelFx.Groove, gathering && Taken(R, waveR, Mathf.Sqrt(x * x + y * y)) ? Combat.TexelFx.GrooveLip : lip);
+            Groove(R, Tuning.Circle.OuterGroove, Vector2.zero, Tones, fade);
+            Groove(Ri, Tuning.Circle.InnerGroove, Vector2.zero, Tones, fade);
+            var (sigil, sr) = SigilRings(R);
+            foreach (var c in sigil) Groove(sr, Tuning.Circle.SigilGroove, c, Tones, fade);
+
+            // the rim, a third a contact - its light taken once the gathering ring has left it
+            if (lit > 0 && !(gathering && Taken(R, waveR, R)))
+                Paint(R, Tuning.Circle.OuterGroove, Vector2.zero, GoldLit, fade, (x, y) => FromTop(x, y) < lit * Tau / 3f);
+
+            // the tree over the sigil, a pillar a contact
+            if (lit > 0)
+            {
+                float Drawn(int p) => p < lit - 1 ? 1f : p == lit - 1 ? Mathf.Clamp01(_r.LitAge / Tuning.Circle.TreeDrawSeconds) : 0f;
+                Tree(Ri, Drawn, p => Drawn(p) < 1f ? GoldHot : p == lit - 1 && _r.Flash > 0.5f ? White : GoldLit, fade);
+            }
+
+            // transmuting: the ring of light, then the tree's flare
+            if (gathering)
+            {
+                if (t < Tuning.Circle.WaveSeconds) { GatheringRing(R, waveR, fade); LightUnderRing(R, waveR, fade, lit > 0); }
+                else { var (c, a) = Flare(t - Tuning.Circle.WaveSeconds); Tree(Ri, _ => 1f, _ => c, a * fade); }
+            }
 
             for (int i = 0; i < 3; i++)
             {
-                float a = (90f + i * 120f) * Mathf.Deg2Rad, rr = (R - 3f + Ri) * 0.5f;
-                int gx = Mathf.RoundToInt(Mathf.Cos(a) * rr), gy = Mathf.RoundToInt(Mathf.Sin(a) * rr);
-                bool on = i < _r.Lit;
-                bool newest = on && i == _r.Lit - 1;
-                var c = on ? (newest && _r.Flash > 0.5f ? White : GoldLit) : Combat.TexelFx.Groove;
-                for (int y = 0; y < 5; y++)
-                    for (int x = 0; x < 5; x++)
-                    {
-                        if (Glyph[i][4 - y][x] != 'x') continue;
-                        for (int sy = 0; sy < 2; sy++)
-                            for (int sx = 0; sx < 2; sx++)
-                                Over(gx - 5 + x * 2 + sx, gy - 5 + y * 2 + sy, c, fade);
-                    }
-            }
-
-            // Transmuting: gold runs round the outer groove from the top, then white, then burns down.
-            float t = _r.CompleteAge;
-            if (t >= 0f)
-            {
-                float run = Mathf.Clamp01(t / 0.25f) * Mathf.PI * 2f;
-                Color32 col = t < 0.25f ? GoldHot : t < 0.35f ? White : GoldLit;
-                float a = t < 0.35f ? 1f : 1f - Mathf.Clamp01((t - 0.35f) / 0.35f);
-                Light(R, 3, col, a * fade, run);
-                if (t >= 0.25f) Light(Ri, 2, col, a * fade, Mathf.PI * 2f);
+                var g = Polar(Band(R), GlyphAngles[i]);
+                Color32 c = Combat.TexelFx.Groove;
+                if (i < lit) c = i == lit - 1 && _r.Flash > 0.5f ? White : GoldLit;
+                else if (inside) c = Lerp(Combat.TexelFx.Groove, GoldLit, 0.55f + 0.45f * (0.5f + 0.5f * Mathf.Sin(Age * Tuning.Circle.BeatSpeed - i * 2.094f)));
+                if (gathering && Taken(R, waveR, g.magnitude)) c = Combat.TexelFx.Groove;
+                if (gathering && t < Tuning.Circle.WaveSeconds && OnWave(R, waveR, g.magnitude) > 0.3f) c = White;
+                Glyph(i, g.x, g.y, c, fade);
             }
             return true;
         }
-
-        void Groove(float r, int w, Color32 lip, float fade)
-            => Ring(0, 0, r - w, r, (x, y, d, ang) => Over(x, y, (y > 0 ? d > r - 1f : d < r - w + 1f) ? lip : Combat.TexelFx.Groove, fade));
-
-        void Light(float r, int w, Color32 c, float a, float upTo)
-            => Ring(0, 0, r - w + 0.6f, r - 0.4f, (x, y, d, ang) =>
-            {
-                if (Mathf.Repeat(Mathf.PI * 0.5f - ang, Mathf.PI * 2f) <= upTo) Over(x, y, c, a);
-            });
     }
 }

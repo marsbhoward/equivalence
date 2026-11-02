@@ -2,6 +2,7 @@ using System.Collections.Generic;
 using System.Threading.Tasks;
 using UnityEngine;
 using UnityEngine.UI;
+using TT = Convergence.Core.Tuning.Title;
 
 namespace Convergence.UI
 {
@@ -15,7 +16,9 @@ namespace Convergence.UI
     ///
     /// The mark is still; its ring makes one full turn when a choice is taken (the words hold
     /// still - the ring and the words are separate layers), and keeps turning slowly while a
-    /// wallet's popup is waiting. Behind it the sigil's four interlocking rings, gold, breathing.
+    /// wallet's popup is waiting. Behind it the sigil's four interlocking rings, gold, breathing, and
+    /// RIFT FLAKES rising from the bottom centre over a faint light (Tuning.Title; the rift mock,
+    /// https://claude.ai/artifact/XWC3PsGB2UWYHkruYMkCsN).
     /// Laid out in the 1920x1080 reference canvas (UiKit.CreateCanvas).
     /// </summary>
     public class TitleScreen : MonoBehaviour
@@ -56,7 +59,21 @@ namespace Convergence.UI
         float _spinT = -1f, _angle;
         bool _busy;
 
-        static Texture2D _vignette, _sigil, _sigilGlow;
+        static Texture2D _vignette, _sigil, _sigilGlow, _below;
+
+        // ---- the rift flakes: square texels on a grid ~1/320 of the screen, as a Rift draws its flakes
+        struct Flake
+        {
+            public float X0, Y0, Reach, Speed, Life, Sway, SwayRate, Phase, Twinkle, T;
+            public int Size; public bool Long; public Color32 C;
+        }
+        RawImage _flakesImg, _belowImg;
+        Texture2D _flakeTex;
+        Color32[] _fpx;
+        int _fw, _fh;
+        Flake[] _flakes;
+        uint _seed = 7u;
+        float _gust;
 
         /// <summary>Show (or re-show) the choices and wait for one; the answer is its index.</summary>
         public Task<int> ChooseAsync(Transform canvas, IList<Option> options, string status = "")
@@ -120,6 +137,9 @@ namespace Convergence.UI
             float sigil = MarkW * SigilScale;
             _glow = Layer(full, "sigil.glow", SigilGlow(), new Vector2(sigil * 1.12f, sigil * 1.12f), centreY);
             _rings = Layer(full, "sigil", Sigil(), new Vector2(sigil, sigil), centreY);
+
+            // The rift flakes and the light below them, behind the mark and the choices.
+            BuildFlakes(full);
 
             // The mark: the ring (turns) over the words (still).
             if (ringTex != null) _ring = Layer(full, "mark.ring", ringTex, new Vector2(MarkW, markH), centreY).rectTransform;
@@ -314,6 +334,141 @@ namespace Convergence.UI
             return _sigilGlow;
         }
 
+        // ------------------------------------------------------------------ the rift flakes
+
+        /// <summary>A hashed stream, never UnityEngine.Random (the project's rule for looks).</summary>
+        float Rnd() { _seed = _seed * 1664525u + 1013904223u; return (_seed >> 8) / 16777216f; }
+        float Gauss() => (Rnd() + Rnd() + Rnd() - 1.5f) / 1.5f;
+
+        void BuildFlakes(RectTransform full)
+        {
+            _belowImg = UiKit.Rect(full, "rift.light", new Vector2(0.5f - TT.GlowWidth * 0.5f, 0f), new Vector2(0.5f + TT.GlowWidth * 0.5f, TT.GlowHeight), Vector2.zero, Vector2.zero)
+                .gameObject.AddComponent<RawImage>();
+            _belowImg.texture = Below();
+            _belowImg.raycastTarget = false;
+
+            var r = full.rect;
+            float aspect = r.width > 1f && r.height > 1f ? r.height / r.width : 9f / 16f;
+            int w = Core.Tuning.Title.FlakeTexelsAcross, h = Mathf.Max(1, Mathf.RoundToInt(w * aspect));
+            if (_flakeTex == null || _fw != w || _fh != h)
+            {
+                if (_flakeTex != null) Destroy(_flakeTex);
+                _fw = w; _fh = h;
+                _flakeTex = new Texture2D(w, h, TextureFormat.RGBA32, false)
+                { filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp, hideFlags = HideFlags.HideAndDontSave };
+                _fpx = new Color32[w * h];
+            }
+            _flakesImg = UiKit.Rect(full, "rift.flakes", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero).gameObject.AddComponent<RawImage>();
+            _flakesImg.texture = _flakeTex;
+            _flakesImg.raycastTarget = false;
+            if (_flakes == null)
+            {
+                _flakes = new Flake[Core.Tuning.Title.Flakes];
+                for (int i = 0; i < _flakes.Length; i++) _flakes[i] = Spawn(Rnd());   // spread over their climb
+            }
+        }
+
+        /// <summary>The rift's white, cyan and deep cyan, with the sigil's gold - weighted.</summary>
+        static readonly (Color32 c, float w)[] FlakeColours =
+        {
+            (new Color32(242, 253, 255, 255), 0.28f), (new Color32(115, 224, 255, 255), 0.34f),
+            (new Color32(47, 182, 232, 255), 0.14f), (new Color32(232, 186, 61, 255), 0.24f),
+        };
+
+        /// <summary>A flake born at the foot, <paramref name="age"/> of the way up its climb.</summary>
+        Flake Spawn(float age)
+        {
+            float pick = Rnd();
+            var col = FlakeColours[0].c;
+            foreach (var (c, w) in FlakeColours) { if ((pick -= w) <= 0f) { col = c; break; } }
+            var f = new Flake
+            {
+                X0 = _fw * 0.5f + Gauss() * TT.Spread * _fw,
+                Y0 = -2f,
+                Reach = _fh * TT.Reach * Mathf.Lerp(TT.ReachMin, 1f, Rnd()),
+                Speed = _fh * Mathf.Lerp(TT.SpeedMin, TT.SpeedMax, Rnd()),
+                Sway = Mathf.Lerp(TT.SwayMin, TT.SwayMax, Rnd()),
+                SwayRate = Mathf.Lerp(TT.SwayRateMin, TT.SwayRateMax, Rnd()),
+                Phase = Rnd() * 6.283f,
+                Twinkle = Mathf.Lerp(TT.TwinkleMin, TT.TwinkleMax, Rnd()),
+                Size = Rnd() < 0.12f ? 2 : 1,
+                Long = Rnd() < 0.18f,
+                C = col,
+            };
+            f.Life = f.Reach / f.Speed;
+            f.T = age * f.Life;
+            return f;
+        }
+
+        void StepFlakes(float dt)
+        {
+            if (_flakeTex == null || _flakes == null || _fpx == null) return;
+            float now = Time.unscaledTime;
+            _gust = Mathf.Max(0f, _gust - dt * TT.GustDecay);
+            if (_belowImg != null)
+                _belowImg.color = new Color(1f, 1f, 1f, TT.GlowAlpha * (0.75f + 0.25f * Mathf.Sin(now * TT.GlowBreath)));
+
+            System.Array.Clear(_fpx, 0, _fpx.Length);
+            for (int i = 0; i < _flakes.Length; i++)
+            {
+                ref var f = ref _flakes[i];
+                f.T += dt * (1f + _gust * TT.GustBoost);
+                if (f.T >= f.Life) { f = Spawn(0f); continue; }
+                float k = f.T / f.Life;
+                float x = f.X0 + Mathf.Sin(f.T * f.SwayRate + f.Phase) * f.Sway;
+                float y = f.Y0 + f.T * f.Speed;
+                // In fast, out slow; shimmering texel by texel; now and then a white glint.
+                float a = Mathf.Min(1f, k * 8f) * Mathf.Pow(1f - k, 0.7f) * (0.72f + 0.28f * Mathf.Sin(now * f.Twinkle + f.Phase));
+                bool glint = Mathf.Sin(now * 2.1f + f.Phase * 7f) > 0.985f;
+                var c = glint ? new Color32(255, 255, 255, 255) : f.C;
+                int px = Mathf.RoundToInt(x), py = Mathf.RoundToInt(y), h = f.Long ? f.Size * 2 : f.Size;
+                FlakeRect(px, py, f.Size, h, c, Mathf.Min(1f, a * 1.1f));
+            }
+            _flakeTex.SetPixels32(_fpx);
+            _flakeTex.Apply();
+        }
+
+        /// <summary>A block of texels, keeping whichever is stronger where flakes overlap.</summary>
+        void FlakeRect(int x0, int y0, int w, int h, Color32 c, float a)
+        {
+            byte alpha = (byte)(Mathf.Clamp01(a) * 255f);
+            for (int y = y0; y < y0 + h; y++)
+                for (int x = x0; x < x0 + w; x++)
+                {
+                    if (x < 0 || y < 0 || x >= _fw || y >= _fh) continue;
+                    int i = y * _fw + x;
+                    if (_fpx[i].a >= alpha) continue;
+                    _fpx[i] = new Color32(c.r, c.g, c.b, alpha);
+                }
+        }
+
+        /// <summary>The light below: a cyan glow rising from the bottom centre, violet at its edge.</summary>
+        static Texture2D Below()
+        {
+            if (_below != null) return _below;
+            const int W = 128, H = 48;
+            var px = new Color[W * H];
+            var core = new Color(0.55f, 0.91f, 1f);
+            var rim = new Color(0.35f, 0.43f, 1f);
+            for (int y = 0; y < H; y++)
+            for (int x = 0; x < W; x++)
+            {
+                // Round from its centre just under the bottom edge, falling away to nothing at the rect's edge.
+                float u = ((x + 0.5f) / W - 0.5f) * 2f, v = (y + 0.5f) / H + 0.04f;
+                float r = Mathf.Min(1f, Mathf.Sqrt(u * u + v * v));
+                float a = (1f - r) * (1f - r);
+                var c = Color.Lerp(core, rim, Mathf.Clamp01(r / 0.6f));
+                px[y * W + x] = new Color(c.r, c.g, c.b, a);
+            }
+            _below = Make(px, W, H, FilterMode.Bilinear);
+            return _below;
+        }
+
+        void OnDestroy()
+        {
+            if (_flakeTex != null) Destroy(_flakeTex);
+        }
+
         static Texture2D Make(Color[] px, int w, int h, FilterMode filter)
         {
             var tex = new Texture2D(w, h, TextureFormat.RGBA32, false)
@@ -334,6 +489,7 @@ namespace Convergence.UI
             float b = 0.5f - 0.5f * Mathf.Cos(Time.unscaledTime * Mathf.PI * 2f / BreathSeconds);
             if (_rings != null) _rings.color = new Color(1f, 1f, 1f, Mathf.Lerp(0.18f, 0.46f, b));
             if (_glow != null) _glow.color = new Color(1f, 1f, 1f, Mathf.Lerp(0.0f, 0.5f, b));
+            StepFlakes(dt);
 
             // The ring: one turn when a choice is taken (eased), a slow turn while a wallet waits.
             if (_spinT >= 0f)
@@ -379,6 +535,7 @@ namespace Convergence.UI
             if (_spinT >= 0f) return;
             _picked = i;
             _spinT = 0f;
+            _gust = 1f;   // the flakes rush up as the ring turns
         }
     }
 }
