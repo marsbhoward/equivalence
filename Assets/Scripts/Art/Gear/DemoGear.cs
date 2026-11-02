@@ -1402,6 +1402,9 @@ namespace Convergence.Art.Gear
             // ---- the standard relics: the looks a rolled relic wears. See DemoGear.Relics.cs.
             AddStandardRelics(items);
 
+            // ---- the tier looks: what rolled Bronze/Silver/Gold armour wears. See DemoGear.TierLooks.cs.
+            AddTierLooks(items);
+
             // ---- menu art for everything that has none ----
             //
             // Six weapons carry HAND-DRAWN menu art, and those are left exactly as they are: a
@@ -5169,6 +5172,8 @@ namespace Convergence.Art.Gear
             // The ring is 36 cells - the size the user moved discs to - and the mane breaks past
             // it by the user's call (DemoGear.LionOuroboros). Drop this once the standard is 36.
             ["king_and_queen_discs"] = "a 36-cell ring, the mane past it",
+            // The approved mock's top vial stopper stands a cell past the ring (DemoGear.TierLooks).
+            ["tier_athanor_disc"] = "a vial stopper past the ring",
         };
 
         /// <summary>

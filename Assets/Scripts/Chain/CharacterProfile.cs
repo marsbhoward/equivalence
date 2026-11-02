@@ -400,22 +400,37 @@ namespace Convergence.Chain
         /// the same way a real NFT's art would need a real asset pipeline this project does not
         /// have yet. Stats and identity are what the Forge actually promises.
         /// </summary>
+        /// <summary>
+        /// The picture this piece wears: its <see cref="Design"/>, or for a stat-only armour piece
+        /// the tier look its instance id hashes to (DemoGear.TierLookFor - the user's call,
+        /// 2026-11-02). DERIVED, never stored, so a record written before the looks existed wears
+        /// one as well and nothing new is saved or minted. Null when there is nothing to wear.
+        /// </summary>
+        public string Look => !string.IsNullOrEmpty(Design)
+            ? Design
+            : Art.Gear.DemoGear.TierLookFor(Slot, Tier, Class, Art.Gear.DemoGear.StableHash(InstanceId));
+
         public Art.Gear.GearItem ToGearItem()
         {
             // Wearing a design: start from a COPY of it, so the instance carries every picture and
             // behaviour flag the authored piece has - layers, menu art, flipbooks, split blades,
             // signature - and the lines below overwrite only what makes it this instance.
-            var design = string.IsNullOrEmpty(Design) ? null : Art.Gear.GearCatalog.Get(Design);
+            // A piece with no design of its own wears its tier's look (Look) - the same copy-and-
+            // overwrite, minus the slot move: the look was chosen for this slot.
+            string look = Look;
+            var design = string.IsNullOrEmpty(look) ? null : Art.Gear.GearCatalog.Get(look);
+            bool derived = design != null && string.IsNullOrEmpty(Design);
             var item = design != null
                 ? UnityEngine.Object.Instantiate(design)
                 : UnityEngine.ScriptableObject.CreateInstance<Art.Gear.GearItem>();
             item.hideFlags = UnityEngine.HideFlags.HideAndDontSave;
             // The design decides where it is worn: a record minted before a design moved slot (the
             // Wraith's Eye, Head to Ring 2026-10-30) follows it, and is saved that way from now on.
-            if (design != null) Slot = design.Slot;
-            item.DesignId = design != null ? Design : null;
+            if (design != null && !derived) Slot = design.Slot;
+            item.DesignId = design != null ? look : null;
             item.ItemId = InstanceId;
-            item.DisplayName = DisplayName;
+            // Named after what it wears, as a relic is ("Bronze Hoplite Helm").
+            item.DisplayName = derived ? $"{Tier} {design.DisplayName}" : DisplayName;
             item.Slot = Slot;
             item.Tier = Tier;
             item.Grants = Grants;
@@ -468,7 +483,7 @@ namespace Convergence.Chain
             var c = System.Globalization.CultureInfo.InvariantCulture;
             string subs = SubStats == null ? "" : string.Join(",", SubStats.ConvertAll(
                 x => x == null ? "-" : $"{x.Kind}:{x.Value.ToString("0.##", c)}"));
-            return $"{Slot}|{Tier}|{DisplayName}|{grants}|{ability}|{Finisher}|{weaponClass}|{PrimaryStat}|{UpgradeLevel}|{subs}|{Design}";
+            return $"{Slot}|{Tier}|{DisplayName}|{grants}|{ability}|{Finisher}|{weaponClass}|{PrimaryStat}|{UpgradeLevel}|{subs}|{Look}";
         }
 
         /// <summary>
@@ -481,6 +496,6 @@ namespace Convergence.Chain
         /// choice on that tab and two on the gear tab. Offering the same picture twice because of
         /// numbers the disguise ignores would be a decision the player cannot act on.
         /// </summary>
-        public string AppearanceSignature() => $"{Slot}|{Tier}|{DisplayName}|{Design}";
+        public string AppearanceSignature() => $"{Slot}|{Tier}|{DisplayName}|{Look}";
     }
 }

@@ -1,0 +1,16 @@
+using System.Collections.Generic;
+
+namespace Convergence.Art.Gear
+{
+    // ====================================================== GENERATED: the Bronze tier looks
+    //
+    // Baked from the approved tier mocks - the armour (rounds 1-9, 2026-10-30/31; bake.js) and the
+    // weapons (round 2, 2026-10-31; wbake.js): Hoplite, Wayfarer and Athanor, eight pieces and a
+    // greatsword, a disc pair and a bow each. Do not hand-edit the grids: change the mock and bake
+    // again (Tools/tier-art/regen.sh). Armour grids are at the body's density, offset in
+    // layout cells from the joint they hang on; weapons at weapon density, pivoted on the grip.
+    // The helpers are in DemoGear.TierLooks.cs.
+    public static partial class DemoGear
+    {
+        static void AddTierBronze(List<GearItem> items)
+        {
