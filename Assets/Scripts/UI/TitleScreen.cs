@@ -56,6 +56,9 @@ namespace Convergence.UI
         GameObject _foot;
         /// <summary>PRIVACY's tap area, padded past the word for a finger.</summary>
         RectTransform _privacy;
+        /// <summary>SUPPORT, the corner plate (the user's pick C, 2026-11-03): opens UI/SupportCard.</summary>
+        RectTransform _support;
+        Transform _canvas;
         readonly List<RectTransform> _focusable = new();
         RectTransform _ring;
         RawImage _rings, _glow;
@@ -178,6 +181,22 @@ namespace Convergence.UI
             _status.horizontalOverflow = HorizontalWrapMode.Wrap;
 
             BuildFoot(full);
+            BuildSupport(full);
+            _canvas = canvas;
+        }
+
+        /// <summary>The corner plate, top right, with "made by one person" beside it.</summary>
+        void BuildSupport(RectTransform full)
+        {
+            float x = 960f - TT.SupportInset - TT.SupportW;
+            _support = Top(full, "support", x, TT.SupportInset, TT.SupportW, TT.SupportH);
+            var face = _support.gameObject.AddComponent<Image>();
+            face.sprite = Plate(false);
+            face.type = Image.Type.Sliced;
+            face.color = Color.white;
+            UiKit.Label(_support, "SUPPORT", 20, new Color(0.95f, 0.84f, 0.58f), TextAnchor.MiddleCenter);
+            var note = Top(full, "support.note", x - 420f - 16f, TT.SupportInset, 420f, TT.SupportH);
+            UiKit.Label(note, "made by one person", 17, Sub, TextAnchor.MiddleRight);
         }
 
         /// <summary>The bottom line - one sentence and PRIVACY after it, centred as a pair.</summary>
@@ -548,14 +567,23 @@ namespace Convergence.UI
                 _ring.localEulerAngles = new Vector3(0f, 0f, _angle);
             }
 
+            // The support card over the title has the pad and the taps while it is open.
+            if (SupportCard.IsOpen || SupportCard.ClosedFrame == Time.frameCount) return;
+
             _focusable.Clear();
             _focusable.AddRange(_buttons);
             if (_privacy != null && _foot != null && _foot.activeSelf) _focusable.Add(_privacy);
+            if (_support != null) _focusable.Add(_support);
             Core.Controls.SetFocusCandidates(_focusable);
             if (_busy || _answer == null || Time.frameCount == _openedFrame) return;
 
             if (Core.Controls.ConfirmTapped && _buttons.Count > 0) { Pick(0); return; }
             if (!Core.Controls.Tapped(out var p)) return;
+            if (_support != null && RectTransformUtility.RectangleContainsScreenPoint(_support, p, null))
+            {
+                SupportCard.Open(_canvas, null);
+                return;
+            }
             if (_privacy != null && _foot != null && _foot.activeSelf
                 && RectTransformUtility.RectangleContainsScreenPoint(_privacy, p, null)) { OpenPrivacy(); return; }
             for (int i = 0; i < _buttons.Count; i++)

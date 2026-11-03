@@ -9,12 +9,11 @@ namespace Convergence.UI
 {
     /// <summary>
     /// THE SHOWCASE's closing card (SHOWCASE.md, the user's calls 2026-10-31): shown when the player
-    /// extracts through floor 10's Blue Rift. Thanks, the run clock, a card to join the Discord, a card
-    /// to support the game, a few tips for the next run, and what the full beta holds - every number
-    /// in that breakdown COUNTED from the game's own catalogues, so it is never out of date.
+    /// extracts through floor 10's Blue Rift. Thanks, the run clock, a card to join the Discord, a few
+    /// tips for the next run, and what the full beta holds - every number in that breakdown COUNTED from the game's own catalogues, so it is never out of date.
     ///
-    /// The links are Tuning.Showcase's: the Discord, and the ways to tip (Cash App, Venmo, ADA) - each
-    /// shown only once filled in, the support card not at all with none.
+    /// The Discord link is Tuning.Showcase's. The support card moved to the hub's thank-you
+    /// (UI/SupportCard), opened as the player comes home from this ending.
     /// </summary>
     public class ShowcaseEndScreen : MonoBehaviour
     {
@@ -54,27 +53,11 @@ namespace Convergence.UI
                 $"You reached floor {RunFormat.EndFloor} of {RunFormat.FinalFloor} in {s / 60}:{s % 60:00}. Thank you for playing the showcase - the descent goes much deeper.",
                 20, Dim, TextAnchor.MiddleCenter);
 
-            // ---- the Discord, and tips for the game (Cash App, Venmo, ADA) ----
-            var cards = new List<RectTransform>();
-            bool discord = !string.IsNullOrEmpty(Tuning.Showcase.DiscordUrl);
-            var tipWays = new List<(string Label, string Value, Action Act)>();
-            if (!string.IsNullOrEmpty(Tuning.Showcase.CashAppTag))
+            // ---- the Discord. Support moved to the hub's thank-you (UI/SupportCard, the user's call
+            // 2026-11-03), which opens as the player comes home from this ending.
+            if (!string.IsNullOrEmpty(Tuning.Showcase.DiscordUrl))
             {
-                var tag = Tuning.Showcase.CashAppTag.TrimStart('$');
-                tipWays.Add(("CASH APP", "$" + tag, () => { Chain.Service.Telemetry.Card("cashapp"); Application.OpenURL("https://cash.app/$" + tag); }));
-            }
-            if (!string.IsNullOrEmpty(Tuning.Showcase.VenmoUser))
-            {
-                var user = Tuning.Showcase.VenmoUser.TrimStart('@');
-                tipWays.Add(("VENMO", "@" + user, () => { Chain.Service.Telemetry.Card("venmo"); Application.OpenURL("https://venmo.com/u/" + user); }));
-            }
-            if (!string.IsNullOrEmpty(Tuning.Showcase.AdaAddress))
-                tipWays.Add(("ADA", Short(Tuning.Showcase.AdaAddress), () => { Chain.Service.Telemetry.Card("ada"); Copy(Tuning.Showcase.AdaAddress, "ADA address"); }));
-
-            int count = (discord ? 1 : 0) + (tipWays.Count > 0 ? 1 : 0);
-            float lw = 560f, lgap = 30f, lx = -(count * lw + (count - 1) * lgap) / 2f;
-            if (discord)
-            {
+                const float lw = 560f, lx = -lw / 2f;
                 var card = UiKit.Panel(full, mid, mid, new Vector2(lx, 180), new Vector2(lx + lw, 336), new Color(0.16f, 0.13f, 0.07f, 1f));
                 UiKit.Label(UiKit.Rect(card, "t", new Vector2(0, 1), new Vector2(1, 1), new Vector2(24, -56), new Vector2(-24, -16)), "JOIN THE DISCORD", 24, Gold);
                 var b = UiKit.Label(UiKit.Rect(card, "b", Vector2.zero, Vector2.one, new Vector2(24, 14), new Vector2(-24, -60)),
@@ -82,26 +65,7 @@ namespace Convergence.UI
                 b.horizontalOverflow = HorizontalWrapMode.Wrap;
                 var url = Tuning.Showcase.DiscordUrl;
                 _hits.Add((card, () => { Chain.Service.Telemetry.Card("discord"); Application.OpenURL(url); }));
-                lx += lw + lgap;
             }
-            if (tipWays.Count > 0)
-            {
-                var card = UiKit.Panel(full, mid, mid, new Vector2(lx, 180), new Vector2(lx + lw, 336), new Color(0.16f, 0.13f, 0.07f, 1f));
-                UiKit.Label(UiKit.Rect(card, "t", new Vector2(0, 1), new Vector2(1, 1), new Vector2(24, -50), new Vector2(-24, -14)), "SUPPORT THE GAME", 24, Gold);
-                UiKit.Label(UiKit.Rect(card, "s", new Vector2(0, 1), new Vector2(1, 1), new Vector2(24, -76), new Vector2(-24, -50)),
-                    "Equivalence is made by a small team. A tip helps it reach the full beta.", 15, Dim);
-                // One button per way to tip, side by side along the card's foot.
-                float bw = (lw - 48f - (tipWays.Count - 1) * 12f) / tipWays.Count, bx = 24f;
-                foreach (var (label, value, act) in tipWays)
-                {
-                    var btn = UiKit.Panel(card, new Vector2(0, 0), new Vector2(0, 0), new Vector2(bx, 14), new Vector2(bx + bw, 70), new Color(0.24f, 0.2f, 0.11f));
-                    UiKit.Label(UiKit.Rect(btn, "l", new Vector2(0, 1), new Vector2(1, 1), new Vector2(0, -26), new Vector2(0, -4)), label, 15, Gold, TextAnchor.MiddleCenter);
-                    UiKit.Label(UiKit.Rect(btn, "v", Vector2.zero, new Vector2(1, 0), new Vector2(4, 6), new Vector2(-4, 30)), value, 14, Ink, TextAnchor.MiddleCenter);
-                    _hits.Add((btn, act));
-                    bx += bw + 12f;
-                }
-            }
-            _copied = UiKit.Label(UiKit.Rect(full, "copied", new Vector2(0.5f, 0), new Vector2(0.5f, 0), new Vector2(-600, 102), new Vector2(600, 128)), "", 15, Gold, TextAnchor.MiddleCenter);
 
             // ---- tips for the next run ----
             var tips = new[]
@@ -170,19 +134,6 @@ namespace Convergence.UI
                 (Progression.MasteryBoard.All.Count.ToString(), "nodes on the mastery grid"),
             };
         }
-
-        Text _copied;
-
-        /// <summary>Onto the clipboard, and said so. A browser may refuse the copy: the value is on the card to read.</summary>
-        void Copy(string value, string what)
-        {
-            GUIUtility.systemCopyBuffer = value;
-            if (_copied != null) _copied.text = $"{what} copied - {value}";
-        }
-
-        /// <summary>A long address shortened for its button: the start and the end, which is what people check.</summary>
-        static string Short(string address)
-            => address.Length <= 22 ? address : address.Substring(0, 10) + "..." + address.Substring(address.Length - 8);
 
         void Finish()
         {

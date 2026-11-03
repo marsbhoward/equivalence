@@ -796,6 +796,13 @@ namespace Convergence.Core
             public const string CashAppTag = "MarsHoward";
             public const string VenmoUser = "technicallyMars";
             public const string AdaAddress = "$fourgod";   // an ADA Handle - wallets resolve it
+
+            /// <summary>SHARING (UI/SupportCard, the user's words 2026-11-03): the title's share, and the
+            /// link every shared run ends with.</summary>
+            public const string ShareLine = "Equivalence - a pixel roguelite descent extraction.";
+            public const string ShareUrl = "https://equivalence-showcase-production.up.railway.app/play/";
+            /// <summary>How long the support card's "copied" / "opened" line stays.</summary>
+            public const float SupportToastSeconds = 3.5f;
         }
 
         /// <summary>
@@ -5078,6 +5085,10 @@ namespace Convergence.Core
             /// middle, and how far its tap area reaches past the word (canvas units).</summary>
             public const float PrivacyGap = 18f, PrivacyUnderline = 11f, PrivacyPad = 18f;
 
+            /// <summary>The SUPPORT corner plate (UI/SupportCard): its size and its inset from the top
+            /// right (canvas units).</summary>
+            public const float SupportW = 190f, SupportH = 60f, SupportInset = 36f;
+
             /// <summary>The flakes' texel grid across the screen (a texel ~1/320 of the width).</summary>
             public const int FlakeTexelsAcross = 320;
             public const int Flakes = 40;
@@ -5207,6 +5218,8 @@ namespace Convergence.Core
             /// <summary>The leaves are STONE SLABS this thick (the user's pick S2, 2026-11-03): an open leaf
             /// shows its free edge and its top (Hub.DoorSlabs). The hub door and the arena's alike.</summary>
             public const float DoorSlabThickness = 0.09f;
+            /// <summary>The sealed letter on the table (Hub/GridTable): one rise and fall of its glint.</summary>
+            public const float LetterGlintSeconds = 1.6f;
             /// <summary>The leaves' faces under the room's upper-left light (L2): the left leaf turns toward
             /// it, the right away - multiples of the stone.</summary>
             public const float DoorLeafLit = 1.16f;

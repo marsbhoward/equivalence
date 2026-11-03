@@ -53,6 +53,13 @@ export interface EquivalenceChain {
   /** Reloads the page - the service said this build is too old (426). */
   reload(args: {}): void;
 
+  /** The support card's SHARE: a phone's share sheet ('shared', or 'cancelled' when the player
+   *  backs out), else the text on the clipboard ('copied'). Rejects when neither works. */
+  share(args: { text: string }): Promise<string>;
+
+  /** Onto the clipboard (the support card's ADA handle). Rejects when the browser refuses. */
+  copy(args: { text: string }): Promise<string>;
+
   /** 'true' when this browser holds a session for the address that still holds - proveOwnership
    *  will then resolve without the wallet. */
   remembered(args: { accountId: string }): Promise<string>;

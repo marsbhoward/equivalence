@@ -1881,6 +1881,7 @@ namespace Convergence.Core
                        DressArmoury,
                        SaveLook);
             _hub.OnOpenParcel = OpenParcel;
+            _hub.OnReadLetter = ReadLetter;
             _hub.OnOpenInventory = OpenHubInventory;
             // Open from the first frame if the player has already run today - no slide on arrival.
             _hub.HoldDoorOpen(_account != null && _account.RanToday, snap: true);
@@ -2337,7 +2338,7 @@ namespace Convergence.Core
                       || PauseScreen.IsOpen || SettingsScreen.IsOpen || ControlsScreen.IsOpen
                       || HudSettingsScreen.IsOpen
                       || InventoryScreen.IsOpen || UI.EndingScreen.IsOpen || UI.ShowcaseEndScreen.IsOpen
-                      || UI.FirstRunHints.IsOpen || UI.TitleScreen.IsOpen;
+                      || UI.FirstRunHints.IsOpen || UI.TitleScreen.IsOpen || UI.SupportCard.IsOpen;
             bool modal = screenOpen || (_hub != null && _hub.Blocking);
 
             // The sigil door stays open for the day once the player has run, and shuts on its own
@@ -6257,6 +6258,7 @@ namespace Convergence.Core
             };
             _pendingMastery = 0;
             _runCalx = 0;
+            if (survived) NoteEscape();
 
             // An avatar's boxes still outstanding, then floor 100's box, so they are secured and
             // banked with everything else.
@@ -7493,6 +7495,65 @@ namespace Convergence.Core
             if (_enemyRoot) Destroy(_enemyRoot.gameObject);
             if (_hazardRoot) Destroy(_hazardRoot.gameObject);
             ShowHub();
+            // The week's showcase ending: the thank-you as the hub comes back (NoteEscape).
+            if (_thanksOnArrival is { } thanks)
+            {
+                _thanksOnArrival = null;
+                UI.SupportCard.Open(_canvas.transform, thanks);
+            }
+        }
+
+        // ------------------------------------------------------------------ the thank-you (UI/SupportCard)
+
+        /// <summary>The thank-you to open when the hub comes back, or null.</summary>
+        UI.SupportCard.Escape? _thanksOnArrival;
+
+        /// <summary>
+        /// An ESCAPE, noted before the run-end checkpoint so it saves with it (the user's picks,
+        /// 2026-11-03): the showcase's ending (floor 10's boss, then its Blue Rift) opens the thank-you
+        /// on arrival the first time each week; otherwise a character's first escape leaves the sealed
+        /// letter on the hub's table, which opens it. The thank-you on arrival counts as the letter.
+        /// </summary>
+        void NoteEscape()
+        {
+            if (_profile == null) return;
+            var e = new UI.SupportCard.Escape
+            {
+                Floor = _floor,
+                Secured = _loot != null ? _loot.SecuredCount : 0,
+                Seconds = Clock.Seconds,
+                Element = (_player && _player.Resource ? _player.Resource.Element : ElementType.Fire).ToString(),
+                Weapon = (_player ? _player.Weapon : Art.Gear.WeaponClass.Greatsword).ToString(),
+            };
+            int week = FinalFloorReward.ThisWeek;
+            if (Core.RunFormat.Showcase && _floor >= Core.RunFormat.EndFloor && _account != null && _account.ThanksWeek != week)
+            {
+                _account.ThanksWeek = week;   // saved with the run's account write
+                _thanksOnArrival = e;
+                if (_profile.EscapeLetter == 0) _profile.EscapeLetter = 2;
+                return;
+            }
+            if (_profile.EscapeLetter != 0) return;
+            _profile.EscapeLetter = 1;
+            _profile.EscapeLetterRun = new EscapeRecord
+            {
+                Floor = e.Floor, Secured = e.Secured, Seconds = e.Seconds, Element = e.Element, Weapon = e.Weapon,
+            };
+        }
+
+        /// <summary>The sealed letter on the table: read once, it opens the thank-you for that escape.</summary>
+        void ReadLetter()
+        {
+            if (_profile == null || _profile.EscapeLetter != 1) return;
+            var r = _profile.EscapeLetterRun ?? new EscapeRecord();
+            _profile.EscapeLetter = 2;
+            SaveHubLook();
+            _hub?.TakeLetter();
+            UI.SupportCard.Open(_canvas.transform, new UI.SupportCard.Escape
+            {
+                Floor = r.Floor, Secured = r.Secured, Seconds = r.Seconds,
+                Element = string.IsNullOrEmpty(r.Element) ? "Fire" : r.Element, Weapon = r.Weapon,
+            });
         }
     }
 }

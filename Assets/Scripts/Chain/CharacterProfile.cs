@@ -194,8 +194,24 @@ namespace Convergence.Chain
         /// move, bar, aim, guard, exchange, rift) - each shows once per character. Additive.</summary>
         public System.Collections.Generic.List<string> HintsSeen = new();
 
+        /// <summary>THE LETTER (UI/SupportCard, the user's pick 2026-11-03): this character's first
+        /// escape leaves a sealed letter on the hub's table, which opens the thank-you. 0 = not yet
+        /// escaped, 1 = the letter waits, 2 = read (or the week's showcase thank-you said it). Additive.</summary>
+        public int EscapeLetter;
+        /// <summary>The escape the letter is about - its line and the run it shares. Additive.</summary>
+        public EscapeRecord EscapeLetterRun = new();
+
                 /// <summary>Name for display, never blank.</summary>
         public string DisplayName => string.IsNullOrWhiteSpace(Name) ? ProfileId : Name;
+    }
+
+    /// <summary>An escape, as the hub's letter remembers it (UI/SupportCard.Escape).</summary>
+    [Serializable]
+    public class EscapeRecord
+    {
+        public int Floor, Secured;
+        public float Seconds;
+        public string Element = "", Weapon = "";
     }
 
     /// <summary>Written once, at run end. One of these per checkpoint transaction.</summary>

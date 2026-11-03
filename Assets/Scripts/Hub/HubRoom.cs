@@ -120,6 +120,16 @@ namespace Convergence.Hub
         /// Lost on a reload and set again when the hub is next shown.</summary>
         public System.Action OnOpenInventory;
 
+        /// <summary>Opens the sealed letter on the table (GameBootstrap.ReadLetter). Lost on a reload
+        /// and set again when the hub is next shown.</summary>
+        public System.Action OnReadLetter;
+
+        /// <summary>A character's first escape leaves a sealed letter on the table (UI/SupportCard).</summary>
+        bool HasLetter => _profile != null && _profile.EscapeLetter == 1;
+
+        /// <summary>The letter has been read: off the table, and the table is the grid again.</summary>
+        public void TakeLetter() { if (_table != null) _table.ShowLetter(false); }
+
         /// <summary>A theme won and not yet opened sits on the crate as a parcel.</summary>
         bool HasParcel => _profile?.Hub?.Unopened != null && _profile.Hub.Unopened.Count > 0;
 
@@ -533,6 +543,7 @@ namespace Convergence.Hub
             var tableDefault = new Vector2(lx0 + 3.2f, (ly0 + ly1) * 0.5f + 0.05f);
             var tableAt = DefaultOr("table", tableDefault);
             _table = GridTable.Build(_root, tableAt, 1.6f, 1.1f);
+            _table.ShowLetter(HasLetter);
             var tablePoint = HubInteractable.Attach(_table.gameObject, tableAt - new Vector2(0f, 0.65f), 1.2f,
                 () => _editMode
                     ? new Prompt
@@ -542,6 +553,15 @@ namespace Convergence.Hub
                         Body = "Pick it up and stand it somewhere else.",
                         Key = "[ E ]  pick up",
                         Accent = new Color(0.82f, 0.74f, 0.52f),
+                    }
+                    : HasLetter
+                    ? new Prompt
+                    {
+                        Title = "A SEALED LETTER",
+                        Sub = "on the table",
+                        Body = "Left here after your first escape.",
+                        Key = "[ E ]  read the letter",
+                        Accent = new Color(0.95f, 0.76f, 0.35f),
                     }
                     : new Prompt
                     {
@@ -555,6 +575,7 @@ namespace Convergence.Hub
                 () =>
                 {
                     if (_editMode) BeginCarryFixture("table");
+                    else if (HasLetter) OnReadLetter?.Invoke();
                     else _onMastery?.Invoke();
                 },
                 on => _table.SetFocus(on));

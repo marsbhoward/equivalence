@@ -7,6 +7,23 @@
   var session = "";
   var KEY_DB = "equivalence-keys";
   var STORED = "equivalence.wallet";
+  async function copyText(text) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+    }
+    const area = document.createElement("textarea");
+    area.value = text;
+    area.setAttribute("readonly", "");
+    area.style.position = "fixed";
+    area.style.opacity = "0";
+    document.body.appendChild(area);
+    area.select();
+    const ok = document.execCommand("copy");
+    area.remove();
+    if (!ok) throw new Error("The browser would not copy.");
+  }
   function idb(mode, run) {
     return new Promise((resolve, reject) => {
       const open = indexedDB.open(KEY_DB, 1);
@@ -394,6 +411,23 @@ ${bodyHash}`;
     },
     reload() {
       location.reload();
+    },
+    async share({ text }) {
+      const coarse = typeof matchMedia === "function" && matchMedia("(pointer: coarse)").matches;
+      if (coarse && typeof navigator.share === "function") {
+        try {
+          await navigator.share({ text });
+          return "shared";
+        } catch (e) {
+          if ((e == null ? void 0 : e.name) === "AbortError") return "cancelled";
+        }
+      }
+      await copyText(text);
+      return "copied";
+    },
+    async copy({ text }) {
+      await copyText(text);
+      return "copied";
     },
     async remembered({ accountId }) {
       return await sessionHolds(accountId) ? "true" : "";

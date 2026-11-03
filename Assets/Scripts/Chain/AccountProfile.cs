@@ -74,6 +74,11 @@ namespace Convergence.Chain
         /// </summary>
         public int SigilsWokenWeek;
 
+        /// <summary>The week (<see cref="FinalFloorReward.WeekOf"/>) the showcase's ending last opened
+        /// the thank-you on arrival in the hub (UI/SupportCard) - once a week (the user's call,
+        /// 2026-11-03). Additive: older accounts load 0.</summary>
+        public int ThanksWeek;
+
         /// <summary>Whether the sigils are stone this week. A first-ever look counts as awake - a
         /// new player never meets stone sigils they have no reason for.</summary>
         public bool SigilsAsleep()

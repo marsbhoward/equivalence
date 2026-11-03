@@ -36,6 +36,8 @@ namespace Convergence.Chain.Web
         public string count = "";
         /// <summary>A dye withdrawal or deposit: the swatch id (Art.Gear.DyeCatalog).</summary>
         public string swatch = "";
+        /// <summary>share / copy (UI/SupportCard): the text to share or put on the clipboard.</summary>
+        public string text = "";
 
         /// <summary>A service request the connector signs with the session key (ServiceClient,
         /// once a wallet is signed in): its method, path and JSON body.</summary>

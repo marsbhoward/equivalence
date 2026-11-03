@@ -49,6 +49,22 @@ const STORED = 'equivalence.wallet';
 
 type Stored = { wallet: string; address: string; session: string; expiresAt: number };
 
+/** The clipboard, or the old select-and-copy where the async clipboard is refused (an iframe, an
+ *  older Safari). Rejects when both are. */
+async function copyText(text: string): Promise<void> {
+  try { await navigator.clipboard.writeText(text); return; } catch { /* fall through */ }
+  const area = document.createElement('textarea');
+  area.value = text;
+  area.setAttribute('readonly', '');
+  area.style.position = 'fixed';
+  area.style.opacity = '0';
+  document.body.appendChild(area);
+  area.select();
+  const ok = document.execCommand('copy');
+  area.remove();
+  if (!ok) throw new Error('The browser would not copy.');
+}
+
 function idb<T>(mode: IDBTransactionMode, run: (s: IDBObjectStore) => IDBRequest<T>): Promise<T> {
   return new Promise((resolve, reject) => {
     const open = indexedDB.open(KEY_DB, 1);
@@ -485,6 +501,23 @@ export const connector: EquivalenceChain = {
   reload() {
     // The service no longer talks to this build (426) - the player said reload.
     location.reload();
+  },
+
+  async share({ text }) {
+    // A phone opens its share sheet (messages, socials); a desktop browser's sheet is thin, so it
+    // copies instead. Unity handles the tap inside the gesture's activation window.
+    const coarse = typeof matchMedia === 'function' && matchMedia('(pointer: coarse)').matches;
+    if (coarse && typeof navigator.share === 'function') {
+      try { await navigator.share({ text }); return 'shared'; }
+      catch (e) { if ((e as Error)?.name === 'AbortError') return 'cancelled'; }
+    }
+    await copyText(text);
+    return 'copied';
+  },
+
+  async copy({ text }) {
+    await copyText(text);
+    return 'copied';
   },
 
   async remembered({ accountId }) {
