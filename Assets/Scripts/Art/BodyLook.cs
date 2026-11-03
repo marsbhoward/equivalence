@@ -1994,6 +1994,9 @@ namespace Convergence.Art
             new("locs", "Locs"),
             new("waves", "Waves"),
             new("shaved", "Shaved"),
+            new("parted", "Parted Long"),
+            new("sweptlocs", "Swept Locs"),
+            new("puffbuns", "Puff Buns"),
         };
 
         // ---------------------------------------------------------------- lookup

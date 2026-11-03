@@ -4,12 +4,12 @@ from canvas import parse, split, SKULL, W, H, BX, BY
 PX = 6
 SK, SKO, EYE, HL, HK, BG, BODY = (196,150,120), (90,60,50), (30,30,40), (120,82,52), (40,26,20), (76,80,90), (40,42,52)
 def view_img(canvas, back):
-    img = Image.new('RGB', (W*PX, 36*PX), BG); d = ImageDraw.Draw(img)
+    img = Image.new('RGB', (W*PX, H*PX), BG); d = ImageDraw.Draw(img)
     def cell(x, y, col):
-        if 0 <= y < 36: d.rectangle([x*PX, y*PX, x*PX+PX-1, y*PX+PX-1], fill=col)
+        if 0 <= y < H: d.rectangle([x*PX, y*PX, x*PX+PX-1, y*PX+PX-1], fill=col)
     r = split(canvas); cap, mane, top = r
     # body
-    for y in range(BY+18, 36):
+    for y in range(BY+18, H):
         for x in range(BX+1, BX+15): cell(x, y, BODY)
     if mane and not back:
         oy = BY + (32-top)//2; ox = 14 - len(mane[0])//2
@@ -36,7 +36,7 @@ def view_img(canvas, back):
 styles = parse(sys.argv[1]); keys = sys.argv[3].split(',') if len(sys.argv) > 3 else None
 styles = [s for s in styles if not keys or s['key'] in keys]
 cols = 4
-w, h = W*PX*2 + 10, 36*PX + 16
+w, h = W*PX*2 + 10, H*PX + 16
 out = Image.new('RGB', (w*cols, h*((len(styles)+cols-1)//cols)), (30,30,36)); d = ImageDraw.Draw(out)
 for i, s in enumerate(styles):
     x0, y0 = (i % cols) * w, (i // cols) * h
