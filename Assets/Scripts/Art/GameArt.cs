@@ -117,7 +117,7 @@ namespace Convergence.Art
         [Tooltip("Sprite path only: scales the sprite to this many world units tall.")]
         public float WorldHeight = 1f;
 
-        [Tooltip("Multiplied into the renderer colour. Keep white for finished art; the " +
+        [Tooltip("Multiplied into the renderer color. Keep white for finished art; the " +
                  "placeholders rely on the element tint.")]
         public Color Tint = Color.white;
 

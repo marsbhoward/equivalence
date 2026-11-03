@@ -30,8 +30,8 @@ namespace Convergence.Core
             StatKind.MoveSpeed => "You move faster.",
             StatKind.Range => "Your attacks reach further.",
             StatKind.MaxHp => "Raises your max health by a percentage.",
-            StatKind.Armor => $"Plating: each floor, the first blow for every {Tuning.Defense.ArmorPerPlate:0} Armour wears nothing from your gear. Refilled at the start of every floor.",
-            StatKind.DamageResistance => "Your armour wears down more slowly when you are hit.",
+            StatKind.Armor => $"Plating: each floor, the first blow for every {Tuning.Defense.ArmorPerPlate:0} Armor wears nothing from your gear. Refilled at the start of every floor.",
+            StatKind.DamageResistance => "Your armor wears down more slowly when you are hit.",
             StatKind.Resilience => "You take less damage from every hit.",
             StatKind.ElementGrowth => "Your [[element meter]] fills faster.",
             StatKind.AbilityCooldownReduction => "Shortens your [[defensive ability|defensive ability's]] cooldown.",
@@ -86,7 +86,7 @@ namespace Convergence.Core
             ["shield"] = "Absorbs damage before your health does.",
             ["area weapon arts"] = "Weapon arts that hit everything in a zone, not only one target.",
             ["humour"] = "A status rule that lets any element apply burn, soak, bleed or stagger.",
-            ["unit"] = "One unit of a stat is a quarter of what a Gold armour piece gives as its main stat.",
+            ["unit"] = "One unit of a stat is a quarter of what a Gold armor piece gives as its main stat.",
             ["principle"] = "Sulfur, Mercury or Salt. Every node feeds one, and enough points in one unlock the next link of its chain.",
         };
 

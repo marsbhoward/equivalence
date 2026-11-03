@@ -78,9 +78,9 @@ namespace Convergence.Hub
             HubItem.Couch => "The couch",
             HubItem.Crate => "The crate",
             HubItem.Rack => "The weapon rack",
-            HubItem.Stand => "The armour stand",
+            HubItem.Stand => "The armor stand",
             HubItem.Selector => "The sigil selector",
-            HubItem.Doorway => "The armoury doorway",
+            HubItem.Doorway => "The armory doorway",
             HubItem.Circle => "The transmutation circle",
             _ => i.ToString(),
         };

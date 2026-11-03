@@ -236,9 +236,9 @@ namespace Convergence.Progression
         public static readonly (string Name, string What)[] MercuryChain =
         {
             ("Quicksilver",  "Moving builds a charge."),
-            ("Phase Strike", "At full charge, the next hit passes through armour."),
+            ("Phase Strike", "At full charge, the next hit passes through armor."),
             ("Slipstream",   "A Phase Strike refunds a burst of speed."),
-            ("Flow",         "The refund lasts longer the further you travelled for it."),
+            ("Flow",         "The refund lasts longer the further you traveled for it."),
         };
 
         public static readonly (string Name, string What)[] SaltChain =
@@ -736,8 +736,8 @@ namespace Convergence.Progression
 
                 Notable.AquaRegia => $"Hits on an enemy past {P(Tuning.Board.AquaRegiaReachFraction)} of your [[reach]] slow it by {P(1f - Tuning.Board.AquaRegiaSlow)} for {Tuning.Board.AquaRegiaSeconds:0.#} seconds.",
                 Notable.Inceration => $"Your hits deal {P(Tuning.Board.IncerationBonus)} more to [[slowed]] enemies.",
-                Notable.Borax => $"Your [[release|releases]] and [[area weapon arts]] pull enemies {Tuning.Board.BoraxPullDistance:0.#} [[units]] toward the centre of the blast.",
-                Notable.Fermentation => $"Your [[release|releases]] and [[area weapon arts]] leave salted ground {Tuning.Board.FermentationRadius:0.#} [[units]] around the centre for {Tuning.Board.FermentationSeconds:0.#} seconds. Enemies on it are [[slowed]] by {P(1f - Tuning.Board.FermentationSlow)} and take {P(Tuning.Board.FermentationHitFractionPerSecond)} of your hit each second.",
+                Notable.Borax => $"Your [[release|releases]] and [[area weapon arts]] pull enemies {Tuning.Board.BoraxPullDistance:0.#} [[units]] toward the center of the blast.",
+                Notable.Fermentation => $"Your [[release|releases]] and [[area weapon arts]] leave salted ground {Tuning.Board.FermentationRadius:0.#} [[units]] around the center for {Tuning.Board.FermentationSeconds:0.#} seconds. Enemies on it are [[slowed]] by {P(1f - Tuning.Board.FermentationSlow)} and take {P(Tuning.Board.FermentationHitFractionPerSecond)} of your hit each second.",
 
                 Notable.Rebis => "Choose which ability your [[release]] fires. One is active at a time, on the same button - switch here, free.",
                 _ => "",

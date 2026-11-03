@@ -28,10 +28,10 @@ namespace Convergence.Player
         [Tooltip("1 is a smooth sine; higher holds the ring dim and spikes briefly.")]
         public float PulseSharpness = 2.6f;
 
-        [Tooltip("Alpha at the dim end, as a fraction of the colour's own alpha.")]
+        [Tooltip("Alpha at the dim end, as a fraction of the color's own alpha.")]
         [Range(0f, 1f)] public float PulseFloor = 0.35f;
 
-        [Tooltip("Alpha at the flare - independent of the colour's alpha, or a quiet base could " +
+        [Tooltip("Alpha at the flare - independent of the color's alpha, or a quiet base could " +
                  "never flare above itself.")]
         [Range(0f, 1f)] public float PulsePeak = 0.95f;
 

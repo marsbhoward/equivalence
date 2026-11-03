@@ -158,7 +158,7 @@ namespace Convergence.Exchange
             // ---- Edge: strikes ----
             B("whetstone", "Whetstone", Edge, Bar, 2, 3, $"+{N(T.WhetstoneDamage)} Damage.",
               (m, n) => m.Add(StatKind.Damage, T.WhetstoneDamage * n), conditional: true)
-              .Cap("Keen Edge", $"Your hits strip armour {Pct(T.KeenEdgeShred - 1f)} faster.");
+              .Cap("Keen Edge", $"Your hits strip armor {Pct(T.KeenEdgeShred - 1f)} faster.");
             B("quickening", "Quickening", Edge, Dot2, 2, 3, $"+{N(T.QuickeningSpeed)} Attack Speed.",
               (m, n) =>
               {
@@ -321,7 +321,7 @@ namespace Convergence.Exchange
                   if (n >= 3) m.ArtsCantCrit = true;
               })
               .Cap("Slag", "Weapon arts can't crit.");
-            C("induration", "Induration", Blunt, Drop, 2, 3, $"Enemies have {Pct(T.IndurationHealth)} more health and armour. Not bosses.",
+            C("induration", "Induration", Blunt, Drop, 2, 3, $"Enemies have {Pct(T.IndurationHealth)} more health and armor. Not bosses.",
               (m, n) =>
               {
                   m.EnemyHealthMul *= 1f + T.IndurationHealth * n;
@@ -357,7 +357,7 @@ namespace Convergence.Exchange
                   m.PlatingLost += T.RustPlates * n;
                   if (n >= 3) m.RepairMul *= T.CorrosionRepairMul;
               })
-              .Cap("Corrosion", "Repairs are halved. Worn armour's damage can't be reduced.");
+              .Cap("Corrosion", "Repairs are halved. Worn armor's damage can't be reduced.");
             C("open_stance", "Open Stance", Brittle, Dot1, 1, 1,
               T.OpenStanceHits == 1 ? "Your first hit taken each floor is doubled."
                                     : $"Your first {T.OpenStanceHits} hits taken each floor are doubled.", conditional: true);
@@ -422,7 +422,7 @@ namespace Convergence.Exchange
 
             // ---- Blindfold: what you can read ----
             C("fog", "Fog", Blind, Ring, 1, 3,
-              "I: no target rim. II: no rotation display. III: no damage numbers or armour rings.",
+              "I: no target rim. II: no rotation display. III: no damage numbers or armor rings.",
               (m, n) =>
               {
                   m.HideTargetHighlight = true;
@@ -651,7 +651,7 @@ namespace Convergence.Exchange
               $"Arts gild what they strike. Until your next art, your basics on a gilded enemy have +{Pct(T.GildingCrit)} crit chance.",
               conditional: true);
             A("mollification", "Mollification", "induration", Edge, Drop,
-              "Breaking an enemy's armour shatters it: the shards hit those near for one hit.", conditional: true);
+              "Breaking an enemy's armor shatters it: the shards hit those near for one hit.", conditional: true);
             A("honed", "Honed", "dulled", Edge, Bar,
               $"+{Pct(T.HonedCrit)} crit chance on enemies above {Pct(T.HonedAbove)} health.", conditional: true);
             A("deliberate", "Deliberate", "heavy_arms", Edge, Dot2,
@@ -690,7 +690,7 @@ namespace Convergence.Exchange
             A("tribute", "Tribute", "toll", Ledger, Dot2, $"A refusal back every {T.TributeFloorsPerRefusal} floors.",
               conditional: true);
             A("maturation", "Maturation", "souring", Edge, Stroke,
-              $"Every {Sec(T.SouringEverySeconds)} on a floor, your next art strips the armour of all it hits.",
+              $"Every {Sec(T.SouringEverySeconds)} on a floor, your next art strips the armor of all it hits.",
               conditional: true);
             // Reworked 2026-10-20: it was a heal on release - Backfire read backwards.
             A("rebound", "Rebound", "backfire", Azoth, Cross, "A release dashes you away from enemies.",

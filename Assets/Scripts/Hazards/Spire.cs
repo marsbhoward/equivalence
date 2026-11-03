@@ -57,7 +57,7 @@ namespace Convergence.Hazards
         public static string Describe(SpireBoon b) => b switch
         {
             SpireBoon.Heal => $"restore {Pct(Tuning.Spire.HealFraction)} health",
-            SpireBoon.Repair => $"restore {Pct(Tuning.Spire.RepairFraction)} armour condition",
+            SpireBoon.Repair => $"restore {Pct(Tuning.Spire.RepairFraction)} armor condition",
             SpireBoon.Might => $"+{Points(Tuning.Spire.DamagePoints)} damage this floor",
             SpireBoon.Haste => $"+{Points(Tuning.Spire.AttackSpeedPoints)} attack speed this floor",
             SpireBoon.Swiftness => $"+{Points(Tuning.Spire.MoveSpeedPoints)} move speed this floor",

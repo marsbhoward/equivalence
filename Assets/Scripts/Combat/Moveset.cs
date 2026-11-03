@@ -1370,7 +1370,7 @@ namespace Convergence.Combat
                 Id = "disc_sublimate", DisplayName = "Sublimate", Class = Art.Gear.WeaponClass.Disc,
                 FinisherGlyph = Glyph.Fan,
                 Flavor = "Discs that go out and simply stop.",
-                FinisherDescription = "Snaps the arms open and flings three discs out. Each slows to a stop over an enemy and follows it, trailing vapour. When your next weapon art fires, all three go off.",
+                FinisherDescription = "Snaps the arms open and flings three discs out. Each slows to a stop over an enemy and follows it, trailing vapor. When your next weapon art fires, all three go off.",
                 Basics = DiscBasics(new[]
                 {
                     Basic("Cut",  0.95f, 1f, 0.10f, 0f, AttackMotion.Sweep),
@@ -1913,7 +1913,7 @@ namespace Convergence.Combat
             },
             new Moveset
             {
-                FinisherDescription = "Gathers for one great slash while the light drains from your armour into the stone at your hip, flashes back through you and floods the blade - then cuts it loose as a crescent that flies straight out, through everything in its path. What it kills comes apart.",
+                FinisherDescription = "Gathers for one great slash while the light drains from your armor into the stone at your hip, flashes back through you and floods the blade - then cuts it loose as a crescent that flies straight out, through everything in its path. What it kills comes apart.",
                 Id = Art.Gear.DemoGear.MagnumOpusId, FinisherGlyph = Glyph.MagnumOpus, DisplayName = "Magnum Opus",
 
                 // The Aether Greatsword's, through its stone - a Black Diamond ceiling privilege,

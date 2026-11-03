@@ -1023,7 +1023,7 @@ namespace Convergence.Hub
                         Sub = _forge.HasBoxAction
                             ? "something to spend"
                             : "nothing to spend - floors drop boxes and gear",
-                        Body = "Trade a box for gear, combine and upgrade what you own - or recolour your capes, scarves and Diamond armour.",
+                        Body = "Trade a box for gear, combine and upgrade what you own - or recolor your capes, scarves and Diamond armor.",
                         // Always opens: the DYE tab previews colours whatever is held.
                         Key = "[ E ]  open",
                         Accent = new Color(1f, 0.55f, 0.15f),
@@ -1144,7 +1144,7 @@ namespace Convergence.Hub
                 () => _editMode
                     ? new Prompt
                     {
-                        Title = "THE ARMOUR STAND",
+                        Title = "THE ARMOR STAND",
                         Sub = "editing",
                         Body = "Pick it up and stand it somewhere else.",
                         Key = "[ E ]  pick up",
@@ -1152,7 +1152,7 @@ namespace Convergence.Hub
                     }
                     : new Prompt
                     {
-                        Title = "THE ARMOUR STAND",
+                        Title = "THE ARMOR STAND",
                         Sub = _stand.Shown > 0 ? $"{_stand.Shown} pieces on the mannequin" : "bare",
                         Body = _stand.Summary(),
                         Key = "[ E ]  dress the mannequin",
@@ -1183,7 +1183,7 @@ namespace Convergence.Hub
             var point = HubInteractable.Attach(_armouryDoor.gameObject, _armouryDoor.Anchor, 1.1f,
                 () => new Prompt
                 {
-                    Title = "THE ARMOURY",
+                    Title = "THE ARMORY",
                     Sub = _armoury != null ? $"{_armoury.Owned} of {_armoury.Total} held" : "",
                     Body = "Every weapon there is, on one wall - and an empty space for each one " +
                            "you have not found.",
@@ -1897,7 +1897,7 @@ namespace Convergence.Hub
 
             var subRow = UiKit.Rect(full, "sub", new Vector2(0, 1), new Vector2(0, 1),
                 new Vector2(58, -148), new Vector2(700, -116));
-            UiKit.Label(subRow, "walk to a door to choose an element  -  the circle, the table and the armoury all do something", 19,
+            UiKit.Label(subRow, "walk to a door to choose an element  -  the circle, the table and the armory all do something", 19,
                 new Color(0.45f, 0.48f, 0.56f));
             _subRow = subRow;
 

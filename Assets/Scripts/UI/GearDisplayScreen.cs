@@ -283,7 +283,7 @@ namespace Convergence.UI
 
             UiKit.Label(UiKit.Rect(_full, "t", new Vector2(0, 1), new Vector2(1, 1),
                 new Vector2(0, -108), new Vector2(0, -48)),
-                "THE ARMOUR STAND", 40, new Color(0.93f, 0.94f, 0.97f), TextAnchor.MiddleCenter);
+                "THE ARMOR STAND", 40, new Color(0.93f, 0.94f, 0.97f), TextAnchor.MiddleCenter);
 
             UiKit.Hint(UiKit.Rect(_full, "s", new Vector2(0, 1), new Vector2(1, 1),
                 new Vector2(0, -142), new Vector2(0, -108)),

@@ -150,7 +150,7 @@ namespace Convergence.UI
             UiKit.Hint(UiKit.Rect(full, "h", new Vector2(0, 0), new Vector2(1, 0),
                 new Vector2(0, 14), new Vector2(0, 44)),
                 "[ESC] RESUME    ·    [ 1 - 4 ] OR CLICK A RING",
-                "TAP A RING  ·  THE CENTRE RESUMES",
+                "TAP A RING  ·  THE CENTER RESUMES",
                 16, Faint, TextAnchor.MiddleCenter,
                 GamepadGlyphs.Cancel + " RESUME    ·    D-PAD AND " + GamepadGlyphs.Confirm + " PICK A RING");
         }

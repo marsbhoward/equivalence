@@ -174,7 +174,7 @@ namespace Convergence.Hub
             var exitPoint = HubInteractable.Attach(_exit.gameObject, _exit.Anchor, 1.0f,
                 () => new Prompt
                 {
-                    Title = "THE ARMOURY",
+                    Title = "THE ARMORY",
                     Sub = $"{Owned} of {Total} held",
                     Body = "Back through to the hall.",
                     Key = "[ E ]  leave",

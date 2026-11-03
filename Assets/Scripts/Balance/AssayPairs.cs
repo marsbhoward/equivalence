@@ -125,7 +125,7 @@ namespace Convergence.Balance
         {
             var sb = new StringBuilder();
             sb.AppendLine($"{_pairResults.Count} slate pairs at floor {_pairFloor} (Max builds, each pair on the build where the boon cancels most of its cost).");
-            sb.AppendLine("cancelled = share of the cost's bite the boon takes away; synergy = together over the parts (1 = independent).");
+            sb.AppendLine("canceled = share of the cost's bite the boon takes away; synergy = together over the parts (1 = independent).");
 
             var free = _pairResults.FindAll(r => r.Cancelled >= 0.5f);
             free.Sort((x, y) => y.Cancelled.CompareTo(x.Cancelled));
@@ -146,6 +146,6 @@ namespace Convergence.Balance
 
         static string Line(PairResult r)
             => $"  {r.Boon,-18} + {r.Cost,-15} | gain {r.Gain,5:P0}  bite {r.Bite,5:P0} -> {r.BiteWithBoon,5:P0}" +
-               $"  cancelled {r.Cancelled,5:P0}  synergy {r.Synergy:0.00} | {r.Build}";
+               $"  canceled {r.Cancelled,5:P0}  synergy {r.Synergy:0.00} | {r.Build}";
     }
 }

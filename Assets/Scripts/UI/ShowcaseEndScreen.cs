@@ -50,7 +50,7 @@ namespace Convergence.UI
             UiKit.Label(UiKit.Rect(full, "t", mid, mid, new Vector2(-900, 400), new Vector2(900, 470)),
                 "THROUGH THE RIFT", 48, Ink, TextAnchor.MiddleCenter);
             UiKit.Label(UiKit.Rect(full, "s", mid, mid, new Vector2(-900, 356), new Vector2(900, 398)),
-                $"You reached floor {RunFormat.EndFloor} of {RunFormat.FinalFloor} in {s / 60}:{s % 60:00}. Thank you for playing the showcase - the descent goes much deeper.",
+                $"You reached floor {RunFormat.EndFloor} of {RunFormat.FinalFloor} in {s / 60}:{s % 60:00}. Thank you for playing the showcase - the tower goes much higher.",
                 20, Dim, TextAnchor.MiddleCenter);
 
             // ---- the Discord. Support moved to the hub's thank-you (UI/SupportCard, the user's call
@@ -76,7 +76,7 @@ namespace Convergence.UI
             };
             float tw = 380f, tgap = 24f, tx = -(tips.Length * tw + (tips.Length - 1) * tgap) / 2f;
             UiKit.Label(UiKit.Rect(full, "th", mid, mid, new Vector2(-900, 136), new Vector2(900, 170)),
-                "FOR YOUR NEXT DESCENT", 18, Dim, TextAnchor.MiddleCenter);
+                "FOR YOUR NEXT CLIMB", 18, Dim, TextAnchor.MiddleCenter);
             foreach (var (title, body) in tips)
             {
                 var card = UiKit.Panel(full, mid, mid, new Vector2(tx, -10), new Vector2(tx + tw, 126), CardBg);
@@ -122,7 +122,7 @@ namespace Convergence.UI
                 if (e.Kind == Exchange.ExchangeKind.Boon) boons++; else costs++;
             return new List<(string, string)>
             {
-                (RunFormat.FinalFloor.ToString(), "floors to descend"),
+                (RunFormat.FinalFloor.ToString(), "floors to climb"),
                 (Count<Bosses.BossKind>().ToString(), "mini-bosses"),
                 (Count<Enemies.EnemyKind>().ToString(), "enemy kinds"),
                 ((Count<Enemies.EliteAffix>() - 1).ToString(), "elite modifiers"),

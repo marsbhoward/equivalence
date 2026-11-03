@@ -654,17 +654,17 @@ namespace Convergence.UI
             new() { Label = "EYEBROWS", Styles = BodyLook.Brows, Get = a => a.Brows, Set = (a, k) => a.Brows = k },
             // MATCH is the default and the one most characters want - brows following the hair
             // reads as deliberate rather than as an oversight.
-            new() { Label = "BROW COLOUR", Swatches = BodyLook.BrowSwatches, Get = a => a.BrowColour, Set = (a, k) => a.BrowColour = k,
-                    Note = a => string.IsNullOrEmpty(a.BrowColour) ? "BROW COLOUR    (matching hair)" : "BROW COLOUR" },
+            new() { Label = "BROW COLOR", Swatches = BodyLook.BrowSwatches, Get = a => a.BrowColour, Set = (a, k) => a.BrowColour = k,
+                    Note = a => string.IsNullOrEmpty(a.BrowColour) ? "BROW COLOR    (matching hair)" : "BROW COLOR" },
             new() { Label = "HAIR STYLE", Styles = BodyLook.HairStyles, Get = a => a.HairStyle, Set = (a, k) => a.HairStyle = k,
                     View = CharacterPreview.View.Bust },
-            new() { Label = "HAIR COLOUR", Swatches = BodyLook.Hairs, Get = a => a.Hair, Set = (a, k) => a.Hair = k,
+            new() { Label = "HAIR COLOR", Swatches = BodyLook.Hairs, Get = a => a.Hair, Set = (a, k) => a.Hair = k,
                     View = CharacterPreview.View.Bust },
             new() { Label = "BEARD", Styles = BodyLook.Beards, Get = a => a.Beard, Set = (a, k) => a.Beard = k,
                     View = CharacterPreview.View.Bust },
             // Brows' rule: MATCH follows the hair, and is where every beard starts.
-            new() { Label = "BEARD COLOUR", Swatches = BodyLook.BeardSwatches, Get = a => a.BeardColour, Set = (a, k) => a.BeardColour = k,
-                    Note = a => string.IsNullOrEmpty(a.BeardColour) ? "BEARD COLOUR    (matching hair)" : "BEARD COLOUR",
+            new() { Label = "BEARD COLOR", Swatches = BodyLook.BeardSwatches, Get = a => a.BeardColour, Set = (a, k) => a.BeardColour = k,
+                    Note = a => string.IsNullOrEmpty(a.BeardColour) ? "BEARD COLOR    (matching hair)" : "BEARD COLOR",
                     View = CharacterPreview.View.Bust },
             new() { Label = "MARKS", Styles = BodyLook.Marks, Get = a => string.IsNullOrEmpty(a.Mark) ? "none" : a.Mark, Set = (a, k) => a.Mark = k },
         };

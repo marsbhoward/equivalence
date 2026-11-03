@@ -25,8 +25,8 @@ namespace Convergence.UI
 
         public static readonly ManualEntry[] Entries =
         {
-            new("THE DESCENT",
-                $"A run is a descent of {RunFormat.FinalFloor} floors. A boss waits on every tenth floor, and an avatar on " +
+            new("THE CLIMB",
+                $"A run is a climb of {RunFormat.FinalFloor} floors. A boss waits on every tenth floor, and an avatar on " +
                 $"floors 25 and {RunFormat.FinalFloor}; the second avatar ends the run. Most floors are a fight - clear every " +
                 "wave and the door opens - and some are a puzzle or hold a Rift.\n\n" +
                 "The run clock counts the time you spend fighting, from a floor's first enemy to its clear. The deals and " +
@@ -74,10 +74,10 @@ namespace Convergence.UI
                 "staggers on their own. The mastery grid's Affliction path strengthens all four, and its lanes open the " +
                 "[[humour|humours]] that let any element apply them."),
 
-            new("ARMOUR AND WEAR",
-                "Your eight armour pieces wear down as you are hit, and your weapon as its hits land. Worn armour protects " +
+            new("ARMOR AND WEAR",
+                "Your eight armor pieces wear down as you are hit, and your weapon as its hits land. Worn armor protects " +
                 "less, so a nearly broken cuirass is worth far less than a fresh one.\n\n" +
-                "Armour buys plating: each floor, a number of blows wear nothing at all, refilled at the next floor's " +
+                "Armor buys plating: each floor, a number of blows wear nothing at all, refilled at the next floor's " +
                 "start. Sturdiness slows wear, Mend repairs a little at every floor's clear, and the floor reward's Repair " +
                 "ring restores more. Resilience lowers the damage of every hit you take; Graze lowers it while you move, " +
                 "and Brace while you stand still."),
@@ -87,7 +87,7 @@ namespace Convergence.UI
                 $"Take one, or refuse - a run allows {T.Exchange.RefusalsPerRun} refusals. What you take lasts until the run " +
                 "ends, and repeats stack. Some deals change how a weapon art or a status behaves rather than adding a " +
                 "number, and a cost carried far enough can be transmuted into something new. Read the scale: early on a " +
-                "boon outweighs its cost, and deeper down the two weigh closer to even."),
+                "boon outweighs its cost, and higher up the two weigh closer to even."),
 
             new("THE FLOOR REWARD",
                 "After every second floor, four rings: two weapon arts above and below, a restore on the left - Heal or " +
@@ -139,7 +139,7 @@ namespace Convergence.UI
 
             new("MASTERY",
                 "Every level is a point to spend on the board of the element you play. The board is a grid out of the " +
-                "sigil, whose centre is your element's [[release]]. Four paths leave it: a trunk, a fork of four lanes, a " +
+                "sigil, whose center is your element's [[release]]. Four paths leave it: a trunk, a fork of four lanes, a " +
                 "rule where they meet, the fork again and a capstone. Taking a lane closes only that fork's other lanes. " +
                 "Diagonals and bridges join the paths, so a path can be entered from the side.\n\n" +
                 "Every node also feeds a [[principle]]; enough points in one unlock the next link of its chain. " +

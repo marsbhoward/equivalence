@@ -1410,7 +1410,7 @@ namespace Convergence.Art.Gear
         public float MirrorDeadzone = 0.12f;
 
         [Tooltip("A relaxed at-ease idle for the loadout preview: while standing still the arms " +
-                 "ease a few degrees off the centre line so the belt and other waist gear are not " +
+                 "ease a few degrees off the center line so the belt and other waist gear are not " +
                  "hidden behind hanging fists. Never set in combat - the fighting stance is unchanged.")]
         public bool ShowcasePose;
 

@@ -101,7 +101,7 @@ namespace Convergence.Balance
             int pathLevels = MasteryBoard.Route(MasteryBoard.Paths[0].Id).Sum(n => n.Cost);
             int buyable = BoardBranches.Sum(b => Options(b).Max(o => o.Cost))
                         + all.Where(n => n.Branch.StartsWith("bridge.")).Sum(n => n.Cost);
-            sb.Append($"Mastery grid v{MasteryBoard.Version}: {all.Count} nodes - {MasteryBoard.Paths.Length} paths, {MasteryBoard.Diagonals.Length} diagonals, their bridges and the centre.\n");
+            sb.Append($"Mastery grid v{MasteryBoard.Version}: {all.Count} nodes - {MasteryBoard.Paths.Length} paths, {MasteryBoard.Diagonals.Length} diagonals, their bridges and the center.\n");
             sb.Append($"One path end to end: {pathLevels} levels. Buyable on one board (one lane a fork): {buyable}; the cap of {Tuning.Mastery.LevelCap} covers {(float)Tuning.Mastery.LevelCap / buyable:P0}.\n\n");
 
             sb.Append($"{"path",-11} {"trunk",-22} {"lanes",-62} {"convergence",-14} capstone\n");

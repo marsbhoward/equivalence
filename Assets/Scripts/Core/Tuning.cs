@@ -799,7 +799,7 @@ namespace Convergence.Core
 
             /// <summary>SHARING (UI/SupportCard, the user's words 2026-11-03): the title's share, and the
             /// link every shared run ends with.</summary>
-            public const string ShareLine = "Equivalence - a pixel roguelite descent extraction.";
+            public const string ShareLine = "Equivalence - a pixel roguelite ascent extraction.";
             public const string ShareUrl = "https://equivalence-showcase-production.up.railway.app/play/";
             /// <summary>How long the support card's "copied" / "opened" line stays.</summary>
             public const float SupportToastSeconds = 3.5f;

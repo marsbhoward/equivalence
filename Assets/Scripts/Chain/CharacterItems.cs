@@ -195,7 +195,7 @@ namespace Convergence.Chain
                     for (int ch = 0; ch < channels && ch < c.Swatches.Count; ch++)
                     {
                         if (string.IsNullOrEmpty(c.Swatches[ch])) continue;
-                        if (!FreeSwatch(DyeCatalog.Get(c.Swatches[ch]))) { price.Refusal = $"'{c.Swatches[ch]}' is a dye to spend, not a free colour"; return price; }
+                        if (!FreeSwatch(DyeCatalog.Get(c.Swatches[ch]))) { price.Refusal = $"'{c.Swatches[ch]}' is a dye to spend, not a free color"; return price; }
                     }
                     continue;
                 }

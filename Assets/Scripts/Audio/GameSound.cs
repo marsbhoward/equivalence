@@ -17,7 +17,7 @@ namespace Convergence.Audio
         [Header("Combat")]
         public AudioClip[] HitBasic, HitLight, HitMedium, HitHeavy, Crit;
         public AudioClip[] PlayerHurt, EnemyDeath;
-        [UnityEngine.Tooltip("Two attacks meeting and cancelling (Combat.Clash)")] public AudioClip[] Clash;
+        [UnityEngine.Tooltip("Two attacks meeting and canceling (Combat.Clash)")] public AudioClip[] Clash;
         public AudioClip PlayerDeath;
 
         [Header("Timing bar")]

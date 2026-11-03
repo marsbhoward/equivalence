@@ -45,10 +45,10 @@ namespace Convergence.Puzzles
                 if (State == PuzzleState.Failed) return "Wrong stone. The sigil door is sealed - take the side door.";
                 if (_calling) return "Listen...";
                 if (!_heard)
-                    return "Stand on the pale centre stone to hear the call, then step the stones in the " +
+                    return "Stand on the pale center stone to hear the call, then step the stones in the " +
                            "same order. One wrong stone seals the door.";
                 return $"Answer the call   {_answered} / {_phrase.Count}" +
-                       (_answered == 0 ? "\nThe centre stone plays it again." : "");
+                       (_answered == 0 ? "\nThe center stone plays it again." : "");
             }
         }
 

@@ -150,7 +150,7 @@ namespace Convergence.UI
                     int freeDyed = free.Count(p => items.Dyed.Any(d => d.Piece == p.ItemId));
                     var freeCard = Card(i, 5, 330f, 96f, 16f, -70f);
                     UiKit.Label(UiKit.Rect(freeCard, "n", Vector2.zero, Vector2.one, new Vector2(12, 6), new Vector2(-12, -6)),
-                        "CAPES & SCARVES\n" + (freeDyed > 0 ? $"{freeDyed} recoloured" : "free to recolour"),
+                        "CAPES & SCARVES\n" + (freeDyed > 0 ? $"{freeDyed} recolored" : "free to recolor"),
                         18, PoweredInk, TextAnchor.MiddleLeft);
                     _actions.Add((freeCard, () => { _dyeSet = FreeSet; Rebuild(); }));
                     continue;

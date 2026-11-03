@@ -63,7 +63,7 @@ namespace Convergence.Core
         [Tooltip("How tightly the camera holds the player. Higher is more locked.")]
         public float CameraFollow = Tuning.Camera.Follow;
 
-        [Tooltip("Ground drawn beyond the walls. The camera keeps the player centred even at the " +
+        [Tooltip("Ground drawn beyond the walls. The camera keeps the player centered even at the " +
                  "arena edge, so there has to be floor out there or it pans onto empty space.")]
         public float FloorMargin = Tuning.Arena.FloorMargin;
 
@@ -76,7 +76,7 @@ namespace Convergence.Core
             ? Mathf.Max(0f, _player.Stats.Armor / Tuning.Defense.ArmorPerPlate - Modifiers.Current.PlatingLost) : 0f;   // Rust
 
         [Header("Durability")]
-        [Tooltip("Durability each armour piece loses per hit taken, for a hit the size of the floor's Chaser swing - scaled by how hard the hit was (Tuning.Defense.WearReferenceHit).")]
+        [Tooltip("Durability each armor piece loses per hit taken, for a hit the size of the floor's Chaser swing - scaled by how hard the hit was (Tuning.Defense.WearReferenceHit).")]
         public float ArmorWearPerHit = 1.4f;
         [Tooltip("UNUSED while weapon degradation is off - nothing wears weapons and nothing " +
                  "reads their condition. Kept for the sharpness mechanic this may become.")]
@@ -978,7 +978,7 @@ namespace Convergence.Core
                 {
                     // Minted on chain but unknown here - the service's design manifest is newer
                     // than this build. The token is in the wallet either way.
-                    Debug.LogError($"[Forge] minted {p.design} ({p.unit}) - not in this build's catalogue");
+                    Debug.LogError($"[Forge] minted {p.design} ({p.unit}) - not in this build's catalog");
                     continue;
                 }
                 foreach (var record in DesignDrops.RecordsFor(design, p.instanceId, p.unit))
@@ -1951,7 +1951,7 @@ namespace Convergence.Core
             {
                 RepaintLive();
                 if (CharacterScreen != null) CharacterScreen.Refresh();
-                Debug.Log($"[Forge] recoloured {changes.Count} piece(s)");
+                Debug.Log($"[Forge] recolored {changes.Count} piece(s)");
             }
             return refused;
         }
@@ -2848,7 +2848,7 @@ namespace Convergence.Core
                 Art.Gear.GearCatalog.Register(relic.ToGearItem());
             }
             profile.Gear.DropStale();
-            Debug.Log($"[Showcase] kit given at creation to {profile.DisplayName}: armour worn, weapons, chests and relics held");
+            Debug.Log($"[Showcase] kit given at creation to {profile.DisplayName}: armor worn, weapons, chests and relics held");
             return true;
         }
 
@@ -4317,7 +4317,7 @@ namespace Convergence.Core
                 // no door, so the tear is the only way on, and extracting there opens the closing
                 // card (OpenRift). The clock's last floor closes now, as the Short Descent's does.
                 SaveRun(Chain.RunStage.Cleared, pending: 0);
-                _hud?.Flash("the Rift is open - step through to leave the descent");
+                _hud?.Flash("the Rift is open - step through to leave the tower");
                 _riftHintRun = _runToken;
                 return;
             }
@@ -4746,7 +4746,7 @@ namespace Convergence.Core
                     {
                         Kind = kind, Enabled = true, Value = RestoreText(kind, r, xpAmount),
                         Note = $"{Mathf.CeilToInt(cur)} » {Mathf.CeilToInt(after)} / {Mathf.CeilToInt(max)}",
-                        Blurb = "Patches you up. Does nothing for worn armour.",
+                        Blurb = "Patches you up. Does nothing for worn armor.",
                     };
                 }
                 case UI.FloorReward.Repair:
@@ -4755,8 +4755,8 @@ namespace Convergence.Core
                     return new()
                     {
                         Kind = kind, Enabled = true, Value = RestoreText(kind, r, xpAmount),
-                        Note = $"ARMOUR {Mathf.RoundToInt(now * 100f)}%",
-                        Blurb = "Restores worn armour. Does nothing for your health.",
+                        Note = $"ARMOR {Mathf.RoundToInt(now * 100f)}%",
+                        Blurb = "Restores worn armor. Does nothing for your health.",
                     };
                 }
                 case UI.FloorReward.Calx:
@@ -4904,7 +4904,7 @@ namespace Convergence.Core
                 case UI.FloorOutcome.Forfeit:
                     // Backed out at the confirm step. The reward is spent regardless - that is
                     // what makes taking the finisher card a commitment rather than a free look.
-                    Debug.Log("[Convergence] floor reward forfeited (swap cancelled)");
+                    Debug.Log("[Convergence] floor reward forfeited (swap canceled)");
                     break;
             }
 

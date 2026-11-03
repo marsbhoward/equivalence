@@ -61,7 +61,7 @@ namespace Convergence.Art.Gear
                  "item is mechanical - see the note on the field.")]
         public float Power;
 
-        [Tooltip("Durability pool. Armour spends this when you are hit, weapons when you land " +
+        [Tooltip("Durability pool. Armor spends this when you are hit, weapons when you land " +
                  "hits. Cosmetic-slot items ignore it entirely.")]
         public float MaxDurability = 100f;
 
@@ -90,7 +90,7 @@ namespace Convergence.Art.Gear
         public DefensiveAbility DefensiveAbility = DefensiveAbility.Dash;
 
         [Tooltip("Weapon slot only. This weapon runs a heat cycle (Combat.WeaponHeat) - its blade " +
-                 "changes colour as weapon arts land, and steps marked ScalesWithHeat grow with it.")]
+                 "changes color as weapon arts land, and steps marked ScalesWithHeat grow with it.")]
         public bool HasHeatCycle;
 
         [Tooltip("Weapon slot only. Every attack in this weapon's chain lands a second, echoed " +
@@ -137,7 +137,7 @@ namespace Convergence.Art.Gear
         public LayerSprite[] TurnedLayers;
 
         [Tooltip("Relic slot only. The point each worn hip layer HANGS from, in world units from the " +
-                 "sprite's centre (the sheath's mouth on the belt). Non-zero, the piece swings back " +
+                 "sprite's center (the sheath's mouth on the belt). Non-zero, the piece swings back " +
                  "from it as the body walks forward, on the cape's springs. Zero for a piece that " +
                  "does not hang.")]
         public Vector2 HipSwingPivot;
@@ -163,8 +163,8 @@ namespace Convergence.Art.Gear
         public bool LightCycleTrail;
 
         [Tooltip("Weapon slot only. The weapon LIGHTS whoever holds it - a soft 2D point light at " +
-                 "its centre (Art/Gear/HeldGlow), in the hand, on a display, in flight. The light's " +
-                 "colour; see GlowIntensity. Read from the DRAWN weapon. Singularity.")]
+                 "its center (Art/Gear/HeldGlow), in the hand, on a display, in flight. The light's " +
+                 "color; see GlowIntensity. Read from the DRAWN weapon. Singularity.")]
         public Color GlowColor = Color.white;
 
         [Tooltip("Weapon slot only. How strongly the weapon glows on its holder - 0 (every weapon " +
@@ -314,7 +314,7 @@ namespace Convergence.Art.Gear
                 ? MenuElementBlades[(int)element] : BladeFor(element);
         }
 
-        [Tooltip("Armour. One layer of this piece (SigilLayer) bears the WEARER's element sigil - " +
+        [Tooltip("Armor. One layer of this piece (SigilLayer) bears the WEARER's element sigil - " +
                  "the attuned element's (see Attunement) wherever a character wears it. The " +
                  "layer's own sprite is the default picture every item view draws: all four " +
                  "combined. The Herald pauldron.")]
@@ -442,7 +442,7 @@ namespace Convergence.Art.Gear
                  "away - the poncho's yoke, which its own back panel covers from behind.")]
         public LayerSprite DrapeBack;
 
-        [Tooltip("HasHood only. The cowl's own base colour, so the back of the head can be " +
+        [Tooltip("HasHood only. The cowl's own base color, so the back of the head can be " +
                  "painted as HOOD when the rig turns around - RigLayer.Hood is a front-view " +
                  "opening into the face and has nothing true to say from behind, and painting " +
                  "the stand-in with the character's own hair would show hair instead of the " +
@@ -470,7 +470,7 @@ namespace Convergence.Art.Gear
                  "already uses, applied to a headband instead of a full cowl.")]
         public bool HasTieBack;
 
-        [Tooltip("HasTieBack only. The tie's own cloth colour, painted at the hairline on " +
+        [Tooltip("HasTieBack only. The tie's own cloth color, painted at the hairline on " +
                  "RigLayer.HeadBack.")]
         public Color TieColor = Color.black;
 
@@ -498,7 +498,7 @@ namespace Convergence.Art.Gear
         public bool SealsHead;
 
         [Tooltip("Head slot only. Overwrites the character's own LEFT eye to a fixed red," +
-                 "regardless of the Eyes colour chosen on the body tab - purely cosmetic. This " +
+                 "regardless of the Eyes color chosen on the body tab - purely cosmetic. This " +
                  "changes the FACE itself (see BodyLook.Head's leftEyeGlow parameter), not an " +
                  "overlay, so it survives independently of whatever the item's own Layers art " +
                  "is (or isn't - see DemoGear's wraith_eye, which paints nothing else).")]

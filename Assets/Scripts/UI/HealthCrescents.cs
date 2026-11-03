@@ -175,7 +175,7 @@ namespace Convergence.UI
             {
                 _shownPct = pct; _shownMul = mul; _shownPlates = plates; _shownPlatesFull = platesFull;
                 string plating = platesFull > 0 ? $"   ·   plating {Mathf.Max(0, plates)}/{platesFull}" : "";
-                UiKit.SetText(_armourText, $"ARMOUR {pct}%{plating}   ·   dmg taken x{incoming:0.00}");
+                UiKit.SetText(_armourText, $"ARMOR {pct}%{plating}   ·   dmg taken x{incoming:0.00}");
             }
         }
 
