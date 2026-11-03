@@ -2569,6 +2569,7 @@ namespace Convergence.Player
             {
                 var glint = GetComponent<Combat.FinisherGlint>();   // a missing component is not C# null in the Editor
                 if (glint != null) glint.Perfect();
+                ElementArtFx.Perfect(transform);
             }
 
             // The perfect streak. Anything but PERFECT breaks it now. A perfect counts once the
@@ -2697,6 +2698,15 @@ namespace Convergence.Player
             // convention ChargeSeconds lives by. The chain advances when that wind-up ENDS, not
             // now, so everything the strike reads off NextStep/CurrentRange still describes it.
             float pad = isFinisher ? BeginStrike(step, swingWindow) : 0f;
+
+            // A weapon art plays in the player's ELEMENT: the body's motion (the rig's style) and a
+            // picture on the weapon (ElementArtFx), from the press to past the strike. A basic clears
+            // the style. Set before any hold or swing below reads it.
+            var artElement = isFinisher && Resource != null ? Resource.Element : (ElementType?)null;
+            Rig?.SetArtElement(artElement, Weapon);
+            if (artElement.HasValue)
+                ElementArtFx.Begin(this, Rig, artElement.Value, Weapon,
+                                   step.NeverLocks ? StrikeDelay(step, swingWindow) : _strikeIn, Resource.Fill01);
 
             // Crosscut spends its wind-up SHEATHED, not holding the swing's first frame: the
             // blade goes home at once and waits in the saya for the bar (SheathDrawStrike).

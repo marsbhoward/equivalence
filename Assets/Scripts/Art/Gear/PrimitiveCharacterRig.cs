@@ -1420,7 +1420,7 @@ namespace Convergence.Art.Gear
         /// to, arms straight down inside the torso, and a toggle like hiding the weapon changed
         /// nothing until the screen closed.
         /// </summary>
-        float Dt => ShowcasePose ? Time.unscaledDeltaTime : Time.deltaTime;
+        float Dt => DevDt >= 0f ? DevDt : ShowcasePose ? Time.unscaledDeltaTime : Time.deltaTime;
 
         /// <summary>
         /// The hands-free showcase pose: each shoulder swings out this far, degrees. Chosen from
@@ -5888,7 +5888,8 @@ namespace Convergence.Art.Gear
                 // partial's SpinTurning) - the motion's roll is dropped.
                 if (SpinIsTurn) swingBody = 0f;
                 // The legs, hips and waist on the same clock - see the Body partial.
-                var swingWhole = BodyFor(_motion, k, _attackLength);
+                var swingWhole = StyledBodyFor(k);   // BodyFor, through a motion style if set (the Style partial)
+                swingWhole += StyleDrawHold(k);   // a bow's draw is its wind-up (the Style partial)
                 var bodyZero = swingWhole;   // before the entry blend - a hold's target reads it
 
                 // A single-edged blade's edge FOLLOWS the motion: whichever way the blade is about
@@ -5931,7 +5932,8 @@ namespace Convergence.Art.Gear
                 {
                     float held = _holdElapsed + _attackHold - HoldOvershoot;
                     float t = Mathf.Clamp01(_holdElapsed / Mathf.Max(0.05f, held));
-                    float shake = Mathf.Sin(Time.time * 34f) * (0.8f + t * 2.6f);
+                    float shake = Mathf.Sin((DevDt >= 0f ? _holdElapsed : Time.time) * 34f) * (0.8f + t * 2.6f);
+                    var styleHold = StyleHold(t, ref shake, _holdElapsed);
                     swingArm += shake;
                     swingBack -= shake;
                     // ...and the body sinks into a loaded stance as the bar fills, so the hold is
@@ -5939,7 +5941,7 @@ namespace Convergence.Art.Gear
                     // from wherever the body WAS over the whole hold - snapping onto the first
                     // frame in the 0.06 s entry blend and then sinking straightened a body coming
                     // out of a crouch and dropped it again (Wanderblade out of Wind, 2026-10-14).
-                    swingWhole = SwingBody.Lerp(_entryBody, bodyZero + HoldLoad, Mathf.SmoothStep(0f, 1f, t));
+                    swingWhole = SwingBody.Lerp(_entryBody, bodyZero + HoldLoad, Mathf.SmoothStep(0f, 1f, t)) + styleHold;
                 }
 
                 _poseArmSwing = swingArm;
@@ -5947,9 +5949,10 @@ namespace Convergence.Art.Gear
                 _poseBodySpin = swingBody;
                 _poseArmReach = swingReach;
                 _poseBody = swingWhole;
-                _hopHeight = HopAt(k, _attackLength);
+                _hopHeight = HopAt(k, _attackLength) + StyleHop(k);
+                TickStyleImpact(k, dt);
                 // Out to the strike and back (the Body partial); a held wind-up waits on frame zero.
-                float reach = _attackHold > 0f ? 0f : ReachAt(_motion, k, _attackLength);
+                float reach = _attackHold > 0f ? 0f : StyleReach(ReachAt(_motion, k, _attackLength), k);
                 _reach = entry < 1f ? Mathf.Lerp(_entryReach, reach, 1f - (1f - entry) * (1f - entry)) : reach;
                 reachPosed = true;
 
@@ -6069,6 +6072,7 @@ namespace Convergence.Art.Gear
                                            || (_motion == AttackMotion.KneelDraw && _awaitLoose))
                              && speed < KneelHoldSpeed;
             _sinceSwing = swinging || kneelHeld ? 0f : _sinceSwing + dt;
+            if (_style != null && _sinceSwing >= StyleReleaseSeconds) _style = null;   // the art has settled (the Style partial)
             bool wantShouldered = _gripShouldered && HeldTwoHanded && !HeldBow
                                   && !swinging && _sinceSwing >= CarryReturnDelay && _present <= 0f;
             float gripSharpness = _attackTimer > 0f || _chargeTimer > 0f
@@ -6389,7 +6393,7 @@ namespace Convergence.Art.Gear
 
             var hit = _hitTimer > 0f ? _hitPush * (_hitTimer / HitReactionSeconds) : Vector2.zero;
             transform.localPosition = new Vector3(
-                _phantomOffset.x + hit.x,
+                _phantomOffset.x + hit.x + StyleShakeX(),
                 _airHeight + _hopHeight + _phantomOffset.y + hit.y, 0f) * _visualScale;
 
             // What the arms could not reach, the figure travels (see SolveArmReach): along the
@@ -7851,13 +7855,13 @@ namespace Convergence.Art.Gear
             if (_facingLeft) forward = -forward;   // into the frame the rig is drawn in
             // A swing's drawn step moves the body with no velocity of its own - the cape is
             // flung by it all the same (already in the facing's frame). See the Body partial.
-            forward += _bodyStepVelocity * _visualScale * CapeStepGain;
+            forward += _bodyStepVelocity * _visualScale * CapeStepGain * StyleCapeGain;
 
             float reference = Player != null ? Mathf.Max(0.1f, Player.MoveSpeed) : CapeReferenceSpeed;
-            float target = -Mathf.Clamp(forward / reference, -1f, 1f) * CapeSwing * _capeSwingScale;
+            float target = -Mathf.Clamp(forward / reference, -1f, 1f) * CapeSwing * _capeSwingScale + StyleCapeWind();
 
-            _capeAngularVelocity += (target - _capeAngle) * CapeStiffness * dt;
-            _capeAngularVelocity *= Mathf.Exp(-CapeDamping * dt);
+            _capeAngularVelocity += (target - _capeAngle) * CapeStiffness * StyleCapeStiff * dt;
+            _capeAngularVelocity *= Mathf.Exp(-CapeDamping * StyleCapeDamp * dt);
             _capeAngle += _capeAngularVelocity * dt;
 
             _capeHemVelocity += (_capeAngle - _capeHemAngle) * CapeHemStiffness * dt;

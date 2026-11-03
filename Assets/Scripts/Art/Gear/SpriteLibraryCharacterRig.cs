@@ -223,6 +223,7 @@ namespace Convergence.Art.Gear
 
         /// <summary>An authored swing clip carries its own hop; nothing to do here yet.</summary>
         public void SetSwingHop(float height) { }
+        public void SetArtElement(Core.ElementType? element, WeaponClass weapon) { }
 
         public void SetWeaponVisible(bool visible)
             => Resolve(MainHandCategory, visible ? _mainHandLabel : EmptyLabel, warn: false);

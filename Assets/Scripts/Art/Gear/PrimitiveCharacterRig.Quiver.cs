@@ -348,6 +348,10 @@ namespace Convergence.Art.Gear
 
         public void HoldDrawn(float seconds) => _looseBackstop = Mathf.Max(_looseBackstop, seconds);
 
+        /// <summary>The arrow on the string while it is drawn, else null - what a weapon art's
+        /// element picture rides on a bow (Combat.ElementArtFx).</summary>
+        public SpriteRenderer NockedArrow => _nocked != null && _nocked.enabled && _awaitLoose ? _nocked : null;
+
         public Vector2? LooseArrow()
         {
             _awaitLoose = false;

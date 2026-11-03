@@ -57,6 +57,13 @@ namespace Convergence.Art.Gear
         /// </summary>
         void PlayCharge(float seconds);
 
+        /// <summary>
+        /// The element a weapon art is played in (null for a basic): its body moves in that
+        /// element's style (PrimitiveCharacterRig.Style - drawing only, never the arms). Set as the
+        /// art starts, before its hold or swing.
+        /// </summary>
+        void SetArtElement(Core.ElementType? element, WeaponClass weapon);
+
         void SetWeaponVisible(bool visible);
 
         /// <summary>

@@ -216,6 +216,8 @@ namespace Convergence.Combat
                 FlameTrail.Behind(go.transform, d._sr, Vector2.zero, Tuning.FireFx.TrailDiscWindow, 0f, SortingOrders.Fx - 2);
             // and Rai's arcs, likewise
             LightningArcs.Follow(rig, go.transform, d._sr, SortingOrders.Fx - 2);
+            // and a weapon art's element, if this disc carries one (ElementArtFx)
+            ElementArtFx.Adopt(owner, d._sr, disc: true);
             // and a weapon that casts light keeps lighting in flight
             Art.Gear.HeldGlow.Follow(rig, go.transform, d._sr);
 

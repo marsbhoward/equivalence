@@ -121,6 +121,8 @@ namespace Convergence.Combat
                 float len = arrow.bounds.size.x;
                 // Inside Fire's Ignite the streak is a flame tail from the fletching instead
                 // (Combat.FlameTrail - the sword's smear, laid along the shot).
+                // A weapon art's element rides the arrow it looses (ElementArtFx).
+                ElementArtFx.Adopt(owner, sr, disc: false);
                 if (a._player != null && a._player.Igniting)
                     FlameTrail.Behind(go.transform, sr, new Vector2(-len * 0.5f, 0f), Core.Tuning.FireFx.TrailArrowWindow,
                                       Core.Tuning.FireFx.TrailArrowRadius, SortingOrders.Fx - 2);

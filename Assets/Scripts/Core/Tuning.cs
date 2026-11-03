@@ -4100,6 +4100,51 @@ namespace Convergence.Core
         /// floor's grid (37.5) unless a note says otherwise. Ground rings are drawn ROUND, at the
         /// release's real radius, so the edge drawn is the edge that hits.
         /// </summary>
+        /// <summary>
+        /// A weapon art's ELEMENT on the weapon (Combat.ElementArtFx; PICTURES.md, "Element finisher
+        /// pictures" - the user's picks per class, 2026-11-03). Strength follows the element meter at
+        /// the press: <see cref="MeterFloor"/> + (1 - floor) x fill. Every count below is at full
+        /// strength. Speeds are world units a second; gravity units a second squared.
+        /// </summary>
+        public static class ElementArtFx
+        {
+            public const float MeterFloor = 0.35f;
+            /// <summary>Seconds after the strike the pictures may still run (everything is out by then).</summary>
+            public const float Lifetime = 3f;
+            /// <summary>The strike's window on a held weapon, either side of the bar's end.</summary>
+            public const float StrikeBefore = 0.06f, StrikeAfter = 0.12f;
+            /// <summary>The strike's window on a thrown disc / a loosed arrow, from the release.</summary>
+            public const float ThrownDiscWindow = 0.6f, ThrownArrowWindow = 0.3f;
+            /// <summary>Canvas sizes in texels: the weapon's two (weapon density) and the floor's.</summary>
+            public const int WeaponCanvas = 320, GroundCanvas = 192;
+            public const float Gravity = 5.6f;
+
+            // FORGE SPARKS: off the edge while the bar fills, a spray on the strike, embers on the floor.
+            public const float SparkRate = 16f, SparkBurst = 16f;
+            public const float SparkSpeedMin = 0.33f, SparkSpeedMax = 0.8f;
+            public const float SprayMin = 1.05f, SprayMax = 2.4f;
+            public const float EmberSeconds = 1.4f;
+            // MOLTEN EDGE: the edge heats with the bar; the strike sheds drifting embers.
+            public const float MoltenCoolDelay = 0.3f, MoltenCoolSeconds = 0.8f;
+            public const float DriftEmbers = 14f, DriftSeconds = 0.8f, DriftRise = 0.25f;
+            // RIBBON: a helix round the weapon; peeled off along the strike into drops.
+            public const float RibbonTurns = 11f, RibbonSpin = 9f, RibbonSamples = 26f;
+            public const float RibbonHangMin = 0.14f, RibbonHangMax = 0.26f;
+            // WATER FILM: a sheen with the bar; thrown off as drops.
+            public const float FilmDrops = 14f, DropSpeedMin = 0.95f, DropSpeedMax = 2f;
+            public const float WetSeconds = 1.6f;
+            // A PERFECT lands them in one even line along the cut: its start past the weapon, the gap.
+            public const float FilmLineStart = 0.2f, FilmLineStep = 0.07f;
+            // ORBITING GRIT: pebbles lift off the floor, hang by the weapon, follow the strike, drop.
+            public const float GritPebbles = 8f, GritLiftSeconds = 0.3f, GritSpeedMin = 1f, GritSpeedMax = 1.8f;
+            public const float PebbleSeconds = 1.3f;
+            // STONE CRUST: set on the arrow with the draw; crumbles off after the loose.
+            public const float CrustStones = 9f, CrustCrumbleDelay = 0.25f, CrustCrumbleSeconds = 0.6f;
+            // GATHERING STREAKS: drawn in while the bar fills; left along the strike's path.
+            public const float StreakRate = 22f, StreakSeconds = 0.32f, StreakReach = 0.55f;
+            public const float TrailSeconds = 0.28f;
+        }
+
         public static class ReleaseFx
         {
             static UnityEngine.Color32 C(byte r, byte g, byte b) => new(r, g, b, 255);
