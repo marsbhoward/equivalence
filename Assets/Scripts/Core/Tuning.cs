@@ -2535,6 +2535,75 @@ namespace Convergence.Core
             public const float ShaftRadius = 5f, ShaftIntensity = 0.6f;
         }
 
+        /// <summary>
+        /// Fortuna, the gambler (the user's design, 2026-11-02 - BOSSES.md "Fortuna"). A GAME per opening
+        /// phase, dealt from her tarot deck at random: the Shell Game (the Magician), the Wheel (the Wheel
+        /// of Fortune), Blackjack (the Tower), the Bluff (the Moon). A win opens her window; a loss is a
+        /// mechanic hit and the same game dealt again. She CHEATS in any phase, a tell shuffled from a pool
+        /// (every real tell GLINTS); striking her while it glints CATCHES her. Per-band numbers are in
+        /// EnemyBands.Fortuna*.
+        /// </summary>
+        public static class Fortuna
+        {
+            public const float Hp = 840f;    // the shared base, through FloorDifficulty.BossHp
+            public const float EnrageAt = 0.35f;
+            /// <summary>Where she deals from: north of the middle, behind the games.</summary>
+            public static readonly UnityEngine.Vector2 DealerSpot = new(0f, 2.6f);
+            public const float WalkSpeed = 2.2f;
+            public const float BodyRadius = 0.55f;
+
+            // ---- the deal: a tarot card flips over her head and names the game ----
+            public const float DealSeconds = 1.6f;
+            /// <summary>A lost game: a share of the player's max health (a mechanic hit, Boss rule 3).</summary>
+            public const float LossFraction = 0.2f;
+            /// <summary>Her window after a win; a CAUGHT cheat opens it for longer.</summary>
+            public const float RestSeconds = 5f, CaughtRestSeconds = 7f;
+            public const float BetweenGamesSeconds = 0.8f;
+
+            // ---- the shell game ----
+            public const float CupRadius = 0.32f, CupRowSpacing = 1.5f;
+            public static readonly UnityEngine.Vector2 TableCentre = new(0f, 0.2f);
+            public const float ShowSeconds = 1.1f, SwapSeconds = 0.55f, ChooseSeconds = 4.5f, RevealSeconds = 1.0f;
+            /// <summary>A last-second switch's honest tell: the two cups shimmer this long before they trade.</summary>
+            public const float SwitchTellSeconds = 0.35f;
+
+            // ---- the wheel ----
+            public const float WheelRadius = 3.4f, BallRadius = 0.28f;
+            public const int Pockets = 12;
+            /// <summary>The ball's start speed (radians a second) and how fast it slows; a hit adds or takes away this much.</summary>
+            public const float BallSpin = 4.2f, BallDrag = 0.42f, BallKick = 1.6f, BallSettle = 0.35f;
+            public const float WheelMaxSeconds = 14f;
+
+            // ---- blackjack ----
+            public const int Limit = 21;
+            public const float BlackjackSeconds = 14f, ChipRadius = 0.55f, DrawCooldown = 0.25f;
+            public static readonly UnityEngine.Vector2[] Chips = { new(-3f, -3.4f), new(0f, -3.8f), new(3f, -3.4f) };
+            /// <summary>The cards' values: a deck's mix, tens four times as often as any other.</summary>
+            public static readonly int[] Deck = { 2, 3, 4, 5, 6, 7, 8, 9, 10, 10, 10, 10, 11 };
+            /// <summary>Band 2 on, she plays her own hand: she draws to this, and you must beat it.</summary>
+            public const int HouseStands = 17;
+
+            // ---- the bluff ----
+            public const int BluffBlows = 4;
+            public const float BluffWindSeconds = 0.85f, BluffReach = 2.0f, BluffApproach = 1.5f, BluffGapSeconds = 0.6f;
+            public const float BluffBlowDamage = 10f;   // chip, x FloorDifficulty.Damage
+
+            // ---- the cheat ----
+            /// <summary>How long a tell plays (the glint is up for its middle), and how long after it a strike still catches her.</summary>
+            public const float TellSeconds = 1.4f, CatchGraceSeconds = 0.25f;
+
+            // ---- her cards (chip) ----
+            public const float CardDamage = 6f, CardSpeed = 7.5f, CardLifetime = 2.2f, CardHitRadius = 0.18f;
+            public const int SpreadCards = 5;
+            public const float SpreadDegrees = 48f;
+            public const int OrbitCards = 6;
+            public const float OrbitSeconds = 1.4f, OrbitRadius = 1.1f;
+            public const float ThrowTellSeconds = 0.35f;
+
+            // ---- the enrage: the band and the cape fall, the armour breaks ----
+            public const float FallSeconds = 0.8f;
+        }
+
 
         /// <summary>
         /// The gear stake - see <see cref="Chain.GearStake"/>. The floor a staked piece's run must
@@ -6236,6 +6305,27 @@ namespace Convergence.Core
             public const int IcarusHarderWellFromBand = 3;
             public const int IcarusDanceTwiceFromBand = 4;
             public const int IcarusFanMidStringFromBand = 4;
+
+            /// <summary>Fortuna, by band 0..4 (the user's calls, 2026-11-02; the numbers mine). Cups in the shell
+            /// game; its swaps; how far they wander (band 2 on, round the arena); the last-second switch (band 3
+            /// on); the wheel's balls and whether it reverses; a cheat's chance a game; how often the TELL
+            /// changes (0 never, 1 each deal, 2 also when caught, 3 every other cheat, 4 every cheat); FAKE tells
+            /// (band 4); the enrage's armour damage and SPEED (her whole fight); the bikini at the top bands.</summary>
+            public static readonly int[] FortunaCups = { 3, 4, 4, 4, 5 };
+            public static readonly int[] FortunaSwaps = { 5, 6, 7, 8, 9 };
+            public static readonly float[] FortunaSwapSpeed = { 1f, 1.1f, 1.2f, 1.3f, 1.45f };
+            public const int FortunaWanderFromBand = 2, FortunaSwitchFromBand = 3, FortunaHouseFromBand = 2;
+            public static readonly int[] FortunaBalls = { 1, 1, 1, 2, 2 };
+            public const int FortunaReverseFromBand = 2;
+            public static readonly float[] FortunaCheatChance = { 0.25f, 0.35f, 0.45f, 0.55f, 0.65f };
+            public static readonly int[] FortunaTellShuffle = { 0, 1, 2, 3, 4 };
+            public const int FortunaFakesFromBand = 4;
+            public const float FortunaFakeChance = 0.35f;
+            public static readonly float[] FortunaTatter = { 0.15f, 0.35f, 0.55f, 0.75f, 0.95f };
+            public static readonly float[] FortunaEnragedSpeed = { 1f, 1.1f, 1.2f, 1.35f, 1.5f };
+            public const int FortunaBikiniFromBand = 3;
+            /// <summary>Band 1 on she throws a spread mid-shuffle.</summary>
+            public const int FortunaThrowsWhileShufflingFromBand = 1;
 
             // ---- band 1: they aim (leading shots and the missile: Tuning.EnemyAi) ----
 

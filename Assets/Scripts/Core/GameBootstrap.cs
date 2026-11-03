@@ -3885,7 +3885,7 @@ namespace Convergence.Core
             var bossKind = IsBossFloor(_floor) ? _planner.BossFor(_floor) : Bosses.BossKind.Wreathe;
             bool ownRoom = IsBossFloor(_floor) && (bossKind == Bosses.BossKind.Medusa || bossKind == Bosses.BossKind.Wreathe
                                                    || bossKind == Bosses.BossKind.Viriditas || bossKind == Bosses.BossKind.Mercurius
-                                                   || bossKind == Bosses.BossKind.Icarus);
+                                                   || bossKind == Bosses.BossKind.Icarus || bossKind == Bosses.BossKind.Fortuna);
 
             if (_hazardRoot != null)
             {

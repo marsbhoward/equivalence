@@ -304,7 +304,7 @@ namespace Convergence.Rifts
         /// outgrow the eight mini-boss floors (10..90 less the avatars), so each run meets a
         /// different set. The Wreathe stays in it until there are enough to replace it.
         /// </summary>
-        static readonly Bosses.BossKind[] MiniBossPool = { Bosses.BossKind.Wreathe, Bosses.BossKind.Medusa, Bosses.BossKind.Viriditas, Bosses.BossKind.Mercurius, Bosses.BossKind.Icarus };
+        static readonly Bosses.BossKind[] MiniBossPool = { Bosses.BossKind.Wreathe, Bosses.BossKind.Medusa, Bosses.BossKind.Viriditas, Bosses.BossKind.Mercurius, Bosses.BossKind.Icarus, Bosses.BossKind.Fortuna };
 
         /// <summary>Whether a boss is drawn for the mini-boss floors (DEV: GameBootstrap.DevBosses).</summary>
         public static bool InMiniBossPool(Bosses.BossKind kind) => System.Array.IndexOf(MiniBossPool, kind) >= 0;

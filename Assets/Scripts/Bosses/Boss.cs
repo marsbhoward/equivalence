@@ -7,7 +7,7 @@ namespace Convergence.Bosses
     /// <summary>Which boss a boss floor holds. Picked by Rifts.FloorPlanner.BossFor.</summary>
     /// <summary>Every boss. APPEND-ONLY: a boss's dev key is its place here counted from 1
     /// (GameBootstrap.DevBosses / DevFightBoss), so inserting one would renumber the rest.</summary>
-    public enum BossKind { Wreathe, Medusa, Viriditas, Mercurius, Icarus }
+    public enum BossKind { Wreathe, Medusa, Viriditas, Mercurius, Icarus, Fortuna }
 
     /// <summary>
     /// What every boss shares, pulled out of the Cantor (now the Wreathe) when the second one arrived. A boss is a
@@ -72,6 +72,7 @@ namespace Convergence.Bosses
                 BossKind.Viriditas => Viriditas.Spawn(at, target, parent, floor),
                 BossKind.Mercurius => Mercurius.Spawn(at, target, parent, floor),
                 BossKind.Icarus => Icarus.Spawn(at, target, parent, floor),
+                BossKind.Fortuna => Fortuna.Spawn(at, target, parent, floor),
                 _ => Wreathe.Spawn(at, target, parent, floor),
             };
 
