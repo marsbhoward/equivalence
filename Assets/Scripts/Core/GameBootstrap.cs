@@ -2345,10 +2345,13 @@ namespace Convergence.Core
             // Likewise the week: its reset turns the sigils to stone until the selector wakes them.
             if (_state == State.Hub && _hub != null)
             {
-                // The showcase's new character: its weapon and defensive wait at the forge.
-                if (RunFormat.Showcase && !ShowcaseKitChosen() && !screenOpen && _hub.ForgeAt is Vector3 forge
+                // The showcase's new character: its weapon and defensive wait at the forge, which
+                // beckons until they are chosen.
+                bool kitWaiting = RunFormat.Showcase && !ShowcaseKitChosen();
+                _hub.KitWaiting = kitWaiting;
+                if (kitWaiting && !screenOpen && _hub.ForgeAt is Vector3 forge
                     && UI.FirstRunHints.Ready(-1, ignoreQuiet: true))
-                    UI.FirstRunHints.Offer("showcase-forge", "CHOOSE YOUR WEAPON AND DEFENSIVE AT THE FORGE",
+                    UI.FirstRunHints.Offer("showcase-forge", "FIRST, CHOOSE YOUR WEAPON AND DEFENSIVE AT THE FORGE",
                         UI.FirstRunHints.OnScreen(forge));
                 _hub.HoldDoorOpen(_account != null && _account.RanToday);
                 _hub.SetSigilsStone(_account != null && _account.SigilsAsleep());
@@ -2549,7 +2552,7 @@ namespace Convergence.Core
                 // stopped the floor from ever clearing.
                 // ASKED FOR, never walked into: a player who wants to keep going should be able to
                 // cross the floor past an open tear without a screen stopping them.
-                // Both offer the touch USE half while in reach (Controls.ArenaUse).
+                // Both offer the touch USE button while in reach (Controls.ArenaUse).
                 if (_rift != null && _rift.Usable && _rift.PlayerInside && !RiftScreen.IsOpen)
                     Controls.OfferUse("THE RIFT");
                 else if (_rift != null && _rift.Sealed && !_redSummoned && _plan.Rift == Rifts.RiftKind.Red

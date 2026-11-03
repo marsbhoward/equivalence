@@ -141,7 +141,7 @@ namespace Convergence.Rifts
             _box.color = new Color(hot.r * pulse, hot.g * pulse, hot.b * pulse, 1f);
 
             if (!near) return;
-            Controls.OfferUse("RIFT BOX");   // the touch USE half (Controls.ArenaUse)
+            Controls.OfferUse("RIFT BOX");   // the touch USE button (Controls.ArenaUse)
             if (!Controls.InteractTapped) return;
 
             _taken = true;

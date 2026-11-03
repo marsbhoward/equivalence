@@ -20,6 +20,14 @@ namespace Convergence.Hub
         /// pushed from HubRoom, since Forge holds no profile state itself.</summary>
         public bool HasBoxAction { get; private set; }
 
+        /// <summary>The showcase's new character has its weapon to choose here (SHOWCASE.md): the fire
+        /// burns full and throws sparks every <see cref="Tuning.Showcase.ForgeBeckonSeconds"/> until it
+        /// is chosen. Pushed every hub frame by GameBootstrap.</summary>
+        public bool Beckon;
+        float _beckonAt;
+
+        bool Burning => HasBoxAction || Beckon;
+
         [SerializeField] HubFixture _art;
         [SerializeField] Convergence.Art.Lighting.Glow _light;
         float _lit;
@@ -41,7 +49,7 @@ namespace Convergence.Hub
             // Dressed in the character's forge theme (group 8); the Cloister's is the hearth and anvil.
             var theme = HubDress.Of(HubItem.Forge);
             f._art = HubFixture.Attach(go, HubThemeArt.Forge(theme, 0, false), new Vector2(0f, Foot));
-            f._art.Animate(HubThemeArt.ForgeFrames, HubThemeArt.ForgeFps, i => HubThemeArt.Forge(theme, i, f != null && f.HasBoxAction));
+            f._art.Animate(HubThemeArt.ForgeFrames, HubThemeArt.ForgeFps, i => HubThemeArt.Forge(theme, i, f != null && f.Burning));
             f._light = Convergence.Art.Lighting.Glow.Attach(go, 2.4f, HubThemeArt.ForgeLight(theme), 0.4f, 0.25f);
             DepthSorted.Attach(go, Foot, false, f._art.Art, f._art.RimRenderer);
             return f;
@@ -60,7 +68,12 @@ namespace Convergence.Hub
             if (_light == null) return;
             _lit = Mathf.MoveTowards(_lit, _focused ? 1f : 0f, Time.unscaledDeltaTime * 5f);
             float pulse = 0.5f + 0.5f * Mathf.Sin(Time.unscaledTime * 2.4f);
-            _light.Intensity = HasBoxAction ? Mathf.Lerp(0.7f, 1f, Mathf.Max(_lit, pulse)) : 0.35f;
+            _light.Intensity = Burning ? Mathf.Lerp(0.7f, 1f, Mathf.Max(_lit, pulse)) : 0.35f;
+            if (Beckon && Time.unscaledTime >= _beckonAt)
+            {
+                _beckonAt = Time.unscaledTime + Core.Tuning.Showcase.ForgeBeckonSeconds;
+                Flash();
+            }
         }
     }
 }

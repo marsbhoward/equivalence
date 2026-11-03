@@ -759,6 +759,13 @@ namespace Convergence.Core
             /// estimate (FloorPlanner.CollapseSeconds).</summary>
             public const int RiftFloor = 5;
 
+            /// <summary>The floor that is always a puzzle (the user's call, 2026-11-03): its kind still drawn
+            /// (FloorPlanner.PickPuzzle). Other floors may draw a puzzle too.</summary>
+            public const int PuzzleFloor = 3;
+
+            /// <summary>Seconds between the Forge's sparks while a new character's weapon waits there.</summary>
+            public const float ForgeBeckonSeconds = 2.5f;
+
             /// <summary>The hub theme every showcase character owns, beside the Cloister - one to try, the
             /// same for all, never a draw (the user's call, 2026-11-02). Not granted to the save: the
             /// showcase reads it (Hub.HubThemes.Owned).</summary>
@@ -5196,6 +5203,14 @@ namespace Convergence.Core
             /// <summary>Shut to open, the mock's pace - stone is heavy.</summary>
             public const float DoorSwingSeconds = 1.6f;
             public static float DoorSwingDrop => UnityEngine.Mathf.Tan(CameraTiltDegrees * UnityEngine.Mathf.Deg2Rad);
+
+            /// <summary>The leaves are STONE SLABS this thick (the user's pick S2, 2026-11-03): an open leaf
+            /// shows its free edge and its top (Hub.DoorSlabs). The hub door and the arena's alike.</summary>
+            public const float DoorSlabThickness = 0.09f;
+            /// <summary>The leaves' faces under the room's upper-left light (L2): the left leaf turns toward
+            /// it, the right away - multiples of the stone.</summary>
+            public const float DoorLeafLit = 1.16f;
+            public const float DoorLeafShade = 0.80f;
 
             /// <summary>
             /// How close the character must be for a door to offer itself.

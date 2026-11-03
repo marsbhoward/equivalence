@@ -141,24 +141,18 @@ namespace Convergence.UI
             public Text Tag;
             public System.Func<string> TagText;
 
-            /// <summary>
-            /// Which half of its disc the button is, this frame: 0 the whole disc, +1 the top half,
-            /// -1 the bottom. Null for a button that never splits. ABILITY and the run's USE share
-            /// one spot (the user's call, 2026-11-02): while something is in reach to use
-            /// (<see cref="Controls.ArenaUse"/>) USE is the top half and ABILITY the bottom - the
-            /// press goes to the half under the thumb (<see cref="ButtonAt"/>).
-            /// </summary>
-            public System.Func<int> Half;
-            /// <summary>The half laid out last (Relayout), and where the name, key and icon sit
-            /// on the whole disc, to go back to.</summary>
-            public int HalfShown;
-            public Vector2 LabelAt, KeyAt, IconAt;
-            /// <summary>The straight edge across a split disc.</summary>
-            public Image Divider;
+            /// <summary>The name, when it changes with what the button does this frame - ATTACK
+            /// reads RECALL while a thrown blade is out. Null for a fixed name.</summary>
+            public System.Func<string> LabelOf;
         }
 
-        /// <summary>Whether ABILITY is split this frame - see <see cref="Btn.Half"/>.</summary>
-        static bool Split => Controls.ArenaUse != null;
+        /// <summary>
+        /// Whether the run's USE stands in ABILITY's spot this frame. While something is in reach to
+        /// use (<see cref="Controls.ArenaUse"/>) USE takes the whole disc and ABILITY stands down
+        /// (the user's call, 2026-11-03: a split half of an already small button was too small to
+        /// hit). On keyboard both are already E.
+        /// </summary>
+        static bool UseShown => Controls.ArenaUse != null;
 
         /// <summary>How far, in screen pixels as a fraction of the screen's height, a finger on a
         /// drag-aiming button must travel before it aims - a tap's own wobble stays a tap.</summary>
@@ -219,21 +213,22 @@ namespace Convergence.UI
                    v => Controls.VirtualAttack = v, null,
                    progress: () => Controls.AttackProgress01?.Invoke() ?? 1f,
                    key: "LMB", pad: () => GamepadGlyphs.Attack, held: () => Controls.AttackHeld,
-                   dragAims: true, icon: () => TouchIcons.Sword);
+                   dragAims: true, icon: () => TouchIcons.Sword,
+                   name: () => Controls.ArenaRecall ? "RECALL" : "ATTACK");
             Button("ABILITY", AbilityR, BottomRight, ThumbArc(64f, AbilityReach), Controls.Context.Arena,
                    v => Controls.VirtualRelease = v, () => Controls.ReleaseReady != null && Controls.ReleaseReady(),
                    progress: () => Controls.ReleaseProgress01?.Invoke() ?? 0f,
                    key: "RMB", pad: () => GamepadGlyphs.Release, held: () => Controls.ReleaseHeld,
                    icon: () => TouchIcons.Element(Art.Gear.Attunement.Current),
-                   half: () => Split ? -1 : 0);
+                   visible: () => !UseShown);
             // A RUN'S USE: picking up a drop or a Rift Box, the Rift, the Red seal, the blade blink.
-            // ABILITY's top half while something is in reach (Btn.Half); gone otherwise, so the
+            // In ABILITY's spot while something is in reach (UseShown); gone otherwise, so the
             // fight's three buttons are never crowded by a fourth.
             Button("USE", AbilityR, BottomRight, ThumbArc(64f, AbilityReach), Controls.Context.Arena,
                    v => Controls.VirtualInteract = v, null,
-                   visible: () => Split,
+                   visible: () => UseShown,
                    key: "E", pad: () => GamepadGlyphs.Interact, held: () => Controls.InteractHeld,
-                   tag: () => Controls.ArenaUse, half: () => Split ? 1 : 0);
+                   tag: () => Controls.ArenaUse, icon: () => TouchIcons.Star);
             // The chest's defensive ability. Low on the arc, clear of ATTACK's own radius -
             // shares Alt with the hub's crate-edit toggle, since the two contexts never overlap.
             Button("GUARD", AbilityR, BottomRight, ThumbArc(10f, AbilityReach), Controls.Context.Arena,
@@ -344,7 +339,7 @@ namespace Convergence.UI
                     string key = null, System.Func<string> pad = null,
                     System.Func<bool> held = null, bool dragAims = false,
                     System.Func<string> tag = null, System.Func<Sprite> icon = null,
-                    System.Func<int> half = null)
+                    System.Func<string> name = null)
         {
             var go = new GameObject("btn." + label.ToLower(), typeof(Image));
             go.transform.SetParent(_root, false);
@@ -433,20 +428,6 @@ namespace Convergence.UI
                 UiKit.Legible(tagText);
             }
 
-            // A splitting button's straight edge: the diameter, drawn only while split.
-            Image divider = null;
-            if (half != null)
-            {
-                var dgo = new GameObject("divider", typeof(Image));
-                dgo.transform.SetParent(rt, false);
-                var drt = (RectTransform)dgo.transform;
-                drt.anchorMin = drt.anchorMax = drt.pivot = new Vector2(0.5f, 0.5f);
-                drt.sizeDelta = new Vector2(radius * 2f - 2f * LiningInset, 2f);
-                divider = dgo.GetComponent<Image>();
-                divider.raycastTarget = false;
-                divider.enabled = false;
-            }
-
             _buttons.Add(new Btn
             {
                 Rect = rt, Ring = ringRt.GetComponent<Image>(), Arc = arc, Fill = fill, Label = text,
@@ -454,10 +435,7 @@ namespace Convergence.UI
                 Key = keyText, Keyboard = key, Pad = pad, Held = held,
                 Show = show, Set = set, Enabled = enabled, Visible = visible, Progress = progress,
                 DragAims = dragAims, Anchor = anchor, Offset = offset, Tag = tagText, TagText = tag,
-                Half = half, Divider = divider,
-                LabelAt = trt.anchoredPosition,
-                KeyAt = keyText != null ? ((RectTransform)keyText.transform).anchoredPosition : Vector2.zero,
-                IconAt = iconImg != null ? ((RectTransform)iconImg.transform).anchoredPosition : Vector2.zero,
+                LabelOf = name,
             });
         }
 
@@ -476,32 +454,6 @@ namespace Convergence.UI
             if (img.sprite == s) return;
             img.sprite = s;
             ((RectTransform)img.transform).sizeDelta = TouchIcons.Size(s);
-        }
-
-        /// <summary>
-        /// Draws a splitting button as the half it is this frame (<see cref="Btn.Half"/>): its
-        /// glass, edge and lining cut to that half, a straight edge across the middle, and its
-        /// name in the half - the icon and key stand down, there is no room for them. The meter
-        /// ring stays whole round ABILITY: it is the ability's, split or not.
-        /// </summary>
-        static void LayHalf(Btn b)
-        {
-            int half = b.Half?.Invoke() ?? 0;
-            if (half == b.HalfShown) return;
-            b.HalfShown = half;
-            foreach (var img in new[] { b.Fill, b.Edge, b.Lining })
-            {
-                if (img == null) continue;
-                if (half == 0) { img.type = Image.Type.Simple; continue; }
-                img.type = Image.Type.Filled;
-                img.fillMethod = Image.FillMethod.Vertical;
-                img.fillOrigin = half > 0 ? (int)Image.OriginVertical.Top : (int)Image.OriginVertical.Bottom;
-                img.fillAmount = 0.5f;
-            }
-            if (b.Divider != null) b.Divider.enabled = half != 0;
-            float r = b.Rect.rect.height * 0.5f;
-            ((RectTransform)b.Label.transform).anchoredPosition = half == 0 ? b.LabelAt : new Vector2(0f, half * r * 0.45f);
-            if (b.Icon != null) b.Icon.gameObject.SetActive(half == 0);
         }
 
         static readonly Color TagLive = new(0.85f, 0.71f, 0.35f, 0.95f);
@@ -683,9 +635,7 @@ namespace Convergence.UI
                 // that one on the next frame.
                 if (!shown && b.Rect.gameObject.activeSelf) { b.Finger = -1; b.Pulse = false; b.Set(false); }
                 b.Rect.gameObject.SetActive(shown);
-                LayHalf(b);
-                // No room for the key on a half disc.
-                if (b.Key != null) b.Key.gameObject.SetActive(hints && b.HalfShown == 0);
+                if (b.Key != null) b.Key.gameObject.SetActive(hints);
                 // A pill's key sits beside its name, so the name makes room only while it shows.
                 if (b.Pill && b.Key != null)
                     ((RectTransform)b.Label.transform).offsetMax = new Vector2(hints ? -26f : 0f, 0f);
@@ -697,7 +647,7 @@ namespace Convergence.UI
 
         int _stickFinger = -1;
         int _freeFinger = -1;
-        bool _lastOverlay, _lastDevice, _lastSplit;
+        bool _lastOverlay, _lastDevice, _lastUse;
         int _lastPrefs = -1;
 
         void Update()
@@ -705,9 +655,9 @@ namespace Convergence.UI
             // Re-laid out on what it shows changing - the device, the context, a setting - and on
             // nothing else, since Relayout touches every button.
             if (_lastOverlay != Live || _lastDevice != Controls.TouchMode
-                || _mode != Controls.Screen || _lastPrefs != HudPrefs.Version || _lastSplit != Split)
+                || _mode != Controls.Screen || _lastPrefs != HudPrefs.Version || _lastUse != UseShown)
             {
-                _lastSplit = Split;
+                _lastUse = UseShown;
                 _lastOverlay = Live;
                 _lastDevice = Controls.TouchMode;
                 _lastPrefs = HudPrefs.Version;
@@ -955,8 +905,6 @@ namespace Convergence.UI
                 // which is a capsule - its round ends are exactly the drawn ends.
                 float run = b.Pill ? (_corners[2].x - _corners[0].x) * 0.5f - halfH : 0f;
                 var along = screenPoint - centre;
-                // A split disc takes only the presses on its own half (Btn.Half).
-                if (b.HalfShown != 0 && Mathf.Sign(along.y) != b.HalfShown) continue;
                 along.x = Mathf.Sign(along.x) * Mathf.Max(0f, Mathf.Abs(along.x) - run);
                 float d = along.magnitude;
                 if (d <= reach && d < bestD) { bestD = d; best = b; }
@@ -1117,13 +1065,13 @@ namespace Convergence.UI
             float a = down ? 0.30f : live ? 0.10f : 0.05f;
             b.Fill.color = new Color(1f, 1f, 1f, a);
             b.Edge.color = new Color(1f, 1f, 1f, down ? 0.85f : live ? 0.40f : 0.15f);
-            if (b.Divider != null) b.Divider.color = b.Edge.color;
             var lining = down ? GoldLit : Gold;
             lining.a = down ? 1f : live ? 0.85f : 0.35f;
             b.Lining.color = lining;
             var name = LabelGold;
             name.a = down || live ? 0.95f : 0.35f;
             b.Label.color = name;
+            if (b.LabelOf != null) b.Label.text = b.LabelOf();
             if (b.Icon != null)
             {
                 SetIcon(b.Icon, b.IconOf());

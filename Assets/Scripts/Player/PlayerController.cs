@@ -2011,6 +2011,7 @@ namespace Convergence.Player
             // inside _throwTapGuard was aimed at the bar that just closed and does nothing.
             if (Blade != null)
             {
+                Core.Controls.OfferRecall();   // the touch ATTACK button reads RECALL
                 if (attackTapped && _throwTapGuard <= 0f) Blade.Recall();
 
                 // The recall consumes the press outright. Left in the buffer it would come back
@@ -2054,7 +2055,7 @@ namespace Convergence.Player
             bool releasePressed = Core.Controls.ReleaseTapped;
             if (Blade != null)
             {
-                Core.Controls.OfferUse("BLINK");   // the touch USE half (Controls.ArenaUse)
+                Core.Controls.OfferUse("BLINK");   // the touch USE button (Controls.ArenaUse)
                 if (Core.Controls.InteractTapped) Blade.TeleportOwner();
             }
             else if (releasePressed && Resource != null && Resource.CanRelease)

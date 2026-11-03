@@ -987,6 +987,15 @@ namespace Convergence.Hub
                         Key = "[ E ]  pick up",
                         Accent = new Color(1f, 0.55f, 0.15f),
                     }
+                    : KitWaiting
+                    ? new Prompt
+                    {
+                        Title = "THE FORGE",
+                        Sub = "your weapon waits here",
+                        Body = "Choose your Bronze weapon and defensive before your first run.",
+                        Key = "[ E ]  choose",
+                        Accent = new Color(1f, 0.55f, 0.15f),
+                    }
                     : new Prompt
                     {
                         Title = "THE FORGE",
@@ -1035,6 +1044,15 @@ namespace Convergence.Hub
         }
 
         public void FlashForge() => _forge?.Flash();
+
+        /// <summary>The showcase's new character chooses its weapon and defensive at the Forge
+        /// (GameBootstrap.AskShowcaseKit): the Forge beckons and its prompt says so. Pushed every hub
+        /// frame by GameBootstrap - a plain bool, nothing held across a reload.</summary>
+        public bool KitWaiting
+        {
+            get => _forge != null && _forge.Beckon;
+            set { if (_forge != null) _forge.Beckon = value; }
+        }
 
         /// <summary>
         /// The armoury: a weapon rack and an armour stand, side by side on the west wall.

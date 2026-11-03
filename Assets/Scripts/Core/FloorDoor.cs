@@ -65,6 +65,8 @@ namespace Convergence.Core
         Transform _doorL, _doorR;
         /// <summary>Each leaf's hinge chain on its outer edge, left then right (SigilDoor.HingeChain).</summary>
         Transform[] _hinge = new Transform[6];
+        /// <summary>The leaves' edges and tops (the hub door's slabs, Hub.DoorSlabs).</summary>
+        [SerializeField] Hub.DoorSlabs _slabs;
         SpriteRenderer _gap;
         float _openT = -1f;
         System.Collections.Generic.List<SpriteRenderer> _grooves = new();
@@ -99,8 +101,9 @@ namespace Convergence.Core
             doorL.localPosition = new Vector3(HalfWidth, 0f, 0f);
             var doorR = Leaf(ri, "door-r");
             doorR.localPosition = new Vector3(-HalfWidth, 0f, 0f);
-            Slab(doorL, -1, HalfWidth, Height);
+            var slabL = Slab(doorL, -1, HalfWidth, Height);
             Slab(doorR, +1, HalfWidth, Height);
+            var slabs = Hub.DoorSlabs.Attach(go, doorL, doorR, HalfWidth, Height, slabL.sharedMaterial);
 
 
             // The run's own element, carved across the seam. Sized and cut exactly the way the
@@ -134,6 +137,7 @@ namespace Convergence.Core
             d._doorL = doorL;
             d._doorR = doorR;
             d._hinge = new[] { lo, lm, li, ro, rm, ri };
+            d._slabs = slabs;
             d._gap = gap;
             d.Part(shut ? 0f : 1f);
             if (!shut) Convergence.Art.Lighting.Glow.Attach(go, inWall ? 2.2f : 1.4f, Color.white, inWall ? 0.75f : 0.5f);
@@ -153,6 +157,7 @@ namespace Convergence.Core
                 float deg = Tuning.Hub.DoorSwingDegrees * k;
                 Hub.SigilDoor.SwingHinge(_hinge[0], _hinge[1], _hinge[2], -1f, deg);
                 Hub.SigilDoor.SwingHinge(_hinge[3], _hinge[4], _hinge[5], +1f, deg);
+                if (_slabs != null) _slabs.Pose(deg);
             }
             SetGap(k > 0f ? HalfWidth * 2f : 0f, 1f);
         }
@@ -259,14 +264,15 @@ namespace Convergence.Core
 
         /// <summary>One stone leaf, hung so its own inner edge sits on the parent's origin - the
         /// seam - with a darker meeting face so the pair reads as two doors rather than one panel
-        /// with a line drawn on it.</summary>
-        static void Slab(Transform leaf, int side, float w, float h)
+        /// with a line drawn on it. Lit like the hub door's (SigilDoor.LeafStone).</summary>
+        static SpriteRenderer Slab(Transform leaf, int side, float w, float h)
         {
-            var slab = Quad(leaf, "slab", w, h, Stone, SortingOrders.GroundDecal + 3);
+            var slab = Quad(leaf, "slab", w, h, Hub.SigilDoor.LeafStone(side), SortingOrders.GroundDecal + 3);
             slab.transform.localPosition = new Vector3(side * w * 0.5f, h * 0.5f, 0f);
 
             var edge = Quad(leaf, "edge", 0.032f, h, StoneDeep, SortingOrders.GroundDecal + 4);
             edge.transform.localPosition = new Vector3(side * 0.016f, h * 0.5f, 0f);
+            return slab;
         }
 
         static SpriteRenderer Mark(Transform leaf, string name, Sprite sprite, float size,

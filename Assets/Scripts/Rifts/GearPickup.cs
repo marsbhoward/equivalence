@@ -100,7 +100,7 @@ namespace Convergence.Rifts
             }
 
             if (!near) return;
-            Controls.OfferUse(_record?.DisplayName);   // the touch USE half (Controls.ArenaUse)
+            Controls.OfferUse(_record?.DisplayName);   // the touch USE button (Controls.ArenaUse)
             if (!Controls.InteractTapped) return;
 
             _taken = true;

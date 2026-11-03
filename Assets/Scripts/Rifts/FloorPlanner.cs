@@ -167,6 +167,14 @@ namespace Convergence.Rifts
                         var rng5 = new Random(unchecked(Seed * 486187739 + floor * 16777619));
                         return new FloorPlan(floor, FloorCategory.Rift, PickRift(floor, false, rng5, true), true);
                     }
+                    // Floor 3 is always a puzzle (Tuning.Showcase.PuzzleFloor), a quiet stretch or not.
+                    if (floor == Tuning.Showcase.PuzzleFloor)
+                    {
+                        if (QuietFloors > 0) QuietFloors--;
+                        if (floor >= Tuning.Floors.RiftMinFloor) SinceRift++;
+                        SincePuzzle = 0;
+                        return new FloorPlan(floor, FloorCategory.Puzzle, RiftKind.None, true);
+                    }
                     if (!HadPuzzle && floor >= Tuning.Floors.PuzzleMinFloor && floor >= end - 2)
                     {
                         SincePuzzle = 0;

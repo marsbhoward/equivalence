@@ -261,8 +261,8 @@ namespace Convergence.Core
         /// Rift, the Red Rift's seal, a thrown blade to blink to. Raised every frame by whatever is
         /// in reach (<see cref="OfferUse"/>) rather than written by one owner, since the things that
         /// answer Interact in a run are separate objects with their own reach. While it is set the
-        /// touch ABILITY button splits and its top half is USE (the user's call, 2026-11-02: on
-        /// keyboard both are E already). Lasts one frame past the last offer, so the order Updates
+        /// touch USE button takes ABILITY's spot (the user's call, 2026-11-03: on keyboard both are
+        /// E already). Lasts one frame past the last offer, so the order Updates
         /// run in never flickers it.
         /// </summary>
         public static string ArenaUse => Time.frameCount - _useOfferFrame <= 1 ? _useOffer : null;
@@ -276,6 +276,12 @@ namespace Convergence.Core
 
         static string _useOffer;
         static int _useOfferFrame = -10;
+
+        /// <summary>Attack calls a thrown blade home this frame (Wanderblade out) - the touch ATTACK
+        /// button reads RECALL. Raised every frame the blade is out, like <see cref="OfferUse"/>.</summary>
+        public static bool ArenaRecall => Time.frameCount - _recallFrame <= 1;
+        public static void OfferRecall() => _recallFrame = Time.frameCount;
+        static int _recallFrame = -10;
 
         static bool _started;
 

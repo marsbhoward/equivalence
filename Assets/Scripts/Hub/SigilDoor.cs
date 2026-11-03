@@ -48,6 +48,7 @@ namespace Convergence.Hub
         /// Index 0 the left leaf, 1 the right.</summary>
         Transform[] _hingeOuter, _hingeMid, _hingeInner;
         SpriteRenderer _light, _slabL, _slabR;
+        [SerializeField] DoorSlabs _slabs;
         [SerializeField] Convergence.Art.Lighting.Glow _glow;
         // The light's rays fall only for the room - the stake screen's doorway is dark (Stage).
         internal float OpenShare => _staged ? 0f : _openT;
@@ -129,6 +130,7 @@ namespace Convergence.Hub
             d._doorR.localPosition = new Vector3(-halfW, 0f, 0f);
             d._slabL = Slab(d._doorL, -1, halfW, h);
             d._slabR = Slab(d._doorR, +1, halfW, h);
+            d._slabs = DoorSlabs.Attach(go, d._doorL, d._doorR, halfW, h, d._slabL.sharedMaterial);
 
             // ---- the four marks, cut across the seam ----
             //
@@ -255,8 +257,9 @@ namespace Convergence.Hub
             // "white opening". Tinting it made a fire door glow salmon, which reads as a coloured
             // panel rather than as light. The element is carried by the lit sigil instead, which
             // is also what keeps it readable while the doors are shut and there is no light at all.
-            // Staged for the stake screen the doorway is DARK - the void is drawn in it there.
-            _light.color = _staged ? new Color(0.075f, 0.075f, 0.09f, _openT) : new Color(1f, 1f, 1f, _openT);
+            // Staged for the stake screen the doorway is the screen's pale light - the void is drawn
+            // in it there, and is the brightest thing on that screen.
+            _light.color = _staged ? new Color(0.80f, 0.80f, 0.84f, _openT) : new Color(1f, 1f, 1f, _openT);
             if (_glow != null) _glow.Intensity = _staged ? 0f : _openT * Mathf.Lerp(0.8f, 1f, lit);
 
             // The slabs take a little of the light nearest the seam once it is showing.
@@ -305,6 +308,7 @@ namespace Convergence.Hub
             if (_hingeOuter == null || _hingeOuter.Length < 2 || _hingeOuter[0] == null) return;
             for (int i = 0; i < 2; i++)
                 SwingHinge(_hingeOuter[i], _hingeMid[i], _hingeInner[i], i == 0 ? -1f : 1f, degrees);
+            if (_slabs != null) _slabs.Pose(degrees);
         }
 
         /// <summary>A leaf's hinge chain on its OUTER edge (<paramref name="side"/> -1 left, +1
@@ -347,15 +351,24 @@ namespace Convergence.Hub
 
         /// <summary>One stone door, hung so its own inner edge sits on the leaf's origin - the
         /// seam - with a darker meeting face so the pair reads as two doors rather than one panel
-        /// with a line drawn on it.</summary>
+        /// with a line drawn on it. Lit from the room's upper left: the left face a shade lighter,
+        /// the right a shade darker (<see cref="LeafStone"/>; its edge and top, DoorSlabs).</summary>
         static SpriteRenderer Slab(Transform leaf, int side, float w, float h)
         {
-            var slab = Quad(leaf, "slab", w, h, Stone, SortingOrders.GroundDecal + 3);
+            var slab = Quad(leaf, "slab", w, h, LeafStone(side), SortingOrders.GroundDecal + 3);
             slab.transform.localPosition = new Vector3(side * w * 0.5f, h * 0.5f, 0f);
 
             var edge = Quad(leaf, "edge", 0.032f, h, StoneDeep, SortingOrders.GroundDecal + 4);
             edge.transform.localPosition = new Vector3(side * 0.016f, h * 0.5f, 0f);
             return slab;
+        }
+
+        /// <summary>A leaf's face: the stone, lit or shaded by which way the leaf turns from the room's
+        /// upper-left light (the user's pick L2 / S2, 2026-11-03). Shared with the arena's FloorDoor.</summary>
+        public static Color LeafStone(int side)
+        {
+            float k = side < 0 ? Tuning.Hub.DoorLeafLit : Tuning.Hub.DoorLeafShade;
+            return new Color(Stone.r * k, Stone.g * k, Stone.b * k);
         }
 
         static SpriteRenderer Mark(Transform leaf, string name, Sprite sprite, float size,

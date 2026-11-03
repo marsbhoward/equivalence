@@ -17,8 +17,10 @@ namespace Convergence.UI
     /// as the screen opens (SigilDoor.Stage). Only its LEFT half is filmed; the right half is the
     /// same picture mirrored, which keeps the room's element selector off the screen and the two
     /// bays either side alike. RISK stands in the left bay, REWARD in the right, and between the
-    /// parted doors a VOID pulls black motes into itself - and is also where a Rift Box goes to
-    /// insure the stake. Gold dashes run piece - void - piece.
+    /// parted doors a VOID pulls white motes into itself - and is also where a Rift Box goes to
+    /// insure the stake. Gold dashes run piece - void - piece. THE VOID IS THE LIGHT (the user's
+    /// pick E1, 2026-11-03, mock https://claude.ai/artifact/6mSUyc4brwWBCrJ2cVVExe): a white core
+    /// in a pale doorway, its light spilling out onto the open leaves.
     ///
     /// Opened only when the player HAS something stakeable, and never on a character's first run
     /// (GameBootstrap.EnterGate). EVERY TERM IS STATED before the choice: the floor, the payout,
@@ -47,7 +49,7 @@ namespace Convergence.UI
         List<RectTransform> _focusRects = new();
         List<(Image Fill, Image Edge, MintedGearRecord Item)> _pickCells = new();
         List<(RectTransform Rect, Image Img, float Angle, float Radius, float Period, float Phase)> _moteList = new();
-        CanvasGroup _doorway;
+        CanvasGroup _doorway, _spill;
         Image _halo, _voidRim;
         Image _riskArt, _rewardArt;
         Text _riskName, _riskStars, _rewardMark, _gateLine, _voidLine, _boxLine;
@@ -67,6 +69,12 @@ namespace Convergence.UI
         static readonly Color RewardInk = new(0.56f, 0.82f, 0.63f);
         static readonly Color BoxCyan = new(0.50f, 0.84f, 0.91f);
         static readonly Color Bay = new(0.075f, 0.067f, 0.086f, 1f);
+        /// <summary>The lit doorway around the void, and the words on it.</summary>
+        static readonly Color Pale = new(0.80f, 0.80f, 0.84f, 1f);
+        static readonly Color InkOnPale = new(0.10f, 0.09f, 0.12f);
+        static readonly Color MutedOnPale = new(0.22f, 0.21f, 0.27f);
+        static readonly Color InsuredOnPale = new(0.10f, 0.40f, 0.47f);
+        static readonly Color RimOnPale = new(0.20f, 0.62f, 0.72f);
 
         // ---- the door's picture, in the canvas's 1920x1080 units ----
         // The mock's composition: the camera films 1.357 world units either side of the door's
@@ -74,8 +82,16 @@ namespace Convergence.UI
         const float ViewW = 1344f, ViewH = 990f, ViewTop = 480f;
         const float HalfWorld = 1.357f, OrthoHalf = 1.0f;
         static float PerUnit => ViewW / (HalfWorld * 2f);
-        /// <summary>The clear doorway between the swung leaves, either side of the middle, in world units.</summary>
-        const float ClearHalf = 0.28f;
+        /// <summary>The clear doorway between the swung leaves, either side of the middle, in world units:
+        /// where the open leaves' free edges stand, less their slabs' edges (Hub.DoorSlabs).</summary>
+        static float ClearHalf
+        {
+            get
+            {
+                float t = Tuning.Hub.DoorSwingDegrees * Mathf.Deg2Rad;
+                return Tuning.Hub.DoorHalfWidth * (1f - Mathf.Cos(t)) - Tuning.Hub.DoorSlabThickness * Mathf.Sin(t);
+            }
+        }
         // The bays either side of the door, as the hub's wall draws them (from the approved capture).
         const float BayX0 = 53.8f, BayX1 = 281.5f, BayTop = 121f, BayBottom = 866.5f;
         const float Slot = 174f, VoidSize = 165f;
@@ -234,61 +250,70 @@ namespace Convergence.UI
         }
 
         /// <summary>
-        /// The doorway between the parted leaves: smoke, the void and its motes, the words. Masked
-        /// to the clear opening, and faded in only as the doors finish opening - drawn over the
-        /// film, it would otherwise sit on the shut doors.
+        /// The doorway between the parted leaves: the light, the void and its motes, the words.
+        /// Masked to the clear opening, and faded in only as the doors finish opening - drawn over
+        /// the film, it would otherwise sit on the shut doors. The light it throws onto the open
+        /// leaves (the spill) lies outside the mask, under it, and fades in with it.
         /// </summary>
         void BuildDoorway(RectTransform view)
         {
             float halfW = ClearHalf * PerUnit;
             float halfH = Tuning.Hub.DoorHeight * 0.5f * Mathf.Cos(Tuning.Hub.CameraTiltDegrees * Mathf.Deg2Rad) * PerUnit;
-            var way = UiKit.Panel(view, Centre, Centre, new Vector2(-halfW, -halfH), new Vector2(halfW, halfH),
-                new Color(0.075f, 0.075f, 0.09f, 1f));
+
+            var spill = UiKit.Rect(view, "spill", Centre, Centre, Vector2.zero, Vector2.zero);
+            _spill = spill.gameObject.AddComponent<CanvasGroup>();
+            _spill.alpha = 0f;
+            _spill.blocksRaycasts = false;
+            Soft(spill, Vector2.zero, new Vector2(900f, 1150f), new Color(1f, 1f, 1f, 0.35f));
+            Soft(spill, Vector2.zero, new Vector2(620f, 1000f), new Color(1f, 1f, 1f, 0.35f));
+
+            var way = UiKit.Panel(view, Centre, Centre, new Vector2(-halfW, -halfH), new Vector2(halfW, halfH), Pale);
             way.gameObject.AddComponent<RectMask2D>();
             _doorway = way.gameObject.AddComponent<CanvasGroup>();
             _doorway.alpha = 0f;
             _doorway.blocksRaycasts = false;
 
-            // Smoke: a few soft pools of grey, darker toward the edges.
-            Soft(way, new Vector2(0f, 10f), 520f, new Color(0.23f, 0.23f, 0.28f, 0.75f));
-            Soft(way, new Vector2(-90f, -240f), 330f, new Color(0.30f, 0.30f, 0.36f, 0.35f));
-            Soft(way, new Vector2(110f, 260f), 300f, new Color(0.28f, 0.28f, 0.34f, 0.30f));
+            // The void's light: a wide bloom and a bright middle, under the motes.
+            Soft(way, Vector2.zero, 560f, Color.white);
+            Soft(way, Vector2.zero, 308f, Color.white);
+            Soft(way, Vector2.zero, 240f, Color.white);
 
+            // Dark on the light: no outline (UiKit.Legible's dark edge smudges dark type).
             _gateLine = UiKit.Label(UiKit.Rect(way, "gate", new Vector2(0, 1), new Vector2(1, 1), new Vector2(14, -150), new Vector2(-14, -40)),
-                "", 18, Ink, TextAnchor.UpperCenter);
+                "", 18, InkOnPale, TextAnchor.UpperCenter);
             _gateLine.horizontalOverflow = HorizontalWrapMode.Wrap;
-            UiKit.Legible(_gateLine);
 
             var motes = UiKit.Rect(way, "motes", Centre, Centre, Vector2.zero, Vector2.zero);
             for (int i = 0; i < 40; i++)
             {
                 float size = 4f + ((i * 7) % 4) * 3f;
-                var m = UiKit.Panel(motes, Centre, Centre, new Vector2(-size * 0.5f, -size * 0.5f), new Vector2(size * 0.5f, size * 0.5f), Color.black);
+                var m = UiKit.Panel(motes, Centre, Centre, new Vector2(-size * 0.5f, -size * 0.5f), new Vector2(size * 0.5f, size * 0.5f), Color.white);
                 // Fixed by index - hashed, never UnityEngine.Random (an effect's look).
                 _moteList.Add((m, m.GetComponent<Image>(), (i * 137.5f) % 360f, 135f + (i * 29) % 75,
                                2.4f + ((i * 13) % 9) * 0.25f, (i * 0.37f) % 3f));
             }
 
-            _halo = Soft(way, Vector2.zero, VoidSize * 1.9f, new Color(0f, 0f, 0f, 0.6f));
+            _halo = Soft(way, Vector2.zero, VoidSize * 1.9f, new Color(1f, 1f, 1f, 0.6f));
             _voidRim = UiKit.Panel(way, Centre, Centre, new Vector2(-VoidSize * 0.5f - 5f, -VoidSize * 0.5f - 5f),
                 new Vector2(VoidSize * 0.5f + 5f, VoidSize * 0.5f + 5f), Color.clear).GetComponent<Image>();
             _voidRim.sprite = Spr.Circle;
             var v = UiKit.Panel(way, Centre, Centre, new Vector2(-VoidSize * 0.5f, -VoidSize * 0.5f),
-                new Vector2(VoidSize * 0.5f, VoidSize * 0.5f), Color.black);
+                new Vector2(VoidSize * 0.5f, VoidSize * 0.5f), Color.white);
             v.GetComponent<Image>().sprite = Spr.Circle;
             _hits.Add((v, ToggleInsurance));
             _boxIcon = UiKit.Rect(v, "box", Centre, Centre, Vector2.zero, Vector2.zero);
             BoxIcon.Add(_boxIcon, Convergence.Art.BoxArt.Kind.Rift, false, Centre, new Vector2(0f, -26f));
 
             _voidLine = UiKit.Label(UiKit.Rect(way, "void", new Vector2(0, 0), new Vector2(1, 0), new Vector2(14, 60), new Vector2(-14, 190)),
-                "", 16, Muted, TextAnchor.UpperCenter);
+                "", 16, MutedOnPale, TextAnchor.UpperCenter);
             _voidLine.horizontalOverflow = HorizontalWrapMode.Wrap;
-            UiKit.Legible(_voidLine);
         }
 
-        static Image Soft(RectTransform parent, Vector2 at, float size, Color c)
+        static Image Soft(RectTransform parent, Vector2 at, float size, Color c) => Soft(parent, at, Vector2.one * size, c);
+
+        static Image Soft(RectTransform parent, Vector2 at, Vector2 size, Color c)
         {
-            var img = UiKit.Panel(parent, Centre, Centre, at - Vector2.one * size * 0.5f, at + Vector2.one * size * 0.5f, c).GetComponent<Image>();
+            var img = UiKit.Panel(parent, Centre, Centre, at - size * 0.5f, at + size * 0.5f, c).GetComponent<Image>();
             img.sprite = Spr.Glow;   // a soft pool, falling off to nothing
             return img;
         }
@@ -396,8 +421,8 @@ namespace Convergence.UI
             _voidLine.text = _insured ? "Insured: a death brings it home."
                            : can ? "Tap the void to insure it with a Rift Box."
                            : "No Rift Box to insure it with.";
-            _voidLine.color = _insured ? new Color(0.72f, 0.92f, 0.96f) : Muted;
-            _voidRim.color = _insured ? BoxCyan : Color.clear;
+            _voidLine.color = _insured ? InsuredOnPale : MutedOnPale;
+            _voidRim.color = _insured ? RimOnPale : Color.clear;
             _boxIcon.gameObject.SetActive(_insured);
             _boxLine.text = _insured ? $"1 of your {_riftBoxes} Rift Boxes in the void"
                           : _riftBoxes == 1 ? "You have 1 Rift Box" : $"You have {_riftBoxes} Rift Boxes";
@@ -419,6 +444,7 @@ namespace Convergence.UI
             // The doorway's picture shows only once the leaves are out of its way.
             float open = _door != null ? _door.OpenEased : 1f;
             if (_doorway != null) _doorway.alpha = Mathf.InverseLerp(0.75f, 1f, open);
+            if (_spill != null) _spill.alpha = _doorway != null ? _doorway.alpha : 1f;
             AnimateVoid();
 
             _focusRects ??= new();
@@ -464,7 +490,7 @@ namespace Convergence.UI
             if (_halo != null)
             {
                 float breath = 0.5f + 0.5f * Mathf.Sin(now * Mathf.PI * 2f / 3.2f);
-                _halo.color = new Color(0f, 0f, 0f, Mathf.Lerp(0.55f, 0.7f, breath));
+                _halo.color = new Color(1f, 1f, 1f, Mathf.Lerp(0.55f, 0.7f, breath));
                 _halo.rectTransform.localScale = Vector3.one * Mathf.Lerp(1f, 1.12f, breath);
             }
         }
