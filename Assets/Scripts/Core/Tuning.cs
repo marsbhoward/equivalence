@@ -683,6 +683,24 @@ namespace Convergence.Core
         /// instance, before the full beta - and wiped at it (the user's call, 2026-10-31). Read only
         /// while RunFormat.Showcase; nothing here moves the real game.
         /// </summary>
+        /// <summary>
+        /// Anonymous run events for the service (Chain/Service/Telemetry.cs, SHOWCASE.md "Telemetry") -
+        /// posted once a floor and at the run's end. Only where the game talks to a service (the
+        /// browser build); the service can refuse them all (TELEMETRY=off).
+        /// </summary>
+        public static class Telemetry
+        {
+            public const bool Enabled = true;
+            /// <summary>A batch is sent early once it holds this many events (the service takes 60).</summary>
+            public const int FlushAt = 40;
+            /// <summary>Distinct exceptions reported per run - the first few say what broke.</summary>
+            public const int ErrorsPerRun = 3;
+            /// <summary>Frame-time buckets, in milliseconds: over 33 is under 30 fps, over 100 a stall.</summary>
+            public const float SlowFrameMs = 33f, VerySlowFrameMs = 50f, StallMs = 100f;
+            /// <summary>A screen this many inches across its short side or more reads as a tablet.</summary>
+            public const float PadInches = 4.5f;
+        }
+
         public static class Showcase
         {
             /// <summary>The run ends here: the first mini-boss, then its Blue Rift (FloorPlanner).</summary>
@@ -5002,6 +5020,12 @@ namespace Convergence.Core
         /// </summary>
         public static class Title
         {
+            /// <summary>The privacy page on the service (web/service/privacy), linked from the bottom line.</summary>
+            public const string PrivacyPath = "/privacy/";
+            /// <summary>The bottom line: the gap before PRIVACY, its underline's drop below the text's
+            /// middle, and how far its tap area reaches past the word (canvas units).</summary>
+            public const float PrivacyGap = 18f, PrivacyUnderline = 11f, PrivacyPad = 18f;
+
             /// <summary>The flakes' texel grid across the screen (a texel ~1/320 of the width).</summary>
             public const int FlakeTexelsAcross = 320;
             public const int Flakes = 40;

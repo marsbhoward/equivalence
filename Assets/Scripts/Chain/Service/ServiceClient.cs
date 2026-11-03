@@ -84,6 +84,9 @@ namespace Convergence.Chain.Service
         public static Task<Reply> Put(string path, string json, string token) => Send("PUT", path, json, token);
         public static Task<Reply> Post(string path, string json, string token) => Send("POST", path, json, token);
 
+        /// <summary>One POST with no retry and no "reconnecting" - for what may be lost (Telemetry).</summary>
+        public static Task<Reply> PostOnce(string path, string json) => SendOnce("POST", path, json, null);
+
         /// <summary>
         /// One request, carried through an OUTAGE: while the service is down for a deploy or a
         /// restart it is asked again with a growing wait, and the game shows "reconnecting". A

@@ -26,12 +26,13 @@ import { beatRun, claimRun, endRun, loadRun, saveRun } from './routes/runs.js';
 import { hasDatabase, migrate } from './db.js';
 import { playRouter } from './play.js';
 import { linkChallenge, linkProve, linkRequest, linkWitness, pollLink, signedLink, signLink, startLink } from './link.js';
-import { linkPage } from './linkPage.js';
+import { linkPage, privacyPage } from './linkPage.js';
 import { activatePlay, putPlayFile, rollbackPlay } from './routes/playUpload.js';
 import { LIMITS, overall, perIdentity, perIp } from './rateLimit.js';
 import { shutDownCleanly, track } from './lifecycle.js';
 import { clientBuild, requireOpen, setSwitch, status, whenReopened } from './switches.js';
 import { releaseDeferred } from './routes/player.js';
+import { postTelemetry, telemetrySummary } from './routes/telemetry.js';
 
 const app = express();
 // Behind Railway's proxy: req.ip is the player's address (the guest rate limit reads it), not the proxy's.
@@ -73,6 +74,10 @@ const keepRaw = (req: express.Request, _res: express.Response, buf: Buffer) => {
   (req as express.Request & { rawBody?: Buffer }).rawBody = buf;
 };
 app.use('/saves', express.json({ limit: '512kb', verify: keepRaw }));
+// Telemetry (routes/telemetry.ts): no session, so limited per IP and in total, and parsed with a
+// small ceiling of its own BEFORE the default parser.
+app.use('/telemetry', perIp('telemetry', LIMITS.telemetry), overall('telemetry-all', LIMITS.telemetryAll),
+  express.json({ limit: '32kb' }));
 app.use(express.json({ verify: keepRaw }));
 
 app.get('/health', (_req, res) => {
@@ -160,6 +165,10 @@ app.get('/link', (req, res, next) => (req.path === '/link' && !req.originalUrl.s
   ? res.redirect(301, '/link/' + (req.originalUrl.includes('?') ? req.originalUrl.slice(req.originalUrl.indexOf('?')) : ''))
   : next()));
 app.use('/link', linkPage());
+// What the game keeps and why (web/service/privacy) - the title screen links it. /privacy and /privacy/.
+app.get('/privacy', (req, res, next) => (req.path === '/privacy' && !req.originalUrl.startsWith('/privacy/')
+  ? res.redirect(301, '/privacy/') : next()));
+app.use('/privacy', perIp('public', LIMITS.publicRead), privacyPage());
 
 // The connector's /write/<kind> convention (equivalence-chain.ts `write()`).
 app.use('/write', requireSession, perIdentity('write', LIMITS.write));
@@ -230,6 +239,9 @@ app.post('/csp-report', perIp('csp', LIMITS.csp),
       `(${String(r['violated-directive'] ?? r.effectiveDirective ?? '?').slice(0, 60)})`);
     res.sendStatus(204);
   });
+
+app.post('/telemetry', postTelemetry);
+app.get('/op/telemetry', telemetrySummary);
 
 app.post('/op/play/:build/activate', activatePlay);
 app.post('/op/play/rollback', rollbackPlay);

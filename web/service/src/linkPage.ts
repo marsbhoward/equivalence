@@ -20,3 +20,17 @@ export function linkPage(): express.RequestHandler {
     },
   });
 }
+
+/** The PRIVACY page (web/service/privacy) - what the game keeps and why, linked from the title screen. */
+const privacyDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'privacy');
+
+export function privacyPage(): express.RequestHandler {
+  return express.static(privacyDir, {
+    index: 'index.html',
+    setHeaders(res: Response, file: string) {
+      res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      if (file.endsWith('.html')) pageHeaders(res, file);
+    },
+  });
+}

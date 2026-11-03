@@ -3145,6 +3145,7 @@ namespace Convergence.Core
             if (token != _runToken) return;   // superseded while the checkpoint was in flight
 
             BuildRunScene(element);
+            NoteRunStart(element, resumed: false);
             var staked = GearStake.Staked(_profile);
             if (staked != null)
                 _hud.Flash($"{staked.DisplayName} staked  -  clear floor {_profile.StakeGateFloor}, then extract");
@@ -3154,6 +3155,16 @@ namespace Convergence.Core
             _state = State.Playing;
             StartCoroutine(BuildUnderBlack(NextFloor()));
         }
+
+        /// <summary>The run's telemetry begins (Chain/Service/Telemetry.cs) - started or resumed.</summary>
+        void NoteRunStart(ElementType element, bool resumed, int floor = 1)
+            => Chain.Service.Telemetry.BeginRun(_runId, _profile.ProfileId)
+                .S("el", element.ToString())
+                .S("wc", _player != null ? _player.Weapon.ToString() : "?")
+                .B("new", _profile.TotalRuns == 0)
+                .B("resumed", resumed)
+                .I("f", floor)
+                .Send();
 
         /// <summary>The run's roots, its player and HUD - the same for a run started and one resumed.</summary>
         void BuildRunScene(ElementType element)
@@ -3171,6 +3182,7 @@ namespace Convergence.Core
             // a stale subscription is exactly how a dead run ends up ending the live one.
             _onPlayerDied = _ => EndRun(false);
             _player.Health.Died += _onPlayerDied;
+            Chain.Service.Telemetry.WatchPlayer(_player.Health);
 
             _hud = gameObject.AddComponent<Hud>();
             _hud.SetWearSource(
@@ -4255,6 +4267,9 @@ namespace Convergence.Core
             _rewardTaken = true;
             // The run clock stops at the clear - the menus after it are off it (Core.RunClock).
             Clock.CloseAttempt();
+            Chain.Service.Telemetry.FloorCleared(_floor, _plan.Category.ToString(), _plan.Rift.ToString(),
+                Art.Biomes.Biome.Current.ToString(), Clock.Seconds,
+                _player != null && _player.Health != null ? _player.Health.Current / Mathf.Max(1f, _player.Health.Max) : 0f);
 
             // The spire sinks into the floor, taken or not - see Spire.Sink.
             if (_spire != null) _spire.Sink();
@@ -4414,6 +4429,7 @@ namespace Convergence.Core
                     OfferFloorRewardCards();
                 }
 
+                Chain.Service.Telemetry.Deal(_floor, pair?.Boon?.Id, pair?.Cost?.Id, offer.Pairs.Count);
                 if (pair != null)
                 {
                     // An ART form is inscribed on the rotation socket the player picks, and its
@@ -5054,6 +5070,7 @@ namespace Convergence.Core
             // A boss fights at the heat of its arrival, to the end (SHORT-DESCENT.md).
             Clock.LockHeat();
             Debug.Log($"[Floor] Boss floor {_floor}: {_boss.DisplayName}");
+            Chain.Service.Telemetry.BossStarted(kind, Bosses.Boss.NextBand);
 
             // A fight left part-way and resumed: the boss comes back down the eighths it had lost,
             // rounded in its favour (Tuning.Continuation.BossSteps). Its own logic reads health live
@@ -5070,6 +5087,7 @@ namespace Convergence.Core
             hp.Died += h =>
             {
                 if (_player) _player.RegisterKill();
+                Chain.Service.Telemetry.BossOver("won");
                 // The board hears every death, whatever caused it - a hit, a burn, a fall.
                 if (_player && _player.Board) _player.Board.OnEnemyDied(h);
                 if (_player && _player.Effects) _player.Effects.OnEnemyDied(h, Tuning.Exchange.KillWorthCap);
@@ -5535,6 +5553,7 @@ namespace Convergence.Core
                     // Extraction: everything carried comes out, and the run ends on the player's
                     // own terms rather than on a death.
                     _loot.SecureAll();
+                    Chain.Service.Telemetry.Rift(_floor, _plan.Rift.ToString(), "extract", _loot.SecuredCount);
                     CloseRift();
                     // The showcase's last Rift is its ending: the closing card, then the run ends.
                     if (Core.RunFormat.Showcase && _floor >= Core.RunFormat.EndFloor) ShowShowcaseEnding();
@@ -5546,6 +5565,7 @@ namespace Convergence.Core
                     // risk, and the tear stays open - the exit door is how the run goes on, and
                     // until the player takes it they may come back and leave after all.
                     if (_rift != null) _hud?.SetRiftPrompt(true);
+                    Chain.Service.Telemetry.Rift(_floor, _plan.Rift.ToString(), "push", _loot.SecuredCount);
                     ResaveCleared();   // what was secured, kept by a resume
                 });
         }
@@ -5643,6 +5663,7 @@ namespace Convergence.Core
             _puzzle = Puzzles.PuzzleRoom.Build(kind, _enemyRoot, _player.transform, _floor,
                                                _planner.PuzzleSeed(_floor));
             _puzzleSettled = false;
+            Chain.Service.Telemetry.PuzzleStarted(kind);
 
             // A clocked puzzle (the Labyrinth) left part-way is put back as it was: its clock goes on
             // from the seconds spent, plus a moment to find one's feet, and the player stands where
@@ -5819,6 +5840,7 @@ namespace Convergence.Core
                 _puzzleDoor?.Open();
                 _activeDoor = _puzzleDoor;
                 Debug.Log($"[Floor] puzzle floor {_floor} solved");
+                Chain.Service.Telemetry.PuzzleOver(true);
                 OfferFloorReward();
             }
             else
@@ -6206,6 +6228,9 @@ namespace Convergence.Core
             // ended, not waiting (SettleEndedWaitingAsync). No snapshot is written after this.
             NoteRunEnding(_profile.ProfileId, _runId, survived);
             _runSave = null;
+            bool died = _player != null && _player.Health != null && _player.Health.IsDead;
+            Chain.Service.Telemetry.EndRun(survived ? "extract" : died ? "death" : "abandon", _floor, Clock.Seconds,
+                _player ? _player.Kills : 0, died ? _player.Health.LastDamage : (Combat.DamageInfo?)null);
             // State is already RunOver, so CharacterScreen's onClosed (OpenPauseMenu) no-ops.
             if (PauseScreen.IsOpen) PauseScreen.Close();
             if (InventoryScreen.IsOpen) InventoryScreen.Close();
@@ -6737,6 +6762,7 @@ namespace Convergence.Core
         void MarkPuzzleGivenUp()
         {
             _puzzleGivenUp = true;
+            Chain.Service.Telemetry.PuzzleOver(false);
             if (_runSave != null && !_runSave.PuzzleGivenUp) ResaveEntering(s => s.PuzzleGivenUp = true);
         }
 
@@ -7233,6 +7259,7 @@ namespace Convergence.Core
 
             BuildRunScene(s.Element);
             _player.RestoreRun(s);
+            NoteRunStart(s.Element, resumed: true, floor: s.Floor);
             if (_player.Effects != null) _player.Effects.RestoreCounters(s);
             _player.Health.Restore(w.Health);
             _hud.Flash(s.Stage == RunStage.Cleared ? $"run resumed  -  floor {s.Floor}, cleared"

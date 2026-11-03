@@ -1,0 +1,17 @@
+:root { --ink: #0b0b10; --edge: #050508; --text: #cfc6b4; --dim: #8a8aa4; --gold: #e2c487; --line: #3a3226; }
+* { box-sizing: border-box; }
+html, body { margin: 0; min-height: 100%; }
+body { background: radial-gradient(ellipse at center, var(--ink) 40%, var(--edge) 100%) no-repeat, var(--ink);
+       min-height: 100vh; color: var(--text); font: 16px/1.6 system-ui, -apple-system, sans-serif; }
+main { max-width: 600px; margin: 0 auto; padding: max(28px, env(safe-area-inset-top)) 16px 48px; }
+.mark { margin: 0 0 18px; color: var(--gold); letter-spacing: .32em; font-size: 13px; text-align: center; }
+h1 { margin: 0 0 8px; font-size: 24px; font-weight: 600; letter-spacing: .04em; text-align: center; }
+.lead { color: var(--dim); text-align: center; margin: 0 0 28px; font-size: 15px; }
+h2 { color: var(--gold); font-size: 15px; font-weight: 600; letter-spacing: .12em; text-transform: uppercase;
+     margin: 28px 0 8px; padding-top: 16px; border-top: 1px solid var(--line); }
+p { margin: 0 0 12px; }
+ul { margin: 0 0 12px; padding-left: 20px; }
+li { margin: 0 0 8px; }
+b { color: #e8dfcc; font-weight: 600; }
+a { color: var(--gold); }
+.back { margin-top: 36px; text-align: center; }

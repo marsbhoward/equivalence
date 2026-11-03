@@ -50,7 +50,13 @@ namespace Convergence.UI
         static readonly Color Faint = new(0.36f, 0.38f, 0.44f);
 
         GameObject _root;
-        Text _status, _foot;
+        Text _status;
+        /// <summary>The bottom line: what is kept and the PRIVACY link (the user's pick, option A of
+        /// https://claude.ai/artifact/8aDgWjxhJT7vM26yNKNLHu). Steps aside while a status shows.</summary>
+        GameObject _foot;
+        /// <summary>PRIVACY's tap area, padded past the word for a finger.</summary>
+        RectTransform _privacy;
+        readonly List<RectTransform> _focusable = new();
         RectTransform _ring;
         RawImage _rings, _glow;
         readonly List<RectTransform> _buttons = new();
@@ -93,7 +99,7 @@ namespace Convergence.UI
             _busy = busy;
             if (_status != null) _status.text = text ?? "";
             // The footer steps aside while there is something to say - the two share the bottom.
-            if (_foot != null) _foot.enabled = string.IsNullOrEmpty(text);
+            if (_foot != null) _foot.SetActive(string.IsNullOrEmpty(text));
             foreach (var b in _buttons)
                 if (b != null && b.TryGetComponent<CanvasGroup>(out var g)) g.alpha = busy ? 0.4f : 1f;
         }
@@ -171,9 +177,38 @@ namespace Convergence.UI
             _status = UiKit.Label(st, "", 20, Sub, TextAnchor.UpperCenter);
             _status.horizontalOverflow = HorizontalWrapMode.Wrap;
 
+            BuildFoot(full);
+        }
+
+        /// <summary>The bottom line - one sentence and PRIVACY after it, centred as a pair.</summary>
+        void BuildFoot(RectTransform full)
+        {
             var foot = UiKit.Rect(full, "foot", new Vector2(0f, 0f), new Vector2(1f, 0f), new Vector2(40f, 12f), new Vector2(-40f, 44f));
-            _foot = UiKit.Label(foot, "Signed in, your characters live with your wallet. Without one, they stay with this browser.",
-                16, Faint, TextAnchor.MiddleCenter);
+            _foot = foot.gameObject;
+            var row = foot.gameObject.AddComponent<HorizontalLayoutGroup>();
+            row.childAlignment = TextAnchor.MiddleCenter;
+            row.spacing = TT.PrivacyGap;
+            row.childControlWidth = true; row.childControlHeight = true;
+            row.childForceExpandWidth = false; row.childForceExpandHeight = true;
+
+            UiKit.Label(foot, "Your characters live with your wallet, or with this browser without one. " +
+                              "Anonymous play stats are kept to improve the game.", 16, Faint, TextAnchor.MiddleCenter);
+            var link = UiKit.Label(foot, "PRIVACY", 16, Sub, TextAnchor.MiddleCenter);
+            var under = UiKit.Rect(link.transform, "underline", new Vector2(0f, 0.5f), new Vector2(1f, 0.5f),
+                new Vector2(0f, -TT.PrivacyUnderline - 1f), new Vector2(0f, -TT.PrivacyUnderline));
+            under.gameObject.AddComponent<Image>().color = new Color(Sub.r, Sub.g, Sub.b, 0.7f);
+            under.GetComponent<Image>().raycastTarget = false;
+            _privacy = UiKit.Rect(link.transform, "privacy", Vector2.zero, Vector2.one,
+                new Vector2(-TT.PrivacyPad, -TT.PrivacyPad), new Vector2(TT.PrivacyPad, TT.PrivacyPad));
+        }
+
+        /// <summary>The privacy page (web/service/privacy), from the service the game came from - or
+        /// the live service's in the Editor. A new tab, opened from the tap, so the game stays.</summary>
+        static void OpenPrivacy()
+        {
+            string root = Chain.Service.ServiceClient.BaseUrl;
+            if (string.IsNullOrEmpty(root)) root = Core.Tuning.Testing.DemoWalletServiceUrl;
+            Application.OpenURL(root.TrimEnd('/') + TT.PrivacyPath);
         }
 
         void Button(RectTransform full, int index, Option o, float x, float y, float w, float h)
@@ -513,11 +548,16 @@ namespace Convergence.UI
                 _ring.localEulerAngles = new Vector3(0f, 0f, _angle);
             }
 
-            Core.Controls.SetFocusCandidates(_buttons);
+            _focusable.Clear();
+            _focusable.AddRange(_buttons);
+            if (_privacy != null && _foot != null && _foot.activeSelf) _focusable.Add(_privacy);
+            Core.Controls.SetFocusCandidates(_focusable);
             if (_busy || _answer == null || Time.frameCount == _openedFrame) return;
 
             if (Core.Controls.ConfirmTapped && _buttons.Count > 0) { Pick(0); return; }
             if (!Core.Controls.Tapped(out var p)) return;
+            if (_privacy != null && _foot != null && _foot.activeSelf
+                && RectTransformUtility.RectangleContainsScreenPoint(_privacy, p, null)) { OpenPrivacy(); return; }
             for (int i = 0; i < _buttons.Count; i++)
                 if (_buttons[i] != null && RectTransformUtility.RectangleContainsScreenPoint(_buttons[i], p, null)) { Pick(Index(i)); return; }
         }

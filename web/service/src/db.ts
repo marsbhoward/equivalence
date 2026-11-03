@@ -327,6 +327,23 @@ const MIGRATIONS: string[] = [
   `
   ALTER TABLE run_progress ADD COLUMN stopped_at TIMESTAMPTZ;
   `,
+
+  // 13 - TELEMETRY (routes/telemetry.ts): anonymous run events, one row each. RUN is the run's id,
+  // WHO a hash the game makes of the character id - no wallet address, session or IP is kept.
+  `
+  CREATE TABLE telemetry (
+    id      BIGSERIAL PRIMARY KEY,
+    at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    run     TEXT NOT NULL,
+    who     TEXT NOT NULL,
+    build   TEXT NOT NULL DEFAULT '',
+    format  TEXT NOT NULL DEFAULT '',
+    kind    TEXT NOT NULL,
+    data    JSONB NOT NULL
+  );
+  CREATE INDEX telemetry_kind_at ON telemetry (kind, at);
+  CREATE INDEX telemetry_run ON telemetry (run);
+  `,
 ];
 
 /** Applies every migration not yet applied. Called once at start-up. */

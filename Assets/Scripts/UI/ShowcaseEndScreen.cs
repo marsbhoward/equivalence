@@ -61,15 +61,15 @@ namespace Convergence.UI
             if (!string.IsNullOrEmpty(Tuning.Showcase.CashAppTag))
             {
                 var tag = Tuning.Showcase.CashAppTag.TrimStart('$');
-                tipWays.Add(("CASH APP", "$" + tag, () => Application.OpenURL("https://cash.app/$" + tag)));
+                tipWays.Add(("CASH APP", "$" + tag, () => { Chain.Service.Telemetry.Card("cashapp"); Application.OpenURL("https://cash.app/$" + tag); }));
             }
             if (!string.IsNullOrEmpty(Tuning.Showcase.VenmoUser))
             {
                 var user = Tuning.Showcase.VenmoUser.TrimStart('@');
-                tipWays.Add(("VENMO", "@" + user, () => Application.OpenURL("https://venmo.com/u/" + user)));
+                tipWays.Add(("VENMO", "@" + user, () => { Chain.Service.Telemetry.Card("venmo"); Application.OpenURL("https://venmo.com/u/" + user); }));
             }
             if (!string.IsNullOrEmpty(Tuning.Showcase.AdaAddress))
-                tipWays.Add(("ADA", Short(Tuning.Showcase.AdaAddress), () => Copy(Tuning.Showcase.AdaAddress, "ADA address")));
+                tipWays.Add(("ADA", Short(Tuning.Showcase.AdaAddress), () => { Chain.Service.Telemetry.Card("ada"); Copy(Tuning.Showcase.AdaAddress, "ADA address"); }));
 
             int count = (discord ? 1 : 0) + (tipWays.Count > 0 ? 1 : 0);
             float lw = 560f, lgap = 30f, lx = -(count * lw + (count - 1) * lgap) / 2f;
@@ -81,7 +81,7 @@ namespace Convergence.UI
                     "Tell us what worked and what didn't, and hear first when the full beta opens.", 17, Ink);
                 b.horizontalOverflow = HorizontalWrapMode.Wrap;
                 var url = Tuning.Showcase.DiscordUrl;
-                _hits.Add((card, () => Application.OpenURL(url)));
+                _hits.Add((card, () => { Chain.Service.Telemetry.Card("discord"); Application.OpenURL(url); }));
                 lx += lw + lgap;
             }
             if (tipWays.Count > 0)
@@ -186,6 +186,7 @@ namespace Convergence.UI
 
         void Finish()
         {
+            if (_done != null) Chain.Service.Telemetry.Card("continue");
             var done = _done;
             _done = null;
             Close();

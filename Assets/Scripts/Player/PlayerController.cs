@@ -2553,6 +2553,7 @@ namespace Convergence.Player
             if (_verdict == StrikeVerdict.Pending) _verdict = StrikeVerdict.Missed;
             _strikeMul = _strikeParity * StrikeJudge.Multiplier(_verdict);
             LastStrikeVerdict = _verdict;
+            Chain.Service.Telemetry.Strike(_verdict);
 
             // The board's steep (Cohobation) rides the same multiplier, and Cinnabar's crit is
             // decided here - both are about THIS weapon art, so both are fixed when it is.

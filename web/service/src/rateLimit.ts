@@ -145,6 +145,8 @@ export const LIMITS = {
   linkPoll: { burst: 20, perMinute: 60 },
   /** CSP violation reports (play.ts) - a page can fire a burst; nothing past this is worth logging. */
   csp: { burst: 20, perMinute: 30 },
+  /** Telemetry batches (routes/telemetry.ts) - one a floor and one at the run's end. */
+  telemetry: { burst: 20, perMinute: 30 },
   writeIp: { burst: 30, perMinute: 60 },
   savesIp: { burst: 300, perMinute: 900 },
   // ---- after authentication (per identity)
@@ -156,4 +158,6 @@ export const LIMITS = {
   // ---- in total
   /** Unauthenticated routes that call Blockfrost, all callers together. */
   blockfrostPublic: { burst: 60, perMinute: 300 },
+  /** Telemetry from everyone together - a ceiling on what a flood of addresses can store. */
+  telemetryAll: { burst: 200, perMinute: 600 },
 } satisfies Record<string, Limit>;
