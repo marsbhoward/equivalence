@@ -94,7 +94,8 @@ namespace Convergence.Bosses
             b._at = at;
             b._seed = NextSeed;
 
-            b._figure = TexelPicture.Attach<IcarusFigure>(b.transform, "figure", Vector2.zero, 90, 16, 150, 0, IcarusCanvas.Ppu37);
+            b._figure = TexelPicture.Attach<IcarusFigure>(b.transform, "figure", Vector2.zero, 90 * Tuning.Boss.FigureFine, 16 * Tuning.Boss.FigureFine, 150 * Tuning.Boss.FigureFine, 0, TexelFx.Body * Tuning.Boss.FigureFine);
+            b._figure.UseFine(Tuning.Boss.FigureFine);
             DepthSorted.Attach(b.gameObject, 0f, false, b._figure.GetComponent<SpriteRenderer>());
             b._glow = Glow.Attach(b.gameObject, 2.2f, StarLight, 0.55f, 0.05f);
 

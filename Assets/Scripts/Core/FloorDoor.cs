@@ -242,8 +242,9 @@ namespace Convergence.Core
             // Stepping through stirs the dust at the threshold - the confirmation, once, on the
             // frame the floor changes.
             Combat.TexelFx.Puff(transform.position, Combat.TexelFx.Grey, 10, 8f, 0.5f);
+            // Not destroyed here: the caller takes it down once the screen is black, or it vanished
+            // in plain sight a moment before the fade.
             _onPassed?.Invoke();
-            Destroy(gameObject);
         }
 
         // ------------------------------------------------------------------ construction

@@ -93,7 +93,8 @@ namespace Convergence.Bosses
             b._seed = NextSeed;
             b._seq = DevSequence >= 0 ? (Sequence)(DevSequence % 5) : (Sequence)(int)(FireArt.Hash(b._seed, 41) * 5f % 5f);
 
-            b._figure = TexelPicture.Attach<MercuriusFigure>(b.transform, "figure", Vector2.zero, 64, 12, 100, 0);
+            b._figure = TexelPicture.Attach<MercuriusFigure>(b.transform, "figure", Vector2.zero, 64 * Tuning.Boss.FigureFine, 12 * Tuning.Boss.FigureFine, 100 * Tuning.Boss.FigureFine, 0, TexelFx.Body * Tuning.Boss.FigureFine);
+            b._figure.UseFine(Tuning.Boss.FigureFine);
             DepthSorted.Attach(b.gameObject, 0f, false, b._figure.GetComponent<SpriteRenderer>());
             b._glow = Glow.Attach(b.gameObject, 2.8f, ItsLight, 0.6f, 0.04f);
 

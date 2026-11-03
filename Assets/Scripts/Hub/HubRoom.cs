@@ -115,6 +115,11 @@ namespace Convergence.Hub
         /// and set again when the hub is next shown.</summary>
         public System.Action OnOpenParcel;
 
+        /// <summary>Opens the inventory (GameBootstrap.OpenHubInventory) - the crate's second button,
+        /// the user's call 2026-11-02. Its HUB THEMES button opens the themes that button used to.
+        /// Lost on a reload and set again when the hub is next shown.</summary>
+        public System.Action OnOpenInventory;
+
         /// <summary>A theme won and not yet opened sits on the crate as a parcel.</summary>
         bool HasParcel => _profile?.Hub?.Unopened != null && _profile.Hub.Unopened.Count > 0;
 
@@ -686,7 +691,7 @@ namespace Convergence.Hub
             int t = _profile?.Hub?.Get((int)item) ?? 0;
             if (t <= 0 || t >= HubThemes.Count) return HubTheme.Cloister;
             var theme = (HubTheme)t;
-            return DevAllThemes || (_profile?.Items?.HasTheme(HubThemes.Id(theme)) ?? false) ? theme : HubTheme.Cloister;
+            return HubThemes.Owned(_profile?.Items, theme) ? theme : HubTheme.Cloister;
         }
 
         /// <summary>Testing: dress every hub item in this theme (the room rebuilds on the next return to the hub).</summary>
@@ -775,7 +780,7 @@ namespace Convergence.Hub
         /// The crate the frames come out of, the way into the hub's themes, and the switch for the
         /// room editor. It holds FRAMES, not the wallet (the user's call, 2026-10-31): [E] hands
         /// the player an empty one to set down, and its art is chosen on the frame itself
-        /// (UI.ShowcasePicker, grouped by policy). [R] opens the themes.
+        /// (UI.ShowcasePicker, grouped by policy). [R] opens the inventory, and the themes from it.
         ///
         /// Two separate bindings rather than one overloaded [E]: taking out a frame is the
         /// crate's own job and Alt was free (it already means "back out" during trophy
@@ -837,7 +842,7 @@ namespace Convergence.Hub
             Title = "A PARCEL",
             Sub = _profile.Hub.Unopened.Count > 1 ? $"{_profile.Hub.Unopened.Count} waiting" : "on the crate",
             Body = "Something won on a run, wrapped and waiting.",
-            Key = "[ E ]  open the parcel     [ Q ]  rearrange the room",
+            Key = "[ E ]  open the parcel     [ R ]  inventory     [ Q ]  rearrange the room",
             Accent = new Color(0.95f, 0.76f, 0.35f),
         };
 
@@ -852,7 +857,7 @@ namespace Convergence.Hub
                     ? "Take out a frame, hang it on the gallery wall or stand it anywhere, then " +
                       "choose the art it shows."
                     : "Take out a frame and hang it or stand it. Connect a wallet holding art to fill it.",
-                Key = "[ E ]  take out a frame     [ R ]  hub themes     [ Q ]  rearrange the room",
+                Key = "[ E ]  take out a frame     [ R ]  inventory     [ Q ]  rearrange the room",
                 Accent = new Color(0.72f, 0.58f, 0.34f),
             };
         }
@@ -1970,8 +1975,14 @@ namespace Convergence.Hub
             // to admire a piece is a different moment from moving furniture around it.
             if (!_editMode && Core.Controls.SecondAbilityTapped && _focused != null)
             {
-                // The crate's second button opens the hub's themes (they were the old collection's HUB tab).
-                if (_focused == _cratePoint && !HasParcel) { _onOpenHubThemes?.Invoke(); return; }
+                // The crate's second button opens the inventory, and the hub's themes from there
+                // (they were the old collection's HUB tab, then this button's own).
+                if (_focused == _cratePoint)
+                {
+                    if (OnOpenInventory != null) OnOpenInventory();
+                    else _onOpenHubThemes?.Invoke();
+                    return;
+                }
                 var frame = _focused.GetComponent<Frame>();
                 if (frame != null && frame.HasArt) { OpenInspect(frame); return; }
             }

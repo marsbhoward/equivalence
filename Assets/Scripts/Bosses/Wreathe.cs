@@ -81,7 +81,8 @@ namespace Convergence.Bosses
             // path pointing at where it is going.
             var b = CreateBody<Wreathe>("boss.wreathe", at, target, parent, floor, 0.55f, Tuning.Boss.Hp);
             b._band = b.Band;
-            b._figure = TexelPicture.Attach<WreatheFigure>(b.transform, "figure", Vector2.zero, 34, 6, 64, 0);
+            b._figure = TexelPicture.Attach<WreatheFigure>(b.transform, "figure", Vector2.zero, 34 * Tuning.Boss.FigureFine, 6 * Tuning.Boss.FigureFine, 64 * Tuning.Boss.FigureFine, 0, TexelFx.Body * Tuning.Boss.FigureFine);
+            b._figure.UseFine(Tuning.Boss.FigureFine);
             b._figure.Look.Prelude = -1f;
             DepthSorted.Attach(b.gameObject, 0f, false, b._figure.GetComponent<SpriteRenderer>());
             b._glow = Glow.Attach(b.gameObject, 3.2f, EmberLight, 0.9f, 0.12f);

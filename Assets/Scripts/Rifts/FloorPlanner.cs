@@ -157,6 +157,16 @@ namespace Convergence.Rifts
                 if (floor >= end) return new FloorPlan(floor, FloorCategory.Boss, RiftKind.Blue, true);
                 if (!IsBossFloor(floor) && DevForceCategory == null && DevForceRift == RiftKind.None)
                 {
+                    // Floor 5 is always a Rift of any kind (Tuning.Showcase.RiftFloor), a quiet
+                    // stretch or not. The Rift count climbs like a drawn Rift's.
+                    if (floor == Tuning.Showcase.RiftFloor)
+                    {
+                        if (QuietFloors > 0) QuietFloors--;
+                        SinceRift++;
+                        SincePuzzle++;
+                        var rng5 = new Random(unchecked(Seed * 486187739 + floor * 16777619));
+                        return new FloorPlan(floor, FloorCategory.Rift, PickRift(floor, false, rng5, true), true);
+                    }
                     if (!HadPuzzle && floor >= Tuning.Floors.PuzzleMinFloor && floor >= end - 2)
                     {
                         SincePuzzle = 0;
@@ -234,15 +244,15 @@ namespace Convergence.Rifts
             return new FloorPlan(floor, boss ? FloorCategory.Boss : FloorCategory.Combat, RiftKind.None, false);
         }
 
-        static RiftKind PickRift(int floor, bool boss, Random rng)
+        static RiftKind PickRift(int floor, bool boss, Random rng, bool anyKind = false)
         {
             float blue = Tuning.Floors.BlueShare;
             // Never on a boss floor: a guard pack between the player and the boss is exactly what
             // "a boss floor is the boss and nothing else" rules out.
             float red = boss ? 0f : Tuning.Floors.RedShare;
             // A boss fight has no "clear it in time" worth asking, and the first floors have no
-            // pace yet to fit a clock to.
-            float collapsing = !boss && floor >= Tuning.Floors.CollapsingMinFloor
+            // pace yet to fit a clock to. anyKind: the showcase's fixed Rift floor, early or not.
+            float collapsing = !boss && (anyKind || floor >= Tuning.Floors.CollapsingMinFloor)
                 ? Tuning.Floors.CollapsingShare : 0f;
             double r = rng.NextDouble() * (blue + red + collapsing);
             if (r < collapsing) return RiftKind.Collapsing;

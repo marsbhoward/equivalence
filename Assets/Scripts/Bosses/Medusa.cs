@@ -85,7 +85,8 @@ namespace Convergence.Bosses
         {
             var b = CreateBody<Medusa>("boss.medusa", at, target, parent, floor, 0.6f, Tuning.Boss.Hp);
 
-            b._figure = TexelPicture.Attach<MedusaFigure>(b.transform, "figure", Vector2.zero, 38, 10, 62, 0);
+            b._figure = TexelPicture.Attach<MedusaFigure>(b.transform, "figure", Vector2.zero, 38 * Tuning.Boss.FigureFine, 10 * Tuning.Boss.FigureFine, 62 * Tuning.Boss.FigureFine, 0, TexelFx.Body * Tuning.Boss.FigureFine);
+            b._figure.UseFine(Tuning.Boss.FigureFine);
             DepthSorted.Attach(b.gameObject, 0f, false, b._figure.GetComponent<SpriteRenderer>());
             b._glow = Glow.Attach(b.gameObject, 3.0f, HerLight, 0.75f, 0.05f);
 

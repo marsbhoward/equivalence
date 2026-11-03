@@ -158,6 +158,13 @@ namespace Convergence.Enemies
         float _beamTick;
         float _turretCharge;
         float _overchargeUntil;
+        // Where the beam ends: it chases the player (Tuning.Enemy.TurretTrackSpeed) rather than
+        // sitting on them. Starts at the eye, so the first beam sweeps out toward its target.
+        Vector2 _beamAim;
+        bool _beamAimSet;
+
+        /// <summary>Where the Tempest Eye is looking - its beam's end.</summary>
+        public Vector2 TurretAim => _beamAimSet ? _beamAim : (Vector2)transform.position;
 
         // The elite Turret's mire lob - see TickMire. The clock counts toward the next lob; the
         // wind-up, while above zero, is the tell a flinch denies. The wind-up glow is a CHILD, so
@@ -2251,6 +2258,7 @@ namespace Convergence.Enemies
 
         void UpdateTurret()
         {
+            TrackBeamAim();
             UpdateTurretHeadFacing();
 
             // Before the line-of-sight gate, deliberately: the mire is LOBBED, and a player
@@ -2297,6 +2305,19 @@ namespace Convergence.Enemies
             if (_beamTick < Tuning.Enemy.TurretTickInterval) return;
             _beamTick = 0f;
 
+            // ELITE - Overcharge: every few ticks the beam swells for a burst. Counted on the
+            // TICK rather than on the charge, because a turret charges once and then beams
+            // forever - keyed to the charge it would fire exactly one overcharge per floor.
+            if (ElitePattern == ElitePattern.Overcharge && ElitePatternDue())
+                _overchargeUntil = Time.time + Tuning.Enemy.OverchargeSeconds;
+
+            // The beam CHASES: a tick lands only on a player on its line, eye to its end, and
+            // only where that line itself is clear - it can lag behind a column they passed.
+            if (!OnBeam(_target.position)) return;
+            var beamSight = HazardQuery.Query(transform.position, _beamAim, gameObject, _target.gameObject);
+            if (beamSight == SightResult.Blocked || beamSight == SightResult.Nulled) return;
+            if (beamSight == SightResult.Amplified) sight = SightResult.Amplified;
+
             // Checked before Take, same as the elite melee hit above - a parry answers the beam
             // by negating this tick, not by reflecting a continuous effect back down the line.
             if (_targetController != null && _targetController.TryParry(transform.position)) return;
@@ -2308,17 +2329,28 @@ namespace Convergence.Enemies
             // can't reflect it) but it obeys force fields exactly like one.
             float dmg = Damage * Tuning.Enemy.TurretTickInterval;
             if (sight == SightResult.Amplified) dmg *= 2f;
-
-            // ELITE - Overcharge: every few ticks the beam swells for a burst. Counted on the
-            // TICK rather than on the charge, because a turret charges once and then beams
-            // forever - keyed to the charge it would fire exactly one overcharge per floor.
-            if (ElitePattern == ElitePattern.Overcharge && ElitePatternDue())
-                _overchargeUntil = Time.time + Tuning.Enemy.OverchargeSeconds;
             if (Time.time < _overchargeUntil) dmg *= Tuning.Enemy.OverchargeDamageMul;
             _targetHealth.Take(new DamageInfo(dmg, ElementType.Air, gameObject));
             // Band 4: the beam SLOWS the player while it holds them.
             if (AtBand(Tuning.EnemyBands.EyeSlowFromBand))
                 StatusEffects.Get(_target.gameObject).ApplySlow(Tuning.Enemy.TurretTickInterval + 0.15f, Tuning.EnemyBands.EyeSlowMul);
+        }
+
+        /// <summary>The beam's end follows the player at Tuning.Enemy.TurretTrackSpeed - every frame,
+        /// cover or not, so it is still coming when they step back out.</summary>
+        void TrackBeamAim()
+        {
+            if (!_beamAimSet) { _beamAim = transform.position; _beamAimSet = true; }
+            if (_target == null) return;
+            _beamAim = Vector2.MoveTowards(_beamAim, _target.position, Tuning.Enemy.TurretTrackSpeed * Time.deltaTime);
+        }
+
+        /// <summary>Whether <paramref name="p"/> lies on the beam, from the body to its end.</summary>
+        bool OnBeam(Vector2 p)
+        {
+            Vector2 a = transform.position, ab = _beamAim - a;
+            float t = ab.sqrMagnitude < 0.0001f ? 0f : Mathf.Clamp01(Vector2.Dot(p - a, ab) / ab.sqrMagnitude);
+            return Vector2.Distance(p, a + ab * t) <= Tuning.Enemy.TurretBeamHitRadius;
         }
 
         /// <summary>
@@ -2398,11 +2430,11 @@ namespace Convergence.Enemies
         {
             if (_target != null)
             {
-                float dx = _target.position.x - transform.position.x;
+                float dx = TurretAim.x - transform.position.x;
                 if (Mathf.Abs(dx) > 0.15f) _turretFacesLeft = dx < 0f;
             }
             if (_turretHead == null || _target == null) return;
-            var to = (Vector2)_target.position - (Vector2)transform.position;
+            var to = TurretAim - (Vector2)transform.position;
             if (to.sqrMagnitude < 0.0001f) return;
             float angle = Mathf.Atan2(to.y, to.x) * Mathf.Rad2Deg - 90f;
             _turretHead.rotation = Quaternion.Euler(0f, 0f, angle);
@@ -2426,7 +2458,7 @@ namespace Convergence.Enemies
             var eye = (Vector2)transform.position + TurretArt.IrisOffset((int)TurretFrame.Beam0, Elite, _turretFacesLeft);
             // A live beam has to look like it is doing something every frame it's on: the arc
             // re-rolls its jags, and an overcharge thickens it and throws forks.
-            _beamArc.Set(eye, _target.position, TurretArt.Accent(Look), TurretOvercharged);
+            _beamArc.Set(eye, _beamAim, TurretArt.Accent(Look), TurretOvercharged);
         }
 
         void EndBeam()

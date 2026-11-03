@@ -29,6 +29,8 @@ namespace Convergence.Rifts
             Clear = 3,
             /// <summary>The reward rings, index = the Curator reroll.</summary>
             Reward = 4,
+            /// <summary>Which floor of a window owes the showcase's guaranteed Rift Box (index 0).</summary>
+            BoxGuarantee = 5,
         }
 
         /// <summary>A well-mixed seed for one roll (SplitMix-style), so neighbouring floors and

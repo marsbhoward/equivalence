@@ -4,15 +4,18 @@ using Convergence.Core;
 namespace Convergence.Combat
 {
     /// <summary>
-    /// The Stinger's ordinary bolt (the user's pick, 2026-10-26 - "ember dart"): a bright
-    /// two-texel core with a tail of fire tapering back along its flight, flickering. It replaced
-    /// an orange circle. Drawn on the bolt's own object at body density, redrawn each frame from
+    /// The Stinger's ordinary bolt (the user's pick, 2026-10-26 - "ember dart"): a round head with
+    /// a white-hot heart and a tail of fire tapering back along its flight, flickering, rimmed in
+    /// dark so it reads on any ground. It replaced an orange circle; grown 2026-11-02 (a two-texel
+    /// core did not read in the arena). Drawn on the bolt's own object at body density, redrawn each frame from
     /// the bolt's direction; a bolt dressed in other art (the missile, a fireball) hides it.
     /// </summary>
     [DefaultExecutionOrder(1000)]
     public class EmberDart : MonoBehaviour
     {
-        const int Half = 9, Tail = 8;
+        const int Half = 18, Tail = 14;
+        const float Head = 3.2f;
+        static readonly Color32 RimColor = new(38, 10, 4, 255);
         const float Ppu = TexelFx.Body;
 
         [SerializeField] EnemyProjectile _bolt;
@@ -48,13 +51,24 @@ namespace Convergence.Combat
             System.Array.Clear(_px, 0, _px.Length);
             var dir = _bolt.Direction;
             int frame = Mathf.FloorToInt(Time.time * 14f);
-            for (int i = Tail - 1; i >= 0; i--)
+            // A round head with a white-hot heart, and a tail that tapers back along the flight,
+            // its cool end flickering; then a dark rim round the lot so it reads on any ground.
+            for (int y = -Half; y <= Half; y++)
+            for (int x = -Half; x <= Half; x++)
             {
-                if (i > 2 && FireArt.Hash(i, frame, _seed) > 0.7f) continue;
-                Put(Mathf.RoundToInt(-dir.x * i), Mathf.RoundToInt(-dir.y * i), FireArt.At(0.1f + i / (float)(Tail - 1) * 0.75f));
+                float r = Mathf.Sqrt(x * x + y * y);
+                float back = -(x * dir.x + y * dir.y);
+                float side = Mathf.Abs(x * dir.y - y * dir.x);
+                if (r <= Head)
+                    Put(x, y, FireArt.At(r <= 1.3f ? 0f : r <= 2.3f ? 0.15f : 0.35f));
+                else if (back > 0f && back <= Tail && side <= Mathf.Lerp(Head, 0.6f, back / Tail))
+                {
+                    float u = back / Tail;
+                    if (u > 0.45f && FireArt.Hash(x + 40, y + 40, frame + _seed) > 1.15f - u) continue;
+                    Put(x, y, FireArt.At(0.3f + u * 0.65f));
+                }
             }
-            Put(0, 0, FireArt.At(0f));
-            Put(0, 1, FireArt.At(0.2f));
+            Rim();
             _tex.SetPixels32(_px);
             _tex.Apply();
 
@@ -63,6 +77,26 @@ namespace Convergence.Combat
             _sr.transform.localScale = new Vector3(1f / Mathf.Max(1e-4f, s.x), 1f / Mathf.Max(1e-4f, s.y), 1f);
             _sr.transform.rotation = Quaternion.identity;
             _sr.enabled = true;
+        }
+
+        /// <summary>A one-texel dark edge round every lit texel.</summary>
+        void Rim()
+        {
+            int size = Half * 2 + 1;
+            for (int y = 0; y < size; y++)
+            for (int x = 0; x < size; x++)
+            {
+                if (_px[y * size + x].a != 0) continue;
+                bool edge = (x > 0 && Lit(x - 1, y)) || (x < size - 1 && Lit(x + 1, y))
+                         || (y > 0 && Lit(x, y - 1)) || (y < size - 1 && Lit(x, y + 1));
+                if (edge) _px[y * size + x] = RimColor;
+            }
+        }
+
+        bool Lit(int x, int y)
+        {
+            var c = _px[y * (Half * 2 + 1) + x];
+            return c.a != 0 && !(c.r == RimColor.r && c.g == RimColor.g && c.b == RimColor.b);
         }
 
         void Put(int dx, int dy, Color32 c)

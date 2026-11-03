@@ -59,6 +59,43 @@ namespace Convergence.Bosses
 
         Color32[] _col; float[] _z; bool[] _has;
 
+        /// <summary>
+        /// The density: 1 draws at body density (37.5 px/unit, as every boss has), 2 at weapon density (75) - the
+        /// same figure redrawn on the finer grid (the user's call for boss figures, 2026-11-02). Coordinates stay in
+        /// BODY texels; <see cref="P"/> places them. Inside a primitive (<see cref="FineDraw"/>) a point is one fine
+        /// texel, so curves are drawn crisp; anywhere else it fills its whole body texel, so a hand-placed accent
+        /// keeps its size. The outline is one body texel thick at any density.
+        /// </summary>
+        [SerializeField] protected int Fine = 1;
+        protected bool FineDraw;
+        /// <summary>The step a hand-written loop takes to fill every fine texel.</summary>
+        protected float Step => 1f / Mathf.Max(1, Fine);
+        /// <summary>A fill whose colour function takes whole texels: the fill pins the fine point it is at, and
+        /// the figure's per-texel pass (Q) draws there instead of at the rounded texel it was handed.</summary>
+        protected bool Pinned;
+        protected Vector2 Pin;
+
+        /// <summary>A polygon filled on the fine grid; <paramref name="fn"/> is handed whole texels (as it always was).</summary>
+        protected void FillFine(Vector2[] pts, System.Action<int, int> fn)
+        {
+            float x0 = 1e9f, x1 = -1e9f, y0 = 1e9f, y1 = -1e9f;
+            foreach (var p in pts) { x0 = Mathf.Min(x0, p.x); x1 = Mathf.Max(x1, p.x); y0 = Mathf.Min(y0, p.y); y1 = Mathf.Max(y1, p.y); }
+            bool was = FineDraw; FineDraw = true;
+            for (float y = Mathf.Floor(y0); y <= Mathf.Ceil(y1); y += Step)
+                for (float x = Mathf.Floor(x0); x <= Mathf.Ceil(x1); x += Step)
+                {
+                    bool ins = false;
+                    for (int i = 0, j = pts.Length - 1; i < pts.Length; j = i++)
+                        if (((pts[i].y > y) != (pts[j].y > y)) && (x < (pts[j].x - pts[i].x) * (y - pts[i].y) / (pts[j].y - pts[i].y) + pts[i].x)) ins = !ins;
+                    if (!ins) continue;
+                    Pin = new Vector2(x, y); Pinned = true;
+                    fn(Mathf.RoundToInt(x), Mathf.RoundToInt(y));
+                    Pinned = false;
+                }
+            FineDraw = was;
+        }
+        public void UseFine(int fine) => Fine = Mathf.Max(1, fine);
+
         protected static float Hash(int a, int b = 0, int c = 0) => FireArt.Hash(a, b, c);
         protected static Color32 Ix(Color32[] r, float v) => r[Mathf.Clamp(Mathf.RoundToInt(v), 0, r.Length - 1)];
 
@@ -71,33 +108,53 @@ namespace Convergence.Bosses
 
         protected bool Has(int x, int y)
         {
-            int px = Cx + x, py = Cy + y;
+            int px = Cx + x * Fine, py = Cy + y * Fine;
             return px >= 0 && py >= 0 && px < W && py < H && _has[py * W + px];
         }
 
         protected void P(float fx, float fy, Color32 c, float z = 0f)
         {
             if (c.a == 0) return;   // a colour function's "not here" (the shell's other half)
-            int px = Cx + Mathf.RoundToInt(fx), py = Cy + Mathf.RoundToInt(fy);
+            if (Fine == 1) { Set(Cx + Mathf.RoundToInt(fx), Cy + Mathf.RoundToInt(fy), c, z); return; }
+            if (FineDraw) { Set(Cx + Mathf.FloorToInt((fx + 0.5f) * Fine), Cy + Mathf.FloorToInt((fy + 0.5f) * Fine), c, z); return; }
+            int bx = Cx + Mathf.RoundToInt(fx) * Fine, by = Cy + Mathf.RoundToInt(fy) * Fine;
+            for (int j = 0; j < Fine; j++) for (int k = 0; k < Fine; k++) Set(bx + k, by + j, c, z);
+        }
+
+        void Set(int px, int py, Color32 c, float z)
+        {
             if (px < 0 || py < 0 || px >= W || py >= H) return;
             int i = py * W + px;
             if (_has[i] && _z[i] > z) return;
             _col[i] = c; _z[i] = z; _has[i] = true;
         }
 
+        /// <summary>An overlay at a body texel (shadows, rings): its whole cell at any density.</summary>
+        protected void OverB(int x, int y, Color32 c, float a = 1f)
+        {
+            for (int j = 0; j < Fine; j++) for (int k = 0; k < Fine; k++) Over(x * Fine + k, y * Fine + j, c, a);
+        }
+
         /// <summary>An ellipse, coloured per texel by <paramref name="col"/> (texel x, y, and the
         /// normalised nx, ny - y up).</summary>
+        /// <summary>The exact point a <see cref="Blob"/>'s colour callback is asked for (its ints are rounded
+        /// to body texels; at the fine grid this is the fine texel's own place).</summary>
+        protected float BX, BY;
+
         protected void Blob(float cx, float cy, float rx, float ry, System.Func<int, int, float, float, Color32> col, float z = 0f)
         {
             int ex = Mathf.CeilToInt(rx), ey = Mathf.CeilToInt(ry);
-            for (int dy = -ey; dy <= ey; dy++)
-                for (int dx = -ex; dx <= ex; dx++)
+            bool was = FineDraw; FineDraw = true;
+            for (float dy = -ey; dy <= ey; dy += Step)
+                for (float dx = -ex; dx <= ex; dx += Step)
                 {
                     float nx = dx / rx, ny = dy / ry;
                     if (nx * nx + ny * ny > 1.02f) continue;
-                    int x = Mathf.RoundToInt(cx) + dx, y = Mathf.RoundToInt(cy) + dy;
-                    P(x, y, col(x, y, nx, ny), z);
+                    float x = Mathf.Round(cx) + dx, y = Mathf.Round(cy) + dy;
+                    BX = x; BY = y;
+                    P(x, y, col(Mathf.RoundToInt(x), Mathf.RoundToInt(y), nx, ny), z);
                 }
+            FineDraw = was;
         }
 
         /// <summary>Lit from the top left.</summary>
@@ -106,14 +163,16 @@ namespace Convergence.Bosses
 
         protected void Limb(Vector2 a, Vector2 b, float w, Color32[] r, float z)
         {
-            int n = Mathf.CeilToInt(Vector2.Distance(a, b) * 2f);
+            int n = Mathf.CeilToInt(Vector2.Distance(a, b) * 2f * Fine);
+            bool was = FineDraw; FineDraw = true;
             for (int i = 0; i <= n; i++)
             {
                 var p = Vector2.Lerp(a, b, i / (float)Mathf.Max(1, n));
-                for (float dx = -w; dx <= w; dx += 0.5f)
-                    for (float dy = -w; dy <= w; dy += 0.5f)
+                for (float dx = -w; dx <= w; dx += 0.5f * Step)
+                    for (float dy = -w; dy <= w; dy += 0.5f * Step)
                         if (dx * dx + dy * dy <= w * w) P(p.x + dx, p.y + dy, r[dx > 0.3f ? 3 : dx < -0.3f ? 1 : 2], z);
             }
+            FineDraw = was;
         }
 
         /// <summary>A small open flower: a pollen eye in a cross of petals.</summary>
@@ -145,13 +204,14 @@ namespace Convergence.Bosses
                     var dir = new Vector2(Mathf.Sin(ang), Mathf.Cos(ang));
                     var side = new Vector2(dir.y, -dir.x);
                     float zz = z + (row == 1 ? 0.2f : 0f) + (1f - Mathf.Abs(u)) * 0.05f;
-                    int steps = Mathf.CeilToInt(len * 1.5f);
+                    int steps = Mathf.CeilToInt(len * 1.5f * Fine);
+                    FineDraw = true;
                     for (int s = 0; s <= steps; s++)
                     {
                         float v = s / (float)steps;
                         float w = wid * Mathf.Pow(Mathf.Sin(Mathf.PI * Mathf.Min(0.999f, 0.08f + v * 0.92f)), 0.8f) * (1f - v * 0.35f);
                         var c0 = new Vector2(x, y) + dir * (v * len) + Vector2.up * (row == 1 ? -1f : 0f);
-                        for (float q = -w; q <= w; q += 0.5f)
+                        for (float q = -w; q <= w; q += 0.5f * Step)
                         {
                             bool rim = Mathf.Abs(q) > w - 0.8f;
                             var col = rim ? Lotus[4] : Ix(Lotus, v * 3.2f + (q > 0 ? 0.6f : 0f));
@@ -159,6 +219,7 @@ namespace Convergence.Bosses
                             P(c0.x + side.x * q, c0.y + side.y * q, col, zz);
                         }
                     }
+                    FineDraw = false;
                 }
             }
             // the seed pod: a flat-topped gold cup with dark seed holes
@@ -175,14 +236,22 @@ namespace Convergence.Bosses
                 {
                     int i = y * W + x;
                     if (!_has[i]) continue;
-                    if (x > 0 && !_has[i - 1]) Over(x - 1 - Cx, y - Cy, K, 0.9f);
-                    if (x < W - 1 && !_has[i + 1]) Over(x + 1 - Cx, y - Cy, K, 0.9f);
-                    if (y > 0 && !_has[i - W]) Over(x - Cx, y - 1 - Cy, K, 0.9f);
-                    if (y < H - 1 && !_has[i + W]) Over(x - Cx, y + 1 - Cy, K, 0.9f);
+                    for (int dy = -Fine; dy <= Fine; dy++)
+                        for (int dx = -Fine; dx <= Fine; dx++)
+                        {
+                            if ((dx == 0 && dy == 0) || Mathf.Abs(dx) + Mathf.Abs(dy) > Fine) continue;   // a diamond: one body texel
+                            int ox = x + dx, oy = y + dy;
+                            if (ox < 0 || oy < 0 || ox >= W || oy >= H || _has[oy * W + ox]) continue;
+                            Over(ox - Cx, oy - Cy, K, 0.9f);
+                        }
                 }
             for (int i = 0; i < _has.Length; i++)
-                if (_has[i]) Put(i % W - Cx, i / W - Cy, _col[i]);
+                if (_has[i]) Put(i % W - Cx, i / W - Cy, Finish(i % W - Cx, i / W - Cy, _col[i]));
         }
+
+        /// <summary>A last look at each solid texel as it goes out (canvas texels from the centre): once a
+        /// texel, however many shapes were drawn over it.</summary>
+        protected virtual Color32 Finish(int x, int y, Color32 c) => c;
     }
 
     /// <summary>
@@ -274,7 +343,7 @@ namespace Convergence.Bosses
             float sh = o.Curl >= 0.5f ? 12f : 20f;
             for (int y = -3; y <= 3; y++)
                 for (int x = -22; x <= 22; x++)
-                    if (x * x / (sh * sh) + y * y / 6f <= 1f) Over(x, y, K, 0.4f);
+                    if (x * x / (sh * sh) + y * y / 6f <= 1f) OverB(x, y, K, 0.4f);
 
             if (o.Curl >= 0.5f) Seed(o);
             else Beetle(o, t);
@@ -295,8 +364,9 @@ namespace Convergence.Bosses
         {
             float r = 12f * S, ca = Mathf.Cos(o.Roll), sa = Mathf.Sin(o.Roll);
             int e = Mathf.CeilToInt(r);
-            for (int dy = -e; dy <= e; dy++)
-                for (int dx = -e; dx <= e; dx++)
+            FineDraw = true;
+            for (float dy = -e; dy <= e; dy += Step)
+                for (float dx = -e; dx <= e; dx += Step)
                 {
                     if (dx * dx + dy * dy > (r + 0.3f) * (r + 0.3f)) continue;
                     float rx = dx * ca + dy * sa, ry = -dx * sa + dy * ca;
@@ -308,6 +378,7 @@ namespace Convergence.Bosses
                     if (o.Husk > 0f) c = Color32.Lerp(c, Husk[4], o.Husk * 0.7f);
                     P(dx, dy + r, c);
                 }
+            FineDraw = false;
             // the stem, turning with it
             float sx = -sa * (r + 1f), sy = ca * (r + 1f) + r;
             P(sx, sy, Husk[3], 1f); P(sx - sa, sy + ca, Husk[4], 1f);
@@ -323,6 +394,29 @@ namespace Convergence.Bosses
                 }
                 if (o.Sprout > 0.85f) LotusAt(0, 2f * r + h - 1, 9f, (o.Sprout - 0.85f) / 0.15f, Age, 3f);
             }
+        }
+
+        /// <summary>The husk on the fine grid (the user's call: shell detail): a gloss on each half's
+        /// shoulder, fine grain running round its curve, small pits, the seam's lit lips and a finer
+        /// burr weave on the crown.</summary>
+        Color32 HuskFine(int half, float lx, float ly, float nx, float ny)
+        {
+            float ax = Mathf.Abs(lx);
+            if (ax < 0.6f) return Husk[4];
+            if (ax < 1.1f) return Husk[half < 0 ? 3 : 2];   // the seam's lips
+            int fx = Mathf.FloorToInt(BX * Fine), fy = Mathf.FloorToInt(BY * Fine);
+            if (ly > 7f) return (((fx + fy) & 3) == 0 || ((fx - fy) & 3) == 0) ? Husk[4] : ((fx * 7 + fy * 3) % 5 == 0 ? Husk[2] : Husk[3]);
+            if (ly > 6.4f) return Husk[4];   // a dark line where the burr cap meets the gloss
+            float side = lx < 0 ? lx + 7f : lx - 7f;
+            float i = 1.2f + side / 7f * 1.1f - ly / 10f * 1.2f;
+            // grain round the curve: lines a little darker, bending with the surface
+            float u = nx / Mathf.Sqrt(Mathf.Max(0.05f, 1f - ny * ny));
+            if (Mathf.Repeat(u * 7f + ny * 0.8f, 1f) < 0.1f) i += 0.7f;
+            // the gloss on each half's shoulder
+            float g = ((side + 2.2f) / 2.4f) * ((side + 2.2f) / 2.4f) + ((ly - 3.2f) / 1.5f) * ((ly - 3.2f) / 1.5f);
+            if (g < 1f) i -= g < 0.35f ? 2f : 1f;
+            if (Hash(fx, fy, 6) > 0.975f) i += 1.4f;   // pits
+            return Ix(Husk, i);
         }
 
         void Beetle(ViriditasLook o, float t)
@@ -350,6 +444,7 @@ namespace Convergence.Bosses
                 {
                     float lx = (x - hx) / S, ly = (y - cyS) / S;
                     if ((half < 0 && lx > 0.5f) || (half > 0 && lx < -0.5f)) return default;   // the other half's
+                    if (Fine > 1) return HuskFine(half, (BX - hx) / S, (BY - cyS) / S, nx, ny);
                     if (Mathf.Abs(lx) < 0.7f) return Husk[4];
                     if (ly > 7f) return (((x + y) & 1) == 0) ? Husk[4] : Husk[3];
                     float side = lx < 0 ? lx + 7f : lx - 7f;
@@ -360,14 +455,26 @@ namespace Convergence.Bosses
             for (int k = -5; k <= 5; k++)
             {
                 float x = k * 2.4f * S, top = cyS + 10f * S * Mathf.Sqrt(Mathf.Max(0f, 1f - (x / (14f * S)) * (x / (14f * S))));
-                P(x + (x < 0 ? -ox : ox), top + 1f, Husk[4], 0.2f);
+                if (Fine == 1) { P(x + (x < 0 ? -ox : ox), top + 1f, Husk[4], 0.2f); continue; }
+                // fine: each a sharp spine leaning out from the crown, a second, shorter one beside it
+                FineDraw = true;
+                float lean = x / (14f * S) * 0.8f, bx = x + (x < 0 ? -ox : ox);
+                for (int j = 0; j < 2; j++)
+                {
+                    float jx = bx + (j == 0 ? 0f : 1.1f * Mathf.Sign(k == 0 ? 1 : k)), len = j == 0 ? 2.2f : 1.3f;
+                    for (float u = 0f; u <= len; u += Step)
+                        P(jx + lean * u, top + 0.5f + u, u > len - 0.6f ? Husk[3] : Husk[4], 0.2f);
+                }
+                FineDraw = false;
             }
             // the gold body inside, when it splits open
+            FineDraw = true;
             if (split > 0.15f)
-                for (float y = 6f * S; y <= 22f * S; y++)
-                    for (float x = -ox + 1f; x <= ox - 1f; x++)
+                for (float y = 6f * S; y <= 22f * S; y += Step)
+                    for (float x = -ox + 1f; x <= ox - 1f; x += Step)
                         P(x, y - dn + rear, Mathf.Abs(x) < ox * 0.5f ? Pollen[1] : Pollen[2], -0.05f + 0.4f);
             // pale plates down its sides
+            FineDraw = false;   // the plates: whole texels a scale step apart - their stripes are the design, kept as drawn
             for (float y = 6f; y <= 14f; y++)
                 for (float x = -11f; x <= 11f; x++)
                 {
@@ -375,6 +482,7 @@ namespace Convergence.Bosses
                     if (ax <= 6f || ax >= 12f - (14f - y) * 0.4f) continue;
                     P((x + (x < 0 ? -ox / S : ox / S)) * S, y * S - dn + rear, Ix(Plate, 0.4f + (14f - y) / 8f * 2.4f), 0.25f);
                 }
+            FineDraw = false;
             // flowers in the seams (the user's pick) - two for every sapling it has broken
             for (int i = 0; i < Mathf.Min(o.Flowers, Seams.Length); i++)
                 Flower(Seams[i].x * S + (Seams[i].x < 0 ? -ox : Seams[i].x > 0 ? ox : 0f), Seams[i].y * S - dn + rear, i % 2 == 0 ? Lotus : Plate, 2f);
@@ -387,12 +495,15 @@ namespace Convergence.Bosses
                 var eye = Pollen[o.Dazed ? 2 : 1];
                 P(-3, hy + 1, eye, 0.6f); P(3, hy + 1, eye, 0.6f);
                 float hl = (16f + o.Rear * 4f) * S;
-                for (int i = 0; i <= hl; i++)
+                FineDraw = true;
+                for (float i = 0; i <= hl; i += Step)
                 {
                     float v = i / hl, x = Mathf.Sin(v * 2.4f) * 5f * S * v, y = hy + 3f + i + o.Rear * 4f * v;
                     float w = v < 0.6f ? 1.5f : v < 0.85f ? 1f : 0f;
-                    for (float q = -w; q <= w; q += 0.5f) P(x + q, y, Horn[q < 0 ? 0 : q > 0 ? 2 : 1], 0.7f);
+                    bool ridge = Fine > 1 && Mathf.Repeat(i, 2f) < 0.5f;   // the horn's ridges, a body texel each, as the coarse grid drew them
+                    for (float q = -w; q <= w; q += 0.5f * Step) P(x + q, y, ridge ? Horn[3] : Horn[q < 0 ? 0 : q > 0 ? 2 : 1], 0.7f);
                 }
+                FineDraw = false;
                 for (int s = -1; s <= 1; s += 2) { P(s * 7, hy + 6, Horn[1], 0.7f); P(s * 9, hy + 7, Horn[0], 0.7f); }
             }
         }
@@ -438,7 +549,8 @@ namespace Convergence.Bosses
             var go = new GameObject("viriditas.death");
             if (GameBootstrap.FloorRoot != null) go.transform.SetParent(GameBootstrap.FloorRoot, false);
             go.transform.position = at;
-            var p = Attach<ViriditasDeath>(go.transform, "figure", Vector2.zero, 44, 8, 100, 0);
+            var p = Attach<ViriditasDeath>(go.transform, "figure", Vector2.zero, 44 * Tuning.Boss.FigureFine, 8 * Tuning.Boss.FigureFine, 100 * Tuning.Boss.FigureFine, 0, TexelFx.Body * Tuning.Boss.FigureFine);
+            p.UseFine(Tuning.Boss.FigureFine);
             last.Ward = 0f; last.Dazed = false; last.Bloom = 0f; last.Grab = 0f; last.Walk = false; last.Split = 0f;
             p._last = last;
             DepthSorted.Attach(go, 0f, false, p.GetComponent<SpriteRenderer>());

@@ -40,24 +40,42 @@ namespace Convergence.Rifts
         // ------------------------------------------------------------------ Rift Boxes
 
         /// <summary>
-        /// Boxes found on THIS run, not yet banked. At risk exactly as carried loot is.
+        /// Boxes found on THIS run, or brought into it from the hub's inventory, not yet banked.
+        /// At risk exactly as carried loot is.
         ///
-        /// TWO POOLS, AND THE SPLIT IS THE POINT. A box already banked on the profile is safe and
-        /// spendable on any run; a box found this run is only kept if the run is extracted. So a
-        /// cautious run that leaves early banks its finds, and a deep run spends against a reserve
-        /// it built on earlier, safer ones - which is the "bank Rift Boxes to spend on a later,
-        /// more ambitious one" the design asks for, falling out of the two pools rather than
-        /// needing a rule.
+        /// THE SPLIT IS THE POINT. A box on the profile is safe while it stays at home; one found
+        /// or brought along is only kept if the run secures or extracts it. So a cautious run that
+        /// leaves early banks its finds, and a deep run brings a reserve built on earlier, safer
+        /// ones - "bank Rift Boxes to spend on a later, more ambitious one" - and stakes it.
         /// </summary>
         public int FoundBoxes { get; private set; }
 
-        /// <summary>Boxes carried in from the profile at run start - safe, and untouched by death.
-        /// Tracked here only so the Rift can spend from one pool and know which.</summary>
+        /// <summary>Boxes made safe on this run - secured at a Rift, or carried out by an
+        /// extraction - and still spendable on it. Untouched by death. (A snapshot from before the
+        /// hub's inventory also holds the profile's whole reserve here.)</summary>
         public int BankedBoxes { get; private set; }
 
+        /// <summary>
+        /// The profile's boxes LEFT AT HOME (the user's call, 2026-11-02): the hub's inventory
+        /// chooses how many come into a run, and the rest are neither spendable on it nor at risk.
+        /// Held here only so Bank can write the whole count back as one number.
+        /// </summary>
+        public int HomeBoxes { get; private set; }
+
+        /// <summary>What the run may spend: never the boxes left at home.</summary>
         public int TotalBoxes => BankedBoxes + FoundBoxes;
 
-        public void SetBankedBoxes(int n) => BankedBoxes = Mathf.Max(0, n);
+        /// <summary>
+        /// The run's start: <paramref name="home"/> stay behind and <paramref name="brought"/> come
+        /// in AT RISK, carried exactly as a found box is (the user's call, 2026-11-02) - spent first,
+        /// securable at a Rift, lost on a death.
+        /// </summary>
+        public void StartBoxes(int home, int brought)
+        {
+            HomeBoxes = Mathf.Max(0, home);
+            BankedBoxes = 0;
+            FoundBoxes = Mathf.Max(0, brought);
+        }
 
         public void FindBox() => FoundBoxes++;
 
@@ -183,6 +201,7 @@ namespace Convergence.Rifts
             _secured.Clear();
             FoundBoxes = 0;
             BankedBoxes = 0;
+            HomeBoxes = 0;
             _foundTieredBoxes.Clear();
             _bankedTieredBoxes.Clear();
             _securedTieredBoxes.Clear();
@@ -207,6 +226,7 @@ namespace Convergence.Rifts
                 Secured = new List<MintedGearRecord>(_secured),
                 FoundBoxes = FoundBoxes,
                 BankedBoxes = BankedBoxes,
+                HomeBoxes = HomeBoxes,
                 SecuredRiftBoxes = SecuredRiftBoxes,
                 FoundTiered = new int[TierCount],
                 BankedTiered = new int[TierCount],
@@ -223,8 +243,9 @@ namespace Convergence.Rifts
 
         /// <summary>
         /// A snapshot's loot, back. The BANKED pools are rebased: they began as a copy of the
-        /// profile at run start, so what the run itself did to them (secured into them, spent from
-        /// them) is kept as a difference and laid on the profile as it is NOW. Bank overwrites the
+        /// profile at run start (for Rift Boxes, the ones left at home), so what the run itself did
+        /// to them (secured into them, spent from them) is kept as a difference and laid on the
+        /// profile as it is NOW. Bank overwrites the
         /// profile's counts with these at the run's end, so restoring the snapshot's absolute counts
         /// would hand back anything the profile spent between the sessions.
         /// </summary>
@@ -236,7 +257,11 @@ namespace Convergence.Rifts
             if (s.Secured != null) foreach (var r in s.Secured) if (r != null) _secured.Add(r);
             FoundBoxes = Mathf.Max(0, s.FoundBoxes);
             SecuredRiftBoxes = Mathf.Max(0, s.SecuredRiftBoxes);
-            BankedBoxes = Mathf.Max(0, (now?.RiftBoxes ?? 0) + s.BankedBoxes - startRiftBoxes);
+            // What the profile did between the sessions lands on the boxes left at home; only
+            // a shortfall beyond them comes out of the run's own safe ones.
+            int home = (now?.RiftBoxes ?? 0) + s.HomeBoxes - startRiftBoxes;
+            HomeBoxes = Mathf.Max(0, home);
+            BankedBoxes = Mathf.Max(0, s.BankedBoxes + Mathf.Min(0, home));
             for (int t = 0; t < TierCount; t++)
             {
                 var tier = (LootTier)t;
@@ -317,9 +342,10 @@ namespace Convergence.Rifts
             int n = _secured.Count;
             _secured.Clear();
 
-            // Whatever survived - found and unspent, plus the reserve that was never touched -
-            // goes back to the profile as one number.
-            profile.RiftBoxes = BankedBoxes + FoundBoxes;
+            // Whatever survived - found or brought and unspent, the ones made safe, and those
+            // left at home - goes back to the profile as one number.
+            profile.RiftBoxes = HomeBoxes + BankedBoxes + FoundBoxes;
+            HomeBoxes = 0;
             BankedBoxes = 0;
             FoundBoxes = 0;
 

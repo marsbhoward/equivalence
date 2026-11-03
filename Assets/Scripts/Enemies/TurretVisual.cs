@@ -78,10 +78,10 @@ namespace Convergence.Enemies
             float tpu = TexelRig.TexelsPerUnit;
             var iris = TurretArt.IrisOffset(frame, _elite, false) * tpu;
             Vector2 look = Vector2.zero;
-            var target = _enemy.Target;
-            if (target != null)
+            if (_enemy.Target != null)
             {
-                var d = (Vector2)(target.position - _enemy.transform.position);
+                // where the beam is, not where the player is - it chases them
+                var d = _enemy.TurretAim - (Vector2)_enemy.transform.position;
                 if (d.sqrMagnitude > 0.0001f) look = d.normalized;
             }
             var travel = TurretArt.PupilTravel(_elite) * tpu;

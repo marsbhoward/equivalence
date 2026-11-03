@@ -132,6 +132,8 @@ namespace Convergence.Chain
         public int RunCalx;
         public int RunCalxTaken;
         public bool StakeGateCleared;
+        /// <summary>The floor the run's last Rift Box dropped on (the showcase's guarantee), 0 for none.</summary>
+        public int LastRiftBoxFloor;
         public int GuaranteeWeek;
 
         /// <summary>The profile's boxes as the run began. A resume rebases the run's banked pools
@@ -185,6 +187,9 @@ namespace Convergence.Chain
         public List<MintedGearRecord> Carried = new();
         public List<MintedGearRecord> Secured = new();
         public int FoundBoxes, BankedBoxes, SecuredRiftBoxes;
+        /// <summary>The profile's Rift Boxes left at home (RunLoot.HomeBoxes); 0 in an older
+        /// snapshot, whose BankedBoxes held the whole reserve.</summary>
+        public int HomeBoxes;
         public int[] FoundTiered = Array.Empty<int>();
         public int[] BankedTiered = Array.Empty<int>();
         public int[] SecuredTiered = Array.Empty<int>();

@@ -81,6 +81,7 @@ namespace Convergence.Bosses
         /// <summary>Every texel of the figure passes here: the melt.</summary>
         void Q(float x, float y, Color32 c, float z)
         {
+            if (Pinned) { x = Pin.x; y = Pin.y; }
             if (_o.Melt > 0f && z < 9f)
             {
                 float h = Hash(Mathf.RoundToInt(x), Mathf.RoundToInt(y), 77);
@@ -98,43 +99,35 @@ namespace Convergence.Bosses
         void Disc(Vector2 c, float r, System.Func<float, float, Color32> col, float z)
         {
             int e = Mathf.CeilToInt(r);
-            for (int dy = -e; dy <= e; dy++)
-                for (int dx = -e; dx <= e; dx++)
-                    if (dx * dx + dy * dy <= r * r + 0.3f) Q(Mathf.Round(c.x) + dx, Mathf.Round(c.y) + dy, col(dx / Mathf.Max(0.5f, r), -dy / Mathf.Max(0.5f, r)), z);
+            bool was = FineDraw; FineDraw = true;
+            float rcx = Mathf.Round(c.x * Fine) / Fine, rcy = Mathf.Round(c.y * Fine) / Fine;
+            for (float dy = -e; dy <= e; dy += Step)
+                for (float dx = -e; dx <= e; dx += Step)
+                    if (dx * dx + dy * dy <= r * r + 0.3f) Q(rcx + dx, rcy + dy, col(dx / Mathf.Max(0.5f, r), -dy / Mathf.Max(0.5f, r)), z);
+            FineDraw = was;
         }
 
+        /// <summary>A line from a to b, <paramref name="w"/>(u) texels from it each way: every fine texel within
+        /// reach of the segment, once (a run of discs along it cost the cube of the density).</summary>
         void Stroke(Vector2 a, Vector2 b, System.Func<float, float> w, System.Func<int, int, float, Color32> col, float z)
         {
-            int n = Mathf.Max(1, Mathf.CeilToInt(Vector2.Distance(a, b) * 2f));
-            for (int i = 0; i <= n; i++)
-            {
-                float u = i / (float)n, ww = w(u);
-                var p = Vector2.Lerp(a, b, u);
-                int cw = Mathf.CeilToInt(ww);
-                for (int dy = -cw; dy <= cw; dy++)
-                    for (int dx = -cw; dx <= cw; dx++)
-                        if (dx * dx + dy * dy <= ww * ww + 0.25f)
-                        {
-                            int x = Mathf.RoundToInt(p.x + dx), y = Mathf.RoundToInt(p.y + dy);
-                            Q(x, y, col(x, y, u), z);
-                        }
-            }
+            bool was = FineDraw; FineDraw = true;
+            var d = b - a; float l2 = Mathf.Max(1e-6f, d.sqrMagnitude);
+            float wm = Mathf.Max(w(0f), Mathf.Max(w(0.5f), w(1f))), pad = Mathf.CeilToInt(wm) + 1f, slack = 0.25f / Fine;
+            float x0 = Mathf.Floor((Mathf.Min(a.x, b.x) - pad) * Fine) / Fine, x1 = Mathf.Max(a.x, b.x) + pad;
+            float y0 = Mathf.Floor((Mathf.Min(a.y, b.y) - pad) * Fine) / Fine, y1 = Mathf.Max(a.y, b.y) + pad;
+            for (float y = y0; y <= y1; y += Step)
+                for (float x = x0; x <= x1; x += Step)
+                {
+                    float u = Mathf.Clamp01(((x - a.x) * d.x + (y - a.y) * d.y) / l2), ww = w(u);
+                    float ex = x - (a.x + d.x * u), ey = y - (a.y + d.y * u);
+                    if (ex * ex + ey * ey <= ww * ww + slack) Q(x, y, col(Mathf.RoundToInt(x), Mathf.RoundToInt(y), u), z);
+                }
+            FineDraw = was;
         }
         void Stroke(Vector2 a, Vector2 b, float w, System.Func<int, int, float, Color32> col, float z) => Stroke(a, b, _ => w, col, z);
 
-        void Poly(Vector2[] pts, System.Action<int, int> fn)
-        {
-            float x0 = 1e9f, x1 = -1e9f, y0 = 1e9f, y1 = -1e9f;
-            foreach (var p in pts) { x0 = Mathf.Min(x0, p.x); x1 = Mathf.Max(x1, p.x); y0 = Mathf.Min(y0, p.y); y1 = Mathf.Max(y1, p.y); }
-            for (int y = Mathf.FloorToInt(y0); y <= Mathf.CeilToInt(y1); y++)
-                for (int x = Mathf.FloorToInt(x0); x <= Mathf.CeilToInt(x1); x++)
-                {
-                    bool ins = false;
-                    for (int i = 0, j = pts.Length - 1; i < pts.Length; j = i++)
-                        if (((pts[i].y > y) != (pts[j].y > y)) && (x < (pts[j].x - pts[i].x) * (y - pts[i].y) / (pts[j].y - pts[i].y) + pts[i].x)) ins = !ins;
-                    if (ins) fn(x, y);
-                }
-        }
+        void Poly(Vector2[] pts, System.Action<int, int> fn) => FillFine(pts, fn);
         Vector2[] TP(params float[] xy) { var r = new Vector2[xy.Length / 2]; for (int i = 0; i < r.Length; i++) r[i] = T(xy[i * 2], xy[i * 2 + 1]); return r; }
 
         /// <summary>Two-bone IK: the joint for a limb from a to b; <paramref name="pick"/> chooses the side.</summary>
@@ -291,7 +284,7 @@ namespace Convergence.Bosses
             // ---- the dying-star blade, in both fists ----
             Blade(handR, ca, sa, o);
 
-            // ---- the helm: plumed, a slit visor, breathing holes, no face ----
+            // ---- the helm: plumed, a T visor, a scar over the left eye, no face ----
             Helm(hc, pl, t);
 
             // ---- both fists on the hilt, over everything ----
@@ -307,7 +300,7 @@ namespace Convergence.Bosses
                 {
                     float a = t * 5f + i * Mathf.PI * 2f / 3f;
                     var p = T(hc.x + Mathf.Cos(a) * 6f, hc.y - 10f + Mathf.Sin(a) * 1.6f);
-                    Over(Mathf.RoundToInt(p.x), Mathf.RoundToInt(p.y), SunGlint); Over(Mathf.RoundToInt(p.x) + 1, Mathf.RoundToInt(p.y), White);
+                    OverB(Mathf.RoundToInt(p.x), Mathf.RoundToInt(p.y), SunGlint); OverB(Mathf.RoundToInt(p.x) + 1, Mathf.RoundToInt(p.y), White);
                 }
         }
 
@@ -444,13 +437,20 @@ namespace Convergence.Bosses
             var helm = new[] { H(-3.7f, -2f), H(-3.3f, -5.4f), H(-1.6f, -7f), H(1.6f, -7f), H(3.3f, -5.4f), H(3.7f, -2f), H(3.6f, 3.4f), H(2.1f, 5.6f), H(0f, 6.8f), H(-2.1f, 5.6f), H(-3.6f, 3.4f) };
             float hx0 = H(-3.7f, 0f).x, hy3 = H(0f, 3f).y;
             Poly(helm, (x, y) => Q(x, y, pl(0.05f + (x - hx0) * _o.Dir / (7.4f * KT) * 0.5f + (y < hy3 ? 0.2f : 0f)), 5f));
-            Stroke(H(-3.8f, -1.4f), H(3.8f, -1.4f), Mathf.Max(0.5f, 0.5f * KT), (x, y, u) => Plate[4], 5.05f);
-            Stroke(H(0f, -1.2f), H(0f, 5.8f), Mathf.Max(0.5f, 0.55f * KT), (x, y, u) => Plate[5], 5.1f);
-            for (int s = -1; s <= 1; s += 2) Stroke(H(s * 1.4f, -1.2f), H(s * 0.6f, 5.4f), Mathf.Max(0.5f, 0.4f * KT), (x, y, u) => Plate[1], 5.08f);
-            foreach (var d in new[] { new Vector2(1.8f, -4.2f), new Vector2(2.8f, -3.6f), new Vector2(2f, -3f), new Vector2(3f, -2.6f), new Vector2(1.4f, -2.6f) })
-            {
-                var p = H(d.x, d.y); Q(p.x, p.y, Plate[5], 5.12f);
-            }
+            // the T visor (the user's call: a defined T): a brow ridge over a black eye bar, a black stem
+            // down to the chin, each cut edged in the light below and beside it
+            float vw = Mathf.Max(0.5f, 0.42f * KT);
+            Stroke(H(-3.4f, -2.5f), H(3.4f, -2.5f), vw, (x, y, u) => Plate[0], 5.04f);
+            Stroke(H(-3.5f, -1.5f), H(3.5f, -1.5f), Mathf.Max(0.5f, 0.75f * KT), (x, y, u) => Black, 5.1f);
+            Stroke(H(-3.2f, -0.6f), H(-0.9f, -0.6f), vw, (x, y, u) => Plate[1], 5.06f);
+            Stroke(H(0.9f, -0.6f), H(3.2f, -0.6f), vw, (x, y, u) => Plate[1], 5.06f);
+            Stroke(H(0f, -1.2f), H(0f, 5.2f), Mathf.Max(0.5f, 0.6f * KT), (x, y, u) => Black, 5.1f);
+            for (int s = -1; s <= 1; s += 2) Stroke(H(s * 0.85f, -0.6f), H(s * 0.85f, 5f), vw, (x, y, u) => Plate[s * _o.Dir > 0 ? 0 : 1], 5.06f);
+            // the scar over his left eye (where the old marks were): one clean gouge across the T, on
+            // the metal either side of it - the opening is blank, so it lies under the opening
+            // (finer and sharper, the user's call: a one-fine-texel cut, its bright lip short of the ends)
+            Stroke(H(1.5f, -4.8f), H(3.1f, 2.4f), 0f, (x, y, u) => Plate[5], 5.09f);
+            Stroke(H(1.5f, -4.8f) + Vector2.right * Step, H(3.1f, 2.4f) + Vector2.right * Step, 0f, (x, y, u) => u > 0.12f && u < 0.88f ? Steel[1] : Plate[2], 5.085f);
             // the plume, in the cloth's navy: up off the crown and curling back
             float sw = Mathf.Sin(t * 1.6f) * 0.5f;
             var plume = new[] { new Vector2(-0.4f, -6.9f), new Vector2(0.8f, -9.8f), new Vector2(-0.6f, -12.6f), new Vector2(-3.4f, -14.4f + sw), new Vector2(-6.6f, -13.6f + sw), new Vector2(-8.2f, -11.2f + sw) };
@@ -475,7 +475,7 @@ namespace Convergence.Bosses
                 for (int k = 0; k < 4; k++)
                 {
                     var p = T(piv.x + Mathf.Cos(a) * (r - k * 0.9f), piv.y + Mathf.Sin(a) * (r - k * 0.9f));
-                    Over(Mathf.RoundToInt(p.x), Mathf.RoundToInt(p.y), Star[k], f * (k < 2 ? 1f : 0.7f));
+                    OverB(Mathf.RoundToInt(p.x), Mathf.RoundToInt(p.y), Star[k], f * (k < 2 ? 1f : 0.7f));
                 }
             }
         }
@@ -510,7 +510,8 @@ namespace Convergence.Bosses
             var go = new GameObject("icarus.death");
             if (GameBootstrap.FloorRoot != null) go.transform.SetParent(GameBootstrap.FloorRoot, false);
             go.transform.position = at;
-            var p = Attach<IcarusDeath>(go.transform, "figure", Vector2.zero, 90, 16, 150, 0, Ppu37);
+            var p = Attach<IcarusDeath>(go.transform, "figure", Vector2.zero, 90 * Tuning.Boss.FigureFine, 16 * Tuning.Boss.FigureFine, 150 * Tuning.Boss.FigureFine, 0, TexelFx.Body * Tuning.Boss.FigureFine);
+            p.UseFine(Tuning.Boss.FigureFine);
             last.Lift = 0f; last.Fan = 0f; last.Glint = 0f; last.Smear = 0f; last.Dazed = false; last.StarGone = false; last.Shake = 0f;
             p._last = last;
             DepthSorted.Attach(go, 0f, false, p.GetComponent<SpriteRenderer>());

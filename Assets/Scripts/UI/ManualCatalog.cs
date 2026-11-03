@@ -102,7 +102,8 @@ namespace Convergence.UI
                 "A Blue Rift stands open. A Collapsing Rift tears open as the floor starts: clear the floor in time and it " +
                 "steadies; fail and it implodes. A Red Rift is sealed, and breaking it calls its elite guard. The avatar " +
                 "on floor 25 always leaves a Rift behind. Rift Boxes secure one more item, promote a three-star piece, or " +
-                "insure a stake."),
+                "insure a stake. The crate's inventory chooses how many come into a run: those are carried, lost on a " +
+                "death like anything found, and the rest stay home, safe."),
 
             new("PUZZLE FLOORS",
                 "Some floors hold a puzzle instead of a fight, each on its own timer. ECHO plays a call to repeat. " +

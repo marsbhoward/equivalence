@@ -414,6 +414,14 @@ namespace Convergence.Core
         /// <summary>The profile's boxes as the run's banked pools began - what RunLoot.Restore rebases
         /// a resumed run's pools against.</summary>
         int _runStartRiftBoxes;
+
+        /// <summary>Rift Boxes the hub's inventory will bring into the next run (UI.InventoryScreen).
+        /// Chosen afresh for each run - they are at risk once in, so a count never carries over.</summary>
+        int _riftBoxesToBring;
+
+        /// <summary>The floor the run's last Rift Box dropped on, 0 for none - the showcase's
+        /// guarantee reads it (RiftBoxOwed). Run state: snapshotted.</summary>
+        int _lastRiftBoxFloor;
         LootBoxes _runStartBoxes = new();
 
         /// <summary>What the last heartbeat (or snapshot) said, and when - a beat goes only when
@@ -1232,7 +1240,7 @@ namespace Convergence.Core
 
             Debug.Log($"[Dev] floor {_floor} abandoned - jumping to floor {floor}");
             _floor = floor - 1;          // NextFloor builds _floor + 1
-            StartCoroutine(FloorTransition());
+            StartCoroutine(FloorTransition(null));
             return true;
         }
 
@@ -1329,9 +1337,18 @@ namespace Convergence.Core
             for (int i = 1; i < Hub.HubThemes.Count; i++)
             {
                 var t = (Hub.HubTheme)i;
-                if (Hub.HubRoom.DevAllThemes || (_profile?.Items?.HasTheme(Hub.HubThemes.Id(t)) ?? false)) owned.Add(t);
+                if (Hub.HubThemes.Owned(_profile?.Items, t)) owned.Add(t);
             }
             return owned;
+        }
+
+        /// <summary>The hub's inventory: the character's boxes, and the Rift Boxes the next run
+        /// brings (_riftBoxesToBring, spent at StartRun).</summary>
+        void OpenHubInventory()
+        {
+            if (_hub == null || _profile == null || InventoryScreen.IsOpen) return;
+            InventoryScreen.OpenHub(_canvas.transform, _profile,
+                () => _riftBoxesToBring, n => _riftBoxesToBring = n, OpenHubThemes);
         }
 
         void OpenHubThemes()
@@ -1864,6 +1881,7 @@ namespace Convergence.Core
                        DressArmoury,
                        SaveLook);
             _hub.OnOpenParcel = OpenParcel;
+            _hub.OnOpenInventory = OpenHubInventory;
             // Open from the first frame if the player has already run today - no slide on arrival.
             _hub.HoldDoorOpen(_account != null && _account.RanToday, snap: true);
             // Stone for a new week until the selector wakes them (AccountProfile.SigilsWokenWeek).
@@ -2451,6 +2469,9 @@ namespace Convergence.Core
                 if (_hub != null && _hub.Blocking) return;
 
                 if (TickDevFormat()) return;
+
+                // The inventory key, as in a run - the crate's second button opens it too.
+                if (Controls.InventoryTapped) { OpenHubInventory(); return; }
 
                 // Number keys still work. Kept deliberately - walking to a door is the experience,
                 // but a shortcut past it costs nothing and is what makes the menu testable from
@@ -3048,6 +3069,7 @@ namespace Convergence.Core
             _pendingMastery = 0;
             _runCalx = 0;
             _runCalxTaken = 0;
+            _lastRiftBoxFloor = 0;
             _runStartTime = Time.time;
             Clock.Restore(0f);
             _floor = 0;
@@ -3068,10 +3090,9 @@ namespace Convergence.Core
             _spawnQueue.Clear();
             _loot.Clear();
 
-            // The safe reserve comes into the run with the player. Spending is tracked on the run
-            // and written back at the checkpoint, so a run abandoned mid-flight cannot half-spend
-            // the profile's count.
-            _loot.SetBankedBoxes(_profile.RiftBoxes);
+            // Spending is tracked on the run and written back at the checkpoint, so a run abandoned
+            // mid-flight cannot half-spend the profile's count. The Rift Boxes are split below, once
+            // the stake's insurance has taken its own.
             _loot.SetBankedTieredBoxes(_profile.Boxes);
             _runStartDiamondBoxes = _profile.Boxes.Diamond;
             _runStartBlackDiamondBoxes = _profile.Boxes.BlackDiamond;
@@ -3093,8 +3114,6 @@ namespace Convergence.Core
             {
                 Debug.Log($"[Stake] {stake.DisplayName} +{stake.UpgradeLevel} staked, gate floor {_profile.StakeGateFloor}" +
                           (insured ? ", insured with a Rift Box" : ""));
-                // The insurance box came out of the banked reserve the run's loot already copied.
-                _loot.SetBankedBoxes(_profile.RiftBoxes);
             }
             else
             {
@@ -3102,6 +3121,14 @@ namespace Convergence.Core
                 _profile.StakeGateFloor = 0;
                 _profile.StakeInsured = false;
             }
+
+            // The Rift Boxes chosen in the hub's inventory come in AT RISK and leave the profile at
+            // this run-start checkpoint, so a run that never ends cannot hand them back; the rest
+            // stay home, out of the run's reach, and Bank writes the whole count back at its end.
+            int brought = Mathf.Clamp(_riftBoxesToBring, 0, _profile.RiftBoxes);
+            _riftBoxesToBring = 0;
+            _profile.RiftBoxes -= brought;
+            _loot.StartBoxes(_profile.RiftBoxes, brought);
 
             // What the banked pools began as - a resume rebases them on the profile it finds.
             _runStartRiftBoxes = _profile.RiftBoxes;
@@ -3122,9 +3149,10 @@ namespace Convergence.Core
             if (staked != null)
                 _hud.Flash($"{staked.DisplayName} staked  -  clear floor {_profile.StakeGateFloor}, then extract");
 
-            ArrivalBeat();
-            await RunAsTask(_fade.FadeIn(DoorFadeSeconds));
+            // Floor 1 is built under the black, as a resume's floor is - built after the fade-in, the
+            // last run's room showed until NextFloor dressed this one.
             _state = State.Playing;
+            StartCoroutine(BuildUnderBlack(NextFloor()));
         }
 
         /// <summary>The run's roots, its player and HUD - the same for a run started and one resumed.</summary>
@@ -3296,6 +3324,7 @@ namespace Convergence.Core
                          : Tuning.Player.HpFireWater;
             var hp = go.AddComponent<Health>();
             Convergence.Audio.CombatSounds.AttachPlayer(hp);
+            Hitstop.AttachPlayer(hp, info => Exchange.RunEffects.FromEnemy(info, go));   // a big blow freezes
             if (DevImmune) hp.Immune = true;   // DEV: a test harness walks deep floors without dying
 
             // The stat block is built HERE, before Health, because max health needs it and the
@@ -3653,6 +3682,9 @@ namespace Convergence.Core
                 _plating -= soaked;
                 int broken = platesBefore - Mathf.CeilToInt(_plating - 0.001f);
                 if (broken > 0) effects.OnPlatesBroken(broken, info);   // Patina
+                // The floor's last plate going is a big blow whatever its size (Tuning.Hitstop).
+                if (broken > 0 && _plating <= 0.001f && !info.Tick && Exchange.RunEffects.FromEnemy(info, go))
+                    Hitstop.TriggerPlayerHit(info.Source);
                 blows -= soaked;
                 if (blows <= 0f) return;
                 _profile.Wear.Wear(_profile.Gear, Art.Gear.SlotKind.Armor,
@@ -4926,7 +4958,8 @@ namespace Convergence.Core
             Art.Biomes.Arrival.Dust(at + new Vector2(0f, -0.5f), biome, nig > 0f, _floor * 7919 + 13);
         }
 
-        IEnumerator FloorTransition()
+        /// <param name="door">The door walked through - it stands until the screen is black, then goes.</param>
+        IEnumerator FloorTransition(FloorDoor door)
         {
             // Held for the whole transition so enemies/physics can't simulate behind the black
             // screen - ScreenFade itself doesn't freeze anything (see its own note), and without
@@ -4956,6 +4989,7 @@ namespace Convergence.Core
             {
                 _player?.Rig?.SetFacingAway(true);
                 yield return _fade.FadeOut(DoorFadeSeconds);
+                if (door != null) Destroy(door.gameObject);
 
                 if (_player != null)
                 {
@@ -4986,9 +5020,10 @@ namespace Convergence.Core
             var pos = Arena.NorthDoorPoint;
             _activeDoor = FloorDoor.Spawn(pos, _player.transform, _enemyRoot, ScreenElement(), () =>
             {
+                var door = _activeDoor;
                 _activeDoor = null;
-                if (token != _runToken) return;
-                StartCoroutine(FloorTransition());
+                if (token != _runToken) { Destroy(door.gameObject); return; }
+                StartCoroutine(FloorTransition(door));
             }, inWall: true);
         }
 
@@ -5633,10 +5668,11 @@ namespace Convergence.Core
             _puzzleDoor = FloorDoor.Spawn(Arena.NorthDoorPoint, _player.transform, _enemyRoot,
                 ScreenElement(), () =>
                 {
+                    var door = _puzzleDoor;
                     _activeDoor = null;
                     _puzzleDoor = null;
-                    if (token != _runToken) return;
-                    StartCoroutine(FloorTransition());
+                    if (token != _runToken) { Destroy(door.gameObject); return; }
+                    StartCoroutine(FloorTransition(door));
                 }, shut: true, inWall: !(_puzzle is Puzzles.MazePuzzle));
 
             // Far left or right, from the seed, OPEN from the moment the room is entered: the
@@ -5660,9 +5696,10 @@ namespace Convergence.Core
                                      Arena.NorthDoorPoint.y);
             _sideDoor = FloorDoor.Spawn(sideAt, _player.transform, _enemyRoot, ScreenElement(), () =>
             {
+                var door = _sideDoor;
                 _sideDoor = null;
-                if (token != _runToken) return;
-                StartCoroutine(AdjacentRoom());
+                if (token != _runToken) { Destroy(door.gameObject); return; }
+                StartCoroutine(AdjacentRoom(door));
             }, inWall: !(_puzzle is Puzzles.MazePuzzle));
         }
 
@@ -5805,7 +5842,7 @@ namespace Convergence.Core
         /// try/finally), but the floor number does not move - this is the room NEXT to the
         /// puzzle, not the one after it.
         /// </summary>
-        IEnumerator AdjacentRoom()
+        IEnumerator AdjacentRoom(FloorDoor door)
         {
             MarkPuzzleGivenUp();   // the floor is this fight now, on a resume too
             // After a failed puzzle the clock stood still: the fight starts it again, here and on the
@@ -5821,6 +5858,7 @@ namespace Convergence.Core
             {
                 _player?.Rig?.SetFacingAway(true);
                 yield return _fade.FadeOut(DoorFadeSeconds);
+                if (door != null) Destroy(door.gameObject);
 
                 ClearPuzzle();
                 if (_player != null)
@@ -5967,7 +6005,9 @@ namespace Convergence.Core
                 // resume pays the same drops off the same enemies, whatever order they fall in -
                 // nothing to gain by choosing which to kill first.
                 int roll = enemy.RollIndex >= 0 ? enemy.RollIndex : LooseRollBase + _floorKills++;
-                TryDropRiftBox(h.transform.position, worth, roll);
+                // The floor's last body - the showcase's owed Rift Box falls off it (RiftBoxOwed).
+                bool lastBody = !_spawning && _alive.Count <= 1 && _spawnQueue.Count == 0;
+                TryDropRiftBox(h.transform.position, worth, roll, lastBody);
                 TryDropGear(h.transform.position, worth, roll);
                 _alive.Remove(enemy);
                 Destroy(h.gameObject);
@@ -5997,13 +6037,29 @@ namespace Convergence.Core
         /// on the floor with it - a consumable surviving into the next run would be loot the
         /// player never carried.
         /// </summary>
-        void TryDropRiftBox(Vector2 at, float chasers, int kill)
+        void TryDropRiftBox(Vector2 at, float chasers, int kill, bool lastBody)
         {
             if (_player == null) return;
+            bool drop;
             using (Rifts.RunRolls.Seeded(_planner?.Seed ?? 0, _floor, Rifts.RunRolls.Kind.KillBox, kill))
-                if (UnityEngine.Random.value >= Tuning.Boss.RiftBoxDropChance * chasers * Tuning.GearRoll.FormatDropScale
-                                                * (Core.RunFormat.Showcase ? Tuning.Showcase.RiftBoxDropScale : 1f)) return;
+                drop = UnityEngine.Random.value < Tuning.Boss.RiftBoxDropChance * chasers * Tuning.GearRoll.FormatDropScale
+                                                * (Core.RunFormat.Showcase ? Tuning.Showcase.RiftBoxDropScale : 1f);
+            if (!drop && !(lastBody && RiftBoxOwed())) return;
+            _lastRiftBoxFloor = _floor;
             LayRiftBoxAt(at);
+        }
+
+        /// <summary>The showcase's floor under its Rift Boxes (Tuning.Showcase.RiftBoxEveryFloors):
+        /// true from the window's owed floor on, while nothing has dropped in the window yet.</summary>
+        bool RiftBoxOwed()
+        {
+            if (!Core.RunFormat.Showcase || _floor <= 0) return false;
+            int every = Tuning.Showcase.RiftBoxEveryFloors;
+            int window = (_floor - 1) / every, start = window * every;   // floors start+1 .. start+every
+            if (_lastRiftBoxFloor > start) return false;
+            int first = Tuning.Showcase.RiftBoxOwedFirst, span = Tuning.Showcase.RiftBoxOwedLast - first + 1;
+            uint h = (uint)Rifts.RunRolls.SeedFor(_planner?.Seed ?? 0, window, Rifts.RunRolls.Kind.BoxGuarantee, 0);
+            return _floor >= start + first + (int)(h % (uint)span);
         }
 
         /// <summary>A Rift Box lying on the floor to be taken - a fresh drop, or one a resumed cleared
@@ -6593,6 +6649,7 @@ namespace Convergence.Core
                 RunCalx = _runCalx,
                 RunCalxTaken = _runCalxTaken,
                 StakeGateCleared = _stakeGateCleared,
+                LastRiftBoxFloor = _lastRiftBoxFloor,
                 GuaranteeWeek = _runGuaranteeWeek,
                 RunStartRiftBoxes = _runStartRiftBoxes,
                 RunStartBoxes = CopyBoxes(_runStartBoxes),
@@ -7157,6 +7214,7 @@ namespace Convergence.Core
             _floorBoonFloorsLeft = s.FloorBoonFloorsLeft;
             if (_floorBoon >= 0) Modifiers.SetFloorBoon(Hazards.SpireBoons.Apply((Hazards.SpireBoon)_floorBoon));
             _stakeGateCleared = s.StakeGateCleared;
+            _lastRiftBoxFloor = s.LastRiftBoxFloor;
             _stakeLine = null;
             _profile.Wear.Entries = w.Wear();
 

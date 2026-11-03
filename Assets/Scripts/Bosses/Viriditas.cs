@@ -86,7 +86,8 @@ namespace Convergence.Bosses
             if (rb != null) rb.interpolation = RigidbodyInterpolation2D.Interpolate;
             b._at = at;
 
-            b._figure = TexelPicture.Attach<ViriditasFigure>(b.transform, "figure", Vector2.zero, 46, 8, 100, 0);
+            b._figure = TexelPicture.Attach<ViriditasFigure>(b.transform, "figure", Vector2.zero, 46 * Tuning.Boss.FigureFine, 8 * Tuning.Boss.FigureFine, 100 * Tuning.Boss.FigureFine, 0, TexelFx.Body * Tuning.Boss.FigureFine);
+            b._figure.UseFine(Tuning.Boss.FigureFine);
             DepthSorted.Attach(b.gameObject, 0f, false, b._figure.GetComponent<SpriteRenderer>());
             b._glow = Glow.Attach(b.gameObject, 2.6f, ItsLight, 0.6f, 0.04f);
 

@@ -32,6 +32,14 @@ namespace Convergence.Hub
         /// <summary>The permanent string id a theme is owned by (designs.json, the service's item table).</summary>
         public static string Id(HubTheme t) => "hub." + t.ToString().ToLowerInvariant();
 
+        /// <summary>Whether a character with <paramref name="items"/> may dress its hub in <paramref name="t"/>:
+        /// the Cloister is everyone's, the showcase's theme is every showcase character's
+        /// (Tuning.Showcase.HubTheme), the rest are owned.</summary>
+        public static bool Owned(Chain.CharacterItems items, HubTheme t)
+            => t == HubTheme.Cloister || HubRoom.DevAllThemes
+            || (Core.RunFormat.Showcase && t == Core.Tuning.Showcase.HubTheme)
+            || (items?.HasTheme(Id(t)) ?? false);
+
         public static bool TryParse(string id, out HubTheme t)
         {
             t = HubTheme.Cloister;

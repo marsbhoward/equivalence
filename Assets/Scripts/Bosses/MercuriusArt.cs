@@ -63,15 +63,49 @@ namespace Convergence.Bosses
         float _spinU, _t;
         MercuriusLook _o;
         readonly Vector2[] _stump = new Vector2[6];
+        float[] _wf;   // the swirl's value per fine texel this frame (NaN: not yet asked)
+        bool[] _claim; bool _claiming;   // a disk chain drawn last-first: each texel taken once, by the disk that would have won
 
         static Vector2 M(float x, float y) => new(x * S, -y * S);
         static bool IsWater(Color32 c) => c.b > c.r;
 
-        Color32 Wc(int x, int y, float shade)
+        Color32 Wc(int ix, int iy, float shade)
         {
-            float f = Mathf.Sin(y * 0.4f - x * 0.2f + _t * 6f) + (FireArt.Noise(x * 0.23f + 40f, y * 0.23f + _t * 2.4f) - 0.5f) * 2.4f;
+            // at the fine grid the swirl reads the fine point itself, so its light flows instead of blotting
+            float x = Fine > 1 && Pinned ? Pin.x : ix, y = Fine > 1 && Pinned ? Pin.y : iy, f;
+            // the coil and body are hundreds of overlapping disks: the swirl is worked out once a fine
+            // texel a frame, not once a disk
+            int ci = -1;
+            if (Fine > 1 && Pinned && _wf != null)
+            {
+                int cx = Cx + Mathf.FloorToInt((x + 0.5f) * Fine), cy = Cy + Mathf.FloorToInt((y + 0.5f) * Fine);
+                if (cx >= 0 && cy >= 0 && cx < W && cy < H) ci = cy * W + cx;
+            }
+            if (ci >= 0 && !float.IsNaN(_wf[ci])) f = _wf[ci];
+            else
+            {
+                f = Mathf.Sin(y * 0.4f - x * 0.2f + _t * 6f) + (FireArt.Noise(x * 0.23f + 40f, y * 0.23f + _t * 2.4f) - 0.5f) * 2.4f;
+                if (ci >= 0) _wf[ci] = f;
+            }
             return Ix(Water, 1.4f + Mathf.Clamp01(shade) * 3.2f + (f > 1.3f ? -1.4f : f < -0.9f ? 0.9f : 0f));
         }
+
+        /// <summary>The water on the fine grid (the user's call): a net of thin caustic light where two drifting
+        /// fields cross, and now and then a single glint.</summary>
+        Color32 Caustic(Color32 c, float x, float y)
+        {
+            int i = -1;
+            for (int k = 0; k < Water.Length; k++) if (Water[k].r == c.r && Water[k].g == c.g && Water[k].b == c.b) { i = k; break; }
+            if (i < 2) return c;
+            float n1 = FireArt.Noise(x * 0.28f + 7f, y * 0.28f - _t * 1.8f), n2 = FireArt.Noise(x * 0.28f + 51f, y * 0.28f + _t * 1.3f);
+            float d = Mathf.Abs(n1 - n2);
+            if (d < 0.025f) return Water[Mathf.Max(0, i - 2)];
+            if (d < 0.05f) return Water[i - 1];
+            if (Hash(Mathf.FloorToInt(x * Fine), Mathf.FloorToInt(y * Fine), Mathf.FloorToInt(_t * 8f)) > 0.997f) return Water[0];
+            return c;
+        }
+
+        protected override Color32 Finish(int x, int y, Color32 c) => Fine > 1 && IsWater(c) ? Caustic(c, x / (float)Fine, y / (float)Fine) : c;
 
         static Color32 Bc(int x, int y, float shade)
         {
@@ -91,6 +125,7 @@ namespace Convergence.Bosses
         void Q(float x, float y, Color32 c, float z)
         {
             if (_skip) return;
+            if (Pinned) { x = Pin.x; y = Pin.y; }
             if (_spinU > 0f)
             {
                 float su = Mathf.SmoothStep(0f, 1f, _spinU), cy = 24f * S;
@@ -120,30 +155,86 @@ namespace Convergence.Bosses
             P(x, y, c, z);
         }
 
+        /// <summary>The skull on the fine grid (the user's call: the face): its dome eased round, the water
+        /// eyes as slanted almonds under a hard brow, nostril slits, and finer teeth.</summary>
+        void SkullFine(MercuriusLook o, float hy)
+        {
+            float[] ry = { -42f, -41f, -40f, -39f, -34f, -33f, -31f }, rw = { 2.4f, 3.6f, 4.5f, 5f, 5f, 4f, 3f };
+            float HW(float my) { for (int k = 0; k < ry.Length - 1; k++) if (my <= ry[k + 1]) return Mathf.Lerp(rw[k], rw[k + 1], (my - ry[k]) / (ry[k + 1] - ry[k])); return rw[rw.Length - 1]; }
+            bool was = FineDraw; FineDraw = true;
+            float st = 1f / (S * Fine);
+            for (float my = -42f; my <= -30.6f; my += st)
+            {
+                float hw = HW(my);
+                for (float mx = -hw; mx <= hw + 0.01f; mx += st)
+                {
+                    var p = M(mx, my + hy);
+                    Color32 c = Bc(Mathf.RoundToInt(p.x), Mathf.RoundToInt(p.y), (mx + hw) / (2f * hw) * 0.9f + (my < -40f ? -0.3f : 0f));
+                    for (int sd = -1; sd <= 1; sd += 2)
+                    {
+                        float ex = mx - sd * 1.9f, slant = sd * mx * 0.12f;
+                        float ew = 1.4f - Mathf.Abs(my + 35.9f + slant) * 2.2f;
+                        if (Mathf.Abs(ex) < ew) c = Mathf.Abs(ex) < 0.45f && !o.Immune ? Water[0] : Water[o.Immune ? 4 : 2];
+                        else if (my > -37.6f + slant && my < -36.7f + slant && Mathf.Abs(ex) < 1.7f) c = Bronze[4];   // the brow
+                        else if (Mathf.Abs(ex) < ew + 0.5f && Mathf.Abs(my + 35.9f + slant) < 0.7f) c = Bronze[3];  // the socket's rim
+                    }
+                    if (my > -34.2f && my < -33.6f && Mathf.Abs(Mathf.Abs(mx) - 0.5f) < 0.22f) c = Bronze[4];         // nostrils
+                    if (my >= -32.4f) c = (Mathf.FloorToInt((mx + 10f) * 1.5f) & 1) == 0 ? Bronze[4] : my > -31.2f ? Bronze[3] : Bronze[1];   // the teeth
+                    if (my > -32.9f && my < -32.4f && Mathf.Abs(mx) < hw - 0.3f) c = Bronze[4];   // the lip line
+                    Q(p.x, p.y, c, 0.7f);
+                }
+            }
+            FineDraw = was;
+        }
+
         void Disk(float cx, float cy, float r, System.Func<int, int, float, float, Color32> col, float z)
         {
             int e = Mathf.CeilToInt(r);
-            for (int dy = -e; dy <= e; dy++)
-                for (int dx = -e; dx <= e; dx++)
+            bool was = FineDraw; FineDraw = true;
+            float rcx = Mathf.Round(cx * Fine) / Fine, rcy = Mathf.Round(cy * Fine) / Fine;
+            for (float dy = -e; dy <= e; dy += Step)
+                for (float dx = -e; dx <= e; dx += Step)
                 {
                     if (dx * dx + dy * dy > r * r + 0.3f) continue;
-                    int x = Mathf.RoundToInt(cx) + dx, y = Mathf.RoundToInt(cy) + dy;
-                    Q(x, y, col(x, y, dx / Mathf.Max(0.5f, r), dy / Mathf.Max(0.5f, r)), z);
+                    float x = rcx + dx, y = rcy + dy;
+                    if (_claiming)
+                    {
+                        int qx = Cx + Mathf.FloorToInt((x + 0.5f) * Fine), qy = Cy + Mathf.FloorToInt((y + 0.5f) * Fine);
+                        if (qx >= 0 && qy >= 0 && qx < W && qy < H) { int qi = qy * W + qx; if (_claim[qi]) continue; _claim[qi] = true; }
+                    }
+                    bool pw = Pinned; var pp = Pin;
+                    if (Fine > 1) { Pin = new Vector2(x, y); Pinned = true; }
+                    Q(x, y, col(Mathf.RoundToInt(x), Mathf.RoundToInt(y), dx / Mathf.Max(0.5f, r), dy / Mathf.Max(0.5f, r)), z);
+                    Pinned = pw; Pin = pp;
                 }
+            FineDraw = was;
         }
 
+        /// <summary>A line from a to b, <paramref name="w"/> texels from it each way: every fine texel within reach
+        /// of the segment, once (a run of disks along it cost the cube of the density).</summary>
         void Stroke(Vector2 a, Vector2 b, float w, System.Func<int, int, float, Color32> col, float z)
         {
-            int n = Mathf.Max(1, Mathf.CeilToInt(Vector2.Distance(a, b) * 1.5f));
-            for (int i = 0; i <= n; i++)
-            {
-                float u = i / (float)n;
-                var p = Vector2.Lerp(a, b, u);
-                Disk(p.x, p.y, w, (x, y, nx, ny) => col(x, y, u), z);
-            }
+            bool was = FineDraw; FineDraw = true;
+            var d = b - a; float l2 = Mathf.Max(1e-6f, d.sqrMagnitude), r2 = w * w + 0.3f, pad = Mathf.CeilToInt(w) + 1f;
+            float x0 = Mathf.Floor((Mathf.Min(a.x, b.x) - pad) * Fine) / Fine, x1 = Mathf.Max(a.x, b.x) + pad;
+            float y0 = Mathf.Floor((Mathf.Min(a.y, b.y) - pad) * Fine) / Fine, y1 = Mathf.Max(a.y, b.y) + pad;
+            bool pw = Pinned; var pp = Pin;
+            for (float y = y0; y <= y1; y += Step)
+                for (float x = x0; x <= x1; x += Step)
+                {
+                    float u = Mathf.Clamp01(((x - a.x) * d.x + (y - a.y) * d.y) / l2);
+                    float ex = x - (a.x + d.x * u), ey = y - (a.y + d.y * u);
+                    if (ex * ex + ey * ey > r2) continue;
+                    if (Fine > 1) { Pin = new Vector2(x, y); Pinned = true; }
+                    Q(x, y, col(Mathf.RoundToInt(x), Mathf.RoundToInt(y), u), z);
+                    Pinned = pw; Pin = pp;
+                }
+            FineDraw = was;
         }
 
-        static void FillPoly(Vector2[] pts, System.Action<int, int> fn)
+        void FillPoly(Vector2[] pts, System.Action<int, int> fn) => FillFine(pts, fn);
+
+        static void FillPolyCoarse(Vector2[] pts, System.Action<int, int> fn)
         {
             float x0 = 1e9f, x1 = -1e9f, y0 = 1e9f, y1 = -1e9f;
             foreach (var p in pts) { x0 = Mathf.Min(x0, p.x); x1 = Mathf.Max(x1, p.x); y0 = Mathf.Min(y0, p.y); y1 = Mathf.Max(y1, p.y); }
@@ -170,16 +261,17 @@ namespace Convergence.Bosses
         {
             _o = o; _t = t;
             Begin();
+            if (Fine > 1) { if (_wf == null || _wf.Length != W * H) _wf = new float[W * H]; System.Array.Fill(_wf, float.NaN); }
             float sink = 1f - o.Sink;
             // the contact shadow and the ripple round its coil
             if (o.Drain < 1f && sink > 0.05f)
                 for (int y = -6; y <= 6; y++)
                     for (int x = -26; x <= 26; x++)
-                        if (x * x / 676f + y * y / 36f <= 1f) Over(x, y, K, 0.35f * sink);
+                        if (x * x / 676f + y * y / 36f <= 1f) OverB(x, y, K, 0.35f * sink);
             for (int k = 0; k < 3; k++)
             {
                 float ph = Mathf.Repeat(t * 0.6f + k / 3f, 1f), r = 24f * (0.6f + ph * 1.2f);
-                for (int i = 0; i < 96; i++) { float a = i / 96f * Mathf.PI * 2f; Over(Mathf.RoundToInt(Mathf.Cos(a) * r), Mathf.RoundToInt(Mathf.Sin(a) * r * 0.32f), Water[3], (1f - ph) * 0.35f); }
+                for (int i = 0; i < 96; i++) { float a = i / 96f * Mathf.PI * 2f; OverB(Mathf.RoundToInt(Mathf.Cos(a) * r), Mathf.RoundToInt(Mathf.Sin(a) * r * 0.32f), Water[3], (1f - ph) * 0.35f); }
             }
 
             float bob = Mathf.Round(Mathf.Sin(t * 2f) + o.Sag * 3f);
@@ -187,19 +279,32 @@ namespace Convergence.Bosses
 
             // ---- the coil and the risen body (always there: the water itself) ----
             Part(Torso);
-            for (int i = 0; i < 260; i++)
+            // at the fine grid the coil and the body are drawn last disk first, each texel claimed once -
+            // the same picture (the last disk, the front over the back, wins) without the overdraw
+            bool claim = Fine > 1;
+            if (claim) { if (_claim == null || _claim.Length != W * H) _claim = new bool[W * H]; System.Array.Clear(_claim, 0, _claim.Length); _claiming = true; }
+            void CoilDisk(int i)
             {
                 float a = i / 260f * Mathf.PI * 2f;
                 var c = M(Mathf.Cos(a) * 13f, -3f + Mathf.Sin(a) * 3.5f);
                 bool back = Mathf.Sin(a) < 0f;
                 Disk(c.x, c.y, 2.4f * S, (x, y, nx, ny) => Wc(x, y, 0.5f - ny * 0.15f + Mathf.Cos(a) * 0.25f), back ? -0.3f : 0.2f);
             }
-            for (float my = -4f; my >= -35f; my -= 0.5f)
+            if (!claim) for (int i = 0; i < 260; i++) CoilDisk(i);
+            else
+                for (int pass = 0; pass < 2; pass++)
+                    for (int i = 259; i >= 0; i--)
+                        if ((Mathf.Sin(i / 260f * Mathf.PI * 2f) < 0f) == (pass == 1)) CoilDisk(i);
+            if (claim) System.Array.Clear(_claim, 0, _claim.Length);
+            void BodyDisk(float my)
             {
                 float k = (-4f - my) / 31f, w = (4.6f - k * 1.4f) * S;
                 var c = M(Sway(my), my + (my < -8f ? bob : 0f));
                 Disk(c.x, c.y, w, (x, y, nx, ny) => Wc(x, y, 0.45f + nx * 0.35f - ny * 0.2f), 0.1f);
             }
+            if (!claim) for (float my = -4f; my >= -35f; my -= 0.5f) BodyDisk(my);
+            else for (int j = 62; j >= 0; j--) BodyDisk(-4f - j * 0.5f);
+            _claiming = false;
             _stump[Mercurius.Armour] = M(0f, -20f + bob);
 
             // ---- the tail: vertebrae on a whip of water, a bronze blade at its tip ----
@@ -318,6 +423,8 @@ namespace Convergence.Bosses
             Part(Skull);
             {
                 float hy = bob - 3f - Mathf.Round(o.Sag);
+                if (Fine > 1) SkullFine(o, hy);
+                else
                 for (float my = -42f; my <= -31f; my += 1f / S)
                 {
                     int row = Mathf.FloorToInt(my);
@@ -412,7 +519,8 @@ namespace Convergence.Bosses
             var go = new GameObject("mercurius.death");
             if (GameBootstrap.FloorRoot != null) go.transform.SetParent(GameBootstrap.FloorRoot, false);
             go.transform.position = at;
-            var p = Attach<MercuriusDeath>(go.transform, "figure", Vector2.zero, 64, 12, 100, 0);
+            var p = Attach<MercuriusDeath>(go.transform, "figure", Vector2.zero, 64 * Tuning.Boss.FigureFine, 12 * Tuning.Boss.FigureFine, 100 * Tuning.Boss.FigureFine, 0, TexelFx.Body * Tuning.Boss.FigureFine);
+            p.UseFine(Tuning.Boss.FigureFine);
             last.Spinning = -1; last.Raised = -1; last.Pieces = 0; last.Sag = 0f; last.Sink = 0f; last.Shake = 0f; last.Immune = false;
             p._last = last;
             DepthSorted.Attach(go, 0f, false, p.GetComponent<SpriteRenderer>());

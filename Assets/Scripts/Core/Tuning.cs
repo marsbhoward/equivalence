@@ -705,6 +705,16 @@ namespace Convergence.Core
             public const float GearDropScale = 2f;
             public const float RiftBoxDropScale = 6f;
 
+            /// <summary>
+            /// The user's floor under the showcase's Rift Boxes (2026-11-02): at least one drops in
+            /// every window of this many floors, so a ten-floor run always sees one. A window with
+            /// none by its owed floor - hashed from the run's seed between the two below, early
+            /// enough to reach a Rift with it - lays one off that floor's last body (or a later
+            /// floor's, if the owed floor had no fight).
+            /// </summary>
+            public const int RiftBoxEveryFloors = 10;
+            public const int RiftBoxOwedFirst = 2, RiftBoxOwedLast = 7;
+
             /// <summary>The kit a new character starts the showcase with: a Bronze weapon of the class
             /// the player picks, and Bronze in these armour slots, rolled at random (the user's call).
             /// EVERY SLOT BUT THE ACCESSORY (the user's call, 2026-11-02): shoulders, back, belt and a
@@ -725,6 +735,16 @@ namespace Convergence.Core
             /// showcase's last floor, the floor-10 boss - the full game's gates (20 and up) are past its
             /// end, so a stake could never pay.</summary>
             public const int StakeGate = 10;
+
+            /// <summary>The floor that is always a Rift (the user's call, 2026-11-02): its kind still drawn by
+            /// the Rift shares, Collapsing included - before PaceSamples clears its clock is the floor's own
+            /// estimate (FloorPlanner.CollapseSeconds).</summary>
+            public const int RiftFloor = 5;
+
+            /// <summary>The hub theme every showcase character owns, beside the Cloister - one to try, the
+            /// same for all, never a draw (the user's call, 2026-11-02). Not granted to the save: the
+            /// showcase reads it (Hub.HubThemes.Owned).</summary>
+            public const Convergence.Hub.HubTheme HubTheme = Convergence.Hub.HubTheme.Crypt;
 
             /// <summary>The highest gear goes in the showcase (the user's call, 2026-11-02): a piece of
             /// this tier at full stars no longer combines or stakes (GearForge.Combinable) - progression
@@ -1854,6 +1874,11 @@ namespace Convergence.Core
         /// </summary>
         public static class Boss
         {
+            /// <summary>The bosses' figures are drawn at weapon density (75 texels a unit): each figure's code
+            /// redraws on a grid this many times finer than the body's 37.5 (ENGINEERING.md, densities).
+            /// 1 puts them back at body density.</summary>
+            public const int FigureFine = 2;
+
             /// <summary>
             /// Health, and it is DERIVED from the windows rather than picked.
             ///
@@ -5876,6 +5901,18 @@ namespace Convergence.Core
             public const float TurretBeamWidth = 0.12f;
 
             /// <summary>
+            /// THE BEAM CHASES (the user's call, 2026-11-02): it is no longer welded to the player.
+            /// Its end is a point that follows them at this fraction of Player.MoveSpeed, so a
+            /// player on the move kites it and one who stops is caught - a constant threat, never
+            /// a free tick. Above EyeSlowMul's slowed pace would trap a slowed player: keep it under.
+            /// </summary>
+            public const float TurretTrackFraction = 0.75f;
+            public const float TurretTrackSpeed = Player.MoveSpeed * TurretTrackFraction;
+
+            /// <summary>How near the beam's line (eye to its end) a body has to be for a tick to land.</summary>
+            public const float TurretBeamHitRadius = 0.35f;
+
+            /// <summary>
             /// THE SAFE ZONE (the user's report, 2026-10-22: fireballs swept them on arrival). No
             /// body spawns within this of the player - the first wave round the entry, and every
             /// one that trickles in later round wherever they stand. Overrides any smaller per-kind
@@ -8180,6 +8217,22 @@ namespace Convergence.Core
 
             /// <summary>A successful parry, whichever defensive ability triggered it.</summary>
             public const float ParrySeconds = 0.2f;
+
+            /// <summary>
+            /// THE PLAYER TAKING A BIG HIT (the user's go-ahead, 2026-11-02): a freeze shorter than
+            /// a clash's - taking a blow never weighs more than landing one - on a single enemy
+            /// blow of at least <see cref="PlayerHitShare"/> of max health, or the one that breaks
+            /// the floor's last plate. Never on chip damage, a tick or a price: in a crowd or a
+            /// bullet hell every hit freezing was the stutter basics lost their freeze for. At most
+            /// one per <see cref="PlayerHitCooldown"/> (unscaled), and never over a freeze running.
+            /// </summary>
+            public const float PlayerHitSeconds = 0.055f;
+            public const float PlayerHitShare = 0.12f;
+            public const float PlayerHitCooldown = 0.6f;
+
+            /// <summary>The camera's shove with it, along the blow (source to player), world units
+            /// - between a finisher's kick and a crit's.</summary>
+            public const float PlayerHitKick = 0.13f;
         }
 
         /// <summary>

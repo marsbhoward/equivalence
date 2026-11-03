@@ -60,7 +60,7 @@ namespace Convergence.Bosses
         // scratch: the cloth on the local grid, then where each texel lands on the canvas
         Color32[] _cloth; float[] _clothA; bool[] _has;
         Color32[] _out; float[] _outA;
-        readonly List<(int x, int y, Color32 c, float a)> _behind = new(), _over = new();
+        readonly List<(float x, float y, Color32 c, float a, bool fine)> _behind = new(), _over = new();
 
         /// <summary>How long ago guard ring <paramref name="i"/> was cut; negative while it holds.</summary>
         public virtual float CutSince(int i) => -1f;
@@ -69,19 +69,39 @@ namespace Convergence.Bosses
         static float Noise(float x, float y) => FireArt.Noise(x, y);
         static float Smooth(float t) => t * t * (3f - 2f * t);
 
+        /// <summary>The density: 1 body (37.5), 2 weapon (75) - the same figure redrawn on the finer grid. The cloth
+        /// is authored in body texels (lx, ly, y down); its loops step <see cref="Step"/>, so at 2 every fine texel is
+        /// asked; the overlays (rings, peels, streamers) are body texels, laid down whole.</summary>
+        [SerializeField] protected int Fine = 1;
+        float Step => 1f / Mathf.Max(1, Fine);
+        public void UseFine(int fine) => Fine = Mathf.Max(1, fine);
+        int FW => GW * Fine;
+        int FH => GH * Fine;
+
         void Ensure()
         {
-            if (_cloth == null || _cloth.Length != GW * GH) { _cloth = new Color32[GW * GH]; _clothA = new float[GW * GH]; _has = new bool[GW * GH]; }
+            if (_cloth == null || _cloth.Length != FW * FH) { _cloth = new Color32[FW * FH]; _clothA = new float[FW * FH]; _has = new bool[FW * FH]; }
             if (_out == null || _out.Length != W * H) { _out = new Color32[W * H]; _outA = new float[W * H]; }
         }
 
-        void Put(int lx, int ly, Color32 c, float a = 1f)
+        int Cell(float l) => Mathf.FloorToInt((l + 0.5f) * Fine);   // a body coordinate's fine texel
+        void Put(float lx, float ly, Color32 c, float a = 1f)
         {
-            if (lx < GL || lx > GR || ly < GT || ly > GB) return;
-            int i = (ly - GT) * GW + (lx - GL);
+            int fx = Cell(lx) - GL * Fine, fy = Cell(ly) - GT * Fine;
+            if (fx < 0 || fy < 0 || fx >= FW || fy >= FH) return;
+            int i = fy * FW + fx;
             _cloth[i] = c; _clothA[i] = a; _has[i] = true;
         }
-        bool Has(int lx, int ly) => lx >= GL && lx <= GR && ly >= GT && ly <= GB && _has[(ly - GT) * GW + (lx - GL)];
+        bool Has(float lx, float ly)
+        {
+            int fx = Cell(lx) - GL * Fine, fy = Cell(ly) - GT * Fine;
+            return fx >= 0 && fy >= 0 && fx < FW && fy < FH && _has[fy * FW + fx];
+        }
+        /// <summary>An overlay at a body texel of the canvas: its whole cell.</summary>
+        void OverB(int x, int y, Color32 c, float a = 1f)
+        {
+            for (int j = 0; j < Fine; j++) for (int k = 0; k < Fine; k++) Over(x * Fine + k, y * Fine + j, c, a);
+        }
 
         /// <summary>The shadow under it, <paramref name="share"/> of its full size.</summary>
         protected void Shadow(int ox, float share)
@@ -90,7 +110,7 @@ namespace Convergence.Bosses
             float rx = 8f * share, ry = 2f;
             for (int y = -2; y <= 2; y++)
                 for (int x = -9; x <= 9; x++)
-                    if (x * x / (rx * rx) + y * y / (ry * ry) <= 1f) Over(ox + x, y, K, 0.45f);
+                    if (x * x / (rx * rx) + y * y / (ry * ry) <= 1f) OverB(ox + x, y, K, 0.45f);
         }
 
         /// <summary>Draw the figure with its hem's centre <paramref name="ox"/> texels from the canvas
@@ -103,7 +123,7 @@ namespace Convergence.Bosses
             float t = o.Clock;
 
             float Rag(float ly, float side, float amt = 2f) => (Noise(ly * 0.45f + t * 0.9f, side) - 0.5f) * amt;
-            Color32 Shade(float baseI, int lx, int ly, float hw)
+            Color32 Shade(float baseI, float lx, float ly, float hw)
             {
                 float i = baseI + Mathf.Clamp01((lx + hw) / (2f * hw + 0.01f)) * 1.4f;
                 float m = Noise(lx * 0.32f + 5f, ly * 0.32f + t * 0.9f);
@@ -114,17 +134,17 @@ namespace Convergence.Bosses
             // the ring of its light behind the hood, three short rays
             float pulse = 0.5f + 0.5f * Mathf.Sin(t * 3f);
             for (float a = 0f; a < 6.283f; a += 0.05f)
-                _behind.Add((Mathf.RoundToInt(Mathf.Cos(a) * 11f), Mathf.RoundToInt(2f + Mathf.Sin(a) * 10f), Ember[pulse > 0.5f ? 1 : 2], 0.95f));
+                _behind.Add((Mathf.RoundToInt(Mathf.Cos(a) * 11f), Mathf.RoundToInt(2f + Mathf.Sin(a) * 10f), Ember[pulse > 0.5f ? 1 : 2], 0.95f, false));
             for (int k = 1; k <= 3; k++)
             {
-                _behind.Add((-11 - k, 2, Ember[2], 0.8f)); _behind.Add((11 + k, 2, Ember[2], 0.8f)); _behind.Add((0, -8 - k, Ember[2], 0.8f));
+                _behind.Add((-11 - k, 2, Ember[2], 0.8f, false)); _behind.Add((11 + k, 2, Ember[2], 0.8f, false)); _behind.Add((0, -8 - k, Ember[2], 0.8f, false));
             }
 
             // the robe: from the chest down, breaking into tongues of smoke below the knee
-            for (int ly = 18; ly <= Height; ly++)
+            for (float ly = 18; ly <= Height; ly += Step)
             {
                 float hw = 7.5f + (ly - 18) * 0.22f;
-                for (int lx = -15; lx <= 15; lx++)
+                for (float lx = -15; lx <= 15; lx += Step)
                 {
                     if (Mathf.Abs(lx) > hw + Rag(ly, lx > 0 ? 11 : 17)) continue;
                     float hem = 42f + 6f * Noise(lx * 0.35f + 3f, t * 1.2f) + 2f * Mathf.Sin(t * 2.2f + lx * 0.6f);
@@ -137,65 +157,89 @@ namespace Convergence.Bosses
             for (int s = -1; s <= 1; s += 2)
             {
                 float sx = s * 8, sy = 20, hx = s * 2, hy = 30;
-                int n = Mathf.CeilToInt(Mathf.Sqrt((hx - sx) * (hx - sx) + (hy - sy) * (hy - sy)));
-                float nx = -(hy - sy) / n, ny = (hx - sx) / n;
+                int n0 = Mathf.CeilToInt(Mathf.Sqrt((hx - sx) * (hx - sx) + (hy - sy) * (hy - sy)));
+                float nx = -(hy - sy) / n0, ny = (hx - sx) / n0;
+                int n = n0 * Fine;
                 for (int k = 0; k <= n; k++)
                 {
                     float u = k / (float)n, x = sx + (hx - sx) * u, y = sy + (hy - sy) * u, wdt = 1.5f + u * 2.5f;
-                    for (float d = -wdt; d <= wdt; d += 0.5f)
-                        Put(Mathf.RoundToInt(x + nx * d), Mathf.RoundToInt(y + ny * d), d * s > wdt - 0.9f ? Smoke[5] : Smoke[u > 0.75f ? 4 : 3]);
+                    for (float d = -wdt; d <= wdt; d += 0.5f * Step)
+                        for (float e = -0.5f; e <= 0.5f; e += Step)
+                            Put(x + nx * d - ny * e * 0.5f, y + ny * d + nx * e * 0.5f, d * s > wdt - 0.9f ? Smoke[5] : Smoke[u > 0.75f ? 4 : 3]);
                 }
             }
             // the mantle over the shoulders, its lower edge torn into points
-            float Mb(int lx) => 25f - Mathf.Abs(((lx + 40) % 5) - 2) * 1.6f + Rag(lx, 23, 2.5f) - Mathf.Abs(lx) * 0.1f;
-            for (int ly = 11; ly <= 30; ly++)
+            float Mb(float lx) => 25f - Mathf.Abs(Mathf.Repeat(lx + 40f, 5f) - 2f) * 1.6f + Rag(lx, 23, 2.5f) - Mathf.Abs(lx) * 0.1f;
+            for (float ly = 11; ly <= 30; ly += Step)
             {
                 float hw = Mathf.Min(10f, 6.5f + (ly - 11) * 0.9f);
-                for (int lx = -15; lx <= 15; lx++)
+                for (float lx = -15; lx <= 15; lx += Step)
                 {
                     float mb = Mb(lx);
                     if (Mathf.Abs(lx) > hw + Rag(ly, lx > 0 ? 31 : 37) * 0.6f || ly > mb) continue;
                     Put(lx, ly, ly > mb - 1f ? Smoke[4] : Shade(2.8f, lx, ly, hw));
                 }
             }
-            for (int lx = -12; lx <= 12; lx++) { int y = Mathf.FloorToInt(Mb(lx)) + 1; if (Has(lx, y)) Put(lx, y, Smoke[5]); }
+            for (float lx = -12; lx <= 12; lx += Step) { float y = Mathf.Floor(Mb(lx) * Fine) / Fine + Step; if (Has(lx, y)) Put(lx, y, Smoke[5]); }
             // the hood, peaked
             float[] hood = { 3, 4, 5, 5.5f, 6, 6.5f, 6.5f, 7, 7, 7, 7, 7, 7, 6.5f, 6 };
-            for (int ly = -4; ly <= 14; ly++)
+            for (float ly = -4; ly <= 14; ly += Step)
             {
-                float hh = ly < 0 ? 1f + (ly + 4) * 0.5f : hood[ly];
-                int sh = ly < 4 ? 1 : 0;
-                for (int lx = -9; lx <= 9; lx++) if (Mathf.Abs(lx - sh) <= hh) Put(lx, ly, Shade(2.4f, lx, ly, hh));
+                // the hood's profile, eased between its rows (a whole-texel table at body density)
+                float HoodAt(float y) { if (y < 0) return 1f + (y + 4) * 0.5f; int a = Mathf.Clamp(Mathf.FloorToInt(y), 0, hood.Length - 1), b = Mathf.Min(hood.Length - 1, a + 1); return Mathf.Lerp(hood[a], hood[b], y - Mathf.Floor(y)); }
+                float hh = Fine == 1 ? (ly < 0 ? 1f + (ly + 4) * 0.5f : hood[(int)ly]) : HoodAt(ly);
+                float sh = ly < 4 ? 1 : 0;
+                for (float lx = -9; lx <= 9; lx += Step) if (Mathf.Abs(lx - sh) <= hh) Put(lx, ly, Shade(2.4f, lx, ly, hh));
             }
             // the opening: no face, only the dark, the inner edge catching its light. Turned away,
             // the back of the hood.
             if (!o.TurnedAway)
-                for (int ly = 3; ly <= 14; ly++)
-                    for (int lx = -6; lx <= 6; lx++)
+                for (float ly = 3; ly <= 14; ly += Step)
+                    for (float lx = -6; lx <= 6; lx += Step)
                     {
                         float d = Mathf.Sqrt(((lx - 0.5f) / 4.6f) * ((lx - 0.5f) / 4.6f) + ((ly - 8.8f) / 5.2f) * ((ly - 8.8f) / 5.2f));
                         if (d >= 1f && d < 1.25f && Has(lx, ly)) Put(lx, ly, Smoke[ly < 9 ? 1 : 2]);
                         if (d < 1f) Put(lx, ly, Void);   // no inner glow: a lit lower rim read as a mouth
                     }
             else
-                for (int ly = 2; ly <= 12; ly++) Put(Mathf.RoundToInt(Mathf.Sin(ly * 0.6f) * 0.6f) + (ly < 4 ? 1 : 0), ly, Smoke[4]);
+                for (float ly = 2; ly <= 12; ly += Step) for (float e = -0.5f; e < 0.5f; e += Step) Put(Mathf.Sin(ly * 0.6f) * 0.6f + (ly < 4 ? 1 : 0) + e, ly, Smoke[4]);
             // worn through: its light shows faintly where the smoke wears thin
-            for (int ly = 16; ly < 34; ly++)
-                for (int lx = GL; lx <= GR; lx++)
+            for (float ly = 16; ly < 34; ly += Step)
+                for (float lx = GL; lx <= GR; lx += Step)
                     if (Has(lx, ly) && Noise(lx * 0.5f + 11f, ly * 0.5f - t * 0.6f) > 0.86f) Put(lx, ly, Smoke[1]);
+            // at the fine grid, thin strands of smoke churning up through the robe and mantle: the
+            // noise's contour lines, one lit, one dark, rising with the clock
+            if (Fine > 1)
+                for (float ly = 12; ly < 46; ly += Step)
+                    for (float lx = GL; lx <= GR; lx += Step)
+                    {
+                        if (!Has(lx, ly)) continue;
+                        float n = Noise(lx * 0.26f + 31f + Mathf.Sin(ly * 0.2f + t) * 0.4f, ly * 0.15f + t * 0.9f);
+                        if (Mathf.Abs(n - 0.5f) < 0.022f) Put(lx, ly, Smoke[ly > 34 ? 3 : 2]);
+                        else if (Mathf.Abs(n - 0.68f) < 0.018f) Put(lx, ly, Smoke[5]);
+                    }
 
             // smoke peeling off the shoulders and hood: thin curls rising behind
             int[,] peel = { { -7, 3 }, { 7, 4 }, { -12, 13 }, { 12, 14 }, { -14, 19 }, { 14, 20 }, { -5, 0 }, { 9, 9 } };
             for (int k = 0; k < 8; k++)
             {
                 float P = 1.6f + Hash(k, 41) * 0.8f, ph = Mathf.Repeat(t + Hash(k, 42) * P, P) / P;
-                int len = 9 + (int)(Hash(k, 43) * 6f), x0 = peel[k, 0], y0 = peel[k, 1];
+                int len = (9 + (int)(Hash(k, 43) * 6f)) * (Fine == 1 ? 1 : Fine * 2), x0 = peel[k, 0], y0 = peel[k, 1];
                 for (int i = 0; i < len; i++)
                 {
                     float u = i / (float)len, life = ph - u * 0.6f;
                     if (life < 0f || life > 0.75f) continue;
                     float lx = x0 + Mathf.Sign(x0) * (u * 3f + Mathf.Sin(u * 5f + t * 2f + k) * 1.6f), ly = y0 - u * 14f - ph * 4f;
-                    _behind.Add((Mathf.RoundToInt(lx), Mathf.RoundToInt(ly), Smoke[1 + Mathf.FloorToInt(u * 3f)], (1f - u) * (1f - life) * 0.95f));
+                    var c = Smoke[1 + Mathf.FloorToInt(u * 3f)]; float a = (1f - u) * (1f - life) * 0.95f;
+                    if (Fine == 1) _behind.Add((Mathf.RoundToInt(lx), Mathf.RoundToInt(ly), c, a, false));
+                    else
+                    {
+                        // a fine curl, two texels thick at the root and one at the tip, a second wisp
+                        // curling off it
+                        _behind.Add((lx, ly, c, a, true));
+                        if (u < 0.45f) _behind.Add((lx + Step, ly, c, a, true));
+                        if (u > 0.3f) _behind.Add((lx - Mathf.Sign(x0) * (Mathf.Sin(u * 9f + t * 3f + k) * 1.2f + 0.8f), ly + 1.2f, Smoke[2 + Mathf.FloorToInt(u * 2.99f)], a * 0.6f, true));
+                    }
                 }
             }
             // streamers trailing off the hem
@@ -204,26 +248,29 @@ namespace Convergence.Bosses
                 int lx0 = -12 + Mathf.RoundToInt((k + 0.5f) / 6f * 24f), ly0 = -1;
                 for (int ly = Height; ly > 28; ly--) if (Has(lx0, ly)) { ly0 = ly; break; }
                 if (ly0 < 0) continue;
-                const int len = 18;
-                for (int i = 0; i <= len; i++)
+                int len = 18 * Fine;
+                for (int ii = 0; ii <= len; ii++)
                 {
-                    float u = i / (float)len, x = lx0 + i * 0.8f + Mathf.Sin(i * 0.4f - t * 5f + k) * 1.6f * u;
+                    float i = ii / (float)Fine, u = ii / (float)len, x = lx0 + i * 0.8f + Mathf.Sin(i * 0.4f - t * 5f + k) * 1.6f * u;
                     float y = ly0 - 1 + Mathf.Min(i, 5) * 0.5f + Mathf.Sin(i * 0.3f + k) * u;
-                    for (int d = 0; d <= (1f - u) * 1.8f; d++) _over.Add((Mathf.RoundToInt(x), Mathf.RoundToInt(y + d), Smoke[2 + Mathf.FloorToInt(u * 2.99f)], 1f - u * 0.6f));
+                    var c = Smoke[2 + Mathf.FloorToInt(u * 2.99f)];
+                    if (Fine == 1) { for (int d = 0; d <= (1f - u) * 1.8f; d++) _over.Add((Mathf.RoundToInt(x), Mathf.RoundToInt(y + d), c, 1f - u * 0.6f, false)); continue; }
+                    for (float d = 0; d <= (1f - u) * 1.8f; d += Step) _over.Add((x, y + d, c, 1f - u * 0.6f, true));
                 }
             }
 
             // ---- out to the canvas, through the moment's warp ----
             System.Array.Clear(_outA, 0, _outA.Length);
-            bool Warp(int lx, int ly, out float wx, out float wy, out float wa)
+            bool Warp(float lx, float ly, out float wx, out float wy, out float wa)
             {
                 wx = lx; wy = ly; wa = 1f;
                 if (o.Death > 0f)
                 {
                     float k = o.Death;
                     if (ly < 14) { float f = Mathf.Clamp01((k - 0.55f) / 0.45f); if (f >= 1f) return false; wx = lx + f * 4f; wy = ly + f * 32f; wa = 1f - f * 0.6f; return true; }
-                    float sp = 0.4f + Hash(lx, 9) * 1.2f;
-                    if (Hash(lx, ly, 2) < k * 1.1f - 0.15f) return false;
+                    int hx = Mathf.RoundToInt(lx), hy = Mathf.RoundToInt(ly);
+                    float sp = 0.4f + Hash(hx, 9) * 1.2f;
+                    if (Hash(hx, hy, 2) < k * 1.1f - 0.15f) return false;
                     wx = lx + Mathf.Sin(ly * 0.3f + t * 4f) * k * 3f; wy = ly - k * k * 40f * sp; wa = 1f - k * 0.5f; return true;
                 }
                 if (o.Blink > 0f)
@@ -244,35 +291,46 @@ namespace Convergence.Bosses
             }
             int CX(float wx) => ox + Mathf.RoundToInt(wx);
             int CY(float wy) => Hover + Mathf.RoundToInt(Height - wy);
+            // the fine canvas texel for a body point (y up on the canvas)
+            int FXc(float wx) => (ox * Fine) + Mathf.FloorToInt((wx + 0.5f) * Fine);
+            int FYc(float wy) => (Hover + Height) * Fine + (Fine - 1) - Mathf.FloorToInt((wy + 0.5f) * Fine);
             Color32 Tint(Color32 c) => tint > 0f ? Color32.Lerp(c, Red[4], tint) : c;
 
-            foreach (var (lx, ly, c, a) in _behind)
-                if (Warp(lx, ly, out var wx, out var wy, out var wa)) Over(CX(wx), CY(wy), Tint(c), a * wa * alpha);
+            void Lay((float x, float y, Color32 c, float a, bool fine) e)
+            {
+                if (!Warp(e.x, e.y, out var wx, out var wy, out var wa)) return;
+                if (e.fine) Over(FXc(wx), FYc(wy), Tint(e.c), e.a * wa * alpha);
+                else OverB(CX(wx), CY(wy), Tint(e.c), e.a * wa * alpha);
+            }
+            foreach (var e in _behind) Lay(e);
 
             // the guard's back halves, behind the body
             Guard(o, ox, false, alpha);
 
-            for (int ly = GT; ly <= GB; ly++)
-                for (int lx = GL; lx <= GR; lx++)
+            for (int fy = 0; fy < FH; fy++)
+                for (int fx = 0; fx < FW; fx++)
                 {
-                    int i = (ly - GT) * GW + (lx - GL);
+                    int i = fy * FW + fx;
+                    float lx = (fx + 0.5f) / Fine - 0.5f + GL, ly = (fy + 0.5f) / Fine - 0.5f + GT;
                     if (!_has[i] || !Warp(lx, ly, out var wx, out var wy, out var wa)) continue;
-                    int x = Cx + CX(wx), y = Cy + CY(wy);
+                    int x = Cx + FXc(wx), y = Cy + FYc(wy);
                     if (x < 0 || y < 0 || x >= W || y >= H) continue;
                     _out[y * W + x] = _cloth[i]; _outA[y * W + x] = wa * _clothA[i];
                 }
-            // the outline, round every solid texel
-            for (int y = 1; y < H - 1; y++)
-                for (int x = 1; x < W - 1; x++)
+            // the outline, round every solid texel: one body texel thick
+            for (int y = Fine; y < H - Fine; y++)
+                for (int x = Fine; x < W - Fine; x++)
                 {
                     if (_outA[y * W + x] > 0f) continue;
-                    bool next = _outA[y * W + x + 1] > 0.85f || _outA[y * W + x - 1] > 0.85f || _outA[(y + 1) * W + x] > 0.85f || _outA[(y - 1) * W + x] > 0.85f;
+                    bool next = false;
+                    for (int dy = -Fine; dy <= Fine && !next; dy++)
+                        for (int dx = -Fine; dx <= Fine; dx++)
+                            if ((dx != 0 || dy != 0) && Mathf.Abs(dx) + Mathf.Abs(dy) <= Fine && _outA[(y + dy) * W + x + dx] > 0.85f) { next = true; break; }
                     if (next) Over(x - Cx, y - Cy, K, 0.9f * alpha);
                 }
             for (int i = 0; i < _outA.Length; i++)
                 if (_outA[i] > 0f) Over(i % W - Cx, i / W - Cy, Tint(_out[i]), _outA[i] * alpha);
-            foreach (var (lx, ly, c, a) in _over)
-                if (Warp(lx, ly, out var wx, out var wy, out var wa)) Over(CX(wx), CY(wy), Tint(c), a * wa * alpha);
+            foreach (var e in _over) Lay(e);
 
             Guard(o, ox, true, alpha);
 
@@ -284,8 +342,8 @@ namespace Convergence.Bosses
                     for (int dx = -r - 1; dx <= r + 1; dx++)
                     {
                         int m = Mathf.Abs(dx) + Mathf.Abs(dy);
-                        if (m == r + 1) Over(ox + dx, hy + dy, K, alpha);
-                        else if (m <= r) Over(ox + dx, hy + dy, TexelFx.Gold[m > r - 1 ? 2 : o.HeartBeat ? 0 : 1], alpha);
+                        if (m == r + 1) OverB(ox + dx, hy + dy, K, alpha);
+                        else if (m <= r) OverB(ox + dx, hy + dy, TexelFx.Gold[m > r - 1 ? 2 : o.HeartBeat ? 0 : 1], alpha);
                     }
             }
 
@@ -298,7 +356,7 @@ namespace Convergence.Bosses
                     float r = 3f + u * 9f, cy = 6f - u * 10f;
                     for (float a = 0f; a < 6.283f; a += 0.12f)
                         if (Mathf.Sin(a) < 0.2f || u < 0.3f)
-                            Over(CX(1f + Mathf.Cos(a) * r), CY(cy + Mathf.Sin(a) * r * 0.35f), Ember[1 + Mathf.FloorToInt(u * 2.99f)], (1f - u * 0.6f) * alpha);
+                            OverB(CX(1f + Mathf.Cos(a) * r), CY(cy + Mathf.Sin(a) * r * 0.35f), Ember[1 + Mathf.FloorToInt(u * 2.99f)], (1f - u * 0.6f) * alpha);
                 }
         }
 
@@ -313,7 +371,7 @@ namespace Convergence.Bosses
                 float since = CutSince(i);
                 if (since > 0.3f) continue;
                 float ly = 16f + i * step, rx = 13f + (i % 2), ry = 2.5f;
-                for (float a = 0f; a < 6.283f; a += 0.05f)
+                for (float a = 0f; a < 6.283f; a += 0.05f / Fine)
                 {
                     float s = Mathf.Sin(a + t * 2f + i);
                     if ((s > 0f) != front) continue;
@@ -321,9 +379,12 @@ namespace Convergence.Bosses
                     // smoke, not a band: broken into wisps that drift round, tilted a little
                     if (Hash(Mathf.FloorToInt((a + t * 0.7f) * 6f), i, 7) < 0.35f) continue;
                     float fall = since >= 0f ? since * 20f : 0f, c = Mathf.Cos(a + t * 2f + i);
-                    int x = ox + Mathf.RoundToInt(c * rx);
-                    int y = Hover + Mathf.RoundToInt(Height - (ly + s * ry + c * (i % 2 == 0 ? 1.2f : -1.2f) + fall));
-                    Over(x, y, front ? Smoke[0] : Smoke[2], (front ? 0.8f : 0.5f) * (since >= 0f ? 1f - since * 3f : 1f) * alpha);
+                    float wy = ly + s * ry + c * (i % 2 == 0 ? 1.2f : -1.2f) + fall, fa = (front ? 0.8f : 0.5f) * (since >= 0f ? 1f - since * 3f : 1f) * alpha;
+                    if (Fine == 1) { OverB(ox + Mathf.RoundToInt(c * rx), Hover + Mathf.RoundToInt(Height - wy), front ? Smoke[0] : Smoke[2], fa); continue; }
+                    // fine: a thread of smoke with a fainter one trailing under it, frayed apart in places
+                    int fx = ox * Fine + Mathf.FloorToInt((c * rx + 0.5f) * Fine), fy = (Hover + Height) * Fine + (Fine - 1) - Mathf.FloorToInt((wy + 0.5f) * Fine);
+                    Over(fx, fy, front ? Smoke[0] : Smoke[2], fa);
+                    if (Hash(Mathf.FloorToInt((a - t * 0.5f) * 20f), i, 8) > 0.3f) Over(fx, fy - 1, front ? Smoke[1] : Smoke[3], fa * 0.6f);
                 }
             }
         }
@@ -366,7 +427,8 @@ namespace Convergence.Bosses
         {
             var go = new GameObject("wreathe.death");
             go.transform.position = at;
-            var p = Attach<WreatheDeath>(go.transform, "figure", Vector2.zero, 34, 6, 64, 0);
+            var p = Attach<WreatheDeath>(go.transform, "figure", Vector2.zero, 34 * Tuning.Boss.FigureFine, 6 * Tuning.Boss.FigureFine, 64 * Tuning.Boss.FigureFine, 0, TexelFx.Body * Tuning.Boss.FigureFine);
+            p.UseFine(Tuning.Boss.FigureFine);
             DepthSorted.Attach(go, 0f, false, p.GetComponent<SpriteRenderer>());
             Destroy(go, Seconds + 0.2f);
         }

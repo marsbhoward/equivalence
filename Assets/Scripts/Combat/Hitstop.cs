@@ -19,6 +19,7 @@ namespace Convergence.Combat
     {
         static GameObject _player;
         static float _remaining;
+        static float _playerHitAt = -999f;   // unscaled; the player-hit freeze's cooldown
 
         /// <summary>True while a freeze is still running - read by GamePause.Release so a screen
         /// closing under a hitstop doesn't cut it short.</summary>
@@ -45,6 +46,39 @@ namespace Convergence.Combat
             if (!info.IsFinisher) return;   // basics carry no hitstop - see Tuning.Hitstop
             if (info.SuppressHitstop) return;   // e.g. the katana sequence's pre-cuts
             Trigger(info.Crit ? Tuning.Hitstop.CritFinisherSeconds : Tuning.Hitstop.FinisherSeconds);
+        }
+
+        /// <summary>
+        /// Subscribe the PLAYER's body: a big enough blow from an enemy freezes the game (see
+        /// Tuning.Hitstop.PlayerHitSeconds). <paramref name="fromEnemy"/> is the ledger's own test
+        /// (Exchange.RunEffects.FromEnemy), passed in so Combat stays ignorant of the ledger.
+        /// </summary>
+        public static void AttachPlayer(Health hp, System.Func<DamageInfo, bool> fromEnemy)
+        {
+            hp.Damaged += info =>
+            {
+                if (hp == null || info.Amount <= 0f || info.Tick || info.Price) return;
+                if (fromEnemy != null && !fromEnemy(info)) return;
+                if (info.Amount < hp.Max * Tuning.Hitstop.PlayerHitShare) return;
+                TriggerPlayerHit(info.Source);
+            };
+        }
+
+        /// <summary>The player-hit freeze and its camera kick - from AttachPlayer, and from
+        /// GameBootstrap when a blow breaks the floor's last plate. Rate-limited, and never
+        /// lengthens or follows straight on another freeze.</summary>
+        public static void TriggerPlayerHit(GameObject source)
+        {
+            if (_player == null || IsActive) return;
+            float now = Time.unscaledTime;
+            if (now - _playerHitAt < Tuning.Hitstop.PlayerHitCooldown) return;
+            _playerHitAt = now;
+            Trigger(Tuning.Hitstop.PlayerHitSeconds);
+            if (source != null)
+            {
+                Vector2 dir = _player.transform.position - source.transform.position;
+                if (dir.sqrMagnitude > 0.0001f) CameraKick.Kick(dir.normalized, Tuning.Hitstop.PlayerHitKick);
+            }
         }
 
         /// <summary>Called directly by a successful parry - it negates the hit rather than
@@ -80,6 +114,7 @@ namespace Convergence.Combat
         {
             _player = null;
             _remaining = 0f;
+            _playerHitAt = -999f;
         }
     }
 }

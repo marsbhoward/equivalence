@@ -18,6 +18,12 @@ namespace Convergence.UI
     ///
     /// Dismissible - it answers nothing, it just shows the bag - so it carries a BACK button and
     /// closes on Cancel, and its close hands control straight back to the pause menu.
+    ///
+    /// IN THE HUB (<see cref="OpenHub"/>, the user's call 2026-11-02) it shows what the character
+    /// holds - its Rift Boxes and design boxes - and chooses how many Rift Boxes come into the next
+    /// run. Those come in AT RISK, carried like a box found on the run; the rest stay home, safe
+    /// and out of the run's reach (RunLoot.StartBoxes). Reached from the crate's second button and
+    /// the inventory key; the hub's themes, which that button used to open, are a button here.
     /// </summary>
     public class InventoryScreen : MonoBehaviour
     {
@@ -30,15 +36,45 @@ namespace Convergence.UI
         RectTransform _backRect;
         readonly List<RectTransform> _focus = new();
 
+        // ---- the hub's version ----
+        bool _hub;
+        CharacterProfile _profile;
+        System.Func<int> _getBring;
+        System.Action<int> _setBring;
+        System.Action _onThemes;
+        RectTransform _lessRect, _moreRect, _themesRect;
+        Text _bringText, _bringNote;
+
         public void Open(Transform canvas, RunLoot loot, System.Action onClosed = null)
         {
             if (IsOpen) return;
             IsOpen = true;
+            _hub = false;
             _openedFrame = Time.frameCount;
             _loot = loot;
             _onClosed = onClosed;
             GamePause.Hold(this);
             Build(canvas);
+        }
+
+        /// <summary>The hub's inventory: what <paramref name="profile"/> holds, and the Rift Boxes
+        /// it will bring into the next run (<paramref name="getBring"/>/<paramref name="setBring"/>,
+        /// held by GameBootstrap and spent at the run's start).</summary>
+        public void OpenHub(Transform canvas, CharacterProfile profile, System.Func<int> getBring,
+                            System.Action<int> setBring, System.Action onThemes, System.Action onClosed = null)
+        {
+            if (IsOpen || profile == null) return;
+            IsOpen = true;
+            _hub = true;
+            _openedFrame = Time.frameCount;
+            _loot = null;
+            _profile = profile;
+            _getBring = getBring;
+            _setBring = setBring;
+            _onThemes = onThemes;
+            _onClosed = onClosed;
+            GamePause.Hold(this);
+            BuildHub(canvas);
         }
 
         public void Close()
@@ -48,7 +84,11 @@ namespace Convergence.UI
             GamePause.Release(this);
             if (_root) Destroy(_root);
             _root = null;
-            _backRect = null;
+            _backRect = _lessRect = _moreRect = _themesRect = null;
+            _bringText = _bringNote = null;
+            _profile = null;
+            _getBring = null;
+            _setBring = null;
 
             var cb = _onClosed;
             _onClosed = null;
@@ -74,6 +114,7 @@ namespace Convergence.UI
 
             int found = _loot?.FoundBoxes ?? 0;
             int reserve = _loot?.BankedBoxes ?? 0;
+            int home = _loot?.HomeBoxes ?? 0;
             UiKit.Label(UiKit.Rect(full, "s", new Vector2(0, 1), new Vector2(1, 1),
                 new Vector2(0, -140), new Vector2(0, -102)),
                 "what this run is carrying",
@@ -109,8 +150,119 @@ namespace Convergence.UI
 
             // ---- the Rift Boxes held, either side of BACK: the pickup's own picture at menu
             // density, so the box picked up mid-fight is recognisably the one counted here ----
-            BoxCount(full, -620f, found, "FOUND", "lost if you die", new Color(0.95f, 0.62f, 0.55f));
-            BoxCount(full, 300f, reserve, "IN RESERVE", "safe - from earlier runs", new Color(0.62f, 0.92f, 0.68f));
+            BoxCount(full, -620f, found, "CARRIED", "found or brought - lost if you die", new Color(0.95f, 0.62f, 0.55f));
+            BoxCount(full, 300f, reserve, "SECURED", home > 0 ? $"safe - {home} more left at home" : "safe",
+                     new Color(0.62f, 0.92f, 0.68f));
+        }
+
+        // ------------------------------------------------------------------ the hub
+
+        static readonly Color Ink = new(0.82f, 0.85f, 0.92f);
+        static readonly Color Dim = new(0.55f, 0.57f, 0.66f);
+        static readonly Color Risk = new(0.95f, 0.62f, 0.55f);
+        static readonly Color Button = new(0.12f, 0.13f, 0.17f, 1f);
+
+        static readonly Art.Gear.LootTier[] DesignTiers =
+        {
+            Art.Gear.LootTier.Bronze, Art.Gear.LootTier.Silver, Art.Gear.LootTier.Gold,
+            Art.Gear.LootTier.Diamond, Art.Gear.LootTier.BlackDiamond,
+        };
+
+        int Held => Mathf.Max(0, _profile?.RiftBoxes ?? 0);
+        int Bring => Mathf.Clamp(_getBring?.Invoke() ?? 0, 0, Held);
+
+        void BuildHub(Transform canvas)
+        {
+            _root = new GameObject("InventoryScreen", typeof(RectTransform));
+            _root.transform.SetParent(canvas, false);
+            var full = (RectTransform)_root.transform;
+            full.anchorMin = Vector2.zero; full.anchorMax = Vector2.one;
+            full.offsetMin = Vector2.zero; full.offsetMax = Vector2.zero;
+
+            UiKit.Panel(full, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero,
+                new Color(0.04f, 0.04f, 0.055f, 0.97f));
+
+            UiKit.Label(UiKit.Rect(full, "t", new Vector2(0, 1), new Vector2(1, 1),
+                new Vector2(0, -102), new Vector2(0, -44)),
+                "INVENTORY", 42, new Color(0.90f, 0.91f, 0.96f), TextAnchor.MiddleCenter);
+            UiKit.Label(UiKit.Rect(full, "s", new Vector2(0, 1), new Vector2(1, 1),
+                new Vector2(0, -140), new Vector2(0, -102)),
+                $"what {_profile.DisplayName} holds", 18, Dim, TextAnchor.MiddleCenter);
+
+            // ---- the Rift Boxes, and how many come along ----
+            var mid = new Vector2(0.5f, 0.5f);
+            var panel = UiKit.Panel(full, mid, mid, new Vector2(-520, -60), new Vector2(520, 360),
+                new Color(0.09f, 0.09f, 0.12f, 1f));
+            var icon = BoxIcon.Add(panel, Art.BoxArt.Kind.Rift, true, new Vector2(0f, 1f), new Vector2(120f, -190f));
+            if (Held == 0) icon.color = new Color(1f, 1f, 1f, 0.3f);
+            UiKit.Label(UiKit.Rect(panel, "held", new Vector2(0, 1), new Vector2(1, 1),
+                new Vector2(230, -150), new Vector2(-30, -24)),
+                $"RIFT BOXES   x{Held}\n<size=16>Secure past a Rift's capacity, promote a three-star " +
+                "piece, or insure a stake.</size>", 26, Held > 0 ? Ink : Dim, TextAnchor.MiddleLeft)
+                .horizontalOverflow = HorizontalWrapMode.Wrap;
+
+            UiKit.Label(UiKit.Rect(panel, "bh", new Vector2(0, 1), new Vector2(0, 1),
+                new Vector2(230, -260), new Vector2(560, -190)),
+                "BRING INTO THE NEXT RUN", 20, Ink, TextAnchor.MiddleLeft);
+            _lessRect = UiKit.Panel(panel, new Vector2(0, 1), new Vector2(0, 1),
+                new Vector2(580, -290), new Vector2(580 + UiKit.TouchTarget, -290 + UiKit.TouchTarget), Button);
+            UiKit.Label(_lessRect, "-", 30, Ink, TextAnchor.MiddleCenter);
+            _bringText = UiKit.Label(UiKit.Rect(panel, "n", new Vector2(0, 1), new Vector2(0, 1),
+                new Vector2(580 + UiKit.TouchTarget, -290), new Vector2(700 + UiKit.TouchTarget, -290 + UiKit.TouchTarget)),
+                "", 30, Risk, TextAnchor.MiddleCenter);
+            _moreRect = UiKit.Panel(panel, new Vector2(0, 1), new Vector2(0, 1),
+                new Vector2(700 + UiKit.TouchTarget, -290), new Vector2(700 + 2 * UiKit.TouchTarget, -290 + UiKit.TouchTarget), Button);
+            UiKit.Label(_moreRect, "+", 30, Ink, TextAnchor.MiddleCenter);
+            _bringNote = UiKit.Label(UiKit.Rect(panel, "bn", new Vector2(0, 0), new Vector2(1, 0),
+                new Vector2(30, 14), new Vector2(-30, 116)), "", 16, Dim, TextAnchor.MiddleCenter);
+            _bringNote.horizontalOverflow = HorizontalWrapMode.Wrap;
+            RefreshBring();
+
+            // ---- the design boxes held, a row under it ----
+            UiKit.Label(UiKit.Rect(full, "dh", mid, mid, new Vector2(-520, -110), new Vector2(520, -70)),
+                "BOXES", 20, Dim, TextAnchor.MiddleCenter);
+            for (int i = 0; i < DesignTiers.Length; i++)
+            {
+                var tier = DesignTiers[i];
+                int n = _profile.Boxes?.Get(tier) ?? 0;
+                float x = (i - (DesignTiers.Length - 1) * 0.5f) * 200f;
+                var img = BoxIcon.Add(full, BoxIcon.KindOf(tier), true, mid, new Vector2(x, -270f));
+                if (n == 0) img.color = new Color(1f, 1f, 1f, 0.3f);
+                UiKit.Label(UiKit.Rect(full, "dn", mid, mid, new Vector2(x - 90, -315), new Vector2(x + 90, -275)),
+                    $"x{n}", 22, n > 0 ? CharacterScreen.TierColor(tier) : Dim, TextAnchor.MiddleCenter);
+            }
+
+            // ---- hub themes and back ----
+            if (_onThemes != null)
+            {
+                _themesRect = UiKit.Panel(full, new Vector2(0.5f, 0), new Vector2(0.5f, 0),
+                    new Vector2(-420, 36), new Vector2(-20, 36 + UiKit.TouchTarget), Button);
+                UiKit.Label(_themesRect, "HUB THEMES", 22, Ink, TextAnchor.MiddleCenter);
+            }
+            float bx = _onThemes != null ? 220f : 0f;
+            _backRect = UiKit.Panel(full, new Vector2(0.5f, 0), new Vector2(0.5f, 0),
+                new Vector2(bx - 200, 36), new Vector2(bx + 200, 36 + UiKit.TouchTarget), Button);
+            UiKit.Label(_backRect, "BACK", 22, Ink, TextAnchor.MiddleCenter);
+        }
+
+        void RefreshBring()
+        {
+            int n = Bring;
+            if (_bringText) _bringText.text = n.ToString();
+            if (_bringNote)
+                _bringNote.text = Held == 0
+                    ? "None held. They drop from enemies on a run."
+                    : n == 0
+                        ? "All stay home, safe. The run can't spend them."
+                        : $"{n} come in carried, as if found: lost on a death unless secured or extracted. " +
+                          $"{Held - n} stay home, safe.";
+        }
+
+        void Step(int by)
+        {
+            int n = Mathf.Clamp(Bring + by, 0, Held);
+            _setBring?.Invoke(n);
+            RefreshBring();
         }
 
         static void BoxCount(RectTransform parent, float x, int count, string title, string note, Color ink)
@@ -207,14 +359,28 @@ namespace Convergence.UI
             if (Time.frameCount == _openedFrame) return;
 
             _focus.Clear();
+            if (_lessRect) _focus.Add(_lessRect);
+            if (_moreRect) _focus.Add(_moreRect);
+            if (_themesRect) _focus.Add(_themesRect);
             if (_backRect) _focus.Add(_backRect);
             Core.Controls.SetFocusCandidates(_focus);
 
             if (Core.Controls.CancelTapped || Core.Controls.InventoryTapped) { Close(); return; }
 
             if (!Core.Controls.Tapped(out var p)) return;
-            if (_backRect && RectTransformUtility.RectangleContainsScreenPoint(_backRect, p, null))
+            bool Hit(RectTransform r) => r && RectTransformUtility.RectangleContainsScreenPoint(r, p, null);
+            if (Hit(_backRect)) { Close(); return; }
+            if (!_hub) return;
+            if (Hit(_lessRect)) Step(-1);
+            else if (Hit(_moreRect)) Step(1);
+            else if (Hit(_themesRect))
+            {
+                // The themes open over the room, as they did from the crate - this screen closes first.
+                var themes = _onThemes;
+                _onClosed = null;
                 Close();
+                themes?.Invoke();
+            }
         }
     }
 }
