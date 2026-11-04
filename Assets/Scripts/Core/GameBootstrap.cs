@@ -661,7 +661,7 @@ namespace Convergence.Core
             if (web && string.IsNullOrEmpty(resumed)) resumed = await Chain.Web.ItchSignIn.ResumeAsync();
             string[] wallets = web ? await Chain.Web.ChainWallet.ListAsync() : Array.Empty<string>();
             bool returning = !StoreFactory.UsingService || !string.IsNullOrEmpty(Chain.Service.ServiceIdentity.GuestToken);
-            bool walletsOpen = false;
+            bool walletsOpen = false;   // a wallet that did not connect comes back to the list
 
             // Not `??`: a missing component comes back as Unity's fake null, which `??` keeps.
             var title = gameObject.GetComponent<UI.TitleScreen>();
@@ -682,12 +682,13 @@ namespace Convergence.Core
                     options.Add(new UI.TitleScreen.Option(returning ? "CONTINUE" : "NEW GAME",
                         returning ? "this browser's characters" : "no sign-in needed", true));
                     acts.Add("guest");
-                    // The sign-ins side by side (the user's call, 2026-11-04): ONE wallet button, whose tap
-                    // opens the wallets in a row beneath, and itch.io.
+                    // The sign-ins side by side (the user's calls, 2026-11-04): ONE wallet button and itch.io.
+                    // The wallets are only ever shown once CARDANO WALLET is tapped - the title swaps the
+                    // choices for their list itself (UI.TitleScreen, pick C).
                     if (wallets.Length > 0)
                     {
-                        options.Add(new UI.TitleScreen.Option(walletsOpen ? "CARDANO WALLET  -" : "CARDANO WALLET  +",
-                            walletsOpen ? "pick yours below" : $"{wallets.Length} found in this browser", side: true));
+                        options.Add(new UI.TitleScreen.Option("CARDANO WALLET",
+                            $"{wallets.Length} found in this browser", side: true, opens: true));
                         acts.Add("wallets");
                     }
                     if (Chain.Web.ItchSignIn.Offered)
@@ -695,16 +696,16 @@ namespace Convergence.Core
                         options.Add(new UI.TitleScreen.Option("ITCH.IO", "your itch account", side: true));
                         acts.Add("itch");
                     }
-                    if (walletsOpen)
-                        foreach (var w in wallets)
-                        {
-                            options.Add(new UI.TitleScreen.Option(Chain.Web.ChainWallet.Label(w),
-                                w == Chain.Web.ChainWallet.AppWallet ? "Eternl, VESPR or another" : "", wallet: true));
-                            acts.Add(w);
-                        }
+                    foreach (var w in wallets)
+                    {
+                        options.Add(new UI.TitleScreen.Option(Chain.Web.ChainWallet.Label(w),
+                            w == Chain.Web.ChainWallet.AppWallet ? "Eternl, VESPR or another" : "", wallet: true));
+                        acts.Add(w);
+                    }
                 }
 
-                int pick = await title.ChooseAsync(_canvas.transform, options, status);
+                int pick = await title.ChooseAsync(_canvas.transform, options, status, walletsOpen);
+                walletsOpen = false;
                 string act = acts[Mathf.Clamp(pick, 0, acts.Count - 1)];
                 if (act == "resume") break;
                 if (act == "guest")
@@ -718,7 +719,6 @@ namespace Convergence.Core
                     }
                     break;
                 }
-                if (act == "wallets") { walletsOpen = !walletsOpen; status = ""; continue; }
                 if (act == "itch")
                 {
                     // The page is left for itch.io's consent page; the game boots again on return.
@@ -741,6 +741,7 @@ namespace Convergence.Core
                 }, busy: true));
                 if (!string.IsNullOrEmpty(address)) { resumed = address; break; }
                 status = $"{(app ? "The wallet app" : act)} did not connect. Try again, or play as a guest.";
+                walletsOpen = true;
             }
             title.Close();
             return resumed;

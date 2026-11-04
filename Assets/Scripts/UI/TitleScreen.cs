@@ -28,16 +28,27 @@ namespace Convergence.UI
         public struct Option
         {
             public string Label, Detail;
-            public bool Primary, Wallet, Side;
+            public bool Primary, Wallet, Side, Opens;
             /// <param name="side">Laid in one row with its neighbours that are also `side` - the
             /// sign-ins, CARDANO WALLET beside ITCH.IO.</param>
-            public Option(string label, string detail, bool primary = false, bool wallet = false, bool side = false)
-            { Label = label; Detail = detail; Primary = primary; Wallet = wallet; Side = side; }
+            /// <param name="opens">Opens the WALLET LIST in place of the choices instead of answering
+            /// (CARDANO WALLET; the user's pick C, 2026-11-04): the choices fade, the wallets come in
+            /// as a list under its heading with BACK last. Wallet options are only ever shown there.</param>
+            public Option(string label, string detail, bool primary = false, bool wallet = false, bool side = false,
+                          bool opens = false)
+            { Label = label; Detail = detail; Primary = primary; Wallet = wallet; Side = side; Opens = opens; }
         }
 
         // ---- the layout (canvas units; the mock's proportions at 1920 wide) ----
         const float MarkW = 422f, Pad = 154f, BelowMark = 135f, WaysW = 576f;
         const float PrimaryH = 100f, SecondaryH = 80f, WalletH = 74f, Gap = 18f;
+        /// <summary>The wallet list (pick C): its heading, a wallet's row (tighter past three), BACK.</summary>
+        const float ListHeadH = 56f, ListRowH = 60f, ListRowTightH = 50f, ListGap = 10f, BackH = 50f;
+        /// <summary>Wallets from which the list is two columns.</summary>
+        const int ListColumnsFrom = 5;
+        /// <summary>The swap between the choices and the wallet list: the one fades out over the first
+        /// half, the other comes in over the second, a row after a row (<see cref="SwapStagger"/>).</summary>
+        const float SwapSeconds = 0.5f, SwapStagger = 0.08f, SwapRise = 14f;
         const float SigilScale = 1.55f;
         /// <summary>One turn of the ring when a choice is taken; the answer waits for it.</summary>
         const float SpinSeconds = 0.9f;
@@ -65,6 +76,15 @@ namespace Convergence.UI
         RectTransform _ring;
         RawImage _rings, _glow;
         readonly List<RectTransform> _buttons = new();
+        /// <summary>The wallet list's rows - its heading first, BACK last - each faded in on its own.</summary>
+        readonly List<RectTransform> _listRows = new();
+        readonly List<RectTransform> _listButtons = new();
+        readonly List<float> _listRowY = new();
+        CanvasGroup _restGroup, _listGroup;
+        RectTransform _back;
+        int _opensIndex = -1;
+        bool _listOpen, _statusShown;
+        float _swapT = 1f;
         TaskCompletionSource<int> _answer;
         int _openedFrame, _picked = -1;
         float _spinT = -1f, _angle;
@@ -87,9 +107,14 @@ namespace Convergence.UI
         float _gust;
 
         /// <summary>Show (or re-show) the choices and wait for one; the answer is its index.</summary>
-        public Task<int> ChooseAsync(Transform canvas, IList<Option> options, string status = "")
+        /// <param name="walletsOpen">Open on the wallet list (a wallet that did not connect comes back to it).</param>
+        public Task<int> ChooseAsync(Transform canvas, IList<Option> options, string status = "", bool walletsOpen = false)
         {
             Build(canvas, options);
+            _listOpen = walletsOpen && _opensIndex >= 0;
+            _swapT = 1f;
+            ApplySwap();
+            if (_foot != null) _foot.SetActive(!_statusShown && !_listOpen);
             SetStatus(status);
             _busy = false;
             _picked = -1;
@@ -103,9 +128,13 @@ namespace Convergence.UI
         {
             _busy = busy;
             if (_status != null) _status.text = text ?? "";
-            // The footer steps aside while there is something to say - the two share the bottom.
-            if (_foot != null) _foot.SetActive(string.IsNullOrEmpty(text));
+            // The footer steps aside while there is something to say - the two share the bottom - and
+            // while the wallet list is open, which reaches down to it.
+            _statusShown = !string.IsNullOrEmpty(text);
+            if (_foot != null) _foot.SetActive(!_statusShown && !_listOpen);
             foreach (var b in _buttons)
+                if (b != null && b.TryGetComponent<CanvasGroup>(out var g)) g.alpha = busy ? 0.4f : 1f;
+            foreach (var b in _listButtons)
                 if (b != null && b.TryGetComponent<CanvasGroup>(out var g)) g.alpha = busy ? 0.4f : 1f;
         }
 
@@ -115,6 +144,9 @@ namespace Convergence.UI
             if (_root) Destroy(_root);
             _root = null;
             _buttons.Clear();
+            _listButtons.Clear();
+            _listRows.Clear();
+            _listRowY.Clear();
         }
 
         // ------------------------------------------------------------------ building
@@ -123,6 +155,11 @@ namespace Convergence.UI
         {
             if (_root) Destroy(_root);
             _buttons.Clear();
+            _listButtons.Clear();
+            _listRows.Clear();
+            _listRowY.Clear();
+            _opensIndex = -1;
+            _back = null;
             IsOpen = true;
             _openedFrame = Time.frameCount;
 
@@ -160,25 +197,64 @@ namespace Convergence.UI
             // The ways in, stacked in the order given, starting below the sigil's bottom ring. A run of
             // wallets is one row where it stands - under the CARDANO WALLET button that opened it
             // (GameBootstrap.ChooseAtTitleAsync; the user's call, 2026-11-04).
-            float y = Pad + markH + BelowMark;
+            float top = Pad + markH + BelowMark, y = top;
+            var rest = Group(full, "choices", out _restGroup);
+            var list = Group(full, "wallets", out _listGroup);
+            var walletIdx = new List<int>();
             for (int i = 0; i < options.Count; i++)
             {
-                bool wallet = options[i].Wallet;
-                if (wallet || options[i].Side)
+                if (options[i].Wallet) { walletIdx.Add(i); continue; }
+                if (options[i].Opens) _opensIndex = i;
+                if (options[i].Side)
                 {
                     int end = i;
-                    while (end + 1 < options.Count && (wallet ? options[end + 1].Wallet : options[end + 1].Side)) end++;
+                    while (end + 1 < options.Count && options[end + 1].Side) end++;
                     int n = end - i + 1;
-                    float w = (WaysW - Gap * (n - 1)) / n, rowH = wallet ? WalletH : SecondaryH;
+                    float w = (WaysW - Gap * (n - 1)) / n;
                     for (int k = 0; k < n; k++)
-                        Button(full, i + k, options[i + k], -WaysW * 0.5f + k * (w + Gap), y, w, rowH);
-                    y += rowH + Gap;
+                    {
+                        if (options[i + k].Opens) _opensIndex = i + k;
+                        Button(rest, i + k, options[i + k], -WaysW * 0.5f + k * (w + Gap), y, w, SecondaryH);
+                    }
+                    y += SecondaryH + Gap;
                     i = end;
                     continue;
                 }
                 float h = options[i].Primary ? PrimaryH : SecondaryH;
-                Button(full, i, options[i], -WaysW * 0.5f, y, WaysW, h);
+                Button(rest, i, options[i], -WaysW * 0.5f, y, WaysW, h);
                 y += h + Gap;
+            }
+
+            // THE WALLET LIST (pick C): the heading, a full-width row a wallet, BACK - from the same top.
+            if (_opensIndex >= 0)
+            {
+                float ly = top;
+                var head = Top(list, "head", -WaysW * 0.5f, ly, WaysW, ListHeadH);
+                var hl = UiKit.Rect(head, "l", new Vector2(0f, 0.42f), Vector2.one, Vector2.zero, Vector2.zero);
+                UiKit.Label(hl, options[_opensIndex].Label, 26, new Color(0.95f, 0.84f, 0.58f), TextAnchor.MiddleCenter);
+                var hd = UiKit.Rect(head, "d", Vector2.zero, new Vector2(1f, 0.46f), Vector2.zero, Vector2.zero);
+                UiKit.Label(hd, "pick yours", 17, Sub, TextAnchor.MiddleCenter);
+                AddListRow(head, ly);
+                ly += ListHeadH + ListGap;
+                // Past ListColumnsFrom wallets the list goes TWO COLUMNS rather than scrolling (no scroll on
+                // a pad or a phone; eight still clear the bottom), the rows a little tighter past three.
+                int n = walletIdx.Count, cols = n >= ListColumnsFrom ? 2 : 1;
+                float rowH = n > 3 && cols == 1 ? ListRowTightH : ListRowH;
+                float colW = (WaysW - ListGap * (cols - 1)) / cols;
+                for (int k = 0; k < n; k++)
+                {
+                    int i = walletIdx[k], col = k % cols;
+                    float rowY = ly + (k / cols) * (rowH + ListGap);
+                    Button(list, i, options[i], -WaysW * 0.5f + col * (colW + ListGap), rowY, colW, rowH, listed: true);
+                    AddListRow(_listButtons[^1], rowY);
+                }
+                ly += ((n + cols - 1) / cols) * (rowH + ListGap);
+                Button(list, -1, new Option("BACK", ""), -WaysW * 0.5f, ly, WaysW, BackH, listed: true);
+                _back = _listButtons[^1];
+                _back.name = "way.back";
+                AddListRow(_back, ly);
+                ly += BackH + ListGap;
+                y = Mathf.Max(y, ly);
             }
             var st = Top(full, "status", -460f, y + 4f, 920f, 72f);
             _status = UiKit.Label(st, "", 20, Sub, TextAnchor.UpperCenter);
@@ -234,7 +310,23 @@ namespace Convergence.UI
             Application.OpenURL(root.TrimEnd('/') + TT.PrivacyPath);
         }
 
-        void Button(RectTransform full, int index, Option o, float x, float y, float w, float h)
+        /// <summary>A layer the choices or the wallet list are built in, faded as one (the swap).</summary>
+        static RectTransform Group(RectTransform full, string name, out CanvasGroup group)
+        {
+            var r = UiKit.Rect(full, name, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+            group = r.gameObject.AddComponent<CanvasGroup>();
+            group.blocksRaycasts = false;
+            return r;
+        }
+
+        void AddListRow(RectTransform row, float y)
+        {
+            row.gameObject.AddComponent<CanvasGroup>();
+            _listRows.Add(row);
+            _listRowY.Add(y);
+        }
+
+        void Button(RectTransform full, int index, Option o, float x, float y, float w, float h, bool listed = false)
         {
             var btn = Top(full, $"way.{index}", x, y, w, h);
             // A NOTCHED PLATE (the user's pick, button style 3): cut corners, shaded top to foot, a
@@ -243,7 +335,7 @@ namespace Convergence.UI
             face.sprite = Plate(o.Primary);
             face.type = Image.Type.Sliced;
             face.color = Color.white;
-            btn.gameObject.AddComponent<CanvasGroup>();
+            if (!listed) btn.gameObject.AddComponent<CanvasGroup>();   // a listed row gets its own (AddListRow)
             bool sub = !string.IsNullOrEmpty(o.Detail);
             var top = UiKit.Rect(btn, "l", new Vector2(0f, sub ? 0.42f : 0f), new Vector2(1f, 1f), Vector2.zero, Vector2.zero);
             UiKit.Label(top, o.Label, o.Primary ? 32 : o.Wallet ? 22 : 24, o.Primary ? new Color(0.95f, 0.84f, 0.58f) : Ink, TextAnchor.MiddleCenter);
@@ -252,7 +344,7 @@ namespace Convergence.UI
                 var d = UiKit.Rect(btn, "d", new Vector2(0f, 0f), new Vector2(1f, 0.46f), Vector2.zero, Vector2.zero);
                 UiKit.Label(d, o.Detail, 17, Sub, TextAnchor.MiddleCenter);
             }
-            _buttons.Add(btn);
+            (listed ? _listButtons : _buttons).Add(btn);
         }
 
         /// <summary>A rect hung from the top centre: (x, y) its top-left, y measured down.</summary>
@@ -571,17 +663,25 @@ namespace Convergence.UI
                 _ring.localEulerAngles = new Vector3(0f, 0f, _angle);
             }
 
+            if (_swapT < 1f)
+            {
+                _swapT = Mathf.Min(1f, _swapT + dt / SwapSeconds);
+                ApplySwap();
+            }
+
             // The support card over the title has the pad and the taps while it is open.
             if (SupportCard.IsOpen || SupportCard.ClosedFrame == Time.frameCount) return;
 
+            var shown = _listOpen ? _listButtons : _buttons;
             _focusable.Clear();
-            _focusable.AddRange(_buttons);
+            _focusable.AddRange(shown);
             if (_privacy != null && _foot != null && _foot.activeSelf) _focusable.Add(_privacy);
             if (_support != null) _focusable.Add(_support);
             Core.Controls.SetFocusCandidates(_focusable);
-            if (_busy || _answer == null || Time.frameCount == _openedFrame) return;
+            if (_busy || _answer == null || Time.frameCount == _openedFrame || _swapT < 1f) return;
 
-            if (Core.Controls.ConfirmTapped && _buttons.Count > 0) { Pick(0); return; }
+            if (_listOpen && Core.Controls.CancelTapped) { Swap(false); return; }
+            if (!_listOpen && Core.Controls.ConfirmTapped && _buttons.Count > 0) { Pick(0); return; }
             if (!Core.Controls.Tapped(out var p)) return;
             if (_support != null && RectTransformUtility.RectangleContainsScreenPoint(_support, p, null))
             {
@@ -590,16 +690,61 @@ namespace Convergence.UI
             }
             if (_privacy != null && _foot != null && _foot.activeSelf
                 && RectTransformUtility.RectangleContainsScreenPoint(_privacy, p, null)) { OpenPrivacy(); return; }
-            for (int i = 0; i < _buttons.Count; i++)
-                if (_buttons[i] != null && RectTransformUtility.RectangleContainsScreenPoint(_buttons[i], p, null)) { Pick(Index(i)); return; }
+            for (int i = 0; i < shown.Count; i++)
+            {
+                if (shown[i] == null || !RectTransformUtility.RectangleContainsScreenPoint(shown[i], p, null)) continue;
+                if (shown[i] == _back) { Swap(false); return; }
+                int option = Index(shown[i]);
+                if (!_listOpen && option == _opensIndex) { Swap(true); return; }
+                Pick(option);
+                return;
+            }
         }
+
+        /// <summary>To the wallet list or back to the choices (pick C).</summary>
+        void Swap(bool toList)
+        {
+            if (_listOpen == toList) return;
+            _listOpen = toList;
+            _swapT = 0f;
+            SetStatus("");   // also steps the footer aside for the list (or brings it back)
+            ApplySwap();
+        }
+
+        /// <summary>
+        /// The swap at <see cref="_swapT"/>: the side being left fades over the first half; the side
+        /// arriving comes in over the second - the list a row after a row, each rising a little.
+        /// </summary>
+        void ApplySwap()
+        {
+            if (_restGroup == null || _listGroup == null) return;
+            float t = Mathf.Clamp01(_swapT);
+            float outK = Smooth(Mathf.Clamp01(t * 2f)), inK = Smooth(Mathf.Clamp01(t * 2f - 1f));
+            _restGroup.alpha = _listOpen ? 1f - outK : inK;
+            _listGroup.alpha = _listOpen ? 1f : 1f - outK;
+            // Every row arrives inside the second half: the stagger shrinks so the last one lands at t = 1.
+            const float rowIn = 0.3f;
+            float step = _listRows.Count > 1 ? Mathf.Min(SwapStagger, (0.5f - rowIn) / (_listRows.Count - 1)) : 0f;
+            for (int i = 0; i < _listRows.Count; i++)
+            {
+                if (_listRows[i] == null || !_listRows[i].TryGetComponent<CanvasGroup>(out var g)) continue;
+                float k = _listOpen ? Smooth(Mathf.Clamp01((t - 0.5f - i * step) / rowIn)) : 1f;
+                g.alpha = _listOpen ? k : 1f;
+                var at = _listRows[i].anchoredPosition;
+                _listRows[i].anchoredPosition = new Vector2(at.x, -_listRowY[i] - (1f - k) * SwapRise);
+            }
+        }
+
+        static float Smooth(float k) => k * k * (3f - 2f * k);
 
         /// <summary>Buttons are laid in screen order (stacked choices, then the wallets) which may
         /// differ from the options' order; each button's name carries its option index.</summary>
-        int Index(int button)
+        int Index(int button) => Index(_buttons[button]);
+
+        static int Index(RectTransform button)
         {
-            var n = _buttons[button].name;
-            return int.TryParse(n.Substring(n.IndexOf('.') + 1), out int i) ? i : button;
+            var n = button.name;
+            return int.TryParse(n.Substring(n.IndexOf('.') + 1), out int i) ? i : -1;
         }
 
         void Pick(int i)
