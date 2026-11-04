@@ -47,7 +47,7 @@ let session = '';
 const KEY_DB = 'equivalence-keys';
 const STORED = 'equivalence.wallet';
 
-type Stored = { wallet: string; address: string; session: string; expiresAt: number };
+type Stored = { wallet: string; address: string; session: string; expiresAt: number; name?: string };
 
 /** The clipboard, or the old select-and-copy where the async clipboard is refused (an iframe, an
  *  older Safari). Rejects when both are. */
@@ -121,9 +121,9 @@ async function proof(method: string, url: URL, body: string): Promise<string> {
   return `${ts}.${proofNonce}.${b64url(sig)}`;
 }
 
-function remember(wallet: string, expiresAt: number) {
+function remember(wallet: string, expiresAt: number, name?: string) {
   try {
-    localStorage.setItem(STORED, JSON.stringify({ wallet, address, session, expiresAt } satisfies Stored));
+    localStorage.setItem(STORED, JSON.stringify({ wallet, address, session, expiresAt, name } satisfies Stored));
   } catch { /* storage blocked: this visit still works, the next one asks again */ }
 }
 
@@ -230,6 +230,12 @@ const sameAddress = (a: string, b: string) => a.toLowerCase() === b.toLowerCase(
 
 /** The key listWallets offers for it, and ChainWallet.AppWallet names on the C# side. */
 const APP = 'wallet-app';
+
+/** An itch.io sign-in, remembered like a wallet (ItchSignIn.Key on the C# side); the hand-off through
+ *  /itch/callback (web/service/itch/callback.js) - the state set before leaving, the token on return. */
+const ITCH = 'itch';
+const ITCH_STATE = 'equivalence.itch.state';
+const ITCH_TOKEN = 'equivalence.itch.token';
 
 const mobile = () => /iPhone|iPad|iPod|Android/i.test(navigator.userAgent) ||
   (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
@@ -420,7 +426,7 @@ export const connector: EquivalenceChain = {
     // site in (isEnabled - no popup), the wallet still shows the same address, and the service
     // still honours the session. Anything less resolves '' and the player connects as usual.
     const kept = recalled();
-    if (!kept) return '';
+    if (!kept || kept.wallet === ITCH) return '';   // an itch.io sign-in resumes through itchResume
     if (kept.wallet === APP) {
       // The wallet app is not here to ask - the session alone says who this is.
       if (!(await sessionHolds(kept.address).catch(() => false))) return '';
@@ -446,6 +452,68 @@ export const connector: EquivalenceChain = {
       api = null;
       return '';
     }
+  },
+
+  // ---- sign in with itch.io (web/service/src/itch.ts) ----------------------------------------------
+
+  async itchConfig() {
+    const r = await send('/auth/itch/config').catch(() => null);
+    if (!r?.ok) return '';
+    return String((await r.json().catch(() => ({})))?.clientId ?? '');
+  },
+
+  async itchBegin({ text: clientId }) {
+    // OAuth's implicit grant: itch.io returns to the app's registered callback with the token in the
+    // fragment. The STATE is ours, checked on return (itch/callback.js), so a link someone else made
+    // cannot sign this browser into their account.
+    const state = b64url(crypto.getRandomValues(new Uint8Array(16)).buffer);
+    localStorage.setItem(ITCH_STATE, state);
+    const callback = new URL(`${SERVICE}/itch/callback`, location.href).href;
+    const url = new URL('https://itch.io/user/oauth');
+    url.searchParams.set('client_id', clientId);
+    url.searchParams.set('scope', 'profile:me');
+    url.searchParams.set('response_type', 'token');
+    url.searchParams.set('redirect_uri', callback);
+    url.searchParams.set('state', state);
+    location.assign(url.href);
+    return 'leaving';
+  },
+
+  async itchPending() {
+    try {
+      const token = localStorage.getItem(ITCH_TOKEN) ?? '';
+      localStorage.removeItem(ITCH_TOKEN);   // read once
+      return token;
+    } catch {
+      return '';
+    }
+  },
+
+  async itchSignIn({ text: token }) {
+    session = '';
+    const r = await service('/auth/itch', {
+      method: 'POST',
+      body: JSON.stringify({ token, key: await publicName() }),
+    });
+    const issued = await r.json();
+    if (!issued.session) throw new Error('the service issued no session');
+    api = null;
+    session = issued.session;
+    address = issued.address;
+    walletKey = ITCH;
+    heldAt = Date.now();
+    remember(ITCH, Number(issued.expiresAt) || Date.now(), issued.name ?? '');
+    return JSON.stringify({ address, name: issued.name ?? '' });
+  },
+
+  async itchResume() {
+    const kept = recalled();
+    if (!kept || kept.wallet !== ITCH) return '';
+    if (!(await sessionHolds(kept.address).catch(() => false))) return '';
+    api = null;
+    address = kept.address;
+    walletKey = ITCH;
+    return JSON.stringify({ address, name: kept.name ?? '' });
   },
 
   async proveOwnership({ accountId }) {

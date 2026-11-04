@@ -40,7 +40,7 @@ namespace Convergence.Chain.Service
         {
             if (!await ServiceIdentity.EnsureAsync()) return new ServiceClient.Reply { Status = 0, Error = "no identity" };
             var r = await send(ServiceIdentity.Token);
-            if (r.Status == 410 && !ServiceIdentity.OnWallet)
+            if (r.Status == 410 && !ServiceIdentity.SignedIn)
             {
                 Debug.Log("[Service] this browser's guest was graduated onto a wallet - starting a new guest");
                 ServiceIdentity.ForgetGuest();

@@ -270,14 +270,23 @@ export async function proveChallenge(body: Record<string, string>, link?: string
   if (!ok) return { status: 401, error: 'signature does not prove this address' };
 
   try {
-    const expiresAt = Date.now() + SESSION_MS;
-    const token = `v2.${f.bech32}.${expiresAt}.${await epochOf(f.bech32)}.${c.key}`;
-    return { session: `${token}.${mac(token)}`, address: f.bech32, expiresAt };
+    return await issueSession(f.bech32, c.key);
   } catch (e) {
     console.error('[prove]', e);
     return { status: 503, error: 'unavailable' };
   }
 }
+
+/** A session for an identity already proved - a wallet's signature (above) or itch.io's token (itch.ts) -
+ *  bound to this browser's key. */
+export async function issueSession(address: string, key: string): Promise<Proved> {
+  const expiresAt = Date.now() + SESSION_MS;
+  const token = `v2.${address}.${expiresAt}.${await epochOf(address)}.${key}`;
+  return { session: `${token}.${mac(token)}`, address, expiresAt };
+}
+
+/** Whether `key` names a P-256 public key (`<x>.<y>`). */
+export const validKey = (key: string) => !!publicKey(key);
 
 /** GET /auth/session - whether a remembered session still holds, before the game leans on it. */
 export function sessionStatus(_req: Request, res: Response): void {
@@ -342,8 +351,18 @@ export const bearer = (req: Request) => {
   return header.startsWith('Bearer ') ? header.slice(7) : '';
 };
 
-/** Player routes: `Authorization: Bearer <session>` + `X-Session-Proof`; the address lands on res.locals. */
+/** Player routes that act ON CHAIN (boxes, PFP, minting, device links): a WALLET session only - an
+ *  itch.io sign-in (itch.ts) has no address to read or write. The address lands on res.locals. */
 export async function requireSession(req: Request, res: Response, next: NextFunction) {
+  return checkSession(req, res, next, false);
+}
+
+/** The session itself - /auth/session, signing out: a wallet's or an itch.io sign-in's. */
+export async function requireAnySession(req: Request, res: Response, next: NextFunction) {
+  return checkSession(req, res, next, true);
+}
+
+async function checkSession(req: Request, res: Response, next: NextFunction, itchToo: boolean) {
   const token = bearer(req);
   let v: Verdict;
   try {
@@ -354,6 +373,10 @@ export async function requireSession(req: Request, res: Response, next: NextFunc
   }
   if ('refused' in v) {
     res.status(401).json({ error: v.refused, code: v.code });
+    return;
+  }
+  if (!itchToo && v.address.startsWith('itch:')) {
+    res.status(403).json({ error: 'this needs a Cardano wallet - an itch.io sign-in holds nothing on chain', code: 'not_wallet' });
     return;
   }
   res.locals.address = v.address;

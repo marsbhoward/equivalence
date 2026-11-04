@@ -157,7 +157,8 @@ export async function saveAccount(req: Request, res: Response): Promise<void> {
  * player's wallet. Then nothing moves (409 wallet_has_records) and the guest stays as it was.
  */
 export async function graduate(req: Request, res: Response): Promise<void> {
-  if (res.locals.kind !== 'wallet') return fail(res, 401, 'graduating needs a proven wallet session');
+  // A wallet, or an itch.io sign-in (itch.ts) - either can adopt a guest's characters.
+  if (res.locals.kind !== 'wallet' && res.locals.kind !== 'itch') return fail(res, 401, 'graduating needs a signed-in session');
   const wallet = res.locals.owner as string;
   const gid = guestId(String(req.body?.guest ?? ''));
   if (!gid) return fail(res, 400, 'guest must be a guest token');

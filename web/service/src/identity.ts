@@ -76,8 +76,8 @@ export async function newGuest(req: Request, res: Response): Promise<void> {
 }
 
 /**
- * Save routes: `Authorization: Bearer <guest token | wallet session>`. Puts `res.locals.owner`
- * (the key every save is stored under) and `res.locals.kind` ('guest' | 'wallet').
+ * Save routes: `Authorization: Bearer <guest token | session>`. Puts `res.locals.owner`
+ * (the key every save is stored under) and `res.locals.kind` ('guest' | 'wallet' | 'itch').
  */
 export async function requireIdentity(req: Request, res: Response, next: NextFunction) {
   const token = bearer(req);
@@ -97,7 +97,8 @@ export async function requireIdentity(req: Request, res: Response, next: NextFun
       const v = await verifySession(req, token);
       if ('refused' in v) return void res.status(401).json({ error: v.refused, code: v.code });
       res.locals.owner = v.address;
-      res.locals.kind = 'wallet';
+      // An itch.io sign-in (itch.ts) owns saves like a wallet; only chain routes tell them apart.
+      res.locals.kind = v.address.startsWith('itch:') ? 'itch' : 'wallet';
       res.locals.address = v.address;
       res.locals.sessionExpires = v.expiresAt;
       return next();

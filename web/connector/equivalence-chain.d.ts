@@ -60,6 +60,17 @@ export interface EquivalenceChain {
   /** Onto the clipboard (the support card's ADA handle). Rejects when the browser refuses. */
   copy(args: { text: string }): Promise<string>;
 
+  /** Sign in with itch.io (web/service/src/itch.ts). `itchConfig`: the app's client id where this
+   *  service offers it, else ''. `itchBegin`: off to itch.io's consent page - the page is LEFT, and
+   *  itch returns to /itch/callback, which hands the token back. `itchPending`: that token, read once
+   *  ('' when none). `itchSignIn`: the token traded for a session - `{"address","name"}` JSON.
+   *  `itchResume`: a quiet reconnect for an itch sign-in, as `resume` is for a wallet. */
+  itchConfig(args: {}): Promise<string>;
+  itchBegin(args: { text: string }): Promise<string>;
+  itchPending(args: {}): Promise<string>;
+  itchSignIn(args: { text: string }): Promise<string>;
+  itchResume(args: {}): Promise<string>;
+
   /** 'true' when this browser holds a session for the address that still holds - proveOwnership
    *  will then resolve without the wallet. */
   remembered(args: { accountId: string }): Promise<string>;

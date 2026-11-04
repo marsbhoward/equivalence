@@ -12,7 +12,8 @@ import { networkInfo } from './blockfrost.js';
 import { cors } from './cors.js';
 import { requireWriteToken } from './writeAuth.js';
 import { serviceAddress } from './chain.js';
-import { challenge, prove, requireSession, sendProofNonce, sessionStatus, signOutEverywhere } from './session.js';
+import { challenge, prove, requireAnySession, requireSession, sendProofNonce, sessionStatus, signOutEverywhere } from './session.js';
+import { itchCallbackPage, itchConfig, itchSignIn } from './itch.js';
 import { beginRun, boxes, commitRun } from './routes/player.js';
 import { openBoxes, submitOpen } from './routes/openBoxes.js';
 import { graduate, loadAccount, loadCharacter, roster, saveAccount, saveCharacter } from './routes/saves.js';
@@ -146,8 +147,12 @@ app.post('/op/dev/avatar-box', devDecideAvatarBoxes);
 // Player auth: a one-time challenge, signed with CIP-30 signData (no fee), traded for a session.
 app.get('/auth/challenge', login, challenge);
 app.post('/auth/prove', login, prove);
-app.get('/auth/session', sessionIp, requireSession, sessionStatus);
-app.post('/auth/signout-everywhere', sessionIp, requireSession, signOutEverywhere);
+app.get('/auth/session', sessionIp, requireAnySession, sessionStatus);
+app.post('/auth/signout-everywhere', sessionIp, requireAnySession, signOutEverywhere);
+// Sign in with itch.io (itch.ts): the same key-bound session, as `itch:<id>`; the page itch returns to.
+app.get('/auth/itch/config', login, itchConfig);
+app.post('/auth/itch', login, itchSignIn);
+app.use('/itch', perIp('public', LIMITS.publicRead), itchCallbackPage());
 
 // Device links (link.ts): a wallet in another browser - a phone's wallet app - signs for the game.
 const linkIp = perIp('link', LIMITS.link);

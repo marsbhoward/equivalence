@@ -28,9 +28,11 @@ namespace Convergence.UI
         public struct Option
         {
             public string Label, Detail;
-            public bool Primary, Wallet;
-            public Option(string label, string detail, bool primary = false, bool wallet = false)
-            { Label = label; Detail = detail; Primary = primary; Wallet = wallet; }
+            public bool Primary, Wallet, Side;
+            /// <param name="side">Laid in one row with its neighbours that are also `side` - the
+            /// sign-ins, CARDANO WALLET beside ITCH.IO.</param>
+            public Option(string label, string detail, bool primary = false, bool wallet = false, bool side = false)
+            { Label = label; Detail = detail; Primary = primary; Wallet = wallet; Side = side; }
         }
 
         // ---- the layout (canvas units; the mock's proportions at 1920 wide) ----
@@ -155,26 +157,28 @@ namespace Convergence.UI
             if (wordTex != null) Layer(full, "mark.word", wordTex, new Vector2(MarkW, markH), centreY);
             if (_ring != null) _ring.localEulerAngles = new Vector3(0f, 0f, _angle);
 
-            // The ways in: the main choice and any other, stacked; the wallets in a row beneath,
-            // starting below the sigil's bottom ring.
+            // The ways in, stacked in the order given, starting below the sigil's bottom ring. A run of
+            // wallets is one row where it stands - under the CARDANO WALLET button that opened it
+            // (GameBootstrap.ChooseAtTitleAsync; the user's call, 2026-11-04).
             float y = Pad + markH + BelowMark;
-            var wallets = new List<int>();
             for (int i = 0; i < options.Count; i++)
             {
-                if (options[i].Wallet) { wallets.Add(i); continue; }
+                bool wallet = options[i].Wallet;
+                if (wallet || options[i].Side)
+                {
+                    int end = i;
+                    while (end + 1 < options.Count && (wallet ? options[end + 1].Wallet : options[end + 1].Side)) end++;
+                    int n = end - i + 1;
+                    float w = (WaysW - Gap * (n - 1)) / n, rowH = wallet ? WalletH : SecondaryH;
+                    for (int k = 0; k < n; k++)
+                        Button(full, i + k, options[i + k], -WaysW * 0.5f + k * (w + Gap), y, w, rowH);
+                    y += rowH + Gap;
+                    i = end;
+                    continue;
+                }
                 float h = options[i].Primary ? PrimaryH : SecondaryH;
                 Button(full, i, options[i], -WaysW * 0.5f, y, WaysW, h);
                 y += h + Gap;
-            }
-            if (wallets.Count > 0)
-            {
-                var cap = Top(full, "or", -WaysW * 0.5f, y, WaysW, 34f);
-                UiKit.Label(cap, "OR SIGN IN WITH A WALLET", 17, Sub, TextAnchor.MiddleCenter);
-                y += 34f + 6f;
-                float w = (WaysW - Gap * (wallets.Count - 1)) / wallets.Count;
-                for (int k = 0; k < wallets.Count; k++)
-                    Button(full, wallets[k], options[wallets[k]], -WaysW * 0.5f + k * (w + Gap), y, w, WalletH);
-                y += WalletH + Gap;
             }
             var st = Top(full, "status", -460f, y + 4f, 920f, 72f);
             _status = UiKit.Label(st, "", 20, Sub, TextAnchor.UpperCenter);
@@ -210,7 +214,7 @@ namespace Convergence.UI
             row.childControlWidth = true; row.childControlHeight = true;
             row.childForceExpandWidth = false; row.childForceExpandHeight = true;
 
-            UiKit.Label(foot, "Your characters live with your wallet, or with this browser without one. " +
+            UiKit.Label(foot, "Your characters live with your sign-in, or with this browser without one. " +
                               "Anonymous play stats are kept to improve the game.", 16, Faint, TextAnchor.MiddleCenter);
             var link = UiKit.Label(foot, "PRIVACY", 16, Sub, TextAnchor.MiddleCenter);
             var under = UiKit.Rect(link.transform, "underline", new Vector2(0f, 0.5f), new Vector2(1f, 0.5f),

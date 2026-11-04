@@ -577,7 +577,7 @@ namespace Convergence.Core
             // QUIETLY - no popup - and is offered to continue.
             string resumed = await ChooseAtTitleAsync();
             if (!string.IsNullOrEmpty(resumed) &&
-                await Chain.Service.ServiceIdentity.AttachWalletAsync(resumed, Chain.Web.ChainWallet.Session)
+                await Chain.Service.ServiceIdentity.AttachWalletAsync(resumed, SessionFor(resumed))
                     == Chain.Service.ServiceIdentity.Graduation.Failed)
                 resumed = "";
 
@@ -635,32 +635,46 @@ namespace Convergence.Core
         }
 
         /// <summary>
-        /// The title's ways in (the user's call, 2026-11-01): continue as the wallet this browser
-        /// signed in with; play as this browser's guest - CONTINUE if it has played here, NEW GAME
-        /// if not; or CONNECT any wallet extension the browser has (one button each, none when there
-        /// are none - the Editor and a native build have none). Answers the wallet address to load,
-        /// or "" for the guest. A connect that fails or is refused comes back to the choices.
+        /// The title's ways in (the user's calls, 2026-11-01 / 2026-11-04): continue as the identity this
+        /// browser signed in with; play as this browser's guest - CONTINUE if it has played here, NEW
+        /// GAME if not; CARDANO WALLET, one button that opens the wallets the browser has beneath it
+        /// (none in the Editor or a native build); or ITCH.IO (Chain.Web.ItchSignIn - only where the
+        /// service offers it, and it LEAVES the page: the game boots again with the token, picked up
+        /// here first). Answers the identity to load - a wallet's address or <c>itch:&lt;id&gt;</c> - or ""
+        /// for the guest. A sign-in that fails or is refused comes back to the choices.
         /// </summary>
         async System.Threading.Tasks.Task<string> ChooseAtTitleAsync()
         {
             bool web = StoreFactory.UsingService && Chain.Web.ChainWallet.Available;
-            string resumed = web ? await Chain.Web.ChainWallet.ResumeAsync() : "";
+            string status = "";
+            if (web) await Chain.Web.ItchSignIn.RefreshAsync();
+
+            // Back from itch.io's consent page with a token: trade it before anything else.
+            string resumed = "";
+            if (web)
+            {
+                var (itch, error) = await Chain.Web.ItchSignIn.FinishPendingAsync();
+                resumed = itch;
+                if (!string.IsNullOrEmpty(error)) status = $"itch.io sign-in failed: {error}";
+            }
+            if (web && string.IsNullOrEmpty(resumed)) resumed = await Chain.Web.ChainWallet.ResumeAsync();
+            if (web && string.IsNullOrEmpty(resumed)) resumed = await Chain.Web.ItchSignIn.ResumeAsync();
             string[] wallets = web ? await Chain.Web.ChainWallet.ListAsync() : Array.Empty<string>();
             bool returning = !StoreFactory.UsingService || !string.IsNullOrEmpty(Chain.Service.ServiceIdentity.GuestToken);
+            bool walletsOpen = false;
 
             // Not `??`: a missing component comes back as Unity's fake null, which `??` keeps.
             var title = gameObject.GetComponent<UI.TitleScreen>();
             if (title == null) title = gameObject.AddComponent<UI.TitleScreen>();
-            string status = "";
             while (true)
             {
                 var options = new List<UI.TitleScreen.Option>();
-                var acts = new List<string>();   // "resume", "guest", or a wallet's key
+                var acts = new List<string>();   // "resume", "guest", "wallets", "itch", or a wallet's key
                 if (!string.IsNullOrEmpty(resumed))
                 {
-                    options.Add(new UI.TitleScreen.Option("CONTINUE", "signed in as " + Chain.Web.ChainWallet.Short(resumed), true));
+                    options.Add(new UI.TitleScreen.Option("CONTINUE", "signed in as " + SignedInAs(resumed), true));
                     acts.Add("resume");
-                    options.Add(new UI.TitleScreen.Option("PLAY WITHOUT A WALLET", "signs this browser out"));
+                    options.Add(new UI.TitleScreen.Option("PLAY AS A GUEST", "signs this browser out"));
                     acts.Add("guest");
                 }
                 else
@@ -668,12 +682,26 @@ namespace Convergence.Core
                     options.Add(new UI.TitleScreen.Option(returning ? "CONTINUE" : "NEW GAME",
                         returning ? "this browser's characters" : "no sign-in needed", true));
                     acts.Add("guest");
-                    foreach (var w in wallets)
+                    // The sign-ins side by side (the user's call, 2026-11-04): ONE wallet button, whose tap
+                    // opens the wallets in a row beneath, and itch.io.
+                    if (wallets.Length > 0)
                     {
-                        options.Add(new UI.TitleScreen.Option(Chain.Web.ChainWallet.Label(w),
-                            w == Chain.Web.ChainWallet.AppWallet ? "Eternl, VESPR or another" : "", wallet: true));
-                        acts.Add(w);
+                        options.Add(new UI.TitleScreen.Option(walletsOpen ? "CARDANO WALLET  -" : "CARDANO WALLET  +",
+                            walletsOpen ? "pick yours below" : $"{wallets.Length} found in this browser", side: true));
+                        acts.Add("wallets");
                     }
+                    if (Chain.Web.ItchSignIn.Offered)
+                    {
+                        options.Add(new UI.TitleScreen.Option("ITCH.IO", "your itch account", side: true));
+                        acts.Add("itch");
+                    }
+                    if (walletsOpen)
+                        foreach (var w in wallets)
+                        {
+                            options.Add(new UI.TitleScreen.Option(Chain.Web.ChainWallet.Label(w),
+                                w == Chain.Web.ChainWallet.AppWallet ? "Eternl, VESPR or another" : "", wallet: true));
+                            acts.Add(w);
+                        }
                 }
 
                 int pick = await title.ChooseAsync(_canvas.transform, options, status);
@@ -683,11 +711,22 @@ namespace Convergence.Core
                 {
                     if (!string.IsNullOrEmpty(resumed))
                     {
-                        await Chain.Web.ChainWallet.DisconnectAsync(false);
+                        if (Chain.Web.ItchSignIn.IsItch(resumed)) await Chain.Web.ItchSignIn.SignOutAsync();
+                        else await Chain.Web.ChainWallet.DisconnectAsync(false);
                         Chain.Service.ServiceIdentity.DetachWallet();
                         resumed = "";
                     }
                     break;
+                }
+                if (act == "wallets") { walletsOpen = !walletsOpen; status = ""; continue; }
+                if (act == "itch")
+                {
+                    // The page is left for itch.io's consent page; the game boots again on return.
+                    title.SetStatus("Opening itch.io - you'll come straight back here.", busy: true);
+                    await Chain.Web.ItchSignIn.BeginAsync();
+                    await System.Threading.Tasks.Task.Delay(8000);   // still here: the browser stayed put
+                    status = "itch.io did not open. Try again, or play as a guest.";
+                    continue;
                 }
 
                 // A wallet: say what its popup is about to ask before it asks - an unexplained
@@ -701,11 +740,20 @@ namespace Convergence.Core
                     _ => "",
                 }, busy: true));
                 if (!string.IsNullOrEmpty(address)) { resumed = address; break; }
-                status = $"{(app ? "The wallet app" : act)} did not connect. Try again, or play without a wallet.";
+                status = $"{(app ? "The wallet app" : act)} did not connect. Try again, or play as a guest.";
             }
             title.Close();
             return resumed;
         }
+
+        /// <summary>Who the title says is signed in - an itch.io name, or a wallet's shortened address.</summary>
+        static string SignedInAs(string identity)
+            => Chain.Web.ItchSignIn.IsItch(identity) ? Chain.Web.ItchSignIn.Name + " (itch.io)"
+             : Chain.Web.ChainWallet.Short(identity);
+
+        /// <summary>The session that proves <paramref name="identity"/> - an itch.io sign-in's or the wallet's.</summary>
+        static string SessionFor(string identity)
+            => Chain.Web.ItchSignIn.IsItch(identity) ? Chain.Web.ItchSignIn.Session : Chain.Web.ChainWallet.Session;
 
         // ---- what a player holds (GearOwnership; the user's call, 2026-10-31) ----
 

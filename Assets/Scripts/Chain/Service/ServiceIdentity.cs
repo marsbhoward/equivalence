@@ -19,21 +19,27 @@ namespace Convergence.Chain.Service
     {
         const string GuestKey = "equivalence.guest";
 
+        /// <summary>Who the saves belong to once signed in: a wallet's address, or an itch.io sign-in's
+        /// <c>itch:&lt;id&gt;</c> (Web.ItchSignIn).</summary>
         public static string WalletAddress { get; private set; } = "";
         static string _walletSession = "";
 
-        public static bool OnWallet => !string.IsNullOrEmpty(_walletSession);
+        /// <summary>Signed in - a wallet or itch.io; the saves are no longer the guest's.</summary>
+        public static bool SignedIn => !string.IsNullOrEmpty(_walletSession);
+        /// <summary>Signed in with a WALLET - what anything on chain asks (a run's box mint). An itch.io
+        /// sign-in owns saves the same way but holds nothing on chain.</summary>
+        public static bool OnWallet => SignedIn && !Web.ItchSignIn.IsItch(WalletAddress);
         public static string GuestToken => PlayerPrefs.GetString(GuestKey, "");
 
         /// <summary>What every save request carries.</summary>
-        public static string Token => OnWallet ? _walletSession : GuestToken;
+        public static string Token => SignedIn ? _walletSession : GuestToken;
 
         static Task<bool> _starting;
 
         /// <summary>Makes sure there is an identity, starting a guest if this browser has none.</summary>
         public static Task<bool> EnsureAsync()
         {
-            if (OnWallet || !string.IsNullOrEmpty(GuestToken)) return Task.FromResult(true);
+            if (SignedIn || !string.IsNullOrEmpty(GuestToken)) return Task.FromResult(true);
             return _starting ??= StartGuestAsync();
         }
 
