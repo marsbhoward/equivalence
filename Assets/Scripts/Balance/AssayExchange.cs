@@ -523,19 +523,23 @@ namespace Convergence.Balance
         }
 
         /// <summary>
-        /// What the ledger does to worn armour's penalty (+50% damage taken at zero condition), as
-        /// factors against the run without it: Rust takes plating, Corrosion halves the repairs,
-        /// Patina the penalty. Under Corrosion the penalty leaves the inside of
-        /// the mitigation floor for the outside - so (inside, outside).
+        /// What the ledger does to armour's cover (Durability.DamageTakenMultiplier - a full set's
+        /// protection, stripped in step with condition), as factors against the run without it:
+        /// Rust takes plating, Corrosion halves the repairs and strips the cover twice as fast. All
+        /// of it inside the mitigation floor now, so (inside, outside) keeps its shape with 1 outside.
         /// </summary>
         static (float Inside, float Outside) LedgerWear(StatPercents s, Mods m, Func<string, int> n, int floor)
         {
-            float Penalty(float condition, float share) => 1f + (1f - condition) * Chain.Durability.MaxDamageTakenPenalty * share;
-            float baseline = Penalty(ArmourCondition(s, 1f, 1f, floor), 1f);
-            float with = Penalty(ArmourCondition(s, m.ArmourWearMul, m.RepairMul, floor, m.PlatingLost), m.ArmourWearPenaltyMul);
-            if (AtMax(n, "rust")) return (1f / baseline, with);   // Corrosion: the wear lands outside
+            float baseline = ArmourCover(ArmourCondition(s, 1f, 1f, floor), 1f);
+            float with = ArmourCover(ArmourCondition(s, m.ArmourWearMul, m.RepairMul, floor, m.PlatingLost), m.ArmourWearPenaltyMul);
             return (with / baseline, 1f);
         }
+
+        /// <summary>The damage multiplier a full armour set of <see cref="Assume.ArmourTier"/> leaves at
+        /// <paramref name="condition"/> - the model's Durability.DamageTakenMultiplier.</summary>
+        public static float ArmourCover(float condition, float lossMul = 1f)
+            => 1f - Assume.ArmourPieces * Tuning.Defense.ProtectionFor(Assume.ArmourTier)
+                    * Mathf.Clamp01(1f - (1f - condition) * lossMul);
 
         /// <summary>What the ledger's hand in the enemy's toughness does to damage: the body's
         /// effective health over what it now is - health and armour scaled (GameBootstrap.Harden).</summary>

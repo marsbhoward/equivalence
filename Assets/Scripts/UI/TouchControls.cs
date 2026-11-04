@@ -236,6 +236,11 @@ namespace Convergence.UI
                    progress: () => Controls.GuardProgress01?.Invoke() ?? 1f,
                    key: "Q", pad: () => GamepadGlyphs.Guard, held: () => Controls.GuardHeld,
                    icon: () => TouchIcons.Shield);
+            // The phial: above ATTACK, past ABILITY on the arc, clear of both. Its count is its name.
+            Button("PHIAL", SmallR, BottomRight, ThumbArc(105f, AbilityReach), Controls.Context.Arena,
+                   v => Controls.VirtualPhial = v, () => Controls.PhialReady != null && Controls.PhialReady(),
+                   key: "F", pad: () => "(v)", icon: () => TouchIcons.Phial,
+                   name: () => $"PHIAL {(Controls.PhialCharges != null ? Controls.PhialCharges() : 0)}");
             Pill("GEAR", PillW, TopRight, new Vector2(-120f, -86f), Controls.Context.Arena,
                  v => Controls.VirtualLoadout = v,
                  key: "C", pad: () => GamepadGlyphs.Menu, held: () => Controls.LoadoutHeld);

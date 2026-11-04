@@ -186,7 +186,7 @@ namespace Convergence.Exchange
         public float PlatingLost;
         public float RepairMul = 1f;
 
-        /// <summary>The share of worn armour's extra damage taken that still lands (Patina halves it).</summary>
+        /// <summary>How fast lost condition strips armour's cover (Corrosion doubles it - Durability.DamageTakenMultiplier).</summary>
         public float ArmourWearPenaltyMul = 1f;
 
         /// <summary>How fast the meter fades or decays (Leaky Vessel).</summary>

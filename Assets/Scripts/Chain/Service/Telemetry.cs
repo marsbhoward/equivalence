@@ -31,6 +31,14 @@ namespace Convergence.Chain.Service
         static HashSet<string> _errorsSeen;
         static bool _logHooked;
         static float _floorDamage;
+        /// <summary>Blows taken this floor - hits, not ticks or the run's prices - and how many were
+        /// Chaser-sized at the floor's own scale (the Assay's unit, Assay.ShowcaseClimb).</summary>
+        static int _floorHits;
+        static int _floorDrinks, _floorSpills;
+
+        /// <summary>A phial drink this floor - gulped, or spilled by a blow (Player.Phial).</summary>
+        public static void Drink(bool spilled) { if (spilled) _floorSpills++; else _floorDrinks++; }
+        static float _floorHitDamage;
         static Combat.Health _watched;
         static string _boss;
         static int _bossBand;
@@ -56,6 +64,8 @@ namespace Convergence.Chain.Service
                 _errors = 0;
                 (_errorsSeen ??= new HashSet<string>()).Clear();
                 _floorDamage = 0f;
+                _floorHits = 0;
+                _floorHitDamage = 0f;
                 _boss = _puzzle = null;
                 HookLog();
                 EnsureSampler();
@@ -70,6 +80,10 @@ namespace Convergence.Chain.Service
         /// is "death", "extract" or "abandon".</summary>
         public static void EndRun(string how, int floor, float clock, int kills, Combat.DamageInfo? killing)
         {
+            // The floor the run ended on never clears - its hits so far, for the [Hits] log.
+            Debug.Log($"[Hits] floor {floor} ({how}, not cleared): {_floorHits} hits, " +
+                      $"{_floorHitDamage / Mathf.Max(1f, Core.Tuning.Defense.WearReferenceHit * Enemies.FloorDifficulty.Damage(Mathf.Max(1, floor))):0.0} Chaser-sized, " +
+                      $"{_floorDamage:0} damage");
             if (!On || _run == null) return;
             try
             {
@@ -90,13 +104,25 @@ namespace Convergence.Chain.Service
         /// the batch goes.</summary>
         public static void FloorCleared(int floor, string category, string rift, string biome, float clock, float hpFraction)
         {
+            float blows = _floorHitDamage / Mathf.Max(1f, Core.Tuning.Defense.WearReferenceHit * Enemies.FloorDifficulty.Damage(floor));
+            // Logged on every build, the Editor included (no service, so no telemetry there) - the
+            // balance pass reads real hits per floor off it (BALANCE.md "The next pass").
+            Debug.Log($"[Hits] floor {floor} ({category}): {_floorHits} hits, {blows:0.0} Chaser-sized, " +
+                      $"{_floorDamage:0} damage, {hpFraction:P0} of {(_watched != null ? _watched.Max : 0f):0} health left, " +
+                      $"{_floorDrinks} drunk / {_floorSpills} spilled, {clock / 60f:0.0} min");
+            _floorDrinks = _floorSpills = 0;
+            float damage = _floorDamage;
+            int hits = _floorHits;
+            _floorDamage = 0f;
+            _floorHits = 0;
+            _floorHitDamage = 0f;
             if (!On || _run == null) return;
             try
             {
                 var e = Ev("floor").I("f", floor).S("cat", category).S("rift", rift).S("biome", biome)
-                    .N("clk", clock).N("hp", hpFraction).N("dmg", _floorDamage);
+                    .N("clk", clock).N("hp", hpFraction).N("dmg", damage)
+                    .I("hits", hits).N("blows", blows);
                 AddFrames(e).Send();
-                _floorDamage = 0f;
                 Flush();
             }
             catch { }
@@ -105,13 +131,21 @@ namespace Convergence.Chain.Service
         /// <summary>The player's Health this run - damage taken per floor is read off it.</summary>
         public static void WatchPlayer(Combat.Health hp)
         {
-            if (!On || hp == null) return;
+            if (hp == null) return;   // watched without the service too - the [Hits] log reads it
             if (_watched != null) _watched.Damaged -= OnPlayerDamaged;
+            _floorDamage = _floorHitDamage = 0f;   // a new run's player: nothing carried from the last
+            _floorHits = 0;
             _watched = hp;
             hp.Damaged += OnPlayerDamaged;
         }
 
-        static void OnPlayerDamaged(Combat.DamageInfo d) => _floorDamage += Mathf.Max(0f, d.Amount);
+        static void OnPlayerDamaged(Combat.DamageInfo d)
+        {
+            _floorDamage += Mathf.Max(0f, d.Amount);
+            if (d.Tick || d.Price || d.Amount <= 0f) return;
+            _floorHits++;
+            _floorHitDamage += d.Amount;   // sized against the floor's Chaser swing at the clear, as wear is
+        }
 
         // ---------------------------------------------------------------- moments
 

@@ -347,8 +347,12 @@ namespace Convergence.Balance
 
             /// <summary>ARMOUR WEAR (AssayExchange.ArmourCondition, 2026-10-20 - it was never modelled,
             /// and Rust, Kiln-Fired and Patina were guesses): durability one Chaser-sized blow takes
-            /// from every armour piece - a COPY of GameBootstrap.ArmorWearPerHit (a scene field).</summary>
-            public const float ArmorWearPerHit = 1.4f;
+            /// from every armour piece - Tuning.Defense.ArmorWearPerHit.</summary>
+            public const float ArmorWearPerHit = Tuning.Defense.ArmorWearPerHit;
+            /// <summary>Armour slots (GearSlots.Kind == Armor) and the tier the deep player wears in
+            /// them - what <see cref="ArmourCover"/> prices.</summary>
+            public const int ArmourPieces = 8;
+            public static Art.Gear.LootTier ArmourTier = Art.Gear.LootTier.Gold;
             /// <summary>The Repair ring's share of a piece's pool - a copy of GameBootstrap.RepairFraction.</summary>
             public const float RepairRingFraction = 0.45f;
             /// <summary>Share of floor rewards a player spends on a Repair while armour is worn: the

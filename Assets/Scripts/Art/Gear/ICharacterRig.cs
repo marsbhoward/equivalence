@@ -310,6 +310,13 @@ namespace Convergence.Art.Gear
         bool PastStrike { get; }
 
         /// <summary>
+        /// True while the live swing is IN its strike - past the cock, not yet drawn: the active
+        /// frames a basic roots the feet for (PlayerController.BasicRooted). False with no swing
+        /// playing, and for a rig with no swings.
+        /// </summary>
+        bool InStrike { get; }
+
+        /// <summary>
         /// Seconds since the live swing's strike was fully drawn - into its SETTLE. 0 before the
         /// strike is drawn, or with no swing playing. A rig with no swings returns 0.
         /// </summary>

@@ -158,6 +158,10 @@ namespace Convergence.Chain
         public bool ThirdSlotRemoved;
         public int RotationIndex;
         public int PerfectStreak;
+        /// <summary>Phial charges left (Player.Phial); -1 in a snapshot from before the phial - full.</summary>
+        public int PhialCharges = -1;
+        /// <summary>The floor from which the restore ring may offer a phial charge again.</summary>
+        public int PhialCardFrom;
 
         /// <summary>RunEffects' run-long counters (every-Nth entries): hits, arts, Vapour, releases.</summary>
         public int HitCount, Arts, VapourCount, WellspringCount;

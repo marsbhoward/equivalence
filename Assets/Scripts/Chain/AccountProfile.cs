@@ -78,6 +78,14 @@ namespace Convergence.Chain
         /// the thank-you on arrival in the hub (UI/SupportCard) - once a week (the user's call,
         /// 2026-11-03). Additive: older accounts load 0.</summary>
         public int ThanksWeek;
+        /// <summary>
+        /// THE "WAS THERE" MARK (the user's calls, 2026-11-03 - CHAIN.md "Titles"): when this account
+        /// first ESCAPED a showcase run (UTC, ISO 8601), else empty. The showcase is wiped before the
+        /// full beta; the signed-in accounts holding this are exported then and granted the title
+        /// there. A guest's save dies with the wipe, so only a signed-in account carries it.
+        /// Additive: older accounts load "".
+        /// </summary>
+        public string ShowcaseEscapedUtc = "";
 
         /// <summary>Whether the sigils are stone this week. A first-ever look counts as awake - a
         /// new player never meets stone sigils they have no reason for.</summary>

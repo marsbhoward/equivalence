@@ -236,16 +236,20 @@ namespace Convergence.Core
             // For scale: a bomb enemy's blast hits for 20 and an elite for 15, so unarmoured
             // these are about 6 / 5 / 6 bomb hits, or 8 / 6.5 / 8.5 elite ones. The spread between them is
             // the element's whole durability identity.
+            //
+            // RAISED x1.3 (the user's call, 2026-11-03 - two base-kit playtests took ~4.5 Chaser-sized
+            // blows a floor and fell on floors 4-5; the target is a good player reaching the floor-10
+            // boss in Bronze, BALANCE.md "The next pass"). Was 115 / 98.5 / 125; the ratios held, so
+            // the elements keep their identity. Phase 7 reprices enemy damage against it.
 
-            /// <summary>Fire and Water - the mid-durability elements. ~14 basic hits.</summary>
-            public const float HpFireWater = 115f;
+            /// <summary>Fire and Water - the mid-durability elements.</summary>
+            public const float HpFireWater = 150f;
 
-            /// <summary>Air, the glass cannon. ~12 basic hits, or 6.5 from an elite. Calibrated with
-            /// the elements (Tuning.Elements).</summary>
-            public const float HpAir = 98.5f;
+            /// <summary>Air, the glass cannon. Calibrated with the elements (Tuning.Elements).</summary>
+            public const float HpAir = 128f;
 
-            /// <summary>Earth, the tank. ~15 basic hits. Calibrated with the elements.</summary>
-            public const float HpEarth = 125f;
+            /// <summary>Earth, the tank. Calibrated with the elements.</summary>
+            public const float HpEarth = 163f;
 
             /// <summary>
             /// How steeply the facing has to point toward the top of the screen (away from the
@@ -1375,6 +1379,10 @@ namespace Convergence.Core
             /// under plating was worth about 1%.</summary>
             public const float RustPlates = 3f;
             public const float CorrosionRepairMul = 0.5f;
+            /// <summary>Corrosion strips armour's cover this much faster than its condition falls -
+            /// 2 leaves nothing at half condition (Durability.DamageTakenMultiplier). Replaced "worn
+            /// armour's penalty lands outside the floor" when armour became protection (2026-11-03).</summary>
+            public const float CorrosionCoverLossMul = 2f;
             public const int OpenStanceHits = 1;
 
             // ---------------------------------------------------------------- Tithe
@@ -2753,6 +2761,9 @@ namespace Convergence.Core
             /// <summary>How far from the player a Red Rift is torn - farther than an open one, so
             /// its guard does not arrive on top of them.</summary>
             public const float RedTearDistance = 7f;
+            /// <summary>A dormant Red Rift's ember, against its full burn once the seal is broken
+            /// (Rift.Seal/Wake) - dull enough that a sealed tear reads as waiting, not started.</summary>
+            public const float RedDormantGlow = 0.4f;
 
             /// <summary>Puzzle floors (see Tuning.Puzzle). Same growing-weight rule as the Rift:
             /// the longer since the last one, the likelier the next. Never on a boss floor.</summary>
@@ -3386,6 +3397,15 @@ namespace Convergence.Core
             /// reasoning as TelegraphMinSeconds' own absolute floor.
             /// </summary>
             public const float TapBufferSeconds = 0.05f;
+
+            /// <summary>
+            /// COMMITMENT (the user's call, 2026-11-03 - deliberate, in the vein of Elden Ring): a
+            /// basic swing roots the feet through its strike - from the cock's end until the strike
+            /// is drawn - and this much longer into the settle. Walking between swings stays free, so
+            /// the cadence is unchanged; what a basic costs is standing where it lands
+            /// (PlayerController.BasicRooted).
+            /// </summary>
+            public const float BasicRootHoldSeconds = 0.06f;
 
             /// <summary>
             /// How long a fresh press on a banked weapon art must be HELD before it aims (the
@@ -5521,6 +5541,18 @@ namespace Convergence.Core
             /// more than it endures.</summary>
             public const float DamagePerFloor = 0.10f;
 
+            /// <summary>
+            /// THE EARLY FLOORS HIT SOFTER (the user's call, 2026-11-03, with the base health raise):
+            /// every enemy hit x<see cref="EarlyDamageMul"/> through FLOOR <see cref="EarlyDamageThrough"/>,
+            /// easing back to x1 by floor <see cref="EarlyDamageFullAt"/> - so a good player in Bronze
+            /// reaches the floor-10 boss (Assay.ShowcaseClimb), and the deep floors are untouched.
+            /// FloorDifficulty.Damage applies it; armour wear and the telemetry's blow size read the
+            /// same curve, so a "Chaser-sized blow" stays the floor's own.
+            /// </summary>
+            public const float EarlyDamageMul = 0.75f;
+            public const int EarlyDamageThrough = 10;
+            public const int EarlyDamageFullAt = 20;
+
             /// <summary>An enemy body's linearDamping on dry ground, re-solved on water as the
             /// player's is (see Tuning.Player.BodyDamping).</summary>
             public const float BodyDamping = 4f;
@@ -7484,6 +7516,41 @@ namespace Convergence.Core
         }
 
         /// <summary>
+        /// THE PHIAL (the user's calls, 2026-11-03): the run's healing, carried and drunk - heals
+        /// are meant to be scarce. Every character holds a Bronze phial; Silver and Gold are forged
+        /// from boxes of their tier (ForgeScreen's PHIAL tab). Full at the run's start; each boss floor's
+        /// clear puts ONE charge back, and so can the floor reward's restore ring - only with a
+        /// charge missing, and not again for CardCooldownFloors after it is taken. Drinking roots the
+        /// player for DrinkSeconds with no attack, art, release or defensive; a blow before the gulp
+        /// (GulpSeconds) spills the charge. Sized against the showcase climb (BALANCE.md "The next
+        /// pass"): a Bronze phial's 90% twice over is ~20% of max health a floor to floor 10.
+        /// Tiers by index: 0 Bronze, 1 Silver, 2 Gold (CharacterProfile.PhialTier).
+        /// </summary>
+        public static class Phial
+        {
+            /// <summary>Bronze took a 4th drink with the floor-10 tuning (2026-11-03); Silver and Gold
+            /// moved with it, so forging still adds one.</summary>
+            public static readonly int[] Charges = { 4, 5, 6 };
+            public static readonly float[] HealFraction = { 0.30f, 0.35f, 0.40f };
+            /// <summary>Boxes of the phial's own tier its forging costs (Silver, Gold).</summary>
+            public const int CraftBoxes = 3;
+            public const float DrinkSeconds = 0.9f;
+            public const float GulpSeconds = 0.45f;
+            /// <summary>Floors after the restore ring's charge is taken before it is offered again.</summary>
+            public const int CardCooldownFloors = 2;
+
+            public static int Clamp(int tier) => UnityEngine.Mathf.Clamp(tier, 0, Charges.Length - 1);
+            public static int ChargesFor(int tier) => Charges[Clamp(tier)];
+            public static float HealFor(int tier) => HealFraction[Clamp(tier)];
+            public static Art.Gear.LootTier TierOf(int tier) => Clamp(tier) switch
+            {
+                0 => Art.Gear.LootTier.Bronze,
+                1 => Art.Gear.LootTier.Silver,
+                _ => Art.Gear.LootTier.Gold,
+            };
+        }
+
+        /// <summary>
         /// Spires: a capture point that pays ONE boon for the rest of the floor (or, for Heal and
         /// Repair, once on the spot). See Hazards/Spire.cs.
         /// </summary>
@@ -8037,6 +8104,37 @@ namespace Convergence.Core
             /// mitigation, so worn armour raising damage taken can't feed back into faster wear.
             /// </summary>
             public const float WearReferenceHit = Enemy.ChaserDamage;
+
+            /// <summary>
+            /// PROTECTION THAT WEARS (the user's call, 2026-11-03): an intact armour piece turns away
+            /// this share of every hit, by its tier, and wear strips it away in step with its
+            /// condition - a broken piece protects nothing (Durability.DamageTakenMultiplier). Eight
+            /// armour slots, so a full set of one tier turns away eight times this: Bronze 24%,
+            /// Silver 30%, Gold 36%. Diamond and Black Diamond protect as Gold. Inside the
+            /// mitigation floor (Tuning.Stats.IncomingFloor) with Resilience, Graze and Brace.
+            ///
+            /// Replaced the old model, where armour protected NOTHING and only worn armour cost
+            /// up to +50% damage taken - clean play kept a penalty away rather than earning cover.
+            /// </summary>
+            public const float ProtectionBronze = 0.03f;
+            public const float ProtectionSilver = 0.0375f;
+            public const float ProtectionGold = 0.045f;
+
+            public static float ProtectionFor(Art.Gear.LootTier tier) => tier switch
+            {
+                Art.Gear.LootTier.Bronze => ProtectionBronze,
+                Art.Gear.LootTier.Silver => ProtectionSilver,
+                _ => ProtectionGold,
+            };
+
+            /// <summary>
+            /// Condition one Chaser-sized blow takes from every armour piece, of its 100 (more with
+            /// Armor - Durability.EffectiveMax). Raised from 1.4 with the protection model (the
+            /// user: "armour may not wear fast enough"): twenty unplated blows break a set with no
+            /// Armor, so a careless floor strips it and a clean one costs a fifth. Was a scene
+            /// field on GameBootstrap.
+            /// </summary>
+            public const float ArmorWearPerHit = 5f;
             /// <summary>The most wear one blow can cost, in blows - a boss mechanic sized off
             /// max HP would otherwise strip a whole set in one read.</summary>
             public const float WearMaxBlows = 3f;
@@ -8057,6 +8155,14 @@ namespace Convergence.Core
             /// benefit beyond the check itself, which is the trade for its much shorter cooldown.
             /// </summary>
             public const float ParryWindowSeconds = 0.2f;
+
+            /// <summary>
+            /// COMMITMENT (the user's call, 2026-11-03): no defensive while a weapon art is still
+            /// coming - from its press until its strike. A press in that time is held this long and
+            /// fires on the strike if it is still fresh, so a guard pressed a hair early is not
+            /// lost; one pressed at the start of a long wind-up is (PlayerController.ArtCommitted).
+            /// </summary>
+            public const float GuardBufferSeconds = 0.2f;
 
             /// <summary>
             /// Also the i-frame window (Health.Immune - see ActivateDefensiveAbility) and the
@@ -8502,6 +8608,16 @@ namespace Convergence.Core
             public const int EliteCapEarlyThrough = 5;
             public const int EliteCapMid = 2;
             public const int EliteCapMidThrough = 15;
+
+            /// <summary>
+            /// NO LONE ELITE through this FLOOR (the user's call, 2026-11-03 - both base-kit playtests
+            /// died to one elite Chaser that had bought the whole floor): an elite there may cost at
+            /// most <see cref="EarlyEliteMaxPoolShare"/> of the pool, and a floor's guaranteed elite
+            /// that no kind can afford at that share is skipped rather than bought alone. Past it the
+            /// old rule stands (the cheapest that fits, else any).
+            /// </summary>
+            public const int LoneEliteThroughFloor = 10;
+            public const float EarlyEliteMaxPoolShare = 0.5f;
         }
     }
 }

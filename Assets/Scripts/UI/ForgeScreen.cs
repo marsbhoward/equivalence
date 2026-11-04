@@ -23,7 +23,7 @@ namespace Convergence.UI
     {
         public bool IsOpen { get; private set; }
 
-        enum Mode { Redeem, Targeted, Combine, Reroll, Salvage, Fuse, Dye }
+        enum Mode { Redeem, Targeted, Combine, Reroll, Salvage, Fuse, Dye, Phial }
 
         /// <summary>Every slot the Forge can roll into. Relic is excluded - GearRoller has no
         /// pool for it (cosmetic only, same rule a weapon transmog already follows), so redeeming
@@ -70,6 +70,10 @@ namespace Convergence.UI
             /// <summary>Salvages pieces (by instance id); returns what came of it, or null if
             /// nothing was salvaged.</summary>
             public Func<IReadOnlyList<string>, string> OnSalvage;
+            /// <summary>The character's phial tier (Tuning.Phial: 0 Bronze, 1 Silver, 2 Gold), read live.</summary>
+            public Func<int> PhialTier;
+            /// <summary>Forges the phial of a tier from its boxes; true when it was forged.</summary>
+            public Func<int, bool> OnCraftPhial;
             /// <summary>The calx short of a whole box, per tier - read live.</summary>
             public LootBoxes Calx;
             /// <summary>What the database holds for the character - dyes, charges, what each
@@ -172,7 +176,7 @@ namespace Convergence.UI
         {
             (Mode.Redeem, "REDEEM"), (Mode.Targeted, "TARGETED"),
             (Mode.Combine, "COMBINE"), (Mode.Reroll, "RE-ROLL"), (Mode.Salvage, "SALVAGE"),
-            (Mode.Fuse, "FUSE"), (Mode.Dye, "DYE"),
+            (Mode.Fuse, "FUSE"), (Mode.Dye, "DYE"), (Mode.Phial, "PHIAL"),
         };
 
         /// <summary>
@@ -245,6 +249,7 @@ namespace Convergence.UI
                 case Mode.Salvage: BuildSalvage(); break;
                 case Mode.Fuse: BuildFuse(); break;
                 case Mode.Dye: BuildDye(); break;
+                case Mode.Phial: BuildPhial(); break;
             }
         }
 
@@ -276,6 +281,47 @@ namespace Convergence.UI
             LootTier.BlackDiamond => new Color(0.55f, 0.35f, 0.85f),
             _ => Color.white,
         };
+
+        // ------------------------------------------------------------------ Phial (the run's healing)
+
+        /// <summary>The phial's three tiers side by side: what each holds, the one carried, and what
+        /// the next costs - its own tier's boxes (Tuning.Phial). A tap on one the player can pay for
+        /// forges it.</summary>
+        void BuildPhial()
+        {
+            int have = _ctx.PhialTier != null ? _ctx.PhialTier() : 0;
+            Subtitle($"forge a better phial - {Tuning.Phial.CraftBoxes} boxes of its tier; full at a run's start, a drink back after each boss");
+            for (int t = 0; t < Tuning.Phial.Charges.Length; t++)
+            {
+                var tier = Tuning.Phial.TierOf(t);
+                var card = Card(t, 3, 300f, 200f, 24f, -60f);
+                string holds = $"{Tuning.Phial.ChargesFor(t)} drinks  ·  {Mathf.RoundToInt(Tuning.Phial.HealFor(t) * 100f)}% health each";
+                string state;
+                Color ink = Dim;
+                bool canBuy = false;
+                if (t == have) { state = "CARRIED"; ink = CarriedInk; }
+                else if (t < have) state = "outgrown";
+                else
+                {
+                    int boxes = _ctx.Boxes.Get(tier);
+                    canBuy = boxes >= Tuning.Phial.CraftBoxes;
+                    state = $"{Tuning.Phial.CraftBoxes} {Label(tier)} boxes  (you have {boxes})";
+                    ink = canBuy ? PoweredInk : Dim;
+                }
+                UiKit.Label(UiKit.Rect(card, "t", new Vector2(0, 1), Vector2.one, new Vector2(8, -64), new Vector2(-8, -12)),
+                    $"{Label(tier).ToUpperInvariant()} PHIAL", 26, TierColor(tier), TextAnchor.MiddleCenter);
+                UiKit.Label(UiKit.Rect(card, "h", new Vector2(0, 0.5f), new Vector2(1, 0.5f), new Vector2(8, -22), new Vector2(-8, 22)),
+                    holds, 18, Ink, TextAnchor.MiddleCenter);
+                UiKit.Label(UiKit.Rect(card, "s", Vector2.zero, new Vector2(1, 0), new Vector2(8, 10), new Vector2(-8, 56)),
+                    state, 18, ink, TextAnchor.MiddleCenter);
+                if (!canBuy) continue;
+                int chosen = t;
+                _actions.Add((card, () =>
+                {
+                    if (_ctx.OnCraftPhial != null && _ctx.OnCraftPhial(chosen)) Rebuild();
+                }));
+            }
+        }
 
         // ------------------------------------------------------------------ Redeem (random slot, one box)
 

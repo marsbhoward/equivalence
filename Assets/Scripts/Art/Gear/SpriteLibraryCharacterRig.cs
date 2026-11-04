@@ -205,6 +205,7 @@ namespace Convergence.Art.Gear
         public void SetAimViews(bool on) { }
         public bool PastStrike => true;
         public float SinceStrike => 0f;
+        public bool InStrike => false;
         public void ReleaseSettle() { }
         public float StrikeDrawnSeconds(Combat.AttackMotion motion, float duration) => 0f;
         public float StrikeStartSeconds(Combat.AttackMotion motion, float duration) => 0f;

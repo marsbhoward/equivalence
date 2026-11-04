@@ -95,6 +95,17 @@ namespace Convergence.Art.Gear
             }
         }
 
+        public bool InStrike
+        {
+            get
+            {
+                if (_attackTimer <= 0f || _attackHold > 0f) return false;
+                StrikePhases(_motion, _attackLength, out float cockEnd, out float strikeEnd);
+                float k = SwingKNow;
+                return k >= cockEnd && k < strikeEnd;
+            }
+        }
+
         public float SinceStrike
         {
             get

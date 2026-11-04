@@ -72,19 +72,17 @@ namespace Convergence.Core
         /// must not refill it mid-floor.</summary>
         [SerializeField] float _plating;
         public float PlatingLeft => _plating;
+        /// <summary>The floor from which the restore ring may offer a phial charge again (Tuning.Phial).</summary>
+        [SerializeField] int _phialCardFrom;
         public float PlatingPerFloor => _player != null
             ? Mathf.Max(0f, _player.Stats.Armor / Tuning.Defense.ArmorPerPlate - Modifiers.Current.PlatingLost) : 0f;   // Rust
 
         [Header("Durability")]
-        [Tooltip("Durability each armor piece loses per hit taken, for a hit the size of the floor's Chaser swing - scaled by how hard the hit was (Tuning.Defense.WearReferenceHit).")]
-        public float ArmorWearPerHit = 1.4f;
         [Tooltip("UNUSED while weapon degradation is off - nothing wears weapons and nothing " +
                  "reads their condition. Kept for the sharpness mechanic this may become.")]
         public float WeaponWearPerHit = 0.22f;
         [Tooltip("Fraction of max durability the repair reward restores.")]
         public float RepairFraction = 0.45f;
-        [Tooltip("Fraction of max health the heal reward restores.")]
-        public float HealFraction = 0.3f;
 
         [Header("Mastery")]
         [Tooltip("Element mastery XP earned for each floor cleared. Accrues during the run and " +
@@ -1114,6 +1112,19 @@ namespace Convergence.Core
         /// new value, two to change which stat it is. The result can be worse - the player makes
         /// the gamble. Works on equipped pieces too (it changes the item in place, not its id).
         /// </summary>
+        /// <summary>Forge a better phial (Tuning.Phial): boxes of its own tier, never a step down.
+        /// True when it was forged.</summary>
+        public bool CraftPhial(int tier)
+        {
+            tier = Tuning.Phial.Clamp(tier);
+            if (_profile == null || tier <= _profile.PhialTier) return false;
+            if (!TrySpendBoxes(Tuning.Phial.TierOf(tier), Tuning.Phial.CraftBoxes)) return false;
+            _profile.PhialTier = tier;
+            Debug.Log($"[Forge] phial forged: {Tuning.Phial.TierOf(tier)}");
+            AfterForgeChange();
+            return true;
+        }
+
         public MintedGearRecord RerollSubStat(string instanceId, int index, bool changeStat)
         {
             var record = _profile.MintedGear.Find(r => r.InstanceId == instanceId);
@@ -1924,6 +1935,8 @@ namespace Convergence.Core
                 OnReroll = RerollSubStat,
                 OnFuse = FuseGear,
                 OnSalvage = SalvageGear,
+                PhialTier = () => _profile.PhialTier,
+                OnCraftPhial = CraftPhial,
                 Calx = _profile.Calx,
                 Items = () => _profile.Items,
                 OnRecolour = RecolourAsync,
@@ -2903,6 +2916,47 @@ namespace Convergence.Core
             return record;
         }
 
+        /// <summary>
+        /// DEV: dress the current character in a fresh showcase kit - Bronze in every kit armour slot,
+        /// a Bronze chest keeping its defensive, a Bronze weapon of its class and a kit relic; the
+        /// accessory and trinket emptied, the phial back to Bronze. For playing the floor-10 target
+        /// (BALANCE.md "The next pass") on a geared character. Hub only; back the saves up first.
+        /// <c>FindAnyObjectByType&lt;GameBootstrap&gt;().DevWearBronzeKit();</c>
+        /// </summary>
+        public string DevWearBronzeKit()
+        {
+            if (_state != State.Hub || _profile == null) return "not in the hub";
+            var heldWeapon = Art.Gear.GearCatalog.Get(_profile.Gear.Get(Art.Gear.GearSlot.Weapon));
+            var heldChest = Art.Gear.GearCatalog.Get(_profile.Gear.Get(Art.Gear.GearSlot.Torso));
+            var cls = heldWeapon != null ? heldWeapon.Class : Art.Gear.WeaponClass.Greatsword;
+            var ability = heldChest != null ? heldChest.DefensiveAbility : Art.Gear.DefensiveAbility.Dash;
+
+            foreach (var slot in Tuning.Showcase.KitArmour)
+                GiveKitPiece(_profile, slot, cls, slot == Art.Gear.GearSlot.Torso ? ability : null, wear: true);
+            GiveKitPiece(_profile, Art.Gear.GearSlot.Weapon, cls, null, wear: true);
+            string relicId = $"KIT-Relic-{Guid.NewGuid():N}";
+            var relic = new MintedGearRecord
+            {
+                InstanceId = relicId,
+                Slot = Art.Gear.GearSlot.Relic,
+                Tier = Tuning.Showcase.KitTier,
+                Finisher = Tuning.Showcase.KitRelicArt(cls),
+                Class = cls,
+                StatsVersion = Art.Gear.GearRoller.TablesVersion,
+            };
+            relic.WearStandardRelic(Art.Gear.DemoGear.StandardRelicFor(Art.Gear.DemoGear.StableHash(relicId)));
+            _profile.MintedGear.Add(relic);
+            Art.Gear.GearCatalog.Register(relic.ToGearItem());
+            _profile.Gear.Set(Art.Gear.GearSlot.Relic, relicId);
+            _profile.Gear.Clear(Art.Gear.GearSlot.Ring);
+            _profile.Gear.Clear(Art.Gear.GearSlot.Trinket);
+            _profile.PhialTier = 0;
+            _profile.Gear.DropStale();
+            RepaintLive();
+            _ = _store.UnlockAsync(_profile);
+            return $"Bronze kit worn: {cls}, {ability}";
+        }
+
         static readonly Art.Gear.WeaponClass[] ShowcaseClasses =
             { Art.Gear.WeaponClass.Greatsword, Art.Gear.WeaponClass.Disc, Art.Gear.WeaponClass.Bow };
 
@@ -3108,6 +3162,7 @@ namespace Convergence.Core
             _profile.Wear.Entries.Clear();
             _floorBoon = -1;
             _floorBoonFloorsLeft = 0;
+            _phialCardFrom = 0;
 
             // The stake is placed BEFORE the run-start checkpoint so the datum carries it - see
             // CharacterProfile.StakedInstanceId. Placing overwrites; a superseded start's stake
@@ -3555,6 +3610,7 @@ namespace Convergence.Core
                     pc.Aura = Player.BulwarkAura.Attach(pc);
                     break;
             }
+            Player.Phial.Attach(pc, _profile.PhialTier);   // full - a resume sets its charges (RestoreRun)
 
             pc.Stats = stats;
             // The unbent block too: the element's head starts are bent together with it, live.
@@ -3579,13 +3635,12 @@ namespace Convergence.Core
             // The run layer joins here too: the ledger's Graze and Brace as factors of their own,
             // and Patina (worn armour counts half against you).
             pc.ArmourWearMultiplier = () =>
-                1f + (_profile.Wear.DamageTakenMultiplier(_profile.Gear, pc.Stats.Armor) - 1f)
-                     * Modifiers.Current.ArmourWearPenaltyMul;
+                _profile.Wear.DamageTakenMultiplier(_profile.Gear, pc.Stats.Armor, Modifiers.Current.ArmourWearPenaltyMul);
             pc.IncomingDamageMultiplier = () =>
             {
                 var m = Modifiers.Current;
-                // Under Corrosion the wear moves outside the floor (PlayerController.WearOutside).
-                float wear = pc.WearOutsideFloor ? 1f : pc.ArmourWearMultiplier();
+                // The armour's cover, as worn (Corrosion strips it twice as fast).
+                float wear = pc.ArmourWearMultiplier();
                 float graze = pc.Stats.Graze;
                 return wear
                        * Art.Gear.StatPercents.ReductionFactor(pc.Stats.Resilience) * m.ResilienceFactor   // Adamant
@@ -3704,7 +3759,7 @@ namespace Convergence.Core
                 blows -= soaked;
                 if (blows <= 0f) return;
                 _profile.Wear.Wear(_profile.Gear, Art.Gear.SlotKind.Armor,
-                                   ArmorWearPerHit * blows * m.ArmourWearMul * resistFactor,
+                                   Tuning.Defense.ArmorWearPerHit * blows * m.ArmourWearMul * resistFactor,
                                    pc.Stats.Armor);
             };
 
@@ -4333,6 +4388,8 @@ namespace Convergence.Core
             // actually have left rather than the health you had a moment before Toll took its cut.
             // The ledger's own counters move with the floor (Withering, Viriditas, Senescence).
             if (_player != null) _player.Effects?.OnFloorCleared();
+            // Each boss puts one charge back in the phial (Tuning.Phial).
+            if (IsBossFloor(_floor)) _player?.Phial?.AddCharge();
             Modifiers.FloorCleared();
             ApplyLedgerToPlayer();
 
@@ -4683,13 +4740,8 @@ namespace Convergence.Core
                 ? Combat.MovesetLibrary.RandomOffers(_player.Slots, _player.SlotLocked, _player.Weapon,
                                                      Tuning.FloorRewards.ArtOffers + 1)
                 : new List<Combat.Moveset>();
-            var r = new RolledReward
-            {
-                // Heal Received boosts THIS card and nothing else - not lifesteal, not boons.
-                HealAmount = _player != null
-                    ? _player.Health.Max * HealFraction * Art.Gear.StatPercents.Apply(1f, _player.Stats.HealReceived)
-                    : 0f,
-            };
+            // The restore ring's HEAL is a phial charge now (Tuning.Phial) - HealAmount stays 0.
+            var r = new RolledReward();
             for (int i = 0; i < 2; i++) r.Arts[i] = i < arts.Count ? arts[i] : null;
             var spare = arts.Count > 2 ? arts[2] : null;
 
@@ -4700,7 +4752,9 @@ namespace Convergence.Core
             // The restore ring: only a kind that would help. A full player is offered the other
             // of Xp/Calx beside it, then a third art; Heal only when nothing else is left.
             var helpful = new List<UI.FloorReward>(2);
-            if (_player != null && _player.Health.Current < _player.Health.Max - 0.5f)
+            // A phial charge: only with one missing, and not again for CardCooldownFloors after one is taken.
+            var phial = _player != null ? _player.Phial : null;
+            if (phial != null && phial.Charges < phial.MaxCharges && _floor >= _phialCardFrom)
                 helpful.Add(UI.FloorReward.Heal);
             // Armour only: weapons no longer wear.
             if (_profile.Wear.Condition01(_profile.Gear, Art.Gear.SlotKind.Armor, _player?.Stats.Armor ?? 0f) < 0.995f)
@@ -4710,7 +4764,7 @@ namespace Convergence.Core
             else if (r.Second == UI.FloorReward.Calx) r.Restore = UI.FloorReward.Xp;
             else if (calxOk) r.Restore = UI.FloorReward.Calx;
             else if (spare != null) { r.Restore = UI.FloorReward.Moveset; r.ThirdArt = spare; }
-            else r.Restore = UI.FloorReward.Heal;
+            else r.Restore = UI.FloorReward.Xp;
             return r;
         }
 
@@ -4720,7 +4774,7 @@ namespace Convergence.Core
 
         string RestoreText(UI.FloorReward kind, RolledReward r, int xpAmount) => kind switch
         {
-            UI.FloorReward.Heal    => $"+{Mathf.RoundToInt(r.HealAmount)} HP",
+            UI.FloorReward.Heal    => "+1 phial charge",
             UI.FloorReward.Repair  => $"+{Mathf.RoundToInt(RepairFractionNow * 100f)}% condition",
             UI.FloorReward.Calx    => $"+{Tuning.FloorRewards.CalxPerCard} {Tuning.FloorRewards.CalxTier} calx",
             UI.FloorReward.Moveset => r.ThirdArt != null ? r.ThirdArt.DisplayName : "weapon art",
@@ -4739,14 +4793,13 @@ namespace Convergence.Core
                         : new() { Kind = kind, Art = art, Enabled = true, Value = art.DisplayName, Blurb = art.FinisherDescription };
                 case UI.FloorReward.Heal:
                 {
-                    float max = _player != null ? _player.Health.Max : 0f;
-                    float cur = _player != null ? _player.Health.Current : 0f;
-                    float after = Mathf.Min(max, cur + r.HealAmount);
+                    var phial = _player != null ? _player.Phial : null;
+                    int have = phial != null ? phial.Charges : 0, most = phial != null ? phial.MaxCharges : 0;
                     return new()
                     {
                         Kind = kind, Enabled = true, Value = RestoreText(kind, r, xpAmount),
-                        Note = $"{Mathf.CeilToInt(cur)} » {Mathf.CeilToInt(after)} / {Mathf.CeilToInt(max)}",
-                        Blurb = "Patches you up. Does nothing for worn armor.",
+                        Note = $"PHIAL {have} » {Mathf.Min(most, have + 1)} / {most}",
+                        Blurb = $"Puts one charge back in your phial. Not offered again for {Tuning.Phial.CardCooldownFloors} floors.",
                     };
                 }
                 case UI.FloorReward.Repair:
@@ -4863,9 +4916,10 @@ namespace Convergence.Core
             switch (outcome)
             {
                 case UI.FloorOutcome.Heal:
-                    if (_player != null)
+                    // A phial charge back (Tuning.Phial), and the ring rests for CardCooldownFloors.
+                    if (_player != null && _player.Phial != null && _player.Phial.AddCharge())
                     {
-                        _player.Health.Heal(healAmount);
+                        _phialCardFrom = _floor + Tuning.Phial.CardCooldownFloors;
                         // Green motes rising round the feet past the head (the user's pick, group 4),
                         // behind the body - unlike lifesteal's single plus over the head.
                         var feet = Combat.ReleaseCanvas.Feet(_player.transform);
@@ -5194,7 +5248,7 @@ namespace Convergence.Core
         void OpenRedRift()
         {
             if (!TearRift(Tuning.Floors.RedTearDistance)) return;
-            _rift.Seal();
+            _rift.Seal(dormant: true);   // cold until the seal is broken (SummonRedGuard wakes it)
             _redSummoned = false;
             _redGuard ??= new();
             _redGuard.Clear();
@@ -5223,6 +5277,7 @@ namespace Convergence.Core
         {
             if (_rift == null || !_rift.Sealed || _redSummoned || _player == null) return;
             _redSummoned = true;
+            _rift.Wake();   // the ember burns now - the guard is coming
             _redGuard ??= new();
             _hud?.SetRedRiftPrompt(false);
 
@@ -6687,6 +6742,7 @@ namespace Convergence.Core
                 Ledger = Modifiers.Capture(),
                 FloorBoon = _floorBoon,
                 FloorBoonFloorsLeft = _floorBoonFloorsLeft,
+                PhialCardFrom = _phialCardFrom,
                 Health = _player.Health.Current,
                 Wear = CopyWear(_profile.Wear.Entries),
             };
@@ -7243,6 +7299,7 @@ namespace Convergence.Core
             Modifiers.Restore(s.Ledger);
             _floorBoon = s.FloorBoon;
             _floorBoonFloorsLeft = s.FloorBoonFloorsLeft;
+            _phialCardFrom = s.PhialCardFrom;
             if (_floorBoon >= 0) Modifiers.SetFloorBoon(Hazards.SpireBoons.Apply((Hazards.SpireBoon)_floorBoon));
             _stakeGateCleared = s.StakeGateCleared;
             _lastRiftBoxFloor = s.LastRiftBoxFloor;
@@ -7525,6 +7582,10 @@ namespace Convergence.Core
                 Element = (_player && _player.Resource ? _player.Resource.Element : ElementType.Fire).ToString(),
                 Weapon = (_player ? _player.Weapon : Art.Gear.WeaponClass.Greatsword).ToString(),
             };
+            // The "was there" mark: the account's first showcase escape (saved with the run's account write).
+            if (Core.RunFormat.Showcase && _account != null && string.IsNullOrEmpty(_account.ShowcaseEscapedUtc))
+                _account.ShowcaseEscapedUtc = DateTime.UtcNow.ToString("o");
+
             int week = FinalFloorReward.ThisWeek;
             if (Core.RunFormat.Showcase && _floor >= Core.RunFormat.EndFloor && _account != null && _account.ThanksWeek != week)
             {

@@ -345,15 +345,20 @@ namespace Convergence.Enemies
             // least half the pool for its company where any do - on an early floor a lone elite
             // Chaser would otherwise be the whole floor.
             WaveSpawn? guaranteed = null;
+            bool early = floor <= Tuning.Waves.LoneEliteThroughFloor;
             if (eliteFloor && elites < eliteCap && !group.Any(g => g.Elite))
             {
                 var open = EliteKinds.Where(k => UnlockAt(k) <= depth).ToList();
-                var light = open.Where(k => CostOf(k, true) <= wave.Pool * 0.5f - wave.Spent).ToList();
-                var from = light.Count > 0 ? light : open;
-                var kind = from.Count > 0 ? from[rng.Next(from.Count)] : EnemyKind.Chaser;
-                var tail = new List<WaveSpawn>();
-                Buy(tail, kind, true);
-                guaranteed = tail[0];
+                var light = open.Where(k => CostOf(k, true) <= wave.Pool * Tuning.Waves.EarlyEliteMaxPoolShare - wave.Spent).ToList();
+                // Early, an elite nobody can afford beside company is SKIPPED (Tuning.Waves.LoneEliteThroughFloor).
+                var from = light.Count > 0 ? light : early ? null : open;
+                if (from != null)
+                {
+                    var kind = from.Count > 0 ? from[rng.Next(from.Count)] : EnemyKind.Chaser;
+                    var tail = new List<WaveSpawn>();
+                    Buy(tail, kind, true);
+                    guaranteed = tail[0];
+                }
             }
 
             // This floor's lean: every eligible kind's weight scaled by a log-normal draw, a kind
@@ -386,6 +391,9 @@ namespace Convergence.Enemies
 
                 bool elite = elites < eliteCap && rng.NextDouble() < eliteShare;
                 Collect(options, weights, cost, remaining, atLeast, elite);
+                // Early, no elite dearer than its share of the pool - it would be the floor alone.
+                if (elite && early)
+                    options.RemoveAll(o => cost[(int)o.Kind, 1] > wave.Pool * Tuning.Waves.EarlyEliteMaxPoolShare);
                 if (options.Count == 0 && elite)
                 {
                     elite = false;

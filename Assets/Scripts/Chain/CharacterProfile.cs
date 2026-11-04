@@ -198,6 +198,9 @@ namespace Convergence.Chain
         /// escape leaves a sealed letter on the hub's table, which opens the thank-you. 0 = not yet
         /// escaped, 1 = the letter waits, 2 = read (or the week's showcase thank-you said it). Additive.</summary>
         public int EscapeLetter;
+        /// <summary>The phial this character carries: 0 Bronze, 1 Silver, 2 Gold (Tuning.Phial) - forged
+        /// at the Forge from boxes of its tier.</summary>
+        public int PhialTier;
         /// <summary>The escape the letter is about - its line and the run it shares. Additive.</summary>
         public EscapeRecord EscapeLetterRun = new();
 

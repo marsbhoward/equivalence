@@ -417,13 +417,62 @@ namespace Convergence.Player
                 }
             }
 
-            if (Core.Controls.GuardTapped && _defenseCooldown <= 0f && !Statue
+            // No defensive while a weapon art is still coming (Tuning.Defense.GuardBufferSeconds):
+            // the press is held, and fires on the strike if it is still fresh.
+            bool tapped = Core.Controls.GuardTapped;
+            if (ArtCommitted || Drinking)
+            {
+                if (tapped) _guardBuffer = Tuning.Defense.GuardBufferSeconds;
+                else if (_guardBuffer > 0f) _guardBuffer -= dt;
+                return;
+            }
+            bool pressed = tapped || _guardBuffer > 0f;
+            _guardBuffer = 0f;
+
+            if (pressed && _defenseCooldown <= 0f && !Statue
                 && !(Effects != null && Effects.DefenceShut(Time.time - _lastArtAt)))   // Shackled
                 ActivateDefensiveAbility();
             // Lightfoot: pressed again while it recharges, the anchor it dropped snaps you back.
-            else if (Core.Controls.GuardTapped && _defenseCooldown > 0f && !Statue)
+            else if (tapped && _defenseCooldown > 0f && !Statue)
                 Effects?.OnGuardWhileRecharging();
         }
+
+        float _guardBuffer;
+
+        /// <summary>The run's healing (Player.Phial) - attached by GameBootstrap.BuildPlayer.</summary>
+        [System.NonSerialized] public Phial Phial;
+        /// <summary>Drinking from the phial: held, and no release or defensive until it is done.</summary>
+        public bool Drinking => Phial != null && Phial.Drinking;
+        public bool Dashing => _dashSeconds > 0f;
+
+        /// <summary>A weapon art pressed and not yet struck - set in DoAttack, cleared by SettleStrike.</summary>
+        bool _artUnstruck;
+        /// <summary>The live swing is a basic - its strike roots the feet (BasicRooted).</summary>
+        bool _basicSwing;
+
+        /// <summary>
+        /// A weapon art between its press and its strike: no defensive fires (the user's call,
+        /// 2026-11-03). Bounded by the art's own lock or bar, so an art that never settles
+        /// cannot hold the guard shut.
+        /// </summary>
+        public bool ArtCommitted
+        {
+            get
+            {
+                if (_artUnstruck && !AttackLocked && !_barLive) _artUnstruck = false;
+                return _artUnstruck || (_lunging && Dashing);
+            }
+        }
+        /// <summary>A lunge art in flight - judged at its launch, committed until it lands (LungeStrike).</summary>
+        bool _lunging;
+
+        /// <summary>
+        /// A basic swing in its strike, or just past it: the feet stay put
+        /// (Tuning.Combo.BasicRootHoldSeconds). Walking between swings stays free.
+        /// </summary>
+        public bool BasicRooted =>
+            _basicSwing && Rig != null
+            && (Rig.InStrike || (Rig.SinceStrike > 0f && Rig.SinceStrike < Tuning.Combo.BasicRootHoldSeconds));
 
         void ActivateDefensiveAbility()
         {
@@ -1062,21 +1111,14 @@ namespace Convergence.Player
         /// </summary>
         public System.Func<float> IncomingDamageMultiplier;
 
-        /// <summary>Supplied by the game: worn armour's penalty alone (Durability.DamageTakenMultiplier),
-        /// which IncomingDamageMultiplier leaves out while it lands outside the floor instead.</summary>
+        /// <summary>Supplied by the game: the armour's cover alone, as worn (Durability.DamageTakenMultiplier).</summary>
         public System.Func<float> ArmourWearMultiplier;
 
-        /// <summary>Corrosion (Rust's Nigredo): worn armour's penalty can't be mitigated - it lands
-        /// outside the floor, so a capped build feels it too.</summary>
-        public bool WearOutsideFloor => Effects != null && Effects.WearOutsideFloor;
-
-        float WearOutside => WearOutsideFloor ? (ArmourWearMultiplier?.Invoke() ?? 1f) : 1f;
-
-        /// <summary>The armour readout the HUD shows: the mitigated multiplier and, under Corrosion,
-        /// the wear that moved outside it - the same pieces Vulnerability composes.</summary>
+        /// <summary>The armour readout the HUD shows: the mitigated multiplier - the same pieces
+        /// Vulnerability composes.</summary>
         /// <remarks>The run clock's HEAT included (Core.RunClock - 1 outside the Short Descent): the
         /// readout is what an ordinary hit really costs now.</remarks>
-        public float IncomingReadout => (IncomingDamageMultiplier?.Invoke() ?? 1f) * WearOutside
+        public float IncomingReadout => (IncomingDamageMultiplier?.Invoke() ?? 1f)
                                         * (Core.RunClock.Current != null ? Core.RunClock.Current.Heat : 1f);
 
         public System.Action OnWeaponUsed;
@@ -2058,7 +2100,7 @@ namespace Convergence.Player
                 Core.Controls.OfferUse("BLINK");   // the touch USE button (Controls.ArenaUse)
                 if (Core.Controls.InteractTapped) Blade.TeleportOwner();
             }
-            else if (releasePressed && Resource != null && Resource.CanRelease)
+            else if (releasePressed && !Drinking && Resource != null && Resource.CanRelease)
                 DoRelease();
         }
 
@@ -2130,7 +2172,7 @@ namespace Convergence.Player
             // MoveIntent above still reflects what the player is ASKING for, so a rooted Air
             // character does not lose momentum credit for an enemy's own CC on top of losing it
             // for their own finisher lock.
-            if (AttackLocked || Petrified || Statue) input = Vector2.zero;
+            if (AttackLocked || BasicRooted || Petrified || Statue) input = Vector2.zero;
 
             IsMoving = input.sqrMagnitude > 0.01f;
             Resource?.OnMoved(IsMoving);
@@ -2247,7 +2289,6 @@ namespace Convergence.Player
                                            mods.MitigationFloor)
                                        * mods.DamageTakenOutside
                                        * (Effects != null ? Effects.ExposureNow : 1f)   // the Nigredos' exposures
-                                       * WearOutside                                      // Corrosion
                                        * (ExposedSeconds > 0f ? _exposedMultiplier : 1f)
                                        * (Soaked ? 1f + Tuning.Hazards.WaterSoakDamageTaken : 1f)
                                        * (_status != null ? _status.StoneDamageTaken : 1f);   // stone skin
@@ -2465,7 +2506,9 @@ namespace Convergence.Player
             if (step.SplitDraw && GeminiDrawn)                                     // both halves home
                 return Core.Tuning.SolveCoagula.PartSeconds
                      + Core.Tuning.SolveCoagula.SheatheSeconds;   // held sheathed, Crosscut's rule
-            if (step.LungeDistance > 0f) return Core.Tuning.Impale.LungeSeconds;   // the end of the lunge
+            // The LAUNCH, not the end (the user's report, 2026-11-03: the body moved while the meter was
+            // still running). The bar is judged before the lunge goes; its hit lands where it ends.
+            if (step.LungeDistance > 0f) return 0f;
             if (step.PommelFlurry) return Core.Tuning.Flurry.PommelAt;             // the pommel
             if (step.StrikesOnDraw && Rig != null)                                  // the drawn strike
                 return Rig.StrikeDrawnSeconds(step.Motion, swingWindow);
@@ -2547,6 +2590,7 @@ namespace Convergence.Player
         /// </summary>
         void SettleStrike()
         {
+            _artUnstruck = false;   // the strike is out: the guard is free again (ArtCommitted)
             if (!_barLive) return;
             _barLive = false;
             if (_barGuards) Ward.Drop();   // the guard ends as the thrust lands
@@ -2649,6 +2693,8 @@ namespace Convergence.Player
             var step = NextStep;          // captured before the chain advances
             bool isFinisher = FinisherNext;
             AttackStarted?.Invoke(isFinisher);
+            _basicSwing = !isFinisher;
+            _artUnstruck = isFinisher;
 
             // Blood Blade: a full vial swaps in the Heavy release for this cast and empties
             // itself in the same moment - spent on CASTING the release, not on it connecting,
@@ -3221,6 +3267,12 @@ namespace Convergence.Player
         {
             float seconds = Core.Tuning.Impale.LungeSeconds;
 
+            // The verdict is decided as the lunge LAUNCHES (StrikeDelay) - the meter is done before
+            // the body moves; the hit it scales lands at the lunge's end. Still committed while it
+            // flies: no defensive mid-lunge (ArtCommitted reads _lunging).
+            SettleStrike();
+            _lunging = true;
+
             _visual?.PlayAttack(step.Motion, swingWindow);
             Rig?.SetSwingHop(0f);
             Rig?.PlayAttack(step.Motion, swingWindow, alt);
@@ -3243,8 +3295,8 @@ namespace Convergence.Player
             if (distance > 0.05f) Dash(dir, distance / seconds, seconds);
 
             yield return new WaitForSeconds(seconds);
+            _lunging = false;
 
-            SettleStrike();   // the lunge's end is the strike
             if (!step.PiercesPath)
             {
                 ResolveArc(step, isFinisher, advanceCombo: false);
@@ -7527,6 +7579,7 @@ namespace Convergence.Player
             s.RotationIndex = RotationIndex;
             s.Kills = Kills;
             s.PerfectStreak = _perfectStreak;
+            s.PhialCharges = Phial != null ? Phial.Charges : -1;
         }
 
         /// <summary>
@@ -7552,6 +7605,7 @@ namespace Convergence.Player
             ComboIndex = 0;
             Kills = Mathf.Max(0, s.Kills);
             _perfectStreak = Mathf.Max(0, s.PerfectStreak);
+            Phial?.SetCharges(s.PhialCharges);
         }
 
         /// <summary>Put a moveset into a slot, replacing whatever was there.</summary>

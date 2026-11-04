@@ -15,7 +15,7 @@ namespace Convergence.Chain
     /// nothing - the PLATING the Armour stat buys (GameBootstrap's wear hook, Tuning.Defense.ArmorPerPlate).
     ///
     /// Two effects, deliberately different:
-    ///   ARMOUR  wears when the player is HIT   -> damage taken goes UP
+    ///   ARMOUR  wears when the player is HIT   -> the share it turns away goes DOWN
     ///   WEAPONS wear when the player LANDS hits -> damage dealt goes DOWN
     /// </summary>
     [Serializable]
@@ -23,9 +23,6 @@ namespace Convergence.Chain
     {
         public List<DurabilityEntry> Entries = new();
 
-        /// <summary>How much worse things get at zero durability.</summary>
-        public const float MaxDamageTakenPenalty = 0.5f;   // +50% incoming
-        public const float MaxDamageDealtPenalty = 0.4f;   // -40% outgoing
 
         /// <summary>
         /// Effective ceiling for one item's pool. <paramref name="armorBonus"/> is the character's
@@ -116,9 +113,26 @@ namespace Convergence.Chain
             return n == 0 ? 1f : sum / n;
         }
 
-        /// <summary>Incoming damage multiplier. 1 pristine, up to 1.5 with armour destroyed.</summary>
-        public float DamageTakenMultiplier(Loadout loadout, float armorBonus = 0f)
-            => 1f + (1f - Condition01(loadout, SlotKind.Armor, armorBonus)) * MaxDamageTakenPenalty;
+        /// <summary>
+        /// Incoming damage multiplier: each armour piece turns away its tier's protection
+        /// (Tuning.Defense.ProtectionFor) in step with its condition - 0.76 for a whole Bronze set,
+        /// 1 with it broken. <paramref name="lossMul"/> is how fast lost condition strips the cover:
+        /// 2 (Corrosion) leaves a piece nothing at half condition.
+        /// </summary>
+        public float DamageTakenMultiplier(Loadout loadout, float armorBonus = 0f, float lossMul = 1f)
+        {
+            if (loadout == null) return 1f;
+            float cut = 0f;
+            foreach (var entry in loadout.Equipped)
+            {
+                if (GearSlots.Kind(entry.Slot) != SlotKind.Armor) continue;
+                var item = GearCatalog.Get(entry.ItemId);
+                if (item == null) continue;
+                float lost = 1f - Fraction01(entry.ItemId, armorBonus);
+                cut += Core.Tuning.Defense.ProtectionFor(item.Tier) * Mathf.Clamp01(1f - lost * lossMul);
+            }
+            return Mathf.Max(0f, 1f - cut);
+        }
 
         /// <summary>
         /// Outgoing damage multiplier. Currently ALWAYS 1 - weapon degradation is switched off.

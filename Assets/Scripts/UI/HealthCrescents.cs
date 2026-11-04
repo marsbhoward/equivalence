@@ -64,6 +64,9 @@ namespace Convergence.UI
         float _chip = -1f, _lastFraction = -1f, _hitAt, _healAt = -10f;
         int _platesLit = -1, _shatterPlate = -1;
         float _shatterAt = -10f;
+        /// <summary>The phial beside the health number (Player.Phial) - set by the HUD; null hides it.</summary>
+        public System.Func<(int Charges, int Max)> Phial;
+        int _shownPhial = -1;
         int _shownHp = -1, _shownMax = -1, _shownPct = -1, _shownMul = -1, _shownPlates = -1, _shownPlatesFull = -1;
         bool _shownLow;
 
@@ -153,10 +156,13 @@ namespace Convergence.UI
                     float platingLeft, float platingFull)
         {
             int cur = Mathf.CeilToInt(current), mx = Mathf.CeilToInt(max);
-            if (cur != _shownHp || mx != _shownMax)
+            (int Charges, int Max) phial = Phial != null ? Phial() : (-1, 0);
+            int phialKey = phial.Charges * 100 + phial.Max;
+            if (cur != _shownHp || mx != _shownMax || phialKey != _shownPhial)
             {
-                _shownHp = cur; _shownMax = mx;
-                UiKit.SetText(_hpText, $"<b>{cur}</b><size=20>  /  {mx}</size>");
+                _shownHp = cur; _shownMax = mx; _shownPhial = phialKey;
+                string flask = phial.Charges >= 0 ? $"   ·   PHIAL {phial.Charges}/{phial.Max}" : "";
+                UiKit.SetText(_hpText, $"<b>{cur}</b><size=20>  /  {mx}{flask}</size>");
             }
             if (low != _shownLow)
             {

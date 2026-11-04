@@ -51,6 +51,8 @@ namespace Convergence.Core
         public static bool VirtualHang;
         public static bool VirtualTurnLeft;
         public static bool VirtualTurnRight;
+        /// <summary>The touch overlay's PHIAL button.</summary>
+        public static bool VirtualPhial;
 
         /// <summary>
         /// True while the left mouse button is on one of the overlay's buttons - set by
@@ -84,6 +86,10 @@ namespace Convergence.Core
         /// <summary>Same as <see cref="ReleaseReady"/>, for the chest's defensive ability (GUARD)
         /// - dim exactly while it's on cooldown, which a touch player has no other way to see.</summary>
         public static System.Func<bool> GuardReady;
+        /// <summary>The phial's charges left and whether a drink would go now (Player.Phial) - the
+        /// touch button's count and dimming.</summary>
+        public static System.Func<int> PhialCharges;
+        public static System.Func<bool> PhialReady;
 
         /// <summary>Whether a weapon art the hand can aim is pending - a drag on the touch ATTACK
         /// button aims only then (PlayerController.ArtAimPossible). Wired by GameBootstrap like
@@ -306,6 +312,7 @@ namespace Convergence.Core
         static bool _alt, _altPrev;
         static bool _hang, _hangPrev, _turnLeft, _turnLeftPrev, _turnRight, _turnRightPrev;
         static bool _guard, _guardPrev;
+        static bool _phial, _phialPrev;
         static bool _pagePrev, _pagePrevPrev, _pageNext, _pageNextPrev;
         static bool _menu, _menuPrev;
         static bool _inventory, _inventoryPrev;
@@ -717,6 +724,11 @@ namespace Convergence.Core
                  (kb != null && kb.qKey.isPressed) || World(guardBtn)
                  || VirtualAlt);
 
+            // The phial. D-pad down only while no menu is up - a menu's D-pad moves its focus.
+            Edge(ref _phial, ref _phialPrev,
+                 (kb != null && kb.fKey.isPressed) || (pad != null && !menuLive && pad.dpad.down.isPressed)
+                 || VirtualPhial);
+
             // Opens the hub's settings menu. Escape specifically, not the Cancel action (which
             // also fires on the gamepad's B and on touch's virtual cancel) - a settings menu is
             // summoned on its own key, never backed into by the button that closes everything
@@ -737,6 +749,7 @@ namespace Convergence.Core
             {
                 _attack = _attackPrev = _release = _releasePrev = _guard = _guardPrev = false;
                 _interact = _interactPrev = _secondAbility = _secondAbilityPrev = _alt = _altPrev = false;
+                _phial = _phialPrev = false;
             }
 
             // ---- a weapon art held to aim: another press cancels it, and is swallowed ----
@@ -997,6 +1010,8 @@ namespace Convergence.Core
 
         /// <summary>The chest's defensive ability, in a run. Q on keyboard, as Alt is.</summary>
         public static bool GuardTapped { get { Sync(); return _guard && !_guardPrev; } }
+        /// <summary>Drink from the phial: F, the pad's D-pad down (fixed, like the hub's turns), touch PHIAL.</summary>
+        public static bool PhialTapped { get { Sync(); return _phial && !_phialPrev; } }
 
         /// <summary>Opens the run's pause menu - Escape, C/Tab, Start, or the overlay's MENU/GEAR.
         /// Deliberately not the pad's Cancel; see the field.</summary>

@@ -169,21 +169,41 @@ namespace Convergence.Rifts
             _onCollapsed = onCollapsed;
         }
 
-        /// <summary>Makes this a RED Rift: shut and burning until <see cref="Unseal"/>. The room
-        /// beyond still shows, darkened - home is visible, just not yet reachable.</summary>
-        public void Seal()
+        /// <summary>Makes this a RED Rift: shut until <see cref="Unseal"/>. The room beyond still
+        /// shows, darkened - home is visible, just not yet reachable. <paramref name="dormant"/>: shut
+        /// but COLD - a dull ember that only breathes, nothing coming - until <see cref="Wake"/> (the
+        /// seal broken) sets it burning. The user's report, 2026-11-03: a burning seal read as a
+        /// Red Rift already started.</summary>
+        public void Seal(bool dormant = false)
         {
             Sealed = true;
+            Dormant = dormant;
             PlayerInside = false;
+            Tint(dormant ? Tuning.Floors.RedDormantGlow : 1f);
+        }
+
+        /// <summary>The seal is broken and its guard comes: the ember burns at full.</summary>
+        public void Wake()
+        {
+            if (!Sealed || !Dormant) return;
+            Dormant = false;
+            Tint(1f);
+        }
+
+        /// <summary>A dormant Red Rift - sealed, its guard not yet called.</summary>
+        public bool Dormant { get; private set; }
+
+        void Tint(float glow)
+        {
             for (int i = 0; i < _steady.Length; i++)
                 if (_steady[i] != null)
                 {
                     var c = _steadyRest[i];
                     // The view is darkened toward the wound colour; everything else that glows
-                    // takes the ember outright.
+                    // takes the ember outright - dulled by `glow` while dormant.
                     _steady[i].color = _steady[i] == _view
-                        ? new Color(c.r * 0.55f, c.g * 0.22f, c.b * 0.22f, c.a)
-                        : new Color(Ember.r, Ember.g, Ember.b, c.a);
+                        ? new Color(c.r * 0.55f * glow, c.g * 0.22f * glow, c.b * 0.22f * glow, c.a)
+                        : new Color(Ember.r * glow, Ember.g * glow, Ember.b * glow, c.a * Mathf.Lerp(0.6f, 1f, glow));
                 }
         }
 

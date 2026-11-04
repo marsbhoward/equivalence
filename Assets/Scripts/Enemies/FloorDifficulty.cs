@@ -52,7 +52,18 @@ namespace Convergence.Enemies
         /// there (Core.RunClock.OnPaceHeat): heat multiplies every hit live, so on pace the two
         /// multiply back to Classic's curve, and only a faster or slower player is moved off it.</remarks>
         public static float Damage(int floor)
-            => (1f + Mathf.Max(0, D(floor) - 1) * Tuning.Enemy.DamagePerFloor) / Core.RunClock.OnPaceHeat(floor);
+            => (1f + Mathf.Max(0, D(floor) - 1) * Tuning.Enemy.DamagePerFloor) / Core.RunClock.OnPaceHeat(floor)
+               * EarlyDamage(floor);
+
+        /// <summary>The early floors' softer hits (Tuning.Enemy.EarlyDamageMul): flat through
+        /// EarlyDamageThrough, eased back to x1 by EarlyDamageFullAt. Reads the FLOOR - it is about
+        /// where a new player stands, not the depth's difficulty.</summary>
+        public static float EarlyDamage(int floor)
+        {
+            if (floor <= Tuning.Enemy.EarlyDamageThrough) return Tuning.Enemy.EarlyDamageMul;
+            float t = Mathf.InverseLerp(Tuning.Enemy.EarlyDamageThrough, Tuning.Enemy.EarlyDamageFullAt, floor);
+            return Mathf.Lerp(Tuning.Enemy.EarlyDamageMul, 1f, t);
+        }
 
         /// <summary>
         /// Move speed per floor - THE AXIS THAT DID NOT EXIST.

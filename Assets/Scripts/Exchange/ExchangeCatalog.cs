@@ -355,9 +355,9 @@ namespace Convergence.Exchange
               (m, n) =>
               {
                   m.PlatingLost += T.RustPlates * n;
-                  if (n >= 3) m.RepairMul *= T.CorrosionRepairMul;
+                  if (n >= 3) { m.RepairMul *= T.CorrosionRepairMul; m.ArmourWearPenaltyMul *= T.CorrosionCoverLossMul; }
               })
-              .Cap("Corrosion", "Repairs are halved. Worn armor's damage can't be reduced.");
+              .Cap("Corrosion", "Repairs are halved. Armor stops protecting at half condition.");
             C("open_stance", "Open Stance", Brittle, Dot1, 1, 1,
               T.OpenStanceHits == 1 ? "Your first hit taken each floor is doubled."
                                     : $"Your first {T.OpenStanceHits} hits taken each floor are doubled.", conditional: true);

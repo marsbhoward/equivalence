@@ -74,9 +74,15 @@ namespace Convergence.UI
                 "staggers on their own. The mastery grid's Affliction path strengthens all four, and its lanes open the " +
                 "[[humour|humours]] that let any element apply them."),
 
+            new("THE PHIAL",
+                "Your healing is carried, not handed out. Your phial holds a few drinks, full at the start of a run; " +
+                "each boss and, now and then, a floor reward put one drink back. Drinking holds you " +
+                "still for a moment, and a hit before you swallow spills it. Forge a Silver or Gold phial from boxes " +
+                "for more drinks that heal more."),
+
             new("ARMOR AND WEAR",
-                "Your eight armor pieces wear down as you are hit, and your weapon as its hits land. Worn armor protects " +
-                "less, so a nearly broken cuirass is worth far less than a fresh one.\n\n" +
+                "Your eight armor pieces turn away part of every hit - more from Silver and Gold - and wear down as " +
+                "you are hit. Worn armor protects less, and broken armor protects nothing.\n\n" +
                 "Armor buys plating: each floor, a number of blows wear nothing at all, refilled at the next floor's " +
                 "start. Sturdiness slows wear, Mend repairs a little at every floor's clear, and the floor reward's Repair " +
                 "ring restores more. Resilience lowers the damage of every hit you take; Graze lowers it while you move, " +

@@ -75,7 +75,7 @@ export async function telemetrySummary(req: Request, res: Response) {
   const days = Math.min(90, Math.max(1, Number(req.query.days ?? 7) || 7));
   const since = `now() - make_interval(days => ${days})`;
   try {
-    const [runs, ends, reach, killers, bosses, puzzles, rifts, deals, timing, devices, perf, errors, cards] = await Promise.all([
+    const [runs, ends, reach, killers, bosses, puzzles, rifts, deals, timing, devices, perf, errors, cards, hits] = await Promise.all([
       // Runs started, the characters behind them, how many of those were new.
       q(`SELECT count(DISTINCT run) AS runs, count(DISTINCT who) AS characters,
                 count(DISTINCT who) FILTER (WHERE (data->>'new')::boolean) AS new_characters
@@ -122,8 +122,18 @@ export async function telemetrySummary(req: Request, res: Response) {
           WHERE kind = 'error' AND at > ${since} GROUP BY 1 ORDER BY 2 DESC LIMIT 20`),
       q(`SELECT data->>'card' AS card, count(*) AS clicks FROM telemetry
           WHERE kind = 'card' AND at > ${since} GROUP BY 1 ORDER BY 2 DESC`),
+      // Hits taken per floor (BALANCE.md "The next pass"): blows, and Chaser-sized blows - the
+      // Assay's unit (Assay.ShowcaseClimb) - with health left at the clear. Floors from 2026-11-03 on.
+      q(`SELECT (data->>'f')::int AS floor, count(*) AS clears,
+                round(avg((data->>'hits')::numeric), 1) AS avg_hits,
+                max((data->>'hits')::int) AS most_hits,
+                round(avg((data->>'blows')::numeric), 2) AS avg_chaser_blows,
+                round(avg((data->>'dmg')::numeric), 0) AS avg_damage,
+                round(100 * avg((data->>'hp')::numeric), 0) AS avg_hp_pct
+           FROM telemetry WHERE kind = 'floor' AND at > ${since} AND data ? 'dmg'
+          GROUP BY 1 ORDER BY 1`),
     ]);
-    res.json({ days, runs: runs[0], ends, reach, killers, bosses, puzzles, rifts, deals, timing: timing[0], devices, perf, errors, cards });
+    res.json({ days, runs: runs[0], ends, reach, killers, bosses, puzzles, rifts, deals, timing: timing[0], devices, perf, errors, cards, hits });
   } catch (e) {
     res.status(500).json({ error: e instanceof Error ? e.message : String(e) });
   }

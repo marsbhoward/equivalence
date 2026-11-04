@@ -143,9 +143,6 @@ namespace Convergence.Exchange
         /// <summary>SHACKLED (Encumbered III): the defensive ability is shut for a moment after an art.</summary>
         public bool DefenceShut(float secondsSinceArt) => AtMax("encumbered") && secondsSinceArt < T.ShackledSeconds;
 
-        /// <summary>Corrosion: worn armour's penalty lands outside the floor.</summary>
-        public bool WearOutsideFloor => AtMax("rust");
-
         /// <summary>Lapis: a second planted halves the next hit.</summary>
         bool LapisReady => AtMax("stonestance") && _stillSeconds >= T.LapisStillSeconds;
 

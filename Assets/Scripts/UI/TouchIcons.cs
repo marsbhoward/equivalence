@@ -16,7 +16,7 @@ namespace Convergence.UI
         /// <summary>Canvas units per icon texel: the 1920-wide canvas over a 640-texel HUD.</summary>
         public const float Texel = 3f;
 
-        static Sprite _sword, _shield, _star, _eye;
+        static Sprite _sword, _shield, _star, _eye, _phial;
         static Sprite[] _elements;
 
         public static Sprite Sword => _sword != null ? _sword : _sword = Make(SwordRows());
@@ -24,6 +24,12 @@ namespace Convergence.UI
         {
             ".#########.", "#.........#", "#.........#", "#....#....#", "#...###...#", "#....#....#",
             ".#.......#.", ".#.......#.", "..#.....#..", "...#...#...", "....#.#....", ".....#.....",
+        });
+        /// <summary>PHIAL: a stoppered flask with a round belly.</summary>
+        public static Sprite Phial => _phial != null ? _phial : _phial = Make(new[]
+        {
+            "...###...", "...#.#...", "...#.#...", "..#...#..", ".#.....#.", "#.......#",
+            "#.#####.#", "#.#####.#", "#.......#", ".#.....#.", "..#####..",
         });
         /// <summary>USE: a four-pointed glint - whatever is in reach.</summary>
         public static Sprite Star => _star != null ? _star : _star = Make(StarRows(19));
