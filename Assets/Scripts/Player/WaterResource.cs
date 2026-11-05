@@ -22,7 +22,8 @@ namespace Convergence.Player
         public float Meter;                 // 0..1
 
         /// <summary>
-        /// Meter per connecting hit. 0.09 is ~11 hits to a full meter, up from 8.
+        /// Meter per connecting SWING (once per swing or throw since 2026-11-05 - it was per body
+        /// caught; Tuning.Elements.MeterPerSwing, the same as Fire's). 0.09 is ~11 to a full meter.
         ///
         /// Slowed because the tier-3 burst is the strongest single button water has and it was
         /// arriving inside one ordinary fight. Water is meant to be the element that asks you to
@@ -30,27 +31,26 @@ namespace Convergence.Player
         /// </summary>
         public float GainPerHit = T.GainPerHit;
 
-        public float DecayPerSecond = T.DecayPerSecond;
+        /// <summary>This swing's meter so far - a later body in it that is soaked tops it up to double.</summary>
+        float _swingGain;
+        float _missAt = -99f;
         public float Radius = T.Radius;
 
         /// <summary>
-        /// Total damage the tier-3 burst has to give, in HIT UNITS (multiples of the player's own
-        /// basic hit, Tuning.Elements), SHARED between everything it catches.
-        ///
-        /// A flat per-target number meant the burst scaled with the size of the crowd - the same
-        /// button was a single-target nuke AND a screen clear, and there was never a reason to
-        /// spend it on one enemy. As a shared pool it becomes a positioning decision: catch one
-        /// target and it lands whole, catch six and each takes a fraction.
+        /// The tier-3 burst on each body it catches, in HIT UNITS (multiples of the player's own basic
+        /// hit, Tuning.Elements), split by <see cref="BurstSplitFalloff"/>. It was a pool SHARED between
+        /// everything caught, so one button was never both a nuke and a screen clear; since 2026-11-05
+        /// that line runs between the kinds instead - Burst is the crowd's, the combo the lone
+        /// enemy's (RELEASES.md "Single target and the crowd") - and nothing is shared.
         /// </summary>
         public float BurstHitUnits = T.BurstHitUnits;
 
         /// <summary>
-        /// How the pool splits. 1 is a straight even divide; below 1 softens it so a crowd still
-        /// takes more in TOTAL than a single target does - otherwise the burst would be strictly
-        /// worse the more enemies it caught, and stepping AWAY from a pack to fire it would be
-        /// the correct play. At 0.8: one target takes 100%, two 57% each, four 33%, eight 19%.
+        /// How the burst splits between what it catches: each body takes it over n^falloff. 0 (since
+        /// 2026-11-05) hands every body the whole - Burst is the crowd's kind; 1 would be a straight
+        /// even divide.
         /// </summary>
-        [Range(0.4f, 1f)] public float BurstSplitFalloff = T.BurstSplitFalloff;
+        [Range(0f, 1f)] public float BurstSplitFalloff = T.BurstSplitFalloff;
 
         public int Tier => Meter >= 0.999f ? 3 : Meter >= 0.66f ? 2 : Meter >= 0.33f ? 1 : 0;
 
@@ -87,8 +87,7 @@ namespace Convergence.Player
         void Update()
         {
             if (_undertow == null) _undertow = UndertowRibbons.Attach(this);   // Surge's picture
-            if (Meter > 0f && Tier < 3)
-                Meter = Mathf.Max(0f, Meter - DecayPerSecond * Decay * Time.deltaTime);
+            // No leak (2026-11-05, the user's call): Water carries its meter until a miss or a release.
 
             if (_surgeRemaining > 0f)
             {
@@ -117,16 +116,26 @@ namespace Convergence.Player
         /// </summary>
         public float SoakedGainMultiplier = T.SoakedGainMultiplier;
 
+        public override void OnAttackStarted()
+        {
+            _swingGain = 0f;
+            if (Surging) _undertow?.Splash();   // the undertow: a swing throws water off the ribbons
+        }
+
         public override void OnHitLanded(Health target, DamageInfo info)
         {
             int before = Tier;
 
-            float gain = GainPerHit * Gain * (Player != null ? Player.HitMeterScale : 1f);
+            // No per-class scale: a disc's bounces are one swing (WeaponClasses.HitMeterScale is gone).
+            float gain = GainPerHit * Gain;
 
             var status = target != null ? target.GetComponent<StatusEffects>() : null;
             if (status != null && status.Soaked && (Ledger == null || Ledger.SoakedDoubleWorks)) gain *= SoakedGainMultiplier;   // Ebb stops it
 
-            Meter = Mathf.Clamp01(Meter + gain);
+            // Once per swing: the swing's best body counts - a soaked one tops a dry one up to double.
+            float add = Mathf.Max(0f, gain - _swingGain);
+            _swingGain = Mathf.Max(_swingGain, gain);
+            Meter = Mathf.Clamp01(Meter + add);
 
             // Reaching a tier is the only moment water's meter means anything - it is when a new
             // release becomes available. Brighter each step, brightest at the full burst.
@@ -136,7 +145,27 @@ namespace Convergence.Player
             TexelFx.Ring(ReleaseCanvas.Feet(transform), Tuning.ReleaseFx.Water, 0.12f, 0.35f + Tier * 0.12f, 0.4f, 1.2f);
         }
 
+        /// <summary>A miss costs a quarter of a tier - once per MissEvery, so a volley is one miss.
+        /// The ledger's fade scales it (Leaky Vessel more, Sealed Vessel nothing).</summary>
+        public override void OnAttackMissed()
+        {
+            if (Meter <= 0f || Time.time - _missAt < T.MissEvery) return;
+            _missAt = Time.time;
+            Meter = Mathf.Max(0f, Meter - T.MissCost * Decay);
+        }
+
         public override bool CanRelease => Tier >= 1;
+
+        /// <summary>THE ARSENAL (RELEASES.md): the tiers fold into two releases from a full meter -
+        /// BURST (the hit and the soak) is Water's Blast, SURGE (the long one) its Buff.</summary>
+        protected override bool CanFireOwn(ReleaseKind kind) => Meter >= 0.999f;
+
+        protected override void FireOwn(ReleaseKind kind)
+        {
+            LastTier = kind == ReleaseKind.Blast ? 3 : 2;
+            Cash(LastTier, surgeOnly: kind == ReleaseKind.Buff, burstOnly: kind == ReleaseKind.Blast);
+            Meter = 0f;
+        }
 
         public override void Release()
         {
@@ -156,7 +185,7 @@ namespace Convergence.Player
         public override void ReleaseAgain()
         {
             if (LastTier < 1) return;
-            Cash(LastTier, repeat: true);
+            Cash(LastTier, repeat: true, surgeOnly: LastTier == 2, burstOnly: LastTier == 3);
         }
 
         /// <summary>Spring Tide: a surge soaks every enemy around the player.</summary>
@@ -177,12 +206,51 @@ namespace Convergence.Player
             }
         }
 
-        void Cash(int tier, bool repeat = false)
+        /// <param name="burstOnly">The arsenal's BURST: the hit and the soak, no surge.</param>
+        /// <param name="surgeOnly">The arsenal's SURGE: the full-length surge alone.</param>
+        void Cash(int tier, bool repeat = false, bool surgeOnly = false, bool burstOnly = false)
         {
-            float radius = Radius * ReleaseAreaScale;
-            var hits = Physics2D.OverlapCircleAll(transform.position, radius);
+            // BURST IN TWO BEATS (the user's pick, 2026-11-05): the weapon's own water comes in first -
+            // WELLSPRING for a greatsword, WHIRLPOOL for discs, TIDE VOLLEY for a bow - and the burst,
+            // the soak and FOUR SPRINGS land as it reaches the radius.
+            if (tier == 3)
+            {
+                float radius0 = Radius * ReleaseAreaScale;
+                // Round the player - with a bow, a step short of the enemy it aims at (BlastCentre), held there.
+                var centre = BlastCentre(out var feet0);
+                var none = System.Array.Empty<Vector2>();
+                float arrives;
+                switch (Player != null ? Player.Weapon : Art.Gear.WeaponClass.Greatsword)
+                {
+                    case Art.Gear.WeaponClass.Disc: WaterWhirl.Play(feet0, radius0, none); arrives = Tuning.ReleaseFx.WhirlSeconds; break;
+                    case Art.Gear.WeaponClass.Bow: WaterVolley.Play(feet0, radius0, none); arrives = Tuning.ReleaseFx.VolleySeconds; break;
+                    default: WaterSpring.Play(feet0, radius0, none); arrives = Tuning.ReleaseFx.SpringSeconds; break;
+                }
+                Vector2? at = (centre - (Vector2)transform.position).sqrMagnitude > 1e-4f ? centre : null;
+                StartCoroutine(Arrive(arrives, repeat, surgeOnly, burstOnly, ReleaseAreaScale, Scale, at, feet0));
+                return;
+            }
+            Land(tier, ReleaseAreaScale, Scale, repeat, surgeOnly, burstOnly);
+        }
 
-            // Tier 3 only: the big hit, as a pool shared between everything caught. Dealt BEFORE the
+        /// <summary>The burst's second beat: area and strength read at the press, as a quake's aftershocks.</summary>
+        System.Collections.IEnumerator Arrive(float after, bool repeat, bool surgeOnly, bool burstOnly, float area, float scale,
+                                              Vector2? at, Vector2 atFeet)
+        {
+            yield return new WaitForSeconds(after);
+            Land(3, area, scale, repeat, surgeOnly, burstOnly, at, atFeet);
+        }
+
+        /// <param name="at">Where the burst lands when not round the player (a bow's BlastCentre), with
+        /// <paramref name="atFeet"/> where it is drawn.</param>
+        void Land(int tier, float area, float scale, bool repeat, bool surgeOnly, bool burstOnly,
+                  Vector2? at = null, Vector2 atFeet = default)
+        {
+            float radius = Radius * area;
+            Vector2 centre = at ?? (Vector2)transform.position;
+            var hits = Physics2D.OverlapCircleAll(centre, radius);
+
+            // Tier 3 only: the big hit on everything caught (BurstSplitFalloff). Dealt BEFORE the
             // soak below lands: the soak is for the hits that FOLLOW, and a burst amplified by its
             // own debuff was 35% bigger than anything priced it (Balance.Assay).
             if (tier == 3)
@@ -201,11 +269,11 @@ namespace Convergence.Player
 
                 if (caught.Count > 0)
                 {
-                    float share = BurstHitUnits * HitUnit * Scale /
-                                  Mathf.Pow(caught.Count, Mathf.Clamp(BurstSplitFalloff, 0.4f, 1f));
+                    float share = BurstHitUnits * HitUnit * scale /
+                                  Mathf.Pow(caught.Count, Mathf.Clamp01(BurstSplitFalloff));
                     foreach (var hp in caught)
                     {
-                        var to = ((Vector2)hp.transform.position - (Vector2)transform.position).normalized;
+                        var to = ((Vector2)hp.transform.position - centre).normalized;
                         PlayerController.ReleaseHitFrom(gameObject, hp,
                             new DamageInfo(share, ElementType.Water, gameObject) { Knockback = to * T.BurstKnockback });
                     }
@@ -218,23 +286,32 @@ namespace Convergence.Player
             // Tier 2 and 3: SURGE. Refreshed rather than stacked - a player sitting on tier 2
             // could otherwise chain-cast it into permanent haste, which is not a decision. High
             // Tide lengthens it; a repeat runs it on by its own share.
-            if (tier >= 2)
+            if (tier >= 2 && !burstOnly)
             {
-                float seconds = (tier == 3 ? SurgeSecondsTier3 : SurgeSecondsTier2)
+                float seconds = (tier == 3 || surgeOnly ? SurgeSecondsTier3 : SurgeSecondsTier2)
                               + (Ledger != null ? Ledger.SurgeExtraSeconds : 0f);
                 // The undertow round the body is its picture (UndertowRibbons).
                 _surgeRemaining = repeat ? Mathf.Max(0f, _surgeRemaining) + seconds * RepeatStrength : seconds;
             }
 
-            // Soak runs a ripple out to its edge; Burst flashes the sigil and spreads its rings.
-            if (tier == 3) SigilBurst.Play(ReleaseCanvas.Feet(transform), radius);
-            else if (tier == 1)
+            // The pictures (the user's picks, 2026-11-05): the burst lands as FOUR SPRINGS, after the
+            // weapon's own water (Cash); the old tier-1 soak takes the weapon's form alone. Each splashes
+            // every body it soaked.
+            if (tier == 1 || tier == 3)
             {
                 var bodies = new List<Vector2>();
                 foreach (var col in hits)
                     if (col != null && col.gameObject != gameObject && col.GetComponent<Health>() is { IsDead: false } hp)
                         bodies.Add(ReleaseCanvas.Feet(hp.transform));
-                WaterRipple.Play(ReleaseCanvas.Feet(transform), radius, bodies);
+                var feet = at != null ? atFeet : ReleaseCanvas.Feet(transform);
+                if (tier == 3) SigilBurst.Play(feet, radius, bodies);
+                else switch (Player != null ? Player.Weapon : Art.Gear.WeaponClass.Greatsword)
+                {
+                    case Art.Gear.WeaponClass.Greatsword: WaterSpring.Play(feet, radius, bodies); break;
+                    case Art.Gear.WeaponClass.Disc: WaterWhirl.Play(feet, radius, bodies); break;
+                    case Art.Gear.WeaponClass.Bow: WaterVolley.Play(feet, radius, bodies); break;
+                    default: WaterRipple.Play(feet, radius, bodies); break;
+                }
             }
         }
 
@@ -259,7 +336,7 @@ namespace Convergence.Player
         public override int PipsFilled => Tier;
         public override bool PipsAppearWhenReached => true;
 
-        public override string ReleaseName => Tier switch { 1 => "SOAK", 3 => "BURST", _ => "SURGE" };
+        
         public override string SealTag => Surging ? $"SURGE  {_surgeRemaining:0.0}s" : null;
         public override Combat.Glyph[] PipGlyphs => TierGlyphs;
 

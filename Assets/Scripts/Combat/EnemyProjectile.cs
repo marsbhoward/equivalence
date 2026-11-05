@@ -217,6 +217,8 @@ namespace Convergence.Combat
             // flies on over the void until it is gone.
             var clamped = Arena.ShotClamp(next, 0.1f);
             if ((clamped - next).sqrMagnitude > 0.0001f || Arena.ShotGone(next)) { Expire(); return; }
+            // Mudslide's bank stops an enemy's shot (Combat.MudWall); a reflected one is the player's.
+            if (!_reflected && MudWall.Blocks(transform.position, next)) { TexelFx.Puff(next, ArsenalFx.Mud, 6, 6f, 0.4f, TexelFx.Air); Expire(); return; }
 
             switch (HazardQuery.CheckCrossing(transform.position, next))
             {

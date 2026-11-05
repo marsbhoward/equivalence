@@ -26,7 +26,7 @@ namespace Convergence.Balance
         ///
         /// <see cref="Scorecard"/> checks every one. They are the phase gates.
         /// </summary>
-        public static class Targets
+        public static partial class Targets
         {
             /// <summary>A Max character with no ledger, in multiples of the unbuffed player - its WORTH,
             /// sqrt(damage x survival), averaged over every build and element. Worth rather than

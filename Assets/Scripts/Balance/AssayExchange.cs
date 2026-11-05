@@ -212,7 +212,9 @@ namespace Convergence.Balance
 
         // ------------------------------------------------------------------ releases
 
-        public struct ReleaseTerms { public float PerSecond, HitMul, HitUnitsAdd; }
+        /// <summary>PerSecond: meters a second. HitMul: on the releases' hits; WindowMul: on a Buff's
+        /// window (a full meter, so repeated whole).</summary>
+        public struct ReleaseTerms { public float PerSecond, HitMul, WindowMul, HitUnitsAdd; }
 
         /// <summary>
         /// How often the element releases and what each release is worth under the ledger: meter
@@ -222,7 +224,7 @@ namespace Convergence.Balance
         static ReleaseTerms LedgerReleases(Build b, Mods m, Func<string, int> n, ElementProfile el, ChainShape c,
                                            int floor, float chainDps)
         {
-            var r = new ReleaseTerms { PerSecond = el.ReleasesPerSecond, HitMul = 1f };
+            var r = new ReleaseTerms { PerSecond = el.ReleasesPerSecond, HitMul = 1f, WindowMul = 1f };
             if (b.Element == null || r.PerSecond <= 0f) return r;
 
             float keep = 1f + T.OverflowRefund * Mathf.Min(1, n("overflow"));   // Profile's refund rule
@@ -237,13 +239,20 @@ namespace Convergence.Balance
             rate = Mathf.Max(0.005f, rate + fill * keep);
             r.PerSecond = rate;
 
-            if (n("twin_spark") > 0) r.HitMul += T.TwinSparkScale;
-            if (n("wellspring") > 0) r.HitMul += 1f / T.WellspringEvery;            // every Nth fires twice
-            if (AtMax(n, "elixir")) r.HitMul *= c.CritFactor;                      // Grand Elixir
+            // Repeats fire a RELEASE again - a full meter; a combo's strikes and a move are never repeated.
+            float repeat = 0f;
+            if (n("twin_spark") > 0) repeat += T.TwinSparkScale;
+            if (n("wellspring") > 0) repeat += 1f / T.WellspringEvery;            // every Nth fires twice
+            r.HitMul += repeat * el.FullHitShare;
+            r.WindowMul += repeat;
+            float both = 1f;
+            if (AtMax(n, "elixir")) both *= c.CritFactor;                      // Grand Elixir: every release hit
             if (n("slow_fire") > 0 && n("stubborn_ore") > 0)
-                r.HitMul *= m.Factor(StatKind.ElementalEffectiveness, Mathf.Min(T.SlowFireCap, T.SlowFirePowerPerSecond / rate));
-            if (n("residue") > 0 && b.Element == ElementType.Fire)
-                r.HitUnitsAdd += T.ResidueBurnHitUnits * T.ResidueSeconds * Assume.FireTargetInPool;
+                both *= m.Factor(StatKind.ElementalEffectiveness, Mathf.Min(T.SlowFireCap, T.SlowFirePowerPerSecond / rate));
+            r.HitMul *= both;
+            r.WindowMul *= both;
+            if (n("residue") > 0 && b.Element == ElementType.Fire)   // a field a release - full meters
+                r.HitUnitsAdd += T.ResidueBurnHitUnits * T.ResidueSeconds * Assume.FireTargetInPool * el.FullShare;
             return r;
         }
 
@@ -711,7 +720,8 @@ namespace Convergence.Balance
             {
                 if (Array.IndexOf(Unpriced, e.Id) >= 0) continue;
                 if (only != null && !e.Id.Contains(only)) continue;
-                if (e.Classes != null && Array.IndexOf(e.Classes, WeaponClass.Greatsword) < 0) continue;   // the model swings a sword
+                // A class or defence entry is priced on the model's one chain with its own class's rates
+                // (AssayOverhaul.Rates) - the older class entries still read their sword-only terms.
 
                 float bestFirst = float.MinValue, bestMax = float.MinValue;
                 string bestBuild = "";

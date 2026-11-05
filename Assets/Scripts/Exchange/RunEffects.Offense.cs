@@ -94,6 +94,7 @@ namespace Convergence.Exchange
             // Iron Rhythm: the swing that passed through makes the next hit repeat.
             if (whiff && Has("iron_rhythm") && Has("fumbler")) _repeatNextHit = true;
             if (!isFinisher && !whiff) Spindrift();
+            OverhaulOnSwing(isFinisher);
             return !whiff;
         }
 
@@ -104,7 +105,7 @@ namespace Convergence.Exchange
         public float EdgeLossKept => AtMax("dilation") ? T.ExpansionEdgeLoss : 1f;
 
         /// <summary>Mired: sand and mire slow the player twice as much.</summary>
-        public bool Mired => AtMax("anchored");
+        public bool Mired => AtMax("anchored") || AtMax("co_bloom");   // Bloom III too
 
         // ---------------------------------------------------------------- crits
 
@@ -118,6 +119,7 @@ namespace Convergence.Exchange
         {
             if (_mods == null || target == null) return 0f;
             float add = isFinisher ? 0f : GildedCrit(target);   // Gilding: basics on a gilded body
+            add += OverhaulCrit(target, isFinisher);            // Arrival, Landing, Read, Reader
             if (_stoopRemaining > 0f) add += T.ForcedCritChance;
             // Honed: every hit on a body above half health - the same share however fat it is.
             if (Has("honed") && target.Max > 0f && target.Current / target.Max > T.HonedAbove) add += T.HonedCrit * _mods.Potency("honed");
@@ -196,9 +198,11 @@ namespace Convergence.Exchange
             if (sour > 0) down -= Mathf.Min(T.SouringCap, T.SouringDamage * tens) * sour;
 
             if (_trapRemaining > 0f) up += T.TrapBonusDamage;
+            up += OverhaulDamagePoints();
 
             damage = damage * m.Factor(StatKind.Damage, up, down) + opener;
             damage = AlbedosOutgoing(target, damage, h);   // Maturation, Committed
+            damage = OverhaulOutgoing(target, damage, h);  // Primer, Reader, Full Turn, the new Albedos
             // Dulled Script: the art on its socket deals less (a socket cost, paid for a form).
             if (h.IsFinisher && _pc != null) damage *= SocketDamageMul(_pc.ArtSocket);
 
@@ -221,6 +225,7 @@ namespace Convergence.Exchange
 
             // A landed swing or throw is a combat contact - once per attack, on its first body.
             if (h.First && !h.Repeat) Contact?.Invoke();
+            if (!h.Repeat) OverhaulHit(target, info, h);   // the overhaul's forms, dead or alive
 
             if (!h.Repeat)
             {
@@ -282,7 +287,7 @@ namespace Convergence.Exchange
             }
             if (_repeatNextHit) { _repeatNextHit = false; repeat = true; }
             // Gemini: the repeat is a whole twin of the hit, not half of it.
-            if (repeat) Repeat(target, info, Has("gemini") ? 1f : T.ReiterationFraction, AtMax("reiteration"));
+            if (repeat) Repeat(target, info, Has("gemini") ? 1f : T.ReiterationFraction, AtMax("reiteration"), Has("gemini") ? "gemini" : "reiteration");
 
             // FELICITY (reworked): one swing in nine throws a crescent along the aim.
             if (_felicityThisSwing && !_felicityUsed && h.First)
@@ -291,7 +296,7 @@ namespace Convergence.Exchange
                 Vector2 from = _pc.transform.position, dir = _pc.Facing.sqrMagnitude > 0.01f ? _pc.Facing.normalized : Vector2.right;
                 float dmg = info.Amount * T.FelicityShare * _mods.Potency("felicity");
                 foreach (var hp in EnemiesInStrip(from, dir, T.FelicityReach, T.FelicityHalfWidth))
-                    if (hp != target) hp.Take(new DamageInfo(dmg, info.Element, _pc.gameObject));
+                    if (hp != target) hp.Take(new DamageInfo(dmg, info.Element, _pc.gameObject) { Entry = "felicity" });
                 LedgerFx.Crest(ReleaseCanvas.Feet(_pc.transform), dir, T.FelicityReach, TexelFx.Gold);
             }
             // FURY OF THE FRAIL (reworked): low on health, basics bleed.
@@ -347,7 +352,7 @@ namespace Convergence.Exchange
                 float left = st != null ? st.ConsumeBleed() : 0f;
                 if (left > 0f && !target.IsDead)
                 {
-                    target.Take(new DamageInfo(left * T.LancetShare, ElementType.Earth, _pc.gameObject));
+                    target.Take(new DamageInfo(left * T.LancetShare, ElementType.Earth, _pc.gameObject) { Entry = "lancet" });
                     LedgerFx.StatusBurst(target, LedgerFx.Blood);
                 }
             }
@@ -358,7 +363,7 @@ namespace Convergence.Exchange
         /// repeat that kills on to the nearest enemy, to repeat again. A repeat is a plain hit - it
         /// repeats nothing and feeds no counter, or the boons would compound on themselves.
         /// </summary>
-        void Repeat(Health target, DamageInfo info, float fraction, bool chainKills)
+        void Repeat(Health target, DamageInfo info, float fraction, bool chainKills, string entry)
         {
             var at = target;
             for (int hops = 0; hops < 6 && at != null && !at.IsDead; hops++)
@@ -366,7 +371,7 @@ namespace Convergence.Exchange
                 bool crit = info.Crit;
                 float dmg = info.Amount * fraction;
                 var where = (Vector2)at.transform.position;
-                at.Take(new DamageInfo(dmg, info.Element, _pc.gameObject) { IsFinisher = info.IsFinisher, Crit = crit });
+                at.Take(new DamageInfo(dmg, info.Element, _pc.gameObject) { Entry = entry, IsFinisher = info.IsFinisher, Crit = crit });
                 LedgerFx.Echo(where, _pc.transform.position);
                 if (!chainKills || !at.IsDead) break;
                 at = NearestEnemy(where, 4f, at);
@@ -397,6 +402,7 @@ namespace Convergence.Exchange
         public void OnArtSettled(StrikeVerdict verdict)
         {
             _perfectArt = verdict == StrikeVerdict.Perfect;
+            OverhaulArtSettled(verdict);   // Overdrawn
             // KNELL: a perfect press rings out, staggering everything round you.
             if (_perfectArt && Has("knell") && _pc != null)
             {
@@ -446,6 +452,7 @@ namespace Convergence.Exchange
 
             if (AtMax("rich_vein")) Resource?.Refund(T.MotherLodeRefill * counts);
             FormsOnKill(h);
+            OverhaulOnKill(h, worth);
 
             // BLOOD DEBT (an oath): paid in kills, by the body's worth.
             if (Has("blood_debt")) _mods.AddOathProgress("blood_debt", counts, T.BloodDebtWorth);
@@ -466,10 +473,10 @@ namespace Convergence.Exchange
 
         /// <summary>Move Speed points the ledger's conditions add right now (Eagle, Retrograde Motion).</summary>
         public float MoveSpeedUp
-            => (_eagleRemaining > 0f ? T.EagleMove : 0f)
+            => OverhaulMoveUp + (_eagleRemaining > 0f ? T.EagleMove : 0f)
              + (Has("retrograde_motion") && Has("retrograde") && InputsInverted ? T.RetrogradeMotionMove : 0f);
 
         /// <summary>Attack Speed points the ledger's conditions take right now (Quicksand).</summary>
-        public float AttackSpeedDown => AtMax("restless") && _stillSeconds > 0.25f ? -T.QuicksandSpeed : 0f;
+        public float AttackSpeedDown => (AtMax("restless") && _stillSeconds > 0.25f ? -T.QuicksandSpeed : 0f) + OverhaulAttackSpeedDown;
     }
 }

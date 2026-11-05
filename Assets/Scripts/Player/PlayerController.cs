@@ -402,6 +402,10 @@ namespace Convergence.Player
         public bool BulwarkActive =>
             EquippedDefensiveAbility == Art.Gear.DefensiveAbility.Bulwark && _defenseActiveTimer > 0f;
 
+        /// <summary>The Barrier's dome is up - the exchange's Barrier forms read its end.</summary>
+        public bool BarrierActive =>
+            EquippedDefensiveAbility == Art.Gear.DefensiveAbility.Barrier && _defenseActiveTimer > 0f;
+
         void UpdateDefensiveAbility(float dt)
         {
             if (_defenseCooldown > 0f) _defenseCooldown -= dt;
@@ -471,8 +475,9 @@ namespace Convergence.Player
         /// (Tuning.Combo.BasicRootHoldSeconds). Walking between swings stays free.
         /// </summary>
         public bool BasicRooted =>
-            _basicSwing && Rig != null
-            && (Rig.InStrike || (Rig.SinceStrike > 0f && Rig.SinceStrike < Tuning.Combo.BasicRootHoldSeconds));
+            (_basicSwing && Rig != null
+             && (Rig.InStrike || (Rig.SinceStrike > 0f && Rig.SinceStrike < Tuning.Combo.BasicRootHoldSeconds)))
+            || (Effects != null && Effects.ConnectorRooted);   // Planted Link, a socket cost
 
         void ActivateDefensiveAbility()
         {
@@ -481,7 +486,7 @@ namespace Convergence.Player
             // The board's Sal Ammoniac stretches the protection and the parry window, never the
             // cooldown or the dash's distance.
             float window = Board != null ? Board.DefenseWindowMul : 1f;
-            _parryWindowRemaining = Tuning.Defense.ParryWindowSeconds * window;
+            _parryWindowRemaining = Tuning.Defense.ParryWindowSeconds * window * Mods.DefenseWindowMul;   // Brittle Guard
             Effects?.OnDefenceUsed();   // Lacerate, a Defence form
 
             switch (EquippedDefensiveAbility)
@@ -513,7 +518,10 @@ namespace Convergence.Player
                             if (info.Source == null) return false;
                             Vector2 to = (Vector2)info.Source.transform.position - (Vector2)transform.position;
                             if (to.sqrMagnitude < 0.0001f) return false;
-                            return Vector2.Dot(to.normalized, _barrierFacing) >= Tuning.Defense.BarrierFrontDot;
+                            // Narrow (a cost) closes the arc; a blocked hit is the exchange's to answer.
+                            bool blocked = Vector2.Dot(to.normalized, _barrierFacing) >= Tuning.Defense.BarrierFrontDot + Mods.BarrierDotAdd;
+                            if (blocked) Effects?.OnBlocked(info);
+                            return blocked;
                         };
                     }
                     break;
@@ -525,7 +533,7 @@ namespace Convergence.Player
                     break;   // BulwarkActive is read directly by IncomingDamageMultiplier
 
                 default:   // ParryStance - no benefit beyond the shared window above
-                    _defenseActiveTimer = Tuning.Defense.ParryWindowSeconds * window;
+                    _defenseActiveTimer = Tuning.Defense.ParryWindowSeconds * window * Mods.DefenseWindowMul;
                     _defenseCooldown = Tuning.Defense.ParryStanceCooldown * cdMul;
                     break;
             }
@@ -533,6 +541,10 @@ namespace Convergence.Player
             // Captured AFTER the switch rather than beside each of the four assignments - one
             // line that cannot fall out of step with a fifth ability added later.
             _defenseCooldownTotal = _defenseCooldown;
+
+            // A Guard release's charge (Player.ReleaseArsenal): the element thrown round the body -
+            // an effect added on top, the window and the cooldown above untouched.
+            Resource?.Arsenal.OnDefence();
 
             // No shared flash here any more. It fired identically for all four, so it could only
             // ever announce THAT an ability went off - never which, and never how much of the
@@ -555,6 +567,8 @@ namespace Convergence.Player
             {
                 _guardParried = true;   // the art answers with the counter (RiposteCounter)
                 ParryTell(attackerPosition);
+                Effects?.OnWardStopped(attackerPosition);   // a ward art's forms
+                Resource?.OnParried();
                 Ward.Flash();
                 return true;
             }
@@ -562,8 +576,10 @@ namespace Convergence.Player
             if (_parryWindowRemaining <= 0f) return false;
             _parryWindowRemaining = 0f;
             ParryTell(attackerPosition);
+            Resource?.OnParried();
 
             FireCounterStrike();
+            Effects?.OnParried(attackerPosition);   // the Guard kind's parry forms, the Concords
 
             // The board's Volatilization: a parry hands the ability straight back.
             if (Board != null && Board.RefundsOnParry) _defenseCooldown = 0f;
@@ -632,9 +648,6 @@ namespace Convergence.Player
             });
             TexelFx.Star(nearest.transform.position, TexelFx.Gold, 3);
         }
-
-        /// <summary>What one connecting hit is worth to a per-hit resource. See WeaponClasses.</summary>
-        public float HitMeterScale => Art.Gear.WeaponClasses.HitMeterScale(Weapon);
 
         /// <summary>
         /// The fire blade's heat, when one is equipped. Null the rest of the time, and every read
@@ -1345,7 +1358,7 @@ namespace Convergence.Player
             // (Quicksand) bent with it - see Exchange.Mods.Factor.
             var ledger = Mods;
             float run = ledger.AttackSpeedMul
-                        * (Effects != null ? ledger.Factor(Art.Gear.StatKind.AttackSpeed, 0f, Effects.AttackSpeedDown) : 1f);
+                        * (Effects != null ? ledger.Factor(Art.Gear.StatKind.AttackSpeed, Effects.AttackSpeedUp, Effects.AttackSpeedDown) : 1f);
             float speed = Mathf.Max(0.1f, GlobalAttackTempo * run * statSpeed);
 
             // The disc's two halves have different cadences, and that difference IS the class.
@@ -1393,7 +1406,7 @@ namespace Convergence.Player
         float DamageRoll()
         {
             float spread = Tuning.Attack.DamageSpread;
-            float accuracy = Mathf.Clamp01(Stats.Accuracy / 100f);
+            float accuracy = Mathf.Clamp01((Stats.Accuracy + (Resource?.AccuracyPoints ?? 0f)) / 100f);
             return Random.Range(1f - spread + 2f * spread * accuracy, 1f + spread);
         }
 
@@ -1801,6 +1814,7 @@ namespace Convergence.Player
 
         public void Burn(Health target, float dps, float seconds)
         {
+            if (Effects != null && Effects.StatusesBlocked) return;          // Dull Link
             Effects?.BeforeStatus(target, burning: true, soaking: false);   // Steam, a union
             if (Effects != null) dps *= Effects.BurnGrowth;                  // Kindling, grown
             if (Board != null) Board.Burn(target, dps, seconds);
@@ -1809,6 +1823,7 @@ namespace Convergence.Player
 
         public void Soak(Health target, float seconds, float vulnerability)
         {
+            if (Effects != null && Effects.StatusesBlocked) return;          // Dull Link
             // Saturate (the exchange's status layer): a soak landing on a soaked body staggers it.
             bool already = target != null && Effects != null && Effects.Saturates
                            && target.GetComponent<StatusEffects>() is { Soaked: true };
@@ -1817,17 +1832,22 @@ namespace Convergence.Player
             if (Board != null) Board.Soak(target, seconds, vulnerability);
             else if (target != null) StatusEffects.Get(target.gameObject).ApplySoak(seconds, vulnerability);
             if (already && !target.IsDead) Stagger(target, Tuning.Exchange.SaturateStagger);
+            Effects?.OnSoaked(target, seconds, vulnerability);              // Ripple
         }
 
         public void Stagger(Health target, float seconds)
         {
+            if (Effects != null && Effects.StatusesBlocked) return;          // Dull Link
             Effects?.OnStaggering(target);   // Clot, a union
+            if (Effects != null) seconds += Effects.StaggerGrowth;          // Settling, grown
             if (Board != null) Board.Stagger(target, seconds);
             else if (target != null) StatusEffects.Get(target.gameObject).ApplyStagger(seconds);
         }
 
         public void Bleed(Health target, float dps, float seconds)
         {
+            if (Effects != null && Effects.StatusesBlocked) return;          // Dull Link
+            if (Effects != null) dps *= Effects.BleedGrowth;                  // Deepening, grown
             if (Board != null) Board.Bleed(target, dps, seconds);
             else if (target != null) StatusEffects.Get(target.gameObject).ApplyBleed(dps, seconds, gameObject);
         }
@@ -1842,6 +1862,7 @@ namespace Convergence.Player
         public void ReleaseHit(Health target, DamageInfo info)
         {
             if (target == null || target.IsDead) return;
+            if (Effects != null) info.Amount *= Effects.ReleaseDamageMul;   // Pressed Release
             if (Effects != null && Effects.ReleasesCrit)
             {
                 float mul = RollCrit(target, out bool crit);
@@ -2094,14 +2115,85 @@ namespace Convergence.Player
             // choice is an action, not the element release (on keyboard both are E anyway). The
             // release is held off for the second of flight, the same way the attack button above
             // is wholly given over to the recall.
-            bool releasePressed = Core.Controls.ReleaseTapped;
             if (Blade != null)
             {
                 Core.Controls.OfferUse("BLINK");   // the touch USE button (Controls.ArenaUse)
                 if (Core.Controls.InteractTapped) Blade.TeleportOwner();
+                _releaseDownFor = -1f;
             }
-            else if (releasePressed && !Drinking && Resource != null && Resource.CanRelease)
-                DoRelease();
+            else ReadRelease();
+        }
+
+        /// <summary>Seconds the release button has been down for the press being read, or below
+        /// zero with no press pending (one already fired, or none made).</summary>
+        float _releaseDownFor = -1f;
+
+        /// <summary>
+        /// THE ARSENAL'S TWO RELEASES on one button (2026-11-05): let go before
+        /// Tuning.Releases.HoldSeconds and it is the TAP release; keep holding and the HOLD one fires
+        /// at that moment. With nothing on hold a press fires the tap at once, as the button always did.
+        /// </summary>
+        void ReadRelease()
+        {
+            if (Resource == null) return;
+            if (Core.Controls.ReleaseTapped) _releaseDownFor = 0f;
+            if (_releaseDownFor < 0f) return;
+            if (!Resource.HasHold) { _releaseDownFor = -1f; TryRelease(Resource.TapKind); return; }
+            if (Core.Controls.ReleaseHeld)
+            {
+                _releaseDownFor += Time.unscaledDeltaTime;
+                if (_releaseDownFor >= Tuning.Releases.HoldSeconds) { _releaseDownFor = -1f; TryRelease(Resource.HoldKind); }
+                return;
+            }
+            _releaseDownFor = -1f;
+            TryRelease(Resource.TapKind);
+        }
+
+        void TryRelease(ReleaseKind kind)
+        {
+            if (Drinking || _releaseWinding || !Resource.CanFire(kind)) return;
+            // A combo strike or a move plays its own motions (ReleaseArsenal); a full-meter release
+            // is swung first and lands on the motion's drawn strike.
+            if (ReleaseInfo.FullMeter(kind)) StartCoroutine(WindRelease(kind));
+            else DoRelease(kind);
+        }
+
+        bool _releaseWinding;
+
+        System.Collections.IEnumerator WindRelease(ReleaseKind kind)
+        {
+            _releaseWinding = true;
+            try
+            {
+                float strike = PlayReleaseMotion(ReleaseArsenal.MotionFor(Resource.Element, kind, Weapon),
+                                                 Tuning.Releases.MotionWindow, Facing, kind == ReleaseKind.Buff);
+                if (strike > 0f) yield return new WaitForSeconds(strike);
+                if (Resource != null && Health != null && !Health.IsDead && Resource.CanFire(kind)) DoRelease(kind);
+            }
+            finally { _releaseWinding = false; }
+        }
+
+        /// <summary>
+        /// A release's body motion (RELEASES.md): <paramref name="motion"/> played in the element's style
+        /// (RIG.md), facing <paramref name="face"/>, the feet held and the facing kept for the swing - as a
+        /// weapon art's, and moving past the strike lets go (SettleRelease). Returns the seconds until the
+        /// strike is drawn, when its hit should land (a bow's loose ends its draw).
+        /// </summary>
+        public float PlayReleaseMotion(AttackMotion motion, float window, Vector2 face, bool alt = false)
+        {
+            if (face.sqrMagnitude > 1e-4f) Facing = face.normalized;
+            var rig = Rig;
+            if (rig == null) return 0f;
+            rig.SetArtElement(Resource != null ? Resource.Element : (ElementType?)null, Weapon);
+            rig.SetSwingHop(0f);
+            rig.PlayAttack(motion, window, alt);
+            float swing = AttackMotions.SwingSeconds(window);
+            Combat.WeaponTrail.Play(rig, swing);
+            _lockTimer = Mathf.Max(_lockTimer, swing);
+            _cooldown = Mathf.Max(_cooldown, swing);
+            _settleIsFree = true;
+            _lockFreesAfterStrike = false;
+            return Weapon == Art.Gear.WeaponClass.Bow ? swing : rig.StrikeDrawnSeconds(motion, window);
         }
 
         /// <summary>Start the next swing - basic or weapon art - through the attack gate: the
@@ -2137,15 +2229,18 @@ namespace Convergence.Player
         /// button press and a second one arriving half a second later would read as the input
         /// having stuttered rather than as the boon working.
         /// </summary>
-        void DoRelease()
+        void DoRelease(ReleaseKind kind)
         {
             Convergence.Art.Lighting.Glow.Flash(transform.position, Tuning.Lighting.ReleaseRadius,
                 ElementInfo.Tint(Resource.Element), Tuning.Lighting.ReleaseSeconds);
             Convergence.Audio.Sfx.Play(Resource.Element switch { ElementType.Fire => Convergence.Audio.Sound.ReleaseFire, ElementType.Water => Convergence.Audio.Sound.ReleaseWater, ElementType.Earth => Convergence.Audio.Sound.ReleaseEarth, _ => Convergence.Audio.Sound.ReleaseAir }, transform.position);
             // Concentrate: a release from a FULL meter reaches further - set round this one call.
             Resource.ReleaseRadiusMul = Effects != null ? Effects.ReleaseRadiusMul(Resource.Fill01) : 1f;
-            try { Resource.Release(); }
+            try { Resource.Fire(kind); }
             finally { Resource.ReleaseRadiusMul = 1f; }
+            // A combo strike or a move spends part of the meter and is not a release to the ledger,
+            // the board or the principles - a refund on every third would pay for the next.
+            if (!ReleaseInfo.FullMeter(kind)) return;
             // Repeats (Twin Spark, Wellspring) are the ledger's to fire, a moment later and
             // spending nothing - see RunEffects.OnReleased.
             Effects?.OnReleased(Resource);
@@ -2231,7 +2326,7 @@ namespace Convergence.Player
             if (Effects != null && Effects.InputsInverted) input = -input;
 
             // The ledger's conditional move speed (Eagle, Retrograde Motion), bent with its own.
-            float timed = Effects != null ? mods.Factor(Art.Gear.StatKind.MoveSpeed, Effects.MoveSpeedUp) : 1f;
+            float timed = Effects != null ? mods.Factor(Art.Gear.StatKind.MoveSpeed, Effects.MoveSpeedUp, Effects.MoveSpeedDown) : 1f;
 
             // The GROUND's own contribution - a sand trap or an elite Turret's mire. Asked of the
             // terrain rather than written onto this component by whatever is standing on it: a
@@ -2823,7 +2918,7 @@ namespace Convergence.Player
                 Suspended = null;
                 armed.Detonate();
             }
-            if (isFinisher) { LastArtWeight = step.Weight; ArtSocket = RotationIndex; ArtSerial++; _lastArtAt = Time.time; _artLive = true; }
+            if (isFinisher) { LastArtWeight = step.Weight; ArtSocket = RotationIndex; ArtSerial++; _lastArtAt = Time.time; _artLive = true; Effects?.OnArtStarted(); }
 
             // The King and Queen art: both discs in a pincer - ahead of the disc paths below.
             if (step.Pincer)
@@ -7580,6 +7675,11 @@ namespace Convergence.Player
             s.Kills = Kills;
             s.PerfectStreak = _perfectStreak;
             s.PhialCharges = Phial != null ? Phial.Charges : -1;
+            if (Resource != null)
+            {
+                s.TapRelease = Resource.TapKind.ToString();
+                s.HoldRelease = Resource.HasHold ? Resource.HoldKind.ToString() : "";
+            }
         }
 
         /// <summary>
@@ -7589,6 +7689,14 @@ namespace Convergence.Player
         /// </summary>
         public void RestoreRun(Chain.RunSnapshot s)
         {
+            // The run's releases, as they were chosen when it started (a snapshot from before the
+            // arsenal keeps what the board says now).
+            if (Resource != null && ReleaseInfo.TryParse(s.TapRelease, out var tap) && ReleaseInfo.Built(Resource.Element, tap))
+            {
+                Resource.TapKind = tap;
+                Resource.HasHold = ReleaseInfo.TryParse(s.HoldRelease, out var hold) && ReleaseInfo.Built(Resource.Element, hold);
+                if (Resource.HasHold) Resource.HoldKind = hold;
+            }
             if (s.Slots != null && s.Slots.Count > 0)
             {
                 Slots.Clear();

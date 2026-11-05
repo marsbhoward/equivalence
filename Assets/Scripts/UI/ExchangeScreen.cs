@@ -273,6 +273,13 @@ namespace Convergence.UI
                 case SlateReason.Pity:           scale.Hang(Tag(card, "RETURNING"), 0); break;
                 case SlateReason.Mercy:          scale.Hang(Tag(card, "MERCY"), 1); break;
             }
+            // THE HINT (the overhaul, 2026-11-04): a plain draw that feeds what you hold says how much -
+            // coat to coat, the same crowd intent, a humour's source and payoff, a defence's Concords.
+            if (pair.Reason != SlateReason.NewCombination && pair.Reason != SlateReason.Pity && pair.Boon != null && _mods != null)
+            {
+                int feeds = _mods.Connections(pair.Boon);
+                if (feeds > 0) scale.Hang(Tag(card, $"FEEDS {feeds}"), 0);
+            }
 
             // The two columns, a rule between them.
             var rule = UiKit.Rect(card, "rule", new Vector2(0.5f, 0), new Vector2(0.5f, 1),

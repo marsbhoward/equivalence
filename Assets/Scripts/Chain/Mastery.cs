@@ -29,6 +29,12 @@ namespace Convergence.Chain
         public List<string> SecondAbilityChosen = new();
 
         /// <summary>
+        /// The release arsenal's loadout per element (2026-11-05): "Fire:Blast:Buff" - the element,
+        /// the TAP release, the HOLD release ("" for none). Kinds by name (Core.ReleaseKind).
+        /// </summary>
+        public List<string> ReleaseChoice = new();
+
+        /// <summary>
         /// Which MasteryBoard version the Unlocked ids were bought on. Zero for every save written
         /// before the 2026-10-05 rebuild - BoardState.Migrate brings it up, returning the levels the
         /// old board's purchases cost, and stamps the current version.

@@ -9,13 +9,15 @@ namespace Convergence.Player
     /// <summary>
     /// FIRE - stacking heat (sustained aggression).
     ///
-    /// Landing a swing banks a heat stack, max five, each fading on its own timer, oldest first -
-    /// sustained pressure holds the ladder up and backing off lets it drain. Every stack is a little
-    /// more damage (a head start, Tuning.Elements.Fire); the rungs add:
+    /// HEAT IS FILLED BY FIGHTING (2026-11-05, the user's call). A landed swing or throw fills
+    /// what it fills Water's meter (Tuning.Elements.MeterPerSwing), ranged hits included; a hit
+    /// taken or parried fills the same. Whenever nothing has filled it for a moment it DRAINS, a
+    /// stack a second - so kiting empties it. Five whole stacks are the ladder; every stack is a
+    /// little more damage (a head start, Tuning.Elements.Fire); the rungs add:
     ///
-    ///     1  FUEL   a swing landing on a BURNING enemy banks two stacks instead of one
+    ///     1  FUEL   a swing landing on a BURNING enemy fills twice
     ///     2         attack speed
-    ///     3  STOKE  heat fades half as fast
+    ///     3  STOKE  heat drains half as fast
     ///     4         every hit splashes onto one more nearby enemy
     ///     5         a release: ERUPT (burning ground), or IGNITE if chosen on the board
     ///
@@ -28,13 +30,19 @@ namespace Convergence.Player
     public class FireResource : ElementalResource
     {
         public const int MaxStacks = T.MaxStacks;
-        public float StackLifetime = T.StackLifetime;
 
-        readonly List<float> _stacks = new();   // remaining lifetime per stack, oldest first
+        /// <summary>Heat in stacks, 0..MaxStacks; the ladder reads its whole stacks.</summary>
+        float _heat;
         bool _stackedThisSwing;
         float _igniteRemaining;
+        /// <summary>Seconds since anything filled heat; past DrainAfter it drains.</summary>
+        float _idle;
+        float _hurtGainAt = -99f;
 
-        public int Stacks => _stacks.Count;
+        public int Stacks => Mathf.Min(MaxStacks, Mathf.FloorToInt(_heat + 0.0001f));
+
+        /// <summary>One landed swing's heat, in stacks, at the character's and the run's growth.</summary>
+        float SwingHeat => Tuning.Elements.MeterPerSwing * MaxStacks * Gain;
 
         /// <summary>True while an Ignite window is open - every landed hit burns.</summary>
         public bool Igniting => _igniteRemaining > 0f;
@@ -53,18 +61,18 @@ namespace Convergence.Player
             float dt = Time.deltaTime;
             if (_heatGround == null) _heatGround = HeatGround.Attach(this);
 
-            // STOKE: from the third rung up, heat fades half as fast. The ledger's fade on top
-            // (Leaky Vessel faster, Sealed Vessel not at all), and its floor under it: Banked
-            // Embers keeps that many stacks from fading out - a release still spends them.
-            float fade = (Stacks >= 3 ? dt / T.StokeLifetimeMul : dt) * Decay;
-            int floor = Ledger != null ? Ledger.HeatFloor : 0;
-            for (int i = _stacks.Count - 1; i >= 0; i--)
+            // THE DRAIN: once nothing has filled heat for DrainAfter, it drains a stack a second.
+            // STOKE, from the third rung up, halves it; the ledger's fade on top (Leaky Vessel
+            // faster, Sealed Vessel not at all), and its floor under it: Banked Embers keeps that
+            // many stacks from draining - a release still spends them.
+            _idle += dt;
+            if (_idle >= T.DrainAfter && _heat > 0f)
             {
-                _stacks[i] -= fade;
-                if (_stacks[i] > 0f) continue;
-                if (_stacks.Count <= floor) { _stacks[i] = 0.01f; continue; }
-                _stacks.RemoveAt(i);
-                Ledger?.OnHeatLost(1);   // Phlogiston
+                float drain = T.DrainStacksPerSecond * dt * Decay / (Stacks >= 3 ? T.StokeDrainDiv : 1f);
+                float floor = Mathf.Min(_heat, Ledger != null ? Ledger.HeatFloor : 0);
+                int before = Stacks;
+                _heat = Mathf.Max(floor, _heat - drain);
+                if (Stacks < before) Ledger?.OnHeatLost(before - Stacks);   // Phlogiston
             }
 
             if (_igniteRemaining > 0f)
@@ -83,23 +91,50 @@ namespace Convergence.Player
         /// <summary>Each swing may bank at most one batch of heat; the flag resets here.</summary>
         public override void OnAttackStarted() => _stackedThisSwing = false;
 
+        public override void Bind(PlayerController player)
+        {
+            if (Player != null && Player.Health != null) Player.Health.Damaged -= OnHurt;
+            base.Bind(player);
+            if (Player != null && Player.Health != null) Player.Health.Damaged += OnHurt;
+        }
+
+        void OnDestroy()
+        {
+            if (Player != null && Player.Health != null) Player.Health.Damaged -= OnHurt;
+        }
+
+        /// <summary>A hit taken fills heat like a landed swing - not a price paid or a status tick.</summary>
+        void OnHurt(DamageInfo info)
+        {
+            if (info.Price || info.Tick || info.Source == gameObject) return;
+            FillFromFight();
+        }
+
+        /// <summary>A parry fills heat like a hit taken - defending well is still fighting.</summary>
+        public override void OnParried() => FillFromFight();
+
+        void FillFromFight()
+        {
+            _idle = 0f;
+            if (Time.time - _hurtGainAt < T.HitTakenEvery || Gain <= 0f) return;
+            _hurtGainAt = Time.time;
+            AddHeat(SwingHeat);
+        }
+
         public override void OnHitLanded(Health target, DamageInfo info)
         {
             // Heat comes from ATTACKS that connect, not from bodies caught in them. Counting per
-            // target let one cleaving finisher through a crowd jump straight to full stacks,
-            // which is not the sustained-aggression loop fire is supposed to reward.
-            // THROWN hits build no heat. Fire is the aggression element, and a weapon that can
-            // attack safely from range would otherwise hand it the whole ladder for nothing. On
-            // a thrown class this makes heat a decision: you have to fight at the range your
-            // weapon is worst at to get it.
-            // Nothing builds through Barren's seconds (the run's gain at zero).
-            if (!info.Thrown && !_stackedThisSwing && Gain > 0f)
+            // target let one cleaving finisher through a crowd jump straight to full stacks.
+            // Thrown hits count like any other (2026-11-05): the drain, not the range, is what
+            // keeps a kiting player from holding heat. Nothing builds through Barren's seconds.
+            _idle = 0f;
+            if (!_stackedThisSwing && Gain > 0f)
             {
                 // FUEL, from the first rung: a burning enemy - Erupt's ground, an Ignite window, any
-                // burn at all - is worth two stacks. Wet Ash puts it out.
+                // burn at all - fills twice. Wet Ash puts it out.
                 bool fuel = Stacks >= 1 && target != null && StatusEffects.Get(target.gameObject).Burning
                             && (Ledger == null || Ledger.FuelWorks);
-                AddStacks(fuel ? T.FuelStacks : 1);
+                AddHeat(SwingHeat * (fuel ? T.FuelStacks : 1));
                 _stackedThisSwing = true;
             }
 
@@ -132,21 +167,9 @@ namespace Convergence.Player
             }
         }
 
-        /// <summary>Base StackLifetime scaled by mastery's FireStackLife + gear's ElementGrowth.</summary>
-        float EffectiveStackLifetime => StackLifetime * Mathf.Max(0.1f, Gain);
-
-        void AddStacks(int count)
+        void AddHeat(float stacks)
         {
-            int before = _stacks.Count;
-            for (int i = 0; i < count; i++)
-            {
-                if (_stacks.Count >= MaxStacks) _stacks.RemoveAt(0);   // refresh: drop oldest
-                _stacks.Add(EffectiveStackLifetime);
-            }
-
-            // Only when heat actually CLIMBS. Refreshing at max fires on every hit, and a burst
-            // on every hit stops reading as a threshold and becomes background noise.
-            if (_stacks.Count <= before) return;
+            _heat = Mathf.Min(MaxStacks, _heat + stacks);
 
             // No ring round the body for heat gained (the user's call, 2026-10-15: a ring on a
             // landed hit reads as "damage was done", and those are gone from every attack). The
@@ -166,6 +189,8 @@ namespace Convergence.Player
         /// </summary>
         public override bool CanRelease => Stacks >= MaxStacks && !Igniting;
 
+        protected override bool SecondFor(ReleaseKind kind) => kind == ReleaseKind.Buff;   // Ignite
+
         /// <summary>
         /// Spend all five stacks. The cost is everything: the damage, the attack speed, Stoke and
         /// the splash all go at once, and the ladder restarts from nothing.
@@ -175,7 +200,7 @@ namespace Convergence.Player
             if (!CanRelease) return;
             if (UseSecondAbility) Ignite();
             else Erupt();
-            _stacks.Clear();
+            _heat = 0f;
         }
 
         /// <summary>
@@ -187,8 +212,8 @@ namespace Convergence.Player
         /// </summary>
         void Erupt()
         {
-            var origin = (Vector2)transform.position;
-            var feet = ReleaseCanvas.Feet(transform);   // where the blast is drawn, under the body
+            // Round the player - with a bow, a step short of the enemy it aims at (BlastCentre).
+            var origin = BlastCentre(out var feet);
             float baseAngle = Random.value * Mathf.PI * 2f;
             float area = ReleaseAreaScale;
             float spread = T.EruptSpread * area, radius = T.PoolRadius * area;
@@ -228,47 +253,23 @@ namespace Convergence.Player
         }
 
         // ---- HUD: discrete pips, not a bar ----
-        /// <summary>
-        /// Returned stacks come back at FULL life rather than the life they had when spent. The
-        /// alternative is remembering per-stack timers through a release, which is a lot of
-        /// bookkeeping for a refund the player experiences as "some of it came back".
-        /// </summary>
-        public override void Refund(float fraction01)
-        {
-            // Carried between calls, so small refunds (a kill's Mother Lode, a hit's Sealed
-            // Vessel) add up to whole stacks instead of rounding to nothing.
-            _refundCarry += MaxStacks * Mathf.Clamp01(fraction01);
-            while (_refundCarry >= 1f && _stacks.Count < MaxStacks)
-            {
-                _stacks.Add(EffectiveStackLifetime);
-                _refundCarry -= 1f;
-            }
-            if (_stacks.Count >= MaxStacks) _refundCarry = 0f;
-        }
+        /// <summary>A share of a full meter handed back (Mother Lode, Sealed Vessel, Overflow).</summary>
+        public override void Refund(float fraction01) => AddHeat(MaxStacks * Mathf.Clamp01(fraction01));
 
-        float _refundCarry, _spillCarry;
-
-        /// <summary>Cracked Vessel: a share of the heat spilled, the oldest stacks first, carried
-        /// between hits like a refund.</summary>
+        /// <summary>Cracked Vessel: a share of the heat spilled.</summary>
         public override void Spill(float fraction01)
         {
-            _spillCarry += MaxStacks * Mathf.Clamp01(fraction01);
-            int lost = 0;
-            while (_spillCarry >= 1f && _stacks.Count > 0)
-            {
-                _stacks.RemoveAt(0);
-                _spillCarry -= 1f;
-                lost++;
-            }
-            if (lost > 0) Ledger?.OnHeatLost(lost);   // Phlogiston
-            if (_stacks.Count == 0) _spillCarry = 0f;
+            int before = Stacks;
+            _heat = Mathf.Max(0f, _heat - MaxStacks * Mathf.Clamp01(fraction01));
+            if (Stacks < before) Ledger?.OnHeatLost(before - Stacks);   // Phlogiston
         }
 
+        /// <summary>A share of the heat spent on a Guard, a move or a combo strike - spent, not lost,
+        /// so Phlogiston does not answer it.</summary>
+        public override void Spend(float share01) => _heat = Mathf.Max(0f, _heat - MaxStacks * Mathf.Clamp01(share01));
+
         /// <summary>Hearth: a release leaves at least this much heat.</summary>
-        public void HoldAtLeast(int stacks)
-        {
-            while (_stacks.Count < Mathf.Min(stacks, MaxStacks)) _stacks.Add(EffectiveStackLifetime);
-        }
+        public void HoldAtLeast(int stacks) => _heat = Mathf.Max(_heat, Mathf.Min(stacks, MaxStacks));
 
         /// <summary>
         /// The release once more, spending nothing (Twin Spark, Wellspring): Erupt's pools at the
@@ -284,8 +285,9 @@ namespace Convergence.Player
             else Erupt();
         }
 
-        public override float Fill01 => Stacks / (float)MaxStacks;
-        public override int PipCount => MaxStacks;
+        public override float Fill01 => _heat / MaxStacks;
+        /// <summary>No ring segments: Fire's meter is its triangle, three sides (ElementSeal.DrawSigil).</summary>
+        public override int PipCount => 0;
         public override int PipsFilled => Stacks;
 
         public override string SealTag
@@ -309,7 +311,7 @@ namespace Convergence.Player
                     0 => "no heat - land hits to stack",
                     1 => "1 - FUEL: burning enemies feed heat twice",
                     2 => "2 - attack speed",
-                    3 => "3 - STOKE: heat fades half as fast",
+                    3 => "3 - STOKE: heat drains half as fast",
                     4 => "4 - hits splash to a 2nd target",
                     _ => UseSecondAbility ? "5 - IGNITE READY  [RMB/E]" : "5 - ERUPT READY  [RMB/E]",
                 };

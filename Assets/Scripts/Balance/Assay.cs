@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using UnityEngine;
 using Convergence.Art.Gear;
 using Convergence.Core;
@@ -112,22 +113,27 @@ namespace Convergence.Balance
             /// both want it, and it is the element built around paying that price.</summary>
             public const float EarthStillShare = 0.5f;
 
-            /// <summary>Fire's average heat in a fight: five held between releases, rebuilt after.</summary>
-            public const float FireStacks = 4.5f;
+            /// <summary>Fire's average heat in a fight: five held between releases, rebuilt after -
+            /// at Tuning.Elements.MeterPerSwing, about eleven swings from nothing (2026-11-05; it was
+            /// five, at 4.5).</summary>
+            public const float FireStacks = 4.1f;
 
             /// <summary>Share of a fight Fire spends at two or more stacks (its attack-speed step).</summary>
-            public const float FireHasteUptime = 0.95f;
+            public const float FireHasteUptime = 0.85f;
 
             /// <summary>Air's average momentum: built by running, spent by every Gust.</summary>
             public const float AirMomentum = 0.5f;
 
-            /// <summary>Air's average consecutive-hit streak (its crit floor climbs 4% a hit, to 8).</summary>
+            /// <summary>Air's average consecutive-hit streak (its Accuracy climbs a hit, to 8).</summary>
             public const float AirStreak = 6f;
 
             /// <summary>Seconds of fighting between full releases at base meter growth. Element
-            /// Growth shortens it for the three meters that fill at a rate; Fire's ladder fills
-            /// per swing and is not sped up by it.</summary>
+            /// Growth shortens it - every meter fills at a rate (Fire's since 2026-11-05).</summary>
             public const float ReleaseEvery = 15f;
+
+            /// <summary>Share of the meters a build with a HOLD release spends on it - the rest on the
+            /// tap. Half: the tap is the quicker press, the hold the fight's other half.</summary>
+            public const float HoldShare = 0.5f;
 
             /// <summary>Share of an Erupt pool's life one target spends standing in it.</summary>
             public const float FireTargetInPool = 0.4f;
@@ -492,19 +498,43 @@ namespace Convergence.Balance
             /// <summary>Air's Gust damage points at their uptime - before Elemental Power.</summary>
             public float GustDamagePoints;
             public float CritAdd, Dr, BaseHp;
+            /// <summary>Accuracy points after the curve (Air's streak).</summary>
+            public float AccuracyAdd;
             /// <summary>Multiplier on everything the player deals, from Water's soak.</summary>
             public float Vulnerability;
             public float LifestealAdd;
             /// <summary>One release on one target, in hit units, before Elemental Power.</summary>
             public float ReleaseHitUnits;
+            /// <summary>METERS a second - every kind's hits are counted on this.</summary>
             public float ReleasesPerSecond;
+            /// <summary>Share of the meters spent on full-meter kinds (Blast, Buff, Guard): only those are a
+            /// release to the ledger, the board and the principles (PlayerController.DoRelease) - a combo
+            /// strike or a move is not. Their hooks run at ReleasesPerSecond x this.</summary>
+            public float FullShare;
+            /// <summary>Share of <see cref="ReleaseHitUnits"/> from full-meter kinds - what Twin Spark and
+            /// Wellspring repeat.</summary>
+            public float FullHitShare;
             /// <summary>Fire's average heat - its fourth rung splashes (AssayCrowd).</summary>
             public float FireHeat;
+            /// <summary>Share of the time an Ignite window (and its burn's tail) is open.</summary>
+            public float IgniteUptime;
+            /// <summary>Share of the time Tremor Stance is up - every swing sends a crack.</summary>
+            public float TremorUptime;
+            /// <summary>Mist Veil's heal, as a share of max health a second (inside lifesteal's limit).</summary>
+            public float HealMaxPerSecond;
         }
 
         /// <summary>True while <see cref="ReleaseSeconds"/> measures a build WITHOUT what its
         /// releases bring - burst, pools, shocks, surge, soak, gust.</summary>
         static bool _releasesOff;
+
+        /// <summary>True while the target is priced fought ALONE (Assay.Arsenal's single-target fight):
+        /// a release is all its own, and nothing else is there.</summary>
+        static bool _alone;
+
+        /// <summary>The weapon the releases' shapes are read for (AssayShapes) - a greatsword but while
+        /// Assay.Arsenal compares a weapon's kinds. The chain itself is the Assay's one chain.</summary>
+        static WeaponClass _weapon = WeaponClass.Greatsword;
 
         public static ElementProfile Profile(ElementType? element, float gainRatePoints, Func<string, int> n,
                                              Build b = null, Mods m = null)
@@ -518,23 +548,25 @@ namespace Convergence.Balance
         static ElementProfile Profile(ElementType? element, float gainRatePoints, Func<string, int> n, bool releasesOff,
                                       Build b = null, Mods m = null)
         {
-            var p = new ElementProfile { BaseHp = Tuning.Player.HpFireWater, Vulnerability = 1f };
+            var p = new ElementProfile { BaseHp = Tuning.Player.HpFireWater, Vulnerability = 1f, FullShare = 1f, FullHitShare = 1f };
             if (element == null) return p;
             bool ledger = m != null;
 
             // The ledger's Element Growth (Rich Vein, Stubborn Ore) multiplies the character's.
             float gain = StatPercents.Apply(1f, gainRatePoints) * (ledger ? m.GainMul : 1f);
-            float refund = 1f + Tuning.Exchange.OverflowRefund * Mathf.Min(1, n("overflow"));   // Overflow hands part of the meter back
-            if (Owns(b, Progression.Notable.Alkahest)) refund /= 1f - BoardNumbers.AlkahestRefund;
-            float every = Assume.ReleaseEvery / (element == ElementType.Fire ? 1f : gain) / refund;
+            // Overflow and Alkahest hand part of the meter back on a release - a full meter's alone.
+            float full = FullShare(b);
+            float refund = 1f + Tuning.Exchange.OverflowRefund * Mathf.Min(1, n("overflow")) * full;
+            if (Owns(b, Progression.Notable.Alkahest)) refund /= 1f - BoardNumbers.AlkahestRefund * full;
+            float every = Assume.ReleaseEvery / gain / refund;
 
             switch (element.Value)
             {
                 case ElementType.Fire:
                 {
                     float perStack = ElementNumbers.FireStackDamagePoints, stacks = Assume.FireStacks;
-                    // Fire reads Element Growth as heat lasting longer (FireResource's stack
-                    // lifetime x Gain) - the character's, gear and board, as well as the run's.
+                    // Element Growth fills heat faster, so more of it is held - the character's,
+                    // gear and board, as well as the run's.
                     stacks = Mathf.Clamp(stacks + Assume.FireStacksPerGrowth * gainRatePoints, 2f, 5f);
                     if (ledger)
                     {
@@ -550,9 +582,9 @@ namespace Convergence.Balance
                     p.DamagePoints = perStack * stacks;
                     p.FireHeat = stacks;
                     p.AttackSpeedPoints = ElementNumbers.FireHastePoints * Assume.FireHasteUptime;
-                    // Erupt: area denial - one target stands in one pool for part of its life.
-                    p.ReleaseHitUnits = ElementNumbers.FirePoolHitUnitsPerSecond * Tuning.Elements.Fire.PoolSeconds
-                                      * Assume.FireTargetInPool;
+                    p.ReleaseHitUnits = Struck(b, ElementType.Fire);
+                    p.IgniteUptime = Mathf.Min(1f, Share(b, ReleaseKind.Buff) / every
+                                                   * (Tuning.Elements.Fire.IgniteSeconds + Tuning.Elements.Fire.IgniteBurnSeconds));
                     break;
                 }
 
@@ -567,10 +599,19 @@ namespace Convergence.Balance
                         if (n("flood") > 0) soakAdd = Tuning.Exchange.FloodVulnerability;
                     }
                     p.DamagePoints = ElementNumbers.WaterDamagePoints;
-                    p.AttackSpeedPoints = surgePoints * Mathf.Min(1f, surge / every);
-                    p.Vulnerability = 1f + (Tuning.Elements.Water.SoakVulnerability - 1f + soakAdd)
-                                         * Mathf.Min(1f, Tuning.Elements.Water.SoakSeconds / every);
-                    p.ReleaseHitUnits = ElementNumbers.WaterBurstHitUnits;   // one target takes the pool whole
+                    // Surge is the Buff; the soak comes with Burst, every combo strike, Mist Veil and
+                    // Wavecrest - seconds of soak on the target a meter of each.
+                    p.AttackSpeedPoints = surgePoints * Mathf.Min(1f, Share(b, ReleaseKind.Buff) * surge / every);
+                    float soak = Share(b, ReleaseKind.Blast) * Tuning.Elements.Water.SoakSeconds
+                               + Share(b, ReleaseKind.Combo) * (Tuning.Releases.ComboSoakSeconds + 2f * ShapeAssume.StrikeGap)
+                               + Share(b, ReleaseKind.Guard) * Tuning.Releases.GuardCharges * ShapeAssume.GuardCatches
+                                                             * Tuning.Releases.MistVeilSoakSeconds
+                               + Share(b, ReleaseKind.Mobility) / Tuning.Releases.MobilityCost * ShapeAssume.MoveCatches
+                                                                * Tuning.Releases.WavecrestSoakSeconds;
+                    p.Vulnerability = 1f + (Tuning.Elements.Water.SoakVulnerability - 1f + soakAdd) * Mathf.Min(1f, soak / every);
+                    p.HealMaxPerSecond = Share(b, ReleaseKind.Guard) * Tuning.Releases.GuardCharges
+                                       * Tuning.Releases.MistVeilHeal / every;
+                    p.ReleaseHitUnits = Struck(b, ElementType.Water);
                     break;
                 }
 
@@ -582,24 +623,21 @@ namespace Convergence.Balance
                     float planted = Assume.EarthStillShare + (ledger && AtMax(n, "deep_roots") ? 0.1f : 0f);
                     p.Dr = ElementNumbers.EarthStillDr * planted + ElementNumbers.EarthMovingDr * (1f - planted);
                     p.BaseHp = ElementNumbers.EarthHp;
-                    // A full charge: the quake and floor(5 / 1.5) = 3 aftershocks at 0.55, 0.47, 0.39.
-                    float shocks = 1f;
-                    int after = Mathf.FloorToInt(Tuning.Elements.Earth.ChargeSeconds / Tuning.Elements.Earth.AftershockPerSeconds);
-                    for (int i = 0; i < after; i++) shocks += 0.55f - i * 0.08f;
-                    p.ReleaseHitUnits = (ElementNumbers.EarthShockHitUnits + ElementNumbers.EarthShockHitUnitsPerCharge) * shocks
+                    p.ReleaseHitUnits = Struck(b, ElementType.Earth)
                                       * (ledger ? 1f - 0.08f * n("leaky_vessel") : 1f);   // the charge bleeds faster
+                    p.TremorUptime = Mathf.Min(1f, Share(b, ReleaseKind.Buff) * Tuning.Releases.TremorSeconds / every);
                     break;
                 }
 
                 default:   // Air
                 {
-                    float gust = Mathf.Min(1f, Tuning.Elements.Air.GustSeconds / every);
-                    float momentum = Assume.AirMomentum, streak = Assume.AirStreak, perStreak = Tuning.Elements.Air.CritPerStreak;
+                    float gust = Mathf.Min(1f, Share(b, ReleaseKind.Buff) * Tuning.Elements.Air.GustSeconds / every);
+                    float momentum = Assume.AirMomentum, streak = Assume.AirStreak, perStreak = Tuning.Elements.Air.AccuracyPerStreak;
                     if (ledger)
                     {
                         momentum = Mathf.Clamp01(momentum + 0.1f * n("tailwind") - 0.07f * n("leaky_vessel"));
                         if (AtMax(n, "becalmed")) streak = 1.5f;   // Doldrums: a hit taken resets it
-                        perStreak = Mathf.Max(0f, perStreak - Tuning.Exchange.BecalmedCritPerHit * n("becalmed"));
+                        perStreak = Mathf.Max(0f, perStreak - Tuning.Exchange.BecalmedAccuracyPerHit * n("becalmed"));
                     }
                     p.DamagePoints = ElementNumbers.AirDamagePoints;
                     p.GustDamagePoints = ElementNumbers.AirGustDamagePoints * gust;
@@ -608,20 +646,25 @@ namespace Convergence.Balance
                     p.MoveSpeedPoints = ElementNumbers.AirMoveSpeedPointsPerMomentum * momentum
                                       + Tuning.Elements.Air.GustMoveSpeedPoints * gust;
                     p.CritDamagePoints = ElementNumbers.AirCritDamagePoints;
-                    p.CritAdd = Mathf.Min(0.75f, Tuning.Elements.Air.BaseCrit
-                        + perStreak * Mathf.Min(Tuning.Elements.Air.StreakCap, streak));
+                    p.CritAdd = Tuning.Elements.Air.BaseCrit;
+                    p.AccuracyAdd = perStreak * Mathf.Min(Tuning.Elements.Air.StreakCap, streak);
                     p.BaseHp = ElementNumbers.AirHp;
                     // Gust deals nothing itself - it is damage, range, legs and lifesteal for six seconds.
                     p.LifestealAdd = Tuning.Elements.Air.GustLifesteal * gust;
+                    p.ReleaseHitUnits = Struck(b, ElementType.Air);
                     break;
                 }
             }
 
             p.ReleasesPerSecond = 1f / every;
+            p.FullShare = full;
+            float struck = Struck(b, element.Value);
+            p.FullHitShare = struck > 0f ? Struck(b, element.Value, fullOnly: true) / struck : 1f;
             if (releasesOff)
             {
                 // Everything a release brings, gone - the passives stay.
                 p.ReleaseHitUnits = 0f;
+                p.IgniteUptime = p.TremorUptime = p.HealMaxPerSecond = 0f;
                 p.GustDamagePoints = 0f;
                 p.LifestealAdd = 0f;
                 p.Vulnerability = 1f;
@@ -630,6 +673,43 @@ namespace Convergence.Balance
                     p.MoveSpeedPoints = ElementNumbers.AirMoveSpeedPointsPerMomentum * Assume.AirMomentum;
             }
             return p;
+        }
+
+        /// <summary>The kinds a build carries and the share of its meters each takes (Assume.HoldShare) -
+        /// Blast alone with no build, as a new character.</summary>
+        public static IEnumerable<(ReleaseKind kind, float share)> Loadout(Build b)
+        {
+            var tap = b?.Tap ?? ReleaseKind.Blast;
+            var hold = b?.Hold;
+            if (hold == null || hold == tap) { yield return (tap, 1f); yield break; }
+            yield return (tap, 1f - Assume.HoldShare);
+            yield return (hold.Value, Assume.HoldShare);
+        }
+
+        /// <summary>The share of a build's meters spent on <paramref name="kind"/>.</summary>
+        static float Share(Build b, ReleaseKind kind)
+        {
+            float sum = 0f;
+            foreach (var (k, share) in Loadout(b)) if (k == kind) sum += share;
+            return sum;
+        }
+
+        /// <summary>The share of a build's meters spent on full-meter kinds (ElementProfile.FullShare).</summary>
+        static float FullShare(Build b)
+        {
+            float sum = 0f;
+            foreach (var (k, share) in Loadout(b)) if (ReleaseInfo.FullMeter(k)) sum += share;
+            return sum;
+        }
+
+        /// <summary>Hit units the target takes from a meter of the build's damaging kinds (AssayShapes) -
+        /// a Buff's are its window's, priced on the chain.</summary>
+        static float Struck(Build b, ElementType e, bool fullOnly = false)
+        {
+            float sum = 0f;
+            foreach (var (k, share) in Loadout(b))
+                if (k != ReleaseKind.Buff && (!fullOnly || ReleaseInfo.FullMeter(k))) sum += share * (_alone ? Shape(e, k, _weapon).Alone : Shape(e, k, _weapon).One);
+            return sum;
         }
 
         /// <summary>
@@ -648,8 +728,36 @@ namespace Convergence.Balance
             finally { _releasesOff = false; }
             float gain = StatCurves.Character(StatKind.ElementGrowth, b.GainRatePoints);
             float every = 1f / Mathf.Max(1e-4f, Profile(b.Element, gain, _ => 0, false, b).ReleasesPerSecond);
-            // ONE target, as the target is written - the crowd a release also reaches is in Dps.
-            return (on.TargetDps - off.TargetDps) / Mathf.Max(1e-3f, off.TargetDps) * every;
+            // On WORTH (2026-11-05): a Blast is the crowd's kind and a combo the target's, so a
+            // release is read on the target and the credited crowd together - each kind on one
+            // target and on the pack is Assay.Arsenal().
+            return (on.Dps - off.Dps) / Mathf.Max(1e-3f, off.Dps) * every;
+        }
+
+        /// <summary>
+        /// The Buffs that deal damage, priced on the chain while their window is up: IGNITE - every
+        /// landed hit burns for a share of itself a second, merged by MAX, so the weapon art's burn
+        /// holds while the chain keeps refreshing it; TREMOR STANCE - a crack along the facing every
+        /// swing (AssayShapes), grown by Elemental Power as every release is. The target's,
+        /// and the other bodies' (cleaved hits burn too; a crack runs through whoever is in line).
+        /// </summary>
+        static (float one, float others) WindowDps(ElementProfile el, ChainShape c, float hitUnit, float releaseScale)
+        {
+            float one = 0f, others = 0f;
+            if (el.IgniteUptime > 0f)
+            {
+                float burn = el.IgniteUptime * Tuning.Elements.Fire.IgniteBurnFraction * c.ArtHit * releaseScale;
+                one += burn;
+                others += burn * Assume.CrowdBodies * SwingFalloff;
+            }
+            if (el.TremorUptime > 0f)
+            {
+                var crack = Shape(ElementType.Earth, ReleaseKind.Buff, _weapon);
+                float swings = c.Seconds > 0f ? (c.Basics + 1) / c.Seconds : 0f;
+                one += el.TremorUptime * swings * (_alone ? crack.Alone : crack.One) * hitUnit * releaseScale;
+                others += el.TremorUptime * swings * crack.Others * hitUnit * releaseScale;
+            }
+            return (one, others);
         }
 
         // ------------------------------------------------------------------ the floor
@@ -687,43 +795,52 @@ namespace Convergence.Balance
             raw.Damage += Up(el.DamagePoints) + el.GustDamagePoints * scale;
             raw.AttackSpeed += Up(el.AttackSpeedPoints);
             // The board's conditional points join the same way (Tartar, Exaltation, Circulation).
-            var (boardDamage, boardSpeed) = BoardPoints(b, el.ReleasesPerSecond);
+            var (boardDamage, boardSpeed) = BoardPoints(b, el.ReleasesPerSecond * el.FullShare);   // Exaltation: full meters
             raw.Damage += boardDamage;
             raw.AttackSpeed += boardSpeed;
             raw.MoveSpeed += Up(el.MoveSpeedPoints);
             raw.CritDamage += Up(el.CritDamagePoints);
             var s = StatCurves.Character(raw);
+            s.Accuracy += el.AccuracyAdd;   // after the curve, as PlayerController.DamageRoll adds it
 
             float chain = ChainDps(b, s, m, n, el, b.Legacy, floor, out float hitUnit, out float hitsPerSecond,
                                    out var shape);
             float releaseHit = el.ReleaseHitUnits * hitUnit * scale;
             float releasesPerSecond = el.ReleasesPerSecond;
+            // RELEASES to the ledger, the board and the overhaul - full meters alone (ElementProfile.FullShare).
+            float hooks = releasesPerSecond * el.FullShare;
             float dps = chain, crowd = 0f;
             if (ledger)
             {
                 var rel = LedgerReleases(b, m, n, el, shape, floor, chain);
                 releasesPerSecond = rel.PerSecond;
+                hooks = releasesPerSecond * el.FullShare;
                 releaseHit = releaseHit * rel.HitMul + rel.HitUnitsAdd * hitUnit * scale;
                 if (element == null) releaseHit = 0f;
 
                 dps *= Mathf.Max(el.Vulnerability, BoardVulnerability(b, shape));
-                crowd = CrowdDps(b, s, m, el, shape, dps, hitUnit, scale * rel.HitMul, releasesPerSecond)
+                crowd = CrowdDps(b, s, m, el, shape, dps, hitUnit, scale * rel.HitMul, scale * rel.WindowMul, releasesPerSecond, hooks)
                       + LedgerFormsCrowd(n, shape, hitUnit) + LedgerAlbedosCrowd(b, n, hitUnit);
                 if (n("concentrate") > 0)
                     crowd += ConcentrateCrowd(b, s, m, el, hitUnit, scale * rel.HitMul, releasesPerSecond);
-                dps += releaseHit * releasesPerSecond;
+                dps += releaseHit * releasesPerSecond + WindowDps(el, shape, hitUnit, scale * rel.WindowMul).one;
                 dps *= BoardOffense(b, shape);
                 dps += BoardDamageOverTime(b, shape);
                 dps *= LedgerVulnerability(b, n, shape);
                 dps += LedgerDamageOverTime(b, n, shape) + LedgerForms(n, shape, hitUnit) + LedgerAlbedos(b, n, shape, hitUnit);
-                dps += FermentationDps(b, hitUnit, releasesPerSecond);
+                dps += FermentationDps(b, hitUnit, hooks);
                 dps += LedgerFieldDps(n, hitUnit);
-                float lost = LedgerTimeLost(n, element, shape, releasesPerSecond) * Judged.Offense(n);
+                float lost = LedgerTimeLost(n, element, shape, hooks) * Judged.Offense(n);
                 dps *= lost * LedgerCrowd(m, n, b, shape);
                 crowd *= lost;
             }
 
             float maxHp = Mathf.Max(1f, (StatPercents.Apply(el.BaseHp, s.MaxHp) + b.GridHp) * m.MaxHpMul - witheringLost);
+            // The overhaul's entries (AssayOverhaul): damage, the chain's speed, blows taken, health paid.
+            var oh = ledger ? LedgerOverhaul(b, n, shape, hitUnit, dps, releaseHit, hooks, maxHp, floor, el.Vulnerability)
+                            : OverhaulTerms.None;
+            dps = dps * oh.DpsMul + oh.Dps;
+            crowd = Mathf.Max(0f, crowd * oh.DpsMul + oh.Crowd);
             float moving = b.Element == ElementType.Earth ? 1f - Assume.EarthStillShare : Assume.MovingShare;
 
             // Graze and Brace: the character's, then the run's as factors of their own (as
@@ -748,7 +865,8 @@ namespace Convergence.Balance
                            * LedgerOutside(m, n, b.Element, shape)
                            * (1f - NegatedShare(n, b.Element))
                            * DefensiveAbility(n)
-                           * BoardDefense(b);
+                           * BoardDefense(b)
+                           * oh.Incoming;
 
             float hit = ChaserHit(floor);
             // Fixation: no hit takes more than its share of max health, however hard it lands.
@@ -774,19 +892,22 @@ namespace Convergence.Balance
                      * (AtMax(n, "toll") ? 1f : 0.75f) * 0.5f / Mathf.Max(0.01f, incoming);
             if (m.HealCeiling < 1f) ehp *= m.HealCeiling;   // Hollow: fought from the ceiling
             ehp *= Judged.Survival(n);
+            ehp *= oh.EhpMul;
 
             // Lifesteal as one capped pool, healing no faster than PlayerController.Drain allows -
             // the ledger's own heals inside that limit (Vital Spark, Pelican) share it.
             float lifesteal = StatCurves.Lifesteal(b.Lifesteal + m.BonusLifesteal + el.LifestealAdd);
             float dealt = dps + crowd;   // lifesteal and kills come off every body hit
-            float withinLimit = lifesteal * dealt + (ledger ? LedgerHealWithinLimit(n, maxHp, hitsPerSecond) : 0f);
+            float withinLimit = lifesteal * dealt + (ledger ? LedgerHealWithinLimit(n, maxHp, hitsPerSecond) : 0f)
+                              + el.HealMaxPerSecond * maxHp;   // Mist Veil
             float heal = (Mathf.Min(withinLimit, StatCurves.LifestealPerSecond(maxHp))
-                          + (ledger ? LedgerHeal(n, maxHp, releasesPerSecond) : 0f))
+                          + (ledger ? LedgerHeal(n, maxHp, hooks) : 0f))
                        * m.HealMul * (AtMax(n, "thin_blood") ? AnaemiaFactor : 1f)
                        + BoardHealing(b, dealt, maxHp, floor);
             // Cibation: lifesteal over the limit becomes a shield - health the next hits spend.
             ehp += BoardShield(b, lifesteal * dealt, maxHp) / Mathf.Max(0.01f, incoming);
-            float bleed = LedgerBleed(n, maxHp, hitsPerSecond, releasesPerSecond);
+            heal += oh.Heal * m.HealMul;
+            float bleed = LedgerBleed(n, maxHp, hitsPerSecond, hooks) + oh.Bleed;
             if (n("blood_debt") > 0) heal *= 1f - Assume.OathHeldShare;   // an oath: no healing until it is paid
 
             return new Worth
@@ -887,7 +1008,7 @@ namespace Convergence.Balance
             {
                 Seconds = seconds, Basics = basics, BasicHit = basic * critFactor, ArtHit = finisher * critFactor,
                 CritChance = chance, CritMul = critMul, CritFactor = critFactor, HitsPerSecond = hitsPerSecond,
-                LockShare = lockSeconds / seconds,
+                LockShare = lockSeconds / seconds, Interval = interval,
             };
             float result = dps * Conditionals(n, legacyTempo);
             if (!legacyTempo) result *= LedgerRepeats(n, chanceSum, mulSum, m, critFactor) * KeenEdge(n, floor);

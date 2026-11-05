@@ -92,7 +92,8 @@ namespace Convergence.Enemies
         public static float AffixChance(int band)
         {
             var t = Tuning.EliteAffixes.Chance;
-            return band < Tuning.EliteAffixes.FromBand ? 0f : t[Mathf.Clamp(band, 0, t.Length - 1)];
+            float plain = band < Tuning.EliteAffixes.FromBand ? 0f : t[Mathf.Clamp(band, 0, t.Length - 1)];
+            return Exchange.LedgerWorld.AffixChance(band, plain);   // Affixed, a cost
         }
     }
 }

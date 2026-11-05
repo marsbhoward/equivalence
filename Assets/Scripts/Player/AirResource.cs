@@ -6,9 +6,10 @@ using T = Convergence.Core.Tuning.Elements.Air;
 namespace Convergence.Player
 {
     /// <summary>
-    /// AIR - Crit Scaling (speed / finesse).
-    /// Crits build momentum, which raises attack speed and reach. Low per-hit damage, high
-    /// frequency, squishy.
+    /// AIR - motion (speed / finesse).
+    /// Moving builds momentum, which raises attack speed and move speed; an unbroken streak of
+    /// hits raises Accuracy (2026-11-05, the user's call - it raised a crit floor). Low per-hit
+    /// damage, high frequency, squishy. A miss resets the streak and costs no momentum.
     ///
     /// DESIGN DECISION (flagged as a structural risk in the handoff): air's resource was
     /// purely outcome-driven (RNG crits) while the other three are player-driven. Fixed here
@@ -79,9 +80,11 @@ namespace Convergence.Player
         public const int StreakCap = T.StreakCap;
         public float BaseCrit = T.BaseCrit;
 
-        /// <summary>The player-driven half: +4% crit per consecutive hit, capped at +32%.</summary>
-        public float CritFloor => Mathf.Min(StreakCap, HitStreak)
-                                  * (Ledger != null ? Ledger.CritPerHit(T.CritPerStreak) : T.CritPerStreak);
+        /// <summary>The player-driven half: Accuracy per consecutive hit - at the cap, every hit
+        /// lands at the top of its damage range.</summary>
+        public float StreakAccuracy => Mathf.Min(StreakCap, HitStreak)
+                                       * (Ledger != null ? Ledger.AccuracyPerHit(T.AccuracyPerStreak) : T.AccuracyPerStreak);
+        public override float AccuracyPoints => StreakAccuracy;
 
         /// <summary>Doldrums: a hit taken resets the streak.</summary>
         public void BreakStreak() => HitStreak = 0;
@@ -90,7 +93,7 @@ namespace Convergence.Player
         float _stoppedFor;
 
         public override ElementType Element => ElementType.Air;
-        public override float CritChance => Mathf.Min(0.75f, BaseCrit + CritFloor);
+        public override float CritChance => BaseCrit;
 
         // The glass cannon as head starts (Tuning.Elements): lighter hits, faster swings, harder
         // crits - Air reaches the speed and crit caps sooner, never higher ones.
@@ -170,7 +173,7 @@ namespace Convergence.Player
             HitStreak++;
 
             // The streak is air's player-driven half, and it was the half with no tell at all -
-            // the crit floor just quietly rose. Mark the cap, the point past which it stops paying.
+            // its Accuracy just quietly rose. Mark the cap, the point past which it stops paying.
             if (HitStreak == StreakCap)
                 TexelFx.Swirl(ReleaseCanvas.Feet(transform), TexelFx.Steel, 0.45f, 0.6f, TexelFx.Ground);
 
@@ -184,30 +187,22 @@ namespace Convergence.Player
         }
 
         /// <summary>
-        /// A whiff costs the streak outright and HALF the momentum.
-        ///
-        /// It used to cost everything, which was correct while crits were the only way to build:
-        /// the meter was earned a swing at a time and lost the same way. Momentum is now earned
-        /// by running, so wiping it on one stray swing would delete several seconds of kiting for
-        /// a mistake that had nothing to do with how it was built - a punishment aimed at the
-        /// wrong verb. Halving it still makes flailing expensive without making it catastrophic,
-        /// and the streak, which IS about connecting, still goes entirely.
+        /// A whiff resets the streak and nothing else (2026-11-05, the user's call): momentum is
+        /// earned by moving, so a stray swing never touches it - the streak, which IS about
+        /// connecting, is what a miss costs.
         /// </summary>
         public override void OnAttackMissed()
         {
-            float lost = Momentum * 0.5f;
             int streak = HitStreak;
-
-            Momentum = Mathf.Max(0f, Momentum - lost);
             HitStreak = 0;
             if (streak > 0) Ledger?.OnStreakLost(streak);   // Gale
 
             // Nothing worth losing was on the table - stay quiet rather than crying wolf on
             // every stray swing, which is how a cue stops being read at all.
-            if (lost < 0.05f && streak < 3) return;
+            if (streak < 3) return;
 
             // The streak's swirl closing in on the floor, grey (the user's pick: on the floor).
-            TexelFx.Ring(ReleaseCanvas.Feet(transform), TexelFx.Grey, 0.45f + lost * 0.3f, 0.1f, 0.3f, 1.2f, dotted: true);
+            TexelFx.Ring(ReleaseCanvas.Feet(transform), TexelFx.Grey, 0.45f, 0.1f, 0.3f, 1.2f, dotted: true);
         }
 
         // ---- GUST: the max-momentum self-buff, replacing the old cone ----
@@ -243,6 +238,8 @@ namespace Convergence.Player
         /// <summary>Full momentum, whichever ability is chosen - the board picks WHAT the meter is
         /// spent on, not a second meter to fill.</summary>
         public override bool CanRelease => Momentum >= 0.999f;
+
+        protected override bool SecondFor(ReleaseKind kind) => kind == ReleaseKind.Blast;   // Squall
 
         /// <summary>
         /// Cash in full momentum for a timed self-buff instead of firing it downrange.
@@ -288,7 +285,7 @@ namespace Convergence.Player
 
         public override string SealTag
             => Gusting ? $"GUST  {_gustRemaining:0.0}s"
-             : HitStreak > 0 ? $"CRIT {CritChance * 100f:0}%" : null;
+             : HitStreak > 0 ? $"ACC +{StreakAccuracy:0}" : null;
         public override int RimPips => StreakCap;
         public override int RimPipsLit => Mathf.Min(StreakCap, HitStreak);
 
@@ -336,7 +333,7 @@ namespace Convergence.Player
 
         void ScatterVortices()
         {
-            var origin = (Vector2)transform.position;
+            var origin = BlastCentre(out _);   // round the player - with a bow, a step short of the enemy it aims at
             float baseAngle = Random.value * Mathf.PI * 2f;
             float area = ReleaseAreaScale;
             float spread = VortexSpread * area, radius = VortexRadius * area;
@@ -374,7 +371,7 @@ namespace Convergence.Player
                         ? "SQUALL READY  [RMB/E] - scatter vortices"
                         : "GUST READY  [RMB/E] - range, speed, and lifesteal";
 
-                return $"streak {Mathf.Min(StreakCap, HitStreak)}/{StreakCap}  crit {CritChance * 100f:0}%  " +
+                return $"streak {Mathf.Min(StreakCap, HitStreak)}/{StreakCap}  accuracy +{StreakAccuracy:0}  " +
                        $"spd +{AttackSpeedPoints:0}  move +{MoveSpeedPoints:0}";
             }
         }

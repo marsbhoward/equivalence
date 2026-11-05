@@ -29,21 +29,14 @@ namespace Convergence.Core
 
         public static string Tagline(ElementType e) => e switch
         {
-            ElementType.Fire  => "Stacking icons. Keep attacking or the heat bleeds off.",
-            ElementType.Water => "Tiered meter. Cash out early for utility, or gamble for the burst.",
+            ElementType.Fire  => "Heat from every blow you land or take. Stop fighting and it drains.",
+            ElementType.Water => "Every hit fills it, double on soaked foes; a miss costs it. Choose your shots.",
             ElementType.Earth => "Stand still to charge. Release an earthquake with aftershocks.",
-            _                 => "Crits build momentum: faster, longer reach. Streaks raise your crit floor.",
+            _                 => "Moving builds momentum: faster swings and legs. A streak of hits raises Accuracy.",
         };
 
-        /// <summary>The element's default release - what the ability button fires until the
-        /// board has bought an alternative and the player has chosen it.</summary>
-        public static string AbilityName(ElementType e) => e switch
-        {
-            ElementType.Fire  => "ERUPT",
-            ElementType.Water => "SURGE",
-            ElementType.Earth => "QUAKE",
-            _                 => "GUST",
-        };
+        /// <summary>The element's starting release - its Blast (RELEASES.md).</summary>
+        public static string AbilityName(ElementType e) => ReleaseInfo.Name(e, ReleaseKind.Blast);
 
         /// <summary>
         /// The alternative release the DamageSource/elemental keystone offers, or null for an

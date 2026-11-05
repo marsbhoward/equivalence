@@ -217,6 +217,11 @@ namespace Convergence.Hazards
         /// </summary>
         public static System.Func<PitKind, bool> PlayerImmune;
 
+        /// <summary>How hard pits bite the player now - the exchange's Hazard Bloom and Dead Ground.
+        /// Asked by the pits that hurt; null is the plain bite.</summary>
+        public static System.Func<float> PlayerDamageMul;
+        public static float PlayerBite => PlayerDamageMul != null ? PlayerDamageMul() : 1f;
+
         static bool Ignores(FloorPit pit) => PlayerImmune != null && PlayerImmune(pit.Kind);
 
         public static void Register(FloorPit pit)

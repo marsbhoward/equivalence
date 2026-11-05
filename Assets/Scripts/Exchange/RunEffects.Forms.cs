@@ -62,7 +62,7 @@ namespace Convergence.Exchange
         readonly List<GameObject> _formVisuals = new();
         readonly Dictionary<(string, Health), ResidueField> _formFields = new();
 
-        float Strength(string id) => _mods != null ? _mods.Strength(id) : 1f;
+        float Strength(string id) => Gilded(id, _mods != null ? _mods.Strength(id) : 1f) * Tuning.Overhaul.Measure(id);   // Gilt, the measure
 
         /// <summary>An Art form fires for the art on its own socket only.</summary>
         bool OnThisSocket(string id) => _mods != null && _pc != null && Has(id) && _mods.SocketOf(id) == _pc.ArtSocket;
@@ -100,7 +100,7 @@ namespace Convergence.Exchange
                     Vector2 at = _pc.transform.position;
                     foreach (var hp in EnemiesWithin(at, radius))
                     {
-                        hp.Take(new DamageInfo(dmg, ElementType.Fire, _pc.gameObject));
+                        hp.Take(new DamageInfo(dmg, ElementType.Fire, _pc.gameObject) { Entry = nova ? "nova" : "shockwave" });
                         if (!hp.IsDead) _pc.Burn(hp, burn, burnFor);
                     }
                     LedgerFx.FireRing(ReleaseCanvas.Feet(_pc.transform), radius);
@@ -147,7 +147,7 @@ namespace Convergence.Exchange
                 if (near != null)
                 {
                     float s = Strength("splinter");
-                    near.Take(new DamageInfo(info.Amount * T.SplinterShare * s, info.Element, _pc.gameObject));
+                    near.Take(new DamageInfo(info.Amount * T.SplinterShare * s, info.Element, _pc.gameObject) { Entry = "splinter" });
                     if (!near.IsDead)
                         _pc.Bleed(near, info.Amount * T.SplinterBleedShare * s / T.SplinterBleedSeconds, T.SplinterBleedSeconds);
                     LedgerFx.StatusBurst(near, LedgerFx.Blood);
@@ -172,7 +172,7 @@ namespace Convergence.Exchange
             if (_pc == null) yield break;
             float dmg = T.FaultLineHitUnits * _pc.HitUnit * strength;
             foreach (var hp in EnemiesInStrip(from, dir, T.FaultLineLength, T.FaultLineHalfWidth))
-                hp.Take(new DamageInfo(dmg, ElementType.Earth, _pc.gameObject));
+                hp.Take(new DamageInfo(dmg, ElementType.Earth, _pc.gameObject) { Entry = "fault_line" });
         }
 
         /// <summary>SPINDRIFT (greatsword basics): the swing's arc throws spray just past its reach,
@@ -199,7 +199,7 @@ namespace Convergence.Exchange
         float _caughtAt = -10f;
 
         /// <summary>A disc came home to the hand (Snapback's moment).</summary>
-        public void OnDiscCaught() => _caughtAt = Time.time;
+        public void OnDiscCaught() { _caughtAt = Time.time; RestCaught(); }   // Loose Catch, Coated Catch
 
         /// <summary>LODESTAR and SNAPBACK on a basic disc throw, carried by the disc itself.</summary>
         public void ArmDisc(ThrownDisc disc)
@@ -224,6 +224,7 @@ namespace Convergence.Exchange
         public void ArmArrow(ThrownArrow arrow, bool planted)
         {
             if (arrow == null || _mods == null) return;
+            OverhaulArmArrow(arrow, planted);   // Backstep, Unsteady
             if (planted && Has("patient_string"))
             {
                 arrow.BleedShare = T.PatientBleedShare * Strength("patient_string");
@@ -271,6 +272,7 @@ namespace Convergence.Exchange
         public void OnDefenceUsed()
         {
             if (_mods == null || _pc == null) return;
+            OverhaulDefenceUsed();   // the Guard kind, the Concords
             AlbedosOnDefenceUsed();   // Unshackled, Lightfoot
             // AFTERBURN: the next basic inside the window gains Damage and burns (Offense, FormsOnHit).
             if (Has("afterburn")) _afterburnUntil = Time.time + T.AfterburnWindow;
@@ -305,7 +307,7 @@ namespace Convergence.Exchange
                 foreach (var k in new List<Health>(_steamAt.Keys)) if (k == null) _steamAt.Remove(k);
             float dmg = T.SteamHitUnits * _pc.HitUnit;
             Vector2 p = target.transform.position;
-            foreach (var hp in EnemiesWithin(p, T.SteamRadius)) hp.Take(new DamageInfo(dmg, ElementType.Water, _pc.gameObject));
+            foreach (var hp in EnemiesWithin(p, T.SteamRadius)) hp.Take(new DamageInfo(dmg, ElementType.Water, _pc.gameObject) { Entry = "steam" });
             LedgerFx.SteamCloud(p, T.SteamRadius);
         }
 
@@ -315,7 +317,7 @@ namespace Convergence.Exchange
             if (_mods == null || _pc == null || target == null || target.IsDead || !Has("clot")) return;
             var st = target.GetComponent<StatusEffects>();
             float dmg = st != null && st.Bleeding ? st.TakeBleed(T.ClotSeconds) : 0f;
-            if (dmg > 0f) target.Take(new DamageInfo(dmg, ElementType.Earth, _pc.gameObject));
+            if (dmg > 0f) target.Take(new DamageInfo(dmg, ElementType.Earth, _pc.gameObject) { Entry = "clot" });
         }
 
         // ---------------------------------------------------------------- the clutter guards

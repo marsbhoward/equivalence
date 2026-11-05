@@ -43,10 +43,13 @@ namespace Convergence.Balance
         /// <summary>
         /// Damage a second on the crowd. <paramref name="targetChain"/> is the chain on the body
         /// being fought (soak included); <paramref name="releaseScale"/> is Elemental Power times
-        /// the ledger's release multiplier, as the release on the target is.
+        /// the ledger's release multiplier, as the release on the target is (<paramref name="windowScale"/>
+        /// a Buff window's). <paramref name="releasesPerSecond"/> is meters, <paramref name="hooks"/> the
+        /// full meters the board answers (Borax, Fermentation).
         /// </summary>
         static float CrowdDps(Build b, StatPercents s, Mods m, ElementProfile el, ChainShape c,
-                              float targetChain, float hitUnit, float releaseScale, float releasesPerSecond)
+                              float targetChain, float hitUnit, float releaseScale, float windowScale,
+                              float releasesPerSecond, float hooks)
         {
             float area = StatPercents.Apply(1f, s.AoeRadius) * m.AreaMul;   // PlayerController.AoeScale
             float crowd = 0f;
@@ -56,7 +59,7 @@ namespace Convergence.Balance
             float reached = Assume.CrowdBodies;
             if (Owns(b, Notable.Borax))
             {
-                float bunched = Mathf.Min(1f, Assume.BoraxHoldSeconds * releasesPerSecond);
+                float bunched = Mathf.Min(1f, Assume.BoraxHoldSeconds * hooks);
                 reached = Mathf.Lerp(reached, BodiesWithin(Tuning.Player.BaseRange + B.BoraxPullDistance), bunched);
             }
             float keep = 1f - (1f - SwingFalloff) * StatPercents.ReductionFactor(s.Cleave + m.CleavePoints);
@@ -77,12 +80,13 @@ namespace Convergence.Balance
             if (Owns(b, Notable.Precipitation) && c.Seconds > 0f)
                 crowd += BoardNumbers.PrecipitationFraction * c.ArtHit / c.Seconds * BodiesWithin(B.PrecipitationRadius);
 
-            // ---- the release, on everything else it reaches
-            crowd += ReleaseCrowdHitUnits(b.Element, el, area) * hitUnit * releaseScale * releasesPerSecond;
+            // ---- the release, on everything else it reaches, and a Buff's window
+            crowd += ReleaseCrowdHitUnits(b, el, area) * hitUnit * releaseScale * releasesPerSecond
+                   + WindowDps(el, c, hitUnit, windowScale).others;
 
             // ---- Fermentation: the salted ground under the rest of the pack.
             if (Owns(b, Notable.Fermentation))
-                crowd += FermentationDps(b, hitUnit, releasesPerSecond) * BodiesWithin(B.FermentationRadius * area);
+                crowd += FermentationDps(b, hitUnit, hooks) * BodiesWithin(B.FermentationRadius * area);
 
             return crowd;
         }
@@ -95,8 +99,8 @@ namespace Convergence.Balance
             if (b.Element == null) return 0f;
             float area = StatPercents.Apply(1f, s.AoeRadius) * m.AreaMul;
             float full = b.Element == ElementType.Fire || b.Element == ElementType.Air ? 1f : Assume.FullReleaseShare;
-            float more = ReleaseCrowdHitUnits(b.Element, el, area * Tuning.Exchange.ConcentrateFullRadiusMul)
-                       - ReleaseCrowdHitUnits(b.Element, el, area);
+            float more = ReleaseCrowdHitUnits(b, el, area * Tuning.Exchange.ConcentrateFullRadiusMul)
+                       - ReleaseCrowdHitUnits(b, el, area);
             return Mathf.Max(0f, more) * hitUnit * releaseScale * releasesPerSecond * full;
         }
 
@@ -115,53 +119,17 @@ namespace Convergence.Balance
         }
 
         /// <summary>
-        /// One release on the bodies OTHER than the target, in hit units before Elemental Power -
-        /// the counterpart of ElementProfile.ReleaseHitUnits, each element by its own shape.
+        /// A meter of the build's releases on the bodies OTHER than the target, in hit units before
+        /// Elemental Power - the counterpart of ElementProfile.ReleaseHitUnits, read off each kind's
+        /// shape at this Area (AssayShapes).
         /// </summary>
-        static float ReleaseCrowdHitUnits(ElementType? element, ElementProfile el, float area)
+        static float ReleaseCrowdHitUnits(Build b, ElementProfile el, float area)
         {
-            if (element == null || el.ReleaseHitUnits <= 0f) return 0f;
-            switch (element.Value)
-            {
-                case ElementType.Fire:
-                {
-                    // Erupt's pools land round the player, spread and size both grown by Area, so
-                    // the share of the ground under a pool holds. A body in the pack stands in one
-                    // for that share of the time; the target, fought where the pools are, for
-                    // FireTargetInPool.
-                    float covered = E.Fire.EruptPools * E.Fire.PoolRadius * E.Fire.PoolRadius
-                                  / (E.Fire.EruptSpread * E.Fire.EruptSpread);
-                    float perBody = Mathf.Min(1f, covered / Assume.FireTargetInPool);
-                    return el.ReleaseHitUnits * perBody * BodiesWithin(E.Fire.EruptSpread * area);
-                }
-
-                case ElementType.Water:
-                {
-                    // One pool shared by everything caught, softened so a crowd takes more in total
-                    // (WaterResource.Cash): n bodies take n^(1 - falloff) of it. The model gives the
-                    // target the whole pool, so the crowd is the rest.
-                    float caught = 1f + BodiesWithin(E.Water.Radius * area);
-                    return el.ReleaseHitUnits * (Mathf.Pow(caught, 1f - E.Water.BurstSplitFalloff) - 1f);
-                }
-
-                case ElementType.Earth:
-                {
-                    // The quake at full charge, then aftershocks each weaker and narrower
-                    // (EarthResource.Erupt); every body inside a shock takes it whole.
-                    float weights = 1f, reached = BodiesWithin(E.Earth.Radius * area);
-                    int after = Mathf.FloorToInt(E.Earth.ChargeSeconds / E.Earth.AftershockPerSeconds);
-                    for (int i = 0; i < after; i++)
-                    {
-                        float w = 0.55f - i * 0.08f;
-                        weights += w;
-                        reached += w * BodiesWithin(E.Earth.Radius * area * Mathf.Max(0.4f, w));
-                    }
-                    return el.ReleaseHitUnits * reached / weights;
-                }
-
-                default:
-                    return 0f;   // Air's Gust deals nothing itself
-            }
+            if (b.Element == null || _releasesOff) return 0f;
+            float sum = 0f;
+            foreach (var (k, share) in Loadout(b))
+                if (k != ReleaseKind.Buff) sum += share * Shape(b.Element.Value, k, _weapon, area).Others;
+            return sum;
         }
 
         /// <summary>Fermentation on ONE body standing on the salted ground through its seconds -

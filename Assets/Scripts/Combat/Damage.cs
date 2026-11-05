@@ -94,6 +94,13 @@ namespace Convergence.Combat
         /// </summary>
         public bool Tick;
 
+        /// <summary>
+        /// The exchange entry this damage came from (a form's strike, a cost's burn), or null for
+        /// the hit itself. Read only by the ledger's meter (Exchange.LedgerMeter) - changes nothing
+        /// about the damage.
+        /// </summary>
+        public string Entry;
+
         public DamageInfo(float amount, ElementType element, GameObject source)
         {
             Amount = amount; Element = element; Source = source; Crit = false; Knockback = Vector2.zero;
@@ -107,6 +114,7 @@ namespace Convergence.Combat
             Price = false;
             IgnoresHeat = false;
             Tick = false;
+            Entry = null;
         }
     }
 }

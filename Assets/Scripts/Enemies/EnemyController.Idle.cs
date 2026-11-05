@@ -39,7 +39,8 @@ namespace Convergence.Enemies
         {
             _unaware = true;
             _idleRng = new System.Random(GetEntityId().GetHashCode());
-            _unawareLeft = Mathf.Lerp(Tuning.Idle.MaxSecondsMin, Tuning.Idle.MaxSecondsMax, (float)_idleRng.NextDouble());
+            _unawareLeft = Mathf.Lerp(Tuning.Idle.MaxSecondsMin, Tuning.Idle.MaxSecondsMax, (float)_idleRng.NextDouble())
+                           + Exchange.LedgerWorld.UnawareExtra;   // Ambush, a Fortune boon
             _home = transform.position;
             _wanderTo = _home;
             _pause = (float)_idleRng.NextDouble() * 1.5f;

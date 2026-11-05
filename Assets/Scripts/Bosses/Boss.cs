@@ -97,6 +97,9 @@ namespace Convergence.Bosses
             b.Target = target;
             b.Floor = Mathf.Max(1, floor);
             b.Band = NextBand >= 0 ? NextBand : RunFormat.EnemyBand(b.Floor);
+            // TWISTED (an exchange cost): a mini-boss - never an avatar - arrives a band stronger.
+            if (!RunFormat.IsAvatarFloor(b.Floor) && Exchange.LedgerWorld.BossBandAdd > 0)
+                b.Band = Mathf.Min(Tuning.Overhaul.TopBand, b.Band + Exchange.LedgerWorld.BossBandAdd);
 
             var col = go.AddComponent<CircleCollider2D>();
             col.radius = colliderRadius;

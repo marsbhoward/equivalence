@@ -51,6 +51,9 @@ namespace Convergence.Chain
         public string SavedAtUtc;
 
         public ElementType Element;
+        /// <summary>The run's releases by name (Core.ReleaseKind): fixed for the run, so a resume
+        /// keeps them whatever the board says now. Empty on a snapshot from before the arsenal.</summary>
+        public string TapRelease = "", HoldRelease = "";
         public RunStage Stage;
 
         /// <summary>The floor being ENTERED (<see cref="RunStage.Entering"/>) or the one CLEARED.</summary>

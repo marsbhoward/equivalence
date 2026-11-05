@@ -134,7 +134,7 @@ namespace Convergence.Combat
                 f.Done = true;
                 // Out of play AT ONCE (Destroy waits for the frame's end): the new stake below would
                 // otherwise "block" the very shot it landed on, and break.
-                if (f.Bolt != null) { SmokePuff.At(f.Bolt.transform.position); Gone(f.Bolt.gameObject); }
+                if (f.Bolt != null) { Exchange.RunEffects.Live?.OnWardStopped(f.Bolt.transform.position); SmokePuff.At(f.Bolt.transform.position); Gone(f.Bolt.gameObject); }
                 if (f.Shell != null) { SmokePuff.At(f.Shell.DrawnPosition); Gone(f.Shell.gameObject); }
                 Destroy(f.Sr.gameObject);
                 StickAt(f.Ground);
@@ -204,6 +204,7 @@ namespace Convergence.Combat
             {
                 if (b == null || !b.Hostile) continue;
                 if (((Vector2)b.transform.position - s.Ground).sqrMagnitude > r2) continue;
+                Exchange.RunEffects.Live?.OnWardStopped(b.transform.position);
                 SmokePuff.At(b.transform.position);
                 Gone(b.gameObject);
                 return true;

@@ -54,12 +54,27 @@ namespace Convergence.UI
                 "back: the nearest enemy in reach takes a counter-hit, and a parried projectile goes back the way it came."),
 
             new("THE FOUR ELEMENTS",
-                "Every character plays one element, and each builds its meter on a different habit. Fire builds only on " +
-                "melee hits that land - it wants you in close. Air builds on movement and drains while you stand still - " +
-                "it wants you circling. Earth charges on stillness and rewards planting your feet. Water builds on every " +
-                "hit and twice as fast against a soaked enemy, so it rewards arranging the crowd.\n\n" +
-                "The meter is the ring of the element seal, bottom left. When it is full, a [[release]] fires your " +
-                "element's ability. Each element keeps its own mastery board."),
+                "Every character plays one element, and each builds its meter on a different habit. Fire builds on every " +
+                "blow you land and every blow you take or parry, and drains as soon as you stop fighting - it wants you " +
+                "in the thick of it. Air builds on movement and drains while you stand still; an unbroken run of hits " +
+                "also makes them land harder. Earth charges on stillness and rewards planting your feet. Water builds " +
+                "on every blow you land and twice as fast against a soaked enemy, and a miss costs it - so it rewards " +
+                "setting up and choosing your shots.\n\n" +
+                "The meter is the ring of the element seal, bottom left, and your [[release|releases]] spend it. Each " +
+                "element keeps its own mastery board."),
+
+            new("RELEASES",
+                "Every element has the same five kinds of release, each in its own form. A BLAST spends a full meter on " +
+                "the crowd around you. A BUFF spends a full meter on a few seconds of power. A COMBO is three strikes " +
+                "for a third of the meter each; land the next within two seconds to carry the chain to its finish, or " +
+                "stop early. A GUARD spends a full meter on three charges, and each use of your defensive ability spends " +
+                "one to throw your element around you. A MOBILITY move spends half a meter to carry you across the floor - " +
+                "you can be hit all the way.\n\n" +
+                "A combo and a buff are made for one enemy - a combo's strike lands in full on the nearest and only " +
+                "partly on anything else it catches. A Blast is made for a crowd, and does less to a lone enemy.\n\n" +
+                "Blast is yours from the start. The others open as you spend levels along the mastery board: five on " +
+                "Affliction for the Buff, Offense for the Combo, Survival for the Guard, Tempo for Mobility. At the " +
+                "board's center choose two: TAP the release button for one, HOLD it for the other."),
 
             new("WEAPON CLASSES",
                 "A weapon's class decides how it is fought with, whatever its stats or look, and it is fixed for the run. " +
@@ -145,7 +160,7 @@ namespace Convergence.UI
 
             new("MASTERY",
                 "Every level is a point to spend on the board of the element you play. The board is a grid out of the " +
-                "sigil, whose center is your element's [[release]]. Four paths leave it: a trunk, a fork of four lanes, a " +
+                "sigil, whose center chooses your [[release|releases]]. Four paths leave it: a trunk, a fork of four lanes, a " +
                 "rule where they meet, the fork again and a capstone. Taking a lane closes only that fork's other lanes. " +
                 "Diagonals and bridges join the paths, so a path can be entered from the side.\n\n" +
                 "Every node also feeds a [[principle]]; enough points in one unlock the next link of its chain. " +

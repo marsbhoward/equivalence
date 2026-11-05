@@ -164,7 +164,7 @@ namespace Convergence.Exchange
             float damage = T.MollificationShardHitUnits * _pc.HitUnit * _mods.Potency("mollification");
             float radius = T.MollificationRadius * _pc.AreaScaleNow;
             foreach (var hp in EnemiesWithin(at, radius))
-                if (hp != from) hp.Take(new DamageInfo(damage, Element, _pc.gameObject));
+                if (hp != from) hp.Take(new DamageInfo(damage, Element, _pc.gameObject) { Entry = "mollification" });
             LedgerFx.Stuff(at, TexelFx.Steel, radius, shards: true);
         }
 
@@ -245,7 +245,7 @@ namespace Convergence.Exchange
             var attacker = info.Source.GetComponent<Health>();
             if (attacker == null || attacker.IsDead || attacker.gameObject == _pc.gameObject) return;
             float damage = broken * T.PatinaShardHitUnits * _pc.HitUnit * _mods.Potency("patina");
-            attacker.Take(new DamageInfo(damage, Element, _pc.gameObject));
+            attacker.Take(new DamageInfo(damage, Element, _pc.gameObject) { Entry = "patina" });
             LedgerFx.Echo(attacker.transform.position, _pc.transform.position);
         }
 
@@ -271,6 +271,15 @@ namespace Convergence.Exchange
         }
 
         void OnDestroy() => ClearAnchor();
+
+        /// <summary>A watched wind-up missed: LUCID exposes it, and OVEREAGER (Eager's Albedo) too.</summary>
+        void ExposeMissed(Health hp)
+        {
+            if (Has("lucid")) Expose(hp);
+            if (Has("al_eager") && hp != null && !hp.IsDead)
+                StatusEffects.Get(hp.gameObject).ApplyExposed(Core.Tuning.Overhaul.EagerExposedSeconds,
+                                                              1f + Core.Tuning.Overhaul.EagerExposed * _mods.Potency("al_eager"));
+        }
 
         // ---------------------------------------------------------------- Mountain, Lucid
 
@@ -300,7 +309,7 @@ namespace Convergence.Exchange
         /// </summary>
         void TickLucid(float dt)
         {
-            if (!Has("lucid") || _pc == null) { _lucid?.Clear(); return; }
+            if (!(Has("lucid") || Has("al_eager")) || _pc == null) { _lucid?.Clear(); return; }
             _lucid ??= new List<LucidWatch>();
 
             Enemies.EnemyRegistry.Prune();
@@ -317,7 +326,7 @@ namespace Convergence.Exchange
                     else if (_lucid[i].Window >= 0f)
                     {
                         // Winding up again before the last attack landed: that one missed.
-                        Expose(hp);
+                        ExposeMissed(hp);
                         _lucid[i] = new LucidWatch { Enemy = e, Window = -1f };
                     }
                 }
@@ -334,7 +343,7 @@ namespace Convergence.Exchange
                 w.Window -= dt;
                 if (w.Window > 0f) { _lucid[i] = w; continue; }
                 _lucid.RemoveAt(i);
-                Expose(hp);
+                ExposeMissed(hp);
             }
         }
 
@@ -400,11 +409,8 @@ namespace Convergence.Exchange
         void AlbedosOnDefenceUsed()
         {
             // UNSHACKLED: the recharge's price paid back in tempo - the chain moves on a basic.
-            if (Has("unshackled") && !_pc.FinisherNext)
-            {
-                _pc.AdvanceChain();
-                LedgerFx.Spark(_pc);
-            }
+            // Through THE SHARED BANK (the overhaul's rule 1), like every "next art sooner".
+            if (Has("unshackled")) Hasten(1f);
 
             // LIGHTFOOT: an anchor where you stood.
             if (Has("lightfoot"))
@@ -475,7 +481,7 @@ namespace Convergence.Exchange
             }
             if (seg.sqrMagnitude > 0.01f) LedgerFx.Crest(from, seg.normalized, seg.magnitude, LedgerFx.Ward);
             foreach (var hp in cut)
-                hp.Take(new DamageInfo(damage, Element, _pc.gameObject));
+                hp.Take(new DamageInfo(damage, Element, _pc.gameObject) { Entry = "lightfoot" });
         }
 
         // ---------------------------------------------------------------- Concentrate
@@ -484,8 +490,11 @@ namespace Convergence.Exchange
         /// (PlayerController.DoRelease asks, just before the release).</summary>
         public float ReleaseRadiusMul(float meter01)
         {
-            if (_mods == null || !Has("concentrate") || meter01 < 0.999f) return 1f;
-            return 1f + (T.ConcentrateFullRadiusMul - 1f) * _mods.Potency("concentrate");
+            _fillAtRelease = meter01;   // asked once a release, just before it fires (Spent Meter)
+            if (_mods == null) return 1f;
+            float damp = OverhaulReleaseRadius;   // Damp, a socket cost
+            if (!Has("concentrate") || meter01 < 0.999f) return damp;
+            return damp * (1f + (T.ConcentrateFullRadiusMul - 1f) * _mods.Potency("concentrate"));
         }
 
         // ---------------------------------------------------------------- Ossuary

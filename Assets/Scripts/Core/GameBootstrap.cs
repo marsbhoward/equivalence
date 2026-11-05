@@ -551,7 +551,7 @@ namespace Convergence.Core
             Controls.ReleaseReady = () =>
                 _player != null && (
                     (_player.Blade != null && _player.Blade.Airborne)
-                    || (_player.Resource != null && _player.Resource.CanRelease));
+                    || (_player.Resource != null && _player.Resource.CanFireAny));
 
             // Same wiring, for the chest's defensive ability (GUARD).
             Controls.GuardReady = () => _player != null && _player.DefenseReady;
@@ -3204,6 +3204,7 @@ namespace Convergence.Core
             _runStartDiamondBoxes = _profile.Boxes.Diamond;
             _runStartBlackDiamondBoxes = _profile.Boxes.BlackDiamond;
             Modifiers.Clear();
+            Exchange.LedgerMeter.RunStarted();
             Core.RunClock.TierShiftSeconds = 0f;
             // Whole armour for every run - wear is run state (ProfileRules clears it at both
             // checkpoints too; this is the copy the player is built from). A resume never comes
@@ -3717,9 +3718,17 @@ namespace Convergence.Core
             effects.Bind(Modifiers, pc);
             pc.Effects = effects;
 
+            // THE OVERHAUL's gates read the run live: the chest's defensive ability and the rotation
+            // (the art on each socket), and the enemies read the ledger's world costs through it.
+            Exchange.RunModifiers.Live = Modifiers;
+            Modifiers.DefenceSource = () => pc != null ? pc.EquippedDefensiveAbility : Art.Gear.DefensiveAbility.Dash;
+            Modifiers.SocketArt = i => pc != null && i >= 0 && i < pc.Slots.Count ? pc.Slots[i] : null;
+            Modifiers.SocketCount = () => pc != null ? pc.Slots.Count : 0;
+
             // The element trap boons: the hazards ask, and know nothing of the exchange.
             Hazards.FloorPits.PlayerImmune = kind => effects.ImmuneTo(kind);
             Hazards.Tornado.PlayerImmune = () => effects.ImmuneToTornadoes;
+            Hazards.FloorPits.PlayerDamageMul = () => effects.PitDamageMul;   // Hazard Bloom, Dead Ground
 
             // The principle chains, scoped to the element being played - see PrincipleEffects.
             // Read ONCE here: mastery is spent in the main menu and never mid-run, so a chain
@@ -3874,10 +3883,9 @@ namespace Convergence.Core
                     Art.Gear.PhantomHaze.Attach(hazeAnchor, rig, flipbook, flipSeconds).SetShown(true);
             }
 
-            // None of these four mastery nodes were being read before this pass. Fire's own is
-            // FireStackLife rather than a gain rate - see GainRateMultiplier's doc for why that is
-            // the right lever for a discrete, one-stack-per-swing resource. Composed with gear's
-            // ElementGrowth into one multiplier, same as every other stat's mastery+gear boundary.
+            // The meter's growth rate (Fire's included since 2026-11-05: heat fills at a rate now).
+            // Composed with gear's ElementGrowth into one multiplier, same as every other stat's
+            // mastery+gear boundary.
             // The board's Element Growth is already in raw (it joined the stat block above).
             float gainRatePoints = raw.ElementGrowth;
             // Bent as ONE sum - the board's meter node and gear's Element Growth are the same stat.
@@ -3885,7 +3893,12 @@ namespace Convergence.Core
                 Art.Gear.StatCurves.Character(Art.Gear.StatKind.ElementGrowth, gainRatePoints));
 
             // Read once, same as everything else off Mastery here - see BoardState.UsesSecondAbility.
-            resource.UseSecondAbility = Mastery.UsesSecondAbility(element);
+            // The release arsenal (RELEASES.md): the board's TAP and HOLD choices; a resumed run
+            // puts back its own (PlayerController.RestoreRun).
+            resource.TapKind = Mastery.TapRelease(element);
+            var hold = Mastery.HoldRelease(element);
+            resource.HasHold = hold.HasValue;
+            if (hold.HasValue) resource.HoldKind = hold.Value;
 
             return pc;
         }
@@ -4139,7 +4152,7 @@ namespace Convergence.Core
                 if (EnemyController.EntryGraceUntil < Time.time + 0.01f && _floorSpawns == 0)
                     EnemyController.EntryGraceUntil = Time.time + Tuning.Enemy.EntryGraceSeconds;
                 var first = SpawnQueuedEnemy();
-                if (first != null && Tuning.Idle.Enabled) first.BeginUnaware();
+                if (first != null && Tuning.Idle.Enabled && !Exchange.LedgerWorld.NoUnaware) first.BeginUnaware();   // Vigilant
                 // Realtime for the same reason as the wait above, and it would have deadlocked
                 // here next had only that one been fixed.
                 yield return new WaitForSecondsRealtime(0.12f);
@@ -4375,6 +4388,7 @@ namespace Convergence.Core
             _rewardTaken = true;
             // The run clock stops at the clear - the menus after it are off it (Core.RunClock).
             Clock.CloseAttempt();
+            Exchange.LedgerMeter.FloorCleared(_floor);
             Chain.Service.Telemetry.FloorCleared(_floor, _plan.Category.ToString(), _plan.Rift.ToString(),
                 Art.Biomes.Biome.Current.ToString(), Clock.Seconds,
                 _player != null && _player.Health != null ? _player.Health.Current / Mathf.Max(1f, _player.Health.Max) : 0f);
@@ -4439,6 +4453,9 @@ namespace Convergence.Core
             if (_player != null) _player.Effects?.OnFloorCleared();
             // Each boss puts one charge back in the phial (Tuning.Phial).
             if (IsBossFloor(_floor)) _player?.Phial?.AddCharge();
+            // TWISTED (a brand): spent on the mini-boss it strengthened.
+            if (IsBossFloor(_floor) && !Core.RunFormat.IsAvatarFloor(_floor) && Modifiers.StacksOf("co_twisted") > 0)
+                Modifiers.Fulfil("co_twisted");
             Modifiers.FloorCleared();
             ApplyLedgerToPlayer();
 
@@ -4505,7 +4522,8 @@ namespace Convergence.Core
             var offer = brand
                 ? Exchange.ExchangeOffers.BuildBrand(Modifiers, new System.Random(_planner.DealSeed(_floor)))
                 : Exchange.ExchangeOffers.Build(Modifiers, _floor, new System.Random(_planner.DealSeed(_floor)));
-            if (brand) _hud?.Flash("a brand deal - one pair, a form against a rule");
+            if (brand) _hud?.Flash(offer.Pairs.Count > 0 && offer.Pairs[0].Boon != null && offer.Pairs[0].Boon.IsConcord
+                                       ? "a brand deal - a Concord against a rule" : "a brand deal - one pair, a form against a rule");
             if (offer.Pairs.Count == 0)
             {
                 if (scry != null) _hud?.Flash(scry);
@@ -4645,7 +4663,12 @@ namespace Convergence.Core
         void AskSocket(Exchange.ExchangeEntry form, System.Action<int> onPick)
         {
             var answers = new List<(string, string)>();
-            for (int i = 0; i < _player.Slots.Count; i++)
+            // Only the sockets it fits (the overhaul): a role form on an art of its role, a weight form
+            // on its weight, a class form on the arts it names.
+            var sockets = new List<int>();
+            for (int i = 0; i < _player.Slots.Count; i++) if (Modifiers.SocketFits(form, i)) sockets.Add(i);
+            if (sockets.Count == 0) for (int i = 0; i < _player.Slots.Count; i++) sockets.Add(i);
+            foreach (int i in sockets)
             {
                 var forms = Modifiers.FormsIn(Exchange.FormSlot.Art, i);
                 string art = _player.Slots[i]?.DisplayName ?? "an art";
@@ -4655,7 +4678,7 @@ namespace Convergence.Core
                 answers.Add(($"{i + 1}.  {art}", held));   // numbered: one art can sit in two sockets
             }
             Choices.Show(_canvas.transform, $"Inscribe {form.Name}", "Which art carries it? Its cost goes on the same art.",
-                         answers, onPick);
+                         answers, k => onPick(sockets[k]));
         }
 
         /// <summary>After a refusal: take a form out of a stacked slot, or keep them all.</summary>
@@ -5000,8 +5023,17 @@ namespace Convergence.Core
 
                 case UI.FloorOutcome.MovesetInto:
                     if (_player != null && offered != null && _player.SetSlot(slot, offered))
+                    {
                         Debug.Log($"[Convergence] slot {slot + 1} -> '{offered.DisplayName}' " +
                                   $"(earned {_player.EarnedCount}/{_player.Slots.Count})");
+                        // THE TRANSLATION (the overhaul): the socket's role forms become their family's
+                        // forms for the new art.
+                        foreach (var (from, to) in Modifiers.TranslateSocket(slot))
+                        {
+                            _hud?.Flash($"{from.Name}  >>  {to.Name}");
+                            Debug.Log($"[Exchange] {from.Id} became {to.Id} on socket {slot}");
+                        }
+                    }
                     break;
 
                 case UI.FloorOutcome.Forfeit:
@@ -5265,7 +5297,8 @@ namespace Convergence.Core
             if (!TearRift()) return;
             // A race left part-way goes on from where it was (plus a moment to find one's feet)
             // rather than starting again - against the replayed floor's fresh wave.
-            float full = _planner.CollapseSeconds(_floor);
+            float full = _planner.CollapseSeconds(_floor)
+                         + (Modifiers.StacksOf("fo_long_rift") > 0 ? Tuning.Overhaul.LongRiftSeconds : 0f);   // Long Rift
             _clockFull = full;
             _clockCredit = _floorClockSpent > 0f ? Mathf.Min(Tuning.Continuation.ReorientSeconds, _floorClockSpent) : 0f;
             float seconds = Mathf.Max(Tuning.Continuation.ReorientSeconds, full - _floorClockSpent + _clockCredit);
@@ -5755,6 +5788,7 @@ namespace Convergence.Core
                     break;
             }
             _hud?.Flash($"spire of {Hazards.SpireBoons.NameOf(boon)} taken  -  {Hazards.SpireBoons.Describe(boon)}");
+            _player?.Effects?.OnSpireTaken();   // Spite Spires, a cost
             Debug.Log($"[Spire] captured {boon} on floor {_floor}");
         }
         /// <summary>The floor's exit, SHUT until the puzzle is solved. Becomes _activeDoor then.</summary>
@@ -6081,6 +6115,15 @@ namespace Convergence.Core
         void Harden(EnemyController enemy)
         {
             var m = Modifiers.Current;
+            // PLATED (a cost): an unarmoured body arrives with armour of its own.
+            float plated = Exchange.LedgerWorld.PlatedShare(enemy.Elite);
+            var hpP = enemy.GetComponent<Health>();
+            if (plated > 0f && hpP != null && enemy.GetComponent<Combat.EnemyArmor>() == null)
+            {
+                float armourMax = hpP.Max * plated;
+                var armour = Combat.EnemyArmor.Attach(enemy.gameObject, armourMax, hpP.Max * Tuning.Enemy.ArmorBarFraction);
+                Combat.ArmorRing.Attach(enemy.gameObject, armour, enemy.BodyRadius + 0.12f);
+            }
             float mul = m.EnemyHealthMul * (enemy.Elite ? m.EliteHealthMul : 1f);
             if (Mathf.Approximately(mul, 1f)) return;
             var hp = enemy.GetComponent<Health>();
@@ -6102,6 +6145,12 @@ namespace Convergence.Core
                 // The board hears every death, whatever caused it - a hit, a burn, a fall.
                 if (_player && _player.Board) _player.Board.OnEnemyDied(h);
                 if (_player && _player.Effects) _player.Effects.OnEnemyDied(h, worth);
+
+                // REINFORCED (a cost): an elite's death calls more, at the edge like any arrival.
+                int reinforced = Modifiers.StacksOf("co_reinforced");
+                if (enemy.Elite && reinforced > 0 && _state == State.Playing)
+                    for (int i = 0; i < reinforced * Tuning.Overhaul.ReinforcedBodies + (Modifiers.AtMax("co_reinforced") ? 1 : 0); i++)
+                        _spawnQueue.Enqueue(new PendingSpawn(EnemyKind.Chaser, false, RandomEdgePoint));
 
                 // BASIC AND ELITE ONLY. This is HookDeath, which is the wave path - a boss has its
                 // own Died handler and its own set-piece, and a weapon's cosmetic has no business
@@ -6637,6 +6686,7 @@ namespace Convergence.Core
             Enemies.EnemyController.TelegraphStrength = 1f;
             Hazards.FloorPits.PlayerImmune = null;
             Hazards.Tornado.PlayerImmune = null;
+            Hazards.FloorPits.PlayerDamageMul = null;
             Hazards.ProjectionLines.CalmAll();
             Exchange.SolNiger.Clear();
             Player.LucidRims.Clear();

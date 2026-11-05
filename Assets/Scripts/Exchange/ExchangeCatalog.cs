@@ -21,7 +21,7 @@ namespace Convergence.Exchange
     /// takes). Every stackable boon has a RUBEDO at max stacks and every stackable cost a NIGREDO
     /// and an ALBEDO - the capstone is part of the entry's Apply or behaviour from that stack on.
     /// </summary>
-    public static class ExchangeCatalog
+    public static partial class ExchangeCatalog
     {
         static List<ExchangeEntry> _all;
         static List<ExchangeEntry> _combinations;
@@ -502,7 +502,7 @@ namespace Convergence.Exchange
               .Cap("Quicksand", $"Standing still costs {N(T.QuicksandSpeed)} Attack Speed.")
               .ForElement(ElementType.Earth);
             C("becalmed", "Becalmed", Leaking, Stroke, 2, 3,
-              $"Crit floor climbs {Pct(T.BecalmedCritPerHit)} less per hit.", conditional: true)
+              $"Your streak adds {N(T.BecalmedAccuracyPerHit)} less Accuracy per hit.", conditional: true)
               .Cap("Doldrums", "A hit taken resets your streak and momentum.")
               .ForElement(ElementType.Air);
 
@@ -797,6 +797,9 @@ namespace Convergence.Exchange
                   $"While inverted, +{N(T.RetrogradeMotionMove)} Move Speed and take {Pct(1f - T.RetrogradeMotionTakenMul)} less.",
                   conditional: true);
 
+            // THE OVERHAUL (2026-11-04): kinds, gates, coats and the new entries (ExchangeCatalog.Overhaul.cs).
+            BuildOverhaul();
+
             // RETIRED (the user's calls, 2026-10-21): out of the deal pool, kept so holders still load.
             foreach (var id in new[] { "fleetfoot", "evanescence", "stonestance" })
                 if (_byId.TryGetValue(id, out var gone)) gone.Retired = true;
@@ -823,6 +826,7 @@ namespace Convergence.Exchange
                     e.School = e.Family == ExchangeFamily.Choler ? School.Choler : School.Sanguine;
                 if (e.School == School.None) Debug.LogWarning($"[Exchange] '{e.Id}' has no school");
             }
+            AssignKinds();
             Lint();
         }
 
@@ -1037,6 +1041,7 @@ namespace Convergence.Exchange
         static ExchangeEntry Sworn(this ExchangeEntry e) { e.Oath = true; return e; }
         static ExchangeEntry Branded(this ExchangeEntry e) { e.Brand = true; return e; }
         static ExchangeEntry InShortOnly(this ExchangeEntry e) { e.ShortOnly = true; return e; }
+        static ExchangeEntry NotInShowcase(this ExchangeEntry e) { e.NotInShowcase = true; return e; }
 
         static ExchangeEntry OnSocket(this ExchangeEntry e)
         {

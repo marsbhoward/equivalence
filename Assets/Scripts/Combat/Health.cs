@@ -85,6 +85,10 @@ namespace Convergence.Combat
         public event Action<DamageInfo> Damaged;
         public event Action<Health> Died;
 
+        /// <summary>Every hit and price that took health, with what it took - the ledger's meter
+        /// (Exchange.LedgerMeter) listens. Static: one listener for every body.</summary>
+        public static Action<Health, DamageInfo, float> Landed;
+
         /// <summary>
         /// The last hit this body took, whatever it was. Set the instant a hit lands, so a
         /// <see cref="Died"/> listener can ask what killed it - the event itself only carries the
@@ -348,6 +352,7 @@ namespace Convergence.Combat
 
             LastDamage = info;
             Damaged?.Invoke(info);
+            Landed?.Invoke(this, info, amount);
 
             if (Current <= 0f)
             {
@@ -369,6 +374,7 @@ namespace Convergence.Combat
             _flashTint = Color.white;
             LastDamage = info;
             Damaged?.Invoke(info);
+            Landed?.Invoke(this, info, amount);
             if (Current <= 0f)
             {
                 Current = 0f;

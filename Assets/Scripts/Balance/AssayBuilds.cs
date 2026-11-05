@@ -62,6 +62,11 @@ namespace Convergence.Balance
         /// Element Growth - the same sum BuildPlayer feeds ElementalResource.GainRateMultiplier.</summary>
         public float GainRatePoints;
 
+        /// <summary>The release loadout (RELEASES.md): the tap kind and the hold kind, the meters split
+        /// between them by <see cref="Assay.Assume.HoldShare"/>. A new character has Blast alone.</summary>
+        public ReleaseKind Tap = ReleaseKind.Blast;
+        public ReleaseKind? Hold;
+
         /// <summary>What the gear and the board were spent on, for the report.</summary>
         public readonly List<string> Picks = new();
 
@@ -113,6 +118,23 @@ namespace Convergence.Balance
             { Archetype.Elementalist, new[] { "element", "area", "survival:3:3", "offense:2:1" } },
         };
 
+        /// <summary>
+        /// Each playstyle's releases once its board has opened them (every kind is open at the Max
+        /// board): the Striker duels with the combo and its window, the Tempo combos and moves, the
+        /// Bulwark clears and guards, the Elementalist clears and buffs - mine, 2026-11-05.
+        /// </summary>
+        static readonly Dictionary<Archetype, (ReleaseKind, ReleaseKind?)> Loadouts = new()
+        {
+            { Archetype.Striker, (ReleaseKind.Combo, ReleaseKind.Buff) },
+            { Archetype.Tempo, (ReleaseKind.Combo, ReleaseKind.Mobility) },
+            { Archetype.Bulwark, (ReleaseKind.Blast, ReleaseKind.Guard) },
+            { Archetype.Elementalist, (ReleaseKind.Blast, ReleaseKind.Buff) },
+        };
+
+        /// <summary>A fresh character carrying one kind on a full meter - the arsenal's measure.</summary>
+        public static Build Carrying(ElementType element, ReleaseKind kind)
+            => new() { Name = $"Reference/{element}/{kind}", Element = element, Kit = Kit.Reference, Tap = kind };
+
         // ------------------------------------------------------------------ construction
 
         public static Build Reference(ElementType? element = null)
@@ -132,6 +154,7 @@ namespace Convergence.Balance
             var b = new Build { Name = key, Archetype = archetype, Element = element, Kit = kit };
             if (kit != Kit.Reference)
             {
+                (b.Tap, b.Hold) = Loadouts[archetype];
                 Spend(b);   // the board first: its points count when the gear is chosen
                 Gear(b);
             }
@@ -146,6 +169,7 @@ namespace Convergence.Balance
             string key = $"{archetype}/{element}/BoardOnly";
             if (_builds.TryGetValue(key, out var cached)) return cached;
             var b = new Build { Name = key, Archetype = archetype, Element = element, Kit = Kit.Max };
+            (b.Tap, b.Hold) = Loadouts[archetype];
             Spend(b);
             _builds[key] = b;
             return b;

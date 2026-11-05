@@ -159,7 +159,7 @@ namespace Convergence.UI
             if (r == null || _texture == null) return;
 
             float now = Time.unscaledTime;
-            bool full = r.CanRelease && r.Fill01 >= 0.999f;
+            bool full = r.CanFireAny && r.Fill01 >= 0.999f;
             if (full && !_wasFull) _fullAt = now;
             _wasFull = full;
 
@@ -168,9 +168,9 @@ namespace Convergence.UI
             var ramp = RampOf(ElementInfo.Tint(r.Element));
             string name = r.ReleaseName;
             if (name != _shownName) { _shownName = name; UiKit.SetText(_name, name); }
-            UiKit.SetColor(_name, r.CanRelease ? (Color)ramp.Lt : Unlit);
+            UiKit.SetColor(_name, r.CanFireAny ? (Color)ramp.Lt : Unlit);
 
-            string tag = r.SealTag ?? "";
+            string tag = r.Tag ?? "";
             if (tag != _shownTag) { _shownTag = tag; UiKit.SetText(_tag, tag); }
         }
 
@@ -215,8 +215,8 @@ namespace Convergence.UI
             }
 
             if (r.Element == ElementType.Earth) DrawCracks(fill, full, ramp);
-            var sigil = full ? ramp.Hi : r.CanRelease ? ramp.Lt : ramp.Dk;
-            DrawSigil(r.Element, sigil);
+            var sigil = full ? ramp.Hi : r.CanFireAny ? ramp.Lt : ramp.Dk;
+            DrawSigil(r.Element, sigil, r.Element == ElementType.Fire ? Mathf.Clamp01(r.Fill01) : -1f, ramp);
             if (r.PipCount > 0 && r.PipGlyphs != null) DrawBadges(r, ramp);
             DrawRimPips(r, ramp);
 
@@ -467,8 +467,11 @@ namespace Convergence.UI
         // ---------------------------------------------------------------- the seal's marks
 
         /// <summary>The element's triangle: Fire and Air point up, Water and Earth down; Air and
-        /// Earth carry the bar across.</summary>
-        void DrawSigil(ElementType e, Color32 col)
+        /// Earth carry the bar across. FIRE'S IS ITS METER (2026-11-05, the user's call - one symbol
+        /// in three parts, against Water's three tiers): each side a third, the base first, then the
+        /// left, then the right - a combo strike spends a side. <paramref name="parts"/> below zero
+        /// draws the plain mark.</summary>
+        void DrawSigil(ElementType e, Color32 col, float parts = -1f, Ramp ramp = default)
         {
             float s = e == ElementType.Fire || e == ElementType.Air ? 1f : -1f;
             var a = new Vector2(0f, 16f * s);
@@ -485,7 +488,19 @@ namespace Convergence.UI
                                Mathf.Min(EdgeDistance(b, c, p, wind), EdgeDistance(c, a, p, wind)));
                 if (inside < 0f) continue;
                 bool onBar = !float.IsNaN(bar) && Mathf.Abs(p.y - bar) < 0.9f;
-                if (inside < SigilStroke || onBar) PutSeal(Mathf.FloorToInt(Centre) + x, Mathf.FloorToInt(Centre) + y, col);
+                if (!(inside < SigilStroke || onBar)) continue;
+                var ink = col;
+                if (parts >= 0f)
+                {
+                    // Which side the texel belongs to: the nearest edge. 0 the base, 1 left, 2 right.
+                    float dBase = EdgeDistance(b, c, p, wind), dLeft = EdgeDistance(c, a, p, wind), dRight = EdgeDistance(a, b, p, wind);
+                    int side = dBase <= dLeft && dBase <= dRight ? 0 : dLeft <= dRight ? 1 : 2;
+                    float f = Mathf.Clamp01(parts * 3f - side);
+                    // Along the side, from its start: the base left to right, the left side up, the right side down.
+                    float along = side == 0 ? Mathf.InverseLerp(c.x, b.x, p.x) : side == 1 ? Mathf.InverseLerp(c.y, a.y, p.y) : Mathf.InverseLerp(a.y, b.y, p.y);
+                    ink = f >= 1f ? (parts >= 0.999f ? ramp.Hi : ramp.Lt) : along < f ? ramp.Md : ramp.Sh;
+                }
+                PutSeal(Mathf.FloorToInt(Centre) + x, Mathf.FloorToInt(Centre) + y, ink);
             }
         }
 

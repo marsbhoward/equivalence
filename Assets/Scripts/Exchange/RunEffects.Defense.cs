@@ -119,6 +119,7 @@ namespace Convergence.Exchange
                 if (AtMax("thickened_hide") && mine < T.FortitudeBelow) f *= T.FortitudeMul;
                 f *= TemperedNow;   // Adamant
                 if (Has("retrograde_motion") && Has("retrograde") && InputsInverted) f *= T.RetrogradeMotionTakenMul;
+                f *= LockedBlowMul;   // Bulwark Art, Heavy Hand's Albedo - inside the floor
                 return f;
             }
         }
@@ -170,7 +171,7 @@ namespace Convergence.Exchange
                     if (_pc != null)
                     {
                         Player.RigRim.Flare(_pc.transform);
-                        if (AtMax("aegis_cycle")) Burst(_pc.transform.position, T.TinWardRadius, T.TinWardHitUnits);
+                        if (AtMax("aegis_cycle")) Burst(_pc.transform.position, T.TinWardRadius, T.TinWardHitUnits, "aegis_cycle");
                     }
                     return 0f;
                 }
@@ -223,13 +224,14 @@ namespace Convergence.Exchange
                 float left = st != null && st.Burning ? st.ConsumeBurn() : 0f;
                 if (left > 0f)
                 {
-                    attacker.Take(new DamageInfo(left * T.BackdraftShare, ElementType.Fire, _pc.gameObject));
+                    attacker.Take(new DamageInfo(left * T.BackdraftShare, ElementType.Fire, _pc.gameObject) { Entry = "backdraft" });
                     LedgerFx.StatusBurst(attacker, TexelFx.Fire);
                 }
             }
             if (Has("tidewater") && !attacker.IsDead)
                 _pc.Soak(attacker, T.TidewaterSeconds, T.TidewaterVulnerability);
             AlbedosOnStruckBy(attacker);   // Mountain, Lucid
+            OverhaulStruckBy(info, attacker);   // the Bulwark's forms and Concords, Bedrock Floor
         }
 
         /// <summary>SATURATE: soaking an enemy already soaked staggers it (PlayerController.Soak asks).</summary>
@@ -291,7 +293,7 @@ namespace Convergence.Exchange
             if (Has("pelican") && amount > 0f && _pc != null)
             {
                 var near = NearestEnemy(_pc.transform.position, T.PelicanReach, null);
-                if (near != null) near.Take(new DamageInfo(amount * _mods.Potency("pelican"), ElementType.Water, _pc.gameObject));
+                if (near != null) near.Take(new DamageInfo(amount * _mods.Potency("pelican"), ElementType.Water, _pc.gameObject) { Entry = "pelican" });
             }
             return amount;
         }
@@ -317,12 +319,12 @@ namespace Convergence.Exchange
 
         /// <summary>Tin Ward: every live enemy within <paramref name="radius"/> struck for
         /// <paramref name="hitUnits"/> of the player's own hits.</summary>
-        void Burst(Vector2 from, float radius, float hitUnits)
+        void Burst(Vector2 from, float radius, float hitUnits, string entry)
         {
             if (_pc == null) return;
             float dmg = hitUnits * _pc.HitUnit;
             foreach (var hp in EnemiesWithin(from, radius))
-                hp.Take(new DamageInfo(dmg, Element, _pc.gameObject));
+                hp.Take(new DamageInfo(dmg, Element, _pc.gameObject) { Entry = entry });
             LedgerFx.Force(from, LedgerFx.Ward, radius);
         }
 

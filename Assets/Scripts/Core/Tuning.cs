@@ -21,7 +21,7 @@ namespace Convergence.Core
     ///  - One-shot finisher shapes (leap rise/fall/height, charge trembles) stay local to the
     ///    coroutine that plays them.
     /// </summary>
-    public static class Tuning
+    public static partial class Tuning
     {
         /// <summary>
         /// Test harness. OFF for anything resembling a real playtest - these deliberately break
@@ -767,6 +767,11 @@ namespace Convergence.Core
             /// (FloorPlanner.PickPuzzle). Other floors may draw a puzzle too.</summary>
             public const int PuzzleFloor = 3;
 
+            /// <summary>The floor whose deal is the BRAND DEAL (the user's call, 2026-11-04): the showcase ends
+            /// at its first mini-boss, so the Concords against a brand come the floor before it and are
+            /// carried into the boss. It replaces that floor's ordinary deal - still nine deals.</summary>
+            public const int BrandDealFloor = 9;
+
             /// <summary>Seconds between the Forge's sparks while a new character's weapon waits there.</summary>
             public const float ForgeBeckonSeconds = 2.5f;
 
@@ -812,6 +817,98 @@ namespace Convergence.Core
         /// <summary>
         /// The mastery board's economy. See Progression/MasteryBoard for the board itself.
         /// </summary>
+        /// <summary>THE RELEASE ARSENAL (2026-11-05, RELEASES.md): what each kind costs, how a hold
+        /// is told from a tap, and what opens a kind on the mastery board.</summary>
+        public static class Releases
+        {
+            /// <summary>Points spent on a kind's path that open it, at no cost of its own (the user's
+            /// call: around level 5, so a new character has time with Blast first).</summary>
+            public const int UnlockPathPoints = 5;
+
+            /// <summary>Seconds the release button is held before it fires the HOLD release; let go
+            /// sooner and it fires the TAP one. With nothing on hold a press fires at once.</summary>
+            public const float HoldSeconds = 0.3f;
+
+            /// <summary>A combo strike spends a third; a mobility move a half; the rest a full meter.</summary>
+            public const float ComboStrikeCost = 1f / 3f, MobilityCost = 0.5f;
+
+            /// <summary>Seconds after a combo strike in which the next one chains.</summary>
+            public const float ComboChainSeconds = 2f;
+
+            /// <summary>Charges a Guard release gives, each spent by a use of the defensive ability.</summary>
+            public const int GuardCharges = 3;
+
+            // ---- GUARD: each defensive use spends a charge and throws the element round the body.
+            // Radial, so it fits every defensive ability; it adds, never moves a window or a cooldown.
+
+            /// <summary>Radius of a guard's effect round the body (Area grows it).</summary>
+            public const float GuardRadius = 1.8f;
+            /// <summary>Ember Guard: the burst in hit units, and the attackers' burn as hit units a second.</summary>
+            public const float EmberGuardHitUnits = 1.2f, EmberGuardBurnHitUnits = 0.5f, EmberGuardBurnSeconds = 3f;
+            /// <summary>Mist Veil: the soak on attackers, and the heal as a share of max health (lifesteal's limit).</summary>
+            public const float MistVeilSoakSeconds = 3f, MistVeilHeal = 0.04f;
+            /// <summary>Stone Thorns: the spikes' hit and stagger, round wherever the defensive ends.</summary>
+            public const float StoneThornsHitUnits = 0.8f, StoneThornsStagger = 0.8f, StoneThornsRadius = 1.4f;
+            /// <summary>Windbreak: how far the gust shoves every attacker.</summary>
+            public const float WindbreakPush = 2.6f, WindbreakRadius = 2.4f;
+
+            // ---- MOBILITY: one move for half a meter. No immunity, and nothing that looks like it.
+
+            /// <summary>Comet: the leap's length and time, and the landing's burst.</summary>
+            public const float CometDistance = 3.6f, CometSeconds = 0.32f, CometRadius = 1.6f, CometHitUnits = 1.5f,
+                               CometKnockback = 5f, CometBurnHitUnits = 0.4f, CometBurnSeconds = 3f;
+            /// <summary>Wavecrest: the ride's length and time; the soak and sideways shove on what it passes;
+            /// how long the line stays wet.</summary>
+            public const float WavecrestDistance = 4.4f, WavecrestSeconds = 0.4f, WavecrestHalfWidth = 0.8f,
+                               WavecrestPush = 1.4f, WavecrestSoakSeconds = 3f, WavecrestWetSeconds = 3f;
+            /// <summary>Mudslide: the slide away, and the wall it sets behind you (width, life).</summary>
+            public const float MudslideDistance = 3.2f, MudslideSeconds = 0.36f, MudWallHalfWidth = 1.1f,
+                               MudWallSeconds = 4f, MudWallGap = 0.7f;
+            /// <summary>Zephyr: three blinks, each this far and this quick, this far apart, each landing's gust.</summary>
+            public const int ZephyrBlinks = 3;
+            public const float ZephyrDistance = 1.5f, ZephyrSeconds = 0.06f, ZephyrBetween = 0.16f,
+                               ZephyrPush = 1.2f, ZephyrRadius = 1.3f;
+
+            // ---- COMBO: three strikes, a third of the meter each, on the quarry in hit units; the
+            // third is the payoff. Set 2026-11-05 so a full chain out-damages its element's Blast on
+            // one target by RoleMargin (Assay.Arsenal: ~4 s of a fresh character's damage).
+            public const float Strike1HitUnits = 3.25f, Strike2HitUnits = 3.75f, Strike3HitUnits = 6.25f;
+            /// <summary>Each element's strikes against the shared numbers: a hit unit is worth more
+            /// seconds to a slow heavy chain than to Air's quick light one (Assay.Arsenal), and Water's
+            /// strikes soak, which is half their worth.</summary>
+            public static float ComboScale(ElementType e) => e switch
+            {
+                ElementType.Water => 0.7f,
+                ElementType.Air => 1.75f,
+                _ => 1f,
+            };
+            /// <summary>How far a strike reaches for its target, and the reach of its shapes.</summary>
+            public const float ComboReach = 5f, ComboRadius = 1.5f;
+            /// <summary>With a bow, a Blast lands round a point BowBlastShort short of the nearest enemy within
+            /// BowBlastReach - where a blade would stand - instead of round the player: a bow never closes in
+            /// for its crowd release, and catches what a blade's would (RELEASES.md "The bow at range").</summary>
+            public const float BowBlastReach = 6f, BowBlastShort = 1.4f;
+            /// <summary>How far a bow's fans, lines and whips run - past its standoff (an enemy ~4.5 off),
+            /// where a blade's stop at the blade's reach.</summary>
+            public const float BowStrikeReach = 5.5f;
+            /// <summary>A strike lands whole on its quarry (the nearest body when it starts); everything
+            /// else its shape catches takes this share - the combo is the single-target kind, the
+            /// Blast the crowd's (RELEASES.md "Single target and the crowd").</summary>
+            public const float ComboSpillShare = 0.4f;
+            /// <summary>The statuses a strike leaves: burn as hit units a second, soak, stagger.</summary>
+            public const float ComboBurnHitUnits = 1f, ComboBurnSeconds = 2.5f, ComboSoakSeconds = 3f,
+                               ComboStagger = 0.6f;
+
+            // ---- MOTIONS: every release is swung (ReleaseArsenal.MotionFor, PlayerController.PlayReleaseMotion).
+            /// <summary>The swing window a full-meter release and a combo strike play over; a payoff and
+            /// a move's longer. The rig draws a swing over SwingFillFraction of it.</summary>
+            public const float MotionWindow = 0.5f, MotionWindowHeavy = 0.65f, MotionWindowQuick = 0.4f;
+
+            // ---- TREMOR STANCE (Earth's Buff): every swing sends a crack along the floor.
+            public const float TremorSeconds = 8f, TremorCrackLength = 3.2f, TremorCrackHalfWidth = 0.55f,
+                               TremorCrackHitUnits = 1.5f, TremorCrackSeconds = 0.25f;
+        }
+
         public static class Mastery
         {
             /// <summary>
@@ -1169,7 +1266,7 @@ namespace Convergence.Core
             public const float HeavyHandLock = 0.50f, DulledScriptDamage = 0.30f;
 
             /// <summary>THE PROC WEIGHT: a thrown disc's share of a swing's chance for an on-hit
-            /// status - discs land three to five times as often (WeaponClasses.HitMeterScale's reason).</summary>
+            /// status - discs land three to five times as often.</summary>
             public const float ProcDisc = 0.35f;
             /// <summary>TINDER (Choler): a basic's chance to set what it strikes burning.</summary>
             public const float TinderChance = 0.25f, TinderBurnShare = 0.7f, TinderSeconds = 3f;
@@ -1533,7 +1630,7 @@ namespace Convergence.Core
             public const float OssuaryCorpseSeconds = 8f;
             public const float OssuaryBurstRadius = 1.4f;
             public const float OssuaryBurstHitUnits = 3f;
-            public const float BecalmedCritPerHit = 0.01f;
+            public const float BecalmedAccuracyPerHit = 3f;
             /// <summary>GALE (transformed 2026-10-21, the user's pick): a streak of at least MinStreak lost
             /// to a whiff gusts out, throwing back every enemy within the radius. It doubled the crit
             /// floor's climb.</summary>
@@ -4226,17 +4323,43 @@ namespace Convergence.Core
             public const float RippleSeconds = 0.3f, RippleFrontTexels = 2.5f;
             public const float RippleDryFrom = 1.2f, RippleDrySeconds = 1.2f, SplashSeconds = 0.45f;
 
+            /// <summary>SOAK BY WEAPON CLASS (2026-11-05, the user's picks; the ripple stays for no class).
+            /// WELLSPRING, the greatsword: SpringChannels channels of water crack out to the radius over
+            /// SpringSeconds and spout up to SpringSpoutTexels where they end, a fountain at the hilt.</summary>
+            public const int SpringChannels = 8, SpringSpoutTexels = 10, SpringFountainTexels = 7;
+            public const float SpringSeconds = 0.3f, SpringSpoutSeconds = 0.3f, SpringFountainSeconds = 0.55f;
+
+            /// <summary>WHIRLPOOL, discs: two arms of water spiral out to the radius over WhirlSeconds,
+            /// turning WhirlTurns times, a disc's glint at each head; the wake fades over WhirlFadeSeconds.</summary>
+            public const float WhirlSeconds = 0.4f, WhirlTurns = 1.2f, WhirlFadeSeconds = 0.3f;
+
+            /// <summary>TIDE VOLLEY, the bow: VolleyArrows arrows fly out to the radius over VolleySeconds,
+            /// each trailing VolleyTrailTexels of water, and burst at the edge.</summary>
+            public const int VolleyArrows = 8, VolleyTrailTexels = 18;
+            public const float VolleySeconds = 0.25f;
+
             /// <summary>SURGE: two ribbons round the body for the whole window - their half-width,
             /// their heights as shares of the body's, radians a second at no attack speed bonus
             /// (faster by the surge's own), and texels in each ribbon.</summary>
-            public const float UndertowRadius = 0.42f, UndertowLow = 0.28f, UndertowHigh = 0.52f;
+            public const float UndertowRadius = 0.6f, UndertowLow = 0.28f, UndertowHigh = 0.52f;
             public const float UndertowSpin = 5f, UndertowInSeconds = 0.2f;
-            public const int UndertowTexels = 22;
+            public const int UndertowTexels = 34;
+
+            /// <summary>THE UNDERTOW REDRAWN (2026-11-05): a swing throws a splash UndertowSplashTexels out off the
+            /// ribbons over UndertowSplashSeconds; moving faster than UndertowWakeMinStep units a second
+            /// leaves a ripple at the feet every UndertowWakeEvery seconds.</summary>
+            public const int UndertowSplashTexels = 9;
+            public const float UndertowSplashSeconds = 0.3f, UndertowWakeMinStep = 0.8f, UndertowWakeEvery = 0.12f;
 
             /// <summary>BURST: the sigil (this share of the radius) flashes white, then its four
             /// rings spread from its compass points to the radius.</summary>
             public const float BurstSigilShare = 0.47f, BurstFlashSeconds = 0.15f;
-            public const float BurstRingsFrom = 0.1f, BurstRingsSeconds = 0.45f, BurstFadeSeconds = 0.25f;
+            public const float BurstRingsFrom = 0.2f, BurstRingsSeconds = 0.4f, BurstFadeSeconds = 0.25f;
+
+            /// <summary>FOUR SPRINGS (2026-11-05, the user's pick): before its rings spread, a pillar of
+            /// water rises at each of the sigil's compass points to SpringsPillarTexels and falls back,
+            /// over BurstRingsFrom.</summary>
+            public const int SpringsPillarTexels = 26, SpringsPillarHalfWidth = 4;
 
             /// <summary>QUAKE: the sigil cracked into the floor (this share of the radius), cracks
             /// run out over GrowSeconds, each shock's light runs down them over PulseSeconds;
@@ -7728,11 +7851,31 @@ namespace Convergence.Core
         /// after any change to gear, the board or the curves, and copy what it finds back here.
         public static class Elements
         {
-            /// <summary>Fire: heat stacks, one banked per swing that lands, each fading on its own.</summary>
+            /// <summary>
+            /// THE METER A LANDED SWING FILLS (2026-11-05, the user's call): the same for Fire and
+            /// Water - a share of a full meter, once per swing or throw however many bodies it
+            /// catches, ranged hits included. Each then has its own bonus and its own way to lose it:
+            /// Water doubles on soaked and a miss costs it; Fire also fills on a hit taken or parried
+            /// and drains whenever nothing is filling it.
+            /// </summary>
+            public const float MeterPerSwing = 0.09f;
+
+            /// <summary>Fire: heat, filled by fighting - hits landed, taken and parried - and drained
+            /// whenever nothing fills it. Shown and read as five whole stacks.</summary>
             public static class Fire
             {
                 public const int MaxStacks = 5;
-                public const float StackLifetime = 4f;
+
+                /// <summary>A hit taken or parried fills what a landed swing does, at most once in
+                /// this many seconds, so a swarm cannot fill it in a moment.</summary>
+                public const float HitTakenEvery = 0.5f;
+
+                /// <summary>Seconds with nothing filling heat before it drains - only the gap between
+                /// swings; kiting drains it.</summary>
+                public const float DrainAfter = 1.5f;
+
+                /// <summary>Stacks of heat drained a second once it drains.</summary>
+                public const float DrainStacksPerSecond = 1f;
 
                 /// <summary>Damage points per stack held - the ladder's steady head start.</summary>
                 public const float StackDamagePoints = 5f;
@@ -7744,8 +7887,8 @@ namespace Convergence.Core
                 /// <summary>Rung 2: attack speed points while at least two stacks are held.</summary>
                 public const float HastePoints = 15f;
 
-                /// <summary>Rung 3, STOKE: stacks fade this much slower while three or more are held.</summary>
-                public const float StokeLifetimeMul = 2f;
+                /// <summary>Rung 3, STOKE: heat drains this many times slower while three or more stacks are held.</summary>
+                public const float StokeDrainDiv = 2f;
 
                 /// <summary>Rung 4: a landed hit splashes this share of itself onto one more nearby enemy.</summary>
                 public const float SplashFraction = 0.25f;
@@ -7756,13 +7899,13 @@ namespace Convergence.Core
                 public const float EruptSpread = 5.5f;
                 public const float PoolRadius = 1.15f;
                 public const float PoolSeconds = 5f;
-                public const float PoolHitUnitsPerSecond = 6.7f;
+                public const float PoolHitUnitsPerSecond = 6f;
 
                 // ---- IGNITE, the second release: a window in which every landed hit burns ----
                 public const float IgniteSeconds = 8f;
                 /// <summary>Each hit inside the window burns for this share of itself per second,
                 /// merged by MAX with the burn already on the target (StatusEffects.ApplyBurn).</summary>
-                public const float IgniteBurnFraction = 0.35f;
+                public const float IgniteBurnFraction = 0.24f;
                 /// <summary>How long a burn lit inside the window keeps burning after its last refresh.</summary>
                 public const float IgniteBurnSeconds = 2f;
             }
@@ -7772,23 +7915,27 @@ namespace Convergence.Core
             {
                 /// <summary>A standing head start - everything else Water has is its release.</summary>
                 public const float DamagePoints = 15f;
-                public const float GainPerHit = 0.09f;
-                public const float DecayPerSecond = 0.02f;
+                public const float GainPerHit = MeterPerSwing;
                 public const float SoakedGainMultiplier = 2f;
-                public const float Radius = 3.6f;
+                /// <summary>A miss (a swing that meets nothing, an arrow that strikes nothing) costs a
+                /// quarter of a tier, at most once in MissEvery seconds - a volley is one miss.</summary>
+                public const float MissCost = 1f / 12f;
+                public const float MissEvery = 0.4f;
+                public const float Radius = 4.4f;
 
                 /// <summary>Attack speed points while a surge runs.</summary>
-                public const float SurgePoints = 30f;
+                public const float SurgePoints = 45f;
                 public const float SurgeSecondsTier2 = 6f;
                 public const float SurgeSecondsTier3 = 9f;
 
                 public const float SoakSeconds = 4f;
                 public const float SoakVulnerability = 1.35f;
 
-                /// <summary>The tier-3 burst, SHARED between everything it catches (see
-                /// BurstSplitFalloff) - one target takes it whole.</summary>
-                public const float BurstHitUnits = 4f;
-                public const float BurstSplitFalloff = 0.8f;
+                /// <summary>The tier-3 burst on everything it catches. Burst is the crowd's kind
+                /// (RELEASES.md "Single target and the crowd"), so since 2026-11-05 nothing is shared:
+                /// BurstSplitFalloff 0 hands every body the whole of it (it was a pool split n^0.8).</summary>
+                public const float BurstHitUnits = 7f;
+                public const float BurstSplitFalloff = 0f;
                 public const float BurstKnockback = 6f;
             }
 
@@ -7803,16 +7950,16 @@ namespace Convergence.Core
                 public const float ChargeSeconds = 5f;
                 public const float MovingDecaySeconds = 2f;
                 public const float AftershockPerSeconds = 1.5f;
-                public const float Radius = 4.2f;
+                public const float Radius = 4.8f;
 
                 /// <summary>One shock: this plus PerCharge times the charge spent, in hit units.</summary>
-                public const float ShockHitUnits = 1.9f;
-                public const float ShockHitUnitsPerCharge = 3.3f;
+                public const float ShockHitUnits = 1.5f;
+                public const float ShockHitUnitsPerCharge = 2.65f;
                 public const float ShockKnockback = 7f;
                 public const float StaggerSeconds = 2.5f;
             }
 
-            /// <summary>Air: momentum built by moving, crits by an unbroken streak.</summary>
+            /// <summary>Air: momentum built by moving, Accuracy by an unbroken streak.</summary>
             public static class Air
             {
                 public const float DamagePoints = -45f;
@@ -7824,7 +7971,10 @@ namespace Convergence.Core
                 public const float CritDamagePoints = 12.5f;
 
                 public const float BaseCrit = 0.15f;
-                public const float CritPerStreak = 0.04f;
+                /// <summary>Accuracy points a hit in the streak adds (2026-11-05, the user's call - it
+                /// was 4% crit): at the cap, every hit lands at the top of its damage range. A miss
+                /// resets the streak and costs no momentum.</summary>
+                public const float AccuracyPerStreak = 12.5f;
                 public const int StreakCap = 8;
 
                 public const float MomentumPerSecond = 0.20f;
@@ -7839,15 +7989,15 @@ namespace Convergence.Core
                 public const float GustLifesteal = 0.15f;
                 /// <summary>Damage points while the gust runs - its damage payoff, scaled by
                 /// Elemental Power like every release's.</summary>
-                public const float GustDamagePoints = 45f;
+                public const float GustDamagePoints = 35f;
 
                 // ---- SQUALL, the second release: vortices scattered around the player ----
                 public const int VortexCount = 5;
                 public const float VortexSpread = 4.5f;
                 public const float VortexRadius = 1.3f;
                 public const float VortexPullForce = 4f;
-                public const float VortexNearHitUnitsPerSecond = 4.6f;
-                public const float VortexFarHitUnitsPerSecond = 0.9f;
+                public const float VortexNearHitUnitsPerSecond = 15.5f;
+                public const float VortexFarHitUnitsPerSecond = 3f;
                 public const float VortexSeconds = 3.2f;
             }
         }

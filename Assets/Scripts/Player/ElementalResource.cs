@@ -33,6 +33,8 @@ namespace Convergence.Player
         public virtual float AttackSpeedPoints => 0f;
         public virtual float MoveSpeedPoints => 0f;
         public virtual float CritDamagePoints => 0f;
+        /// <summary>Accuracy points added to the stat block's, after its curve (Air's streak).</summary>
+        public virtual float AccuracyPoints => 0f;
 
         /// <summary>The character's Elemental Power as a multiplier, supplied by the game (1 when
         /// unset) - what <see cref="Grown"/> scales a standing bonus by.</summary>
@@ -66,15 +68,135 @@ namespace Convergence.Player
         /// <summary>Area on a release's own radii, with Concentrate's reach.</summary>
         protected float ReleaseAreaScale => AreaScale * Mathf.Max(1f, ReleaseRadiusMul);
 
+        /// <summary>
+        /// WHERE A BLAST LANDS (RELEASES.md "The bow at range"): round the player - and with a bow,
+        /// round a point a step short of the nearest enemy within <see cref="Tuning.Releases.BowBlastReach"/>,
+        /// where a blade would stand, so a bow never closes in for its crowd release and catches what a
+        /// blade's would. Read once at the press; <paramref name="feet"/> is where its picture is drawn
+        /// (on the floor, as a body's shadow is).
+        /// </summary>
+        protected Vector2 BlastCentre(out Vector2 feet)
+        {
+            if (Player != null && Player.Weapon == Art.Gear.WeaponClass.Bow)
+            {
+                Vector2 me = transform.position;
+                Health best = null;
+                float bd = float.MaxValue;
+                foreach (var col in Physics2D.OverlapCircleAll(me, Tuning.Releases.BowBlastReach))
+                {
+                    if (col == null || col.gameObject == gameObject) continue;
+                    var hp = col.GetComponent<Health>();
+                    if (hp == null || hp.IsDead || hp.GetComponent<PlayerController>() != null) continue;
+                    float d = ((Vector2)hp.transform.position - me).sqrMagnitude;
+                    if (d < bd) { bd = d; best = hp; }
+                }
+                if (best != null)
+                {
+                    Vector2 at = Vector2.MoveTowards(best.transform.position, me, Tuning.Releases.BowBlastShort);
+                    if ((at - me).sqrMagnitude > 1e-4f)
+                    {
+                        // Drawn on the floor as the player's own blast is: the shadow's offset from the body.
+                        feet = at + (ReleaseCanvas.Feet(transform) - me);
+                        return at;
+                    }
+                }
+            }
+            feet = ReleaseCanvas.Feet(transform);
+            return transform.position;
+        }
+
         // ---- event hooks ----
         public virtual void OnAttackStarted() { }
         public virtual void OnHitLanded(Health target, DamageInfo info) { }
         public virtual void OnAttackMissed() { }
+        /// <summary>A parry landed - the window met a hit, or a ward turned one.</summary>
+        public virtual void OnParried() { }
         public virtual void OnMoved(bool moving) { }
 
         /// <summary>True when the ability key would actually do something.</summary>
         public virtual bool CanRelease => false;
         public virtual void Release() { }
+
+        // ---- THE RELEASE ARSENAL (2026-11-05, RELEASES.md) ----
+
+        /// <summary>The run's two releases: a TAP of the button fires <see cref="TapKind"/>, a HOLD
+        /// fires <see cref="HoldKind"/> when <see cref="HasHold"/>. Set in BuildPlayer from the board
+        /// (BoardState.TapRelease/HoldRelease) and kept with the run (RunSnapshot).</summary>
+        public ReleaseKind TapKind = ReleaseKind.Blast, HoldKind = ReleaseKind.Blast;
+        public bool HasHold;
+
+        /// <summary>The run's Guard, Mobility and Combo (Player.ReleaseArsenal), attached on first use.</summary>
+        public ReleaseArsenal Arsenal
+        {
+            get
+            {
+                if (_arsenal == null) _arsenal = GetComponent<ReleaseArsenal>();
+                if (_arsenal == null) _arsenal = gameObject.AddComponent<ReleaseArsenal>();
+                return _arsenal;
+            }
+        }
+        ReleaseArsenal _arsenal;
+
+        /// <summary>The kind fired last - what a repeat (Twin Spark, Wellspring) fires again.</summary>
+        public ReleaseKind LastKind { get; private set; } = ReleaseKind.Blast;
+
+        /// <summary>Whether a kind would fire now. Blast and Buff are the element's own two releases
+        /// (<see cref="CanFireOwn"/>); Guard, Mobility and Combo are the arsenal's, on the shared meter
+        /// (<see cref="Fill01"/>).</summary>
+        public bool CanFire(ReleaseKind kind)
+        {
+            if (!ReleaseInfo.Built(Element, kind)) return false;
+            return kind switch
+            {
+                ReleaseKind.Blast or ReleaseKind.Buff => CanFireOwn(kind),
+                _ => Arsenal.CanFire(this, kind),
+            };
+        }
+
+        /// <summary>Blast and Buff: the element's own releases, from a full meter by default
+        /// (<see cref="CanRelease"/>).</summary>
+        protected virtual bool CanFireOwn(ReleaseKind kind) => CanRelease;
+
+        /// <summary>Fire a kind. Blast and Buff set the flag the element's Release branches on, then
+        /// release - so everything that already wraps a release (repeats, the ledger, principles) still
+        /// applies; the rest go to the arsenal.</summary>
+        public void Fire(ReleaseKind kind)
+        {
+            if (!CanFire(kind)) return;
+            LastKind = kind;
+            if (kind == ReleaseKind.Blast || kind == ReleaseKind.Buff) FireOwn(kind);
+            else Arsenal.Fire(this, kind);
+        }
+
+        /// <summary>Which of the element's two built releases a kind is: true for the one that was its
+        /// SECOND ability (Fire's Ignite is its Buff, Air's Squall its Blast).</summary>
+        protected virtual bool SecondFor(ReleaseKind kind) => false;
+
+        protected virtual void FireOwn(ReleaseKind kind)
+        {
+            UseSecondAbility = SecondFor(kind);
+            Release();
+        }
+
+        /// <summary>
+        /// The last release once more, spending nothing (Twin Spark, Wellspring): the element's own
+        /// <see cref="ReleaseAgain"/> for a Blast or a Buff, another charge for a Guard. Only full-meter
+        /// kinds reach the ledger (ReleaseInfo.FullMeter), so a combo or a move is never repeated.
+        /// </summary>
+        public void Repeat()
+        {
+            if (LastKind == ReleaseKind.Guard) Arsenal.RepeatGuard();
+            else if (LastKind == ReleaseKind.Blast || LastKind == ReleaseKind.Buff) ReleaseAgain();
+        }
+
+        /// <summary>
+        /// Spend a share of the meter on a Guard, a move or a combo strike. Its own resource each - the
+        /// default takes it as a spill; Fire overrides it so a spend is never a loss to Phlogiston.
+        /// </summary>
+        public virtual void Spend(float share01) => Spill(share01);
+
+        /// <summary>Either of the run's releases would fire now - what the seal and the touch button light.</summary>
+        public bool CanFireAny => CanFire(TapKind) || (HasHold && CanFire(HoldKind));
 
         /// <summary>
         /// Whether <see cref="Release"/> fires this element's SECOND ability instead of its first.
@@ -100,21 +222,16 @@ namespace Convergence.Player
         /// </summary>
         public System.Func<float> ReleaseScale;
         protected float Scale => ReleaseScale?.Invoke() ?? 1f;
+        /// <summary><see cref="Scale"/> for the arsenal's own releases.</summary>
+        public float ReleaseScaleNow => Scale;
 
         /// <summary>
         /// Supplied by the game: mastery's per-element growth node composed with gear's
         /// ElementGrowth, as one multiplier on whatever field actually represents "building
         /// faster" for THIS element's own shape of resource.
         ///
-        /// For water/earth/air that is a literal rate - GainPerHit, the charge-per-second implied
-        /// by ChargeSeconds, MomentumPerSecond. Fire has no such rate to speed up: its heat is a
-        /// deliberately discrete stack gained once per landed swing, and multi-stacking a single
-        /// swing would cheapen the "sustained aggression, one stack per hit" identity that rule
-        /// protects. Fire instead consumes this as a multiplier on StackLifetime (via
-        /// FireStackLife, its own already-designed mastery node) - a stack that survives longer
-        /// is functionally "growing faster" in the only sense that makes sense for something
-        /// gained in fixed, discrete steps: it climbs to and holds five stacks more easily,
-        /// exactly what a faster rate buys everyone else.
+        /// A literal rate for every element: Fire's and Water's meter per swing, the
+        /// charge-per-second implied by Earth's ChargeSeconds, Air's MomentumPerSecond.
         /// </summary>
         public float GainRateMultiplier = 1f;
 
@@ -183,17 +300,18 @@ namespace Convergence.Player
 
         // ---- the seal (UI.ElementSeal) ----
 
-        /// <summary>What a press fires right now, named above the seal. The chosen ability by
-        /// default; an element whose release changes with its meter names it (Water's tiers,
-        /// Earth's aftershocks).</summary>
+        /// <summary>The run's releases, named above the seal: the tap's, then the hold's.</summary>
         public virtual string ReleaseName
-            => UseSecondAbility && ElementInfo.SecondAbilityName(Element) != null
-                ? ElementInfo.SecondAbilityName(Element)
-                : ElementInfo.AbilityName(Element);
+            => HasHold ? $"{ReleaseInfo.Name(Element, TapKind)} / {ReleaseInfo.Name(Element, HoldKind)}"
+                       : ReleaseInfo.Name(Element, TapKind);
 
         /// <summary>A few words of what the meter is doing - a rung reached, a buff's clock, a
         /// stance. Null for nothing to say.</summary>
         public virtual string SealTag => null;
+
+        /// <summary>What the seal shows: a Guard's charges or a combo's next strike outrank the
+        /// element's own tag while they last.</summary>
+        public string Tag => _arsenal != null && _arsenal.Tag(this) is { } t ? t : SealTag;
 
         /// <summary>Small pips along the top of the seal's rim, for a second count beside the
         /// meter (Earth's aftershocks, Air's streak). Zero draws none.</summary>

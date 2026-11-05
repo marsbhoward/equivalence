@@ -66,7 +66,7 @@ namespace Convergence.Core
             ["perfect"] = "A weapon art pressed in the timing bar's perfect zone.",
             ["crit"] = "A critical hit: it deals extra damage, set by Crit Damage. Crit Chance is how often one happens.",
             ["steep"] = "A bonus stored up over several hits and spent all at once by your next [[weapon art]].",
-            ["release"] = "Your element's ability (Erupt, Ignite, Surge, Quake, Gust or Squall), fired when the [[element meter]] is full.",
+            ["release"] = "An ability your [[element meter]] pays for: a Blast, Buff, Combo, Guard or Mobility move. Tap the button for one, hold it for the other.",
             ["element meter"] = "The ring around the element seal, bottom left. It fills as you fight, and a [[release]] spends it.",
             ["damage points"] = "Added to your Damage stat along with gear and the board. The more Damage you already have, the less each point adds.",
             ["attack speed points"] = "Added to your Attack Speed stat along with gear and the board. The more you already have, the less each point adds.",

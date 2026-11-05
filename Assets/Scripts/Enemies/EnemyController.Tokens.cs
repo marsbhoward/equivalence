@@ -28,14 +28,26 @@ namespace Convergence.Enemies
 
         bool HoldsToken => Time.time < _tokenUntil && _health != null && !_health.IsDead;
 
+        // HELD OFF (the exchange's Decoy, Afterimage and Disarm): no new attack turn until then.
+        [SerializeField] float _deniedUntil;
+
+        /// <summary>This body holds off its attacks for a moment - it takes no new turn. Its blow
+        /// already under way still lands (a telegraph once started is never cut short).</summary>
+        public void DenyTurns(float seconds)
+        {
+            _deniedUntil = Mathf.Max(_deniedUntil, Time.time + seconds);
+            if (HoldsToken && _telegraphTimer <= 0f) ReleaseToken(0f);
+        }
+
         int TokenCost => Elite ? Tuning.AttackTokens.EliteCost : 1;
 
         /// <summary>Whether this body may START a tell now - taking a turn from the ONE shared pool
         /// if so (Tuning.AttackTokens). Asked every frame a ready enemy waits; a refused one holds.</summary>
         bool TryTakeToken()
         {
-            if (!Tuning.AttackTokens.Enabled) return true;
             float now = Time.time;
+            if (now < _deniedUntil) return false;   // held off by a decoy or a disarm
+            if (!Tuning.AttackTokens.Enabled) return true;
             if (HoldsToken)
             {
                 _tokenUntil = now + Tuning.AttackTokens.MaxHoldSeconds;
@@ -43,7 +55,7 @@ namespace Convergence.Enemies
             }
 
             // A last start in the FUTURE is a stale static from before Time restarted - ignored.
-            if (_lastTellStart <= now && now - _lastTellStart < Tuning.AttackTokens.StaggerSeconds) return false;
+            if (_lastTellStart <= now && now - _lastTellStart < Tuning.AttackTokens.StaggerSeconds * Exchange.LedgerWorld.TurnGapMul) return false;
 
             int used = 0;
             var all = EnemyRegistry.All;
@@ -54,7 +66,7 @@ namespace Convergence.Enemies
                 used += e.TokenCost;
             }
             var table = Tuning.AttackTokens.Turns;
-            int max = table[Mathf.Clamp(_band, 0, table.Length - 1)];
+            int max = table[Mathf.Clamp(_band, 0, table.Length - 1)] + Exchange.LedgerWorld.ExtraTurns;   // Eager, a cost
             // The weapon art moves the turns a RUSHER finds: fewer while one is loaded, more just after.
             if (Rusher)
             {

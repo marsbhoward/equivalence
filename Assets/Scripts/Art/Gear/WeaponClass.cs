@@ -56,21 +56,6 @@ namespace Convergence.Art.Gear
         };
 
         /// <summary>
-        /// What one connecting hit is worth to a per-hit resource.
-        ///
-        /// Discs land three to five times as often as a greatsword - every bounce is a hit, at a
-        /// shorter interval - so an unscaled per-hit meter filled in under a second and water's
-        /// entire gamble evaporated. Scaled, a disc fills slower than a sword when played safe
-        /// and faster only when the player commits to a high-density finisher, which is the
-        /// trade worth having.
-        /// </summary>
-        public static float HitMeterScale(WeaponClass c) => c switch
-        {
-            WeaponClass.Disc => 0.18f,
-            _ => 1f,
-        };
-
-        /// <summary>
         /// What the class is FOR, in one line. Shown wherever a player is choosing between them.
         /// </summary>
         public static string Tagline(WeaponClass c) => c switch

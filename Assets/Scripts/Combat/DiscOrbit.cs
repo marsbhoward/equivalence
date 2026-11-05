@@ -184,12 +184,14 @@ namespace Convergence.Combat
             {
                 if (p == null || !p.Hostile) continue;
                 if (((Vector2)p.transform.position - c).sqrMagnitude > r * r) continue;
+                Exchange.RunEffects.Live?.OnWardStopped(p.transform.position);   // a ward art's forms
                 p.Cut();   // a puff for a bolt, a burst for a missile
             }
             foreach (var s in FindObjectsByType<Enemies.MortarShell>())
             {
                 if (s == null || !s.Hostile) continue;
                 if ((s.DrawnPosition - c).sqrMagnitude > r * r) continue;
+                Exchange.RunEffects.Live?.OnWardStopped(s.DrawnPosition);
                 SmokePuff.At(s.DrawnPosition);
                 Destroy(s.gameObject);
             }

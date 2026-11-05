@@ -276,7 +276,7 @@ namespace Convergence.Hazards
             if (_tick < Tuning.Hazards.FireTickInterval) return;
             _tick = 0f;
 
-            float dps = Tuning.Hazards.FireMaxDamagePerSecond * BurnFor(heat) * DamageScale;
+            float dps = Tuning.Hazards.FireMaxDamagePerSecond * BurnFor(heat) * DamageScale * FloorPits.PlayerBite;
             if (dps <= 0f) return;
             // Salamander: fire does not burn its own.
             if (FloorPits.PlayerImmune != null && FloorPits.PlayerImmune(PitKind.Fire)) return;

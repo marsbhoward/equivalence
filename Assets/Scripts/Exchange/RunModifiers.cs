@@ -39,6 +39,27 @@ namespace Convergence.Exchange
 
         public WeaponClass Weapon { get; private set; } = WeaponClass.Greatsword;
 
+        /// <summary>The chest's defensive ability - Guard entries are offered only to their own.</summary>
+        public DefensiveAbility Defence
+        {
+            get => DefenceSource != null ? DefenceSource() : _defence;
+            private set => _defence = value;
+        }
+        DefensiveAbility _defence = DefensiveAbility.Dash;
+
+        /// <summary>Where the run reads the chest's ability from (the player, live). Null in a simulation.</summary>
+        public System.Func<DefensiveAbility> DefenceSource;
+
+        /// <summary>The run's ledger - what the enemies' world costs read (LedgerWorld). Set by the run;
+        /// null in a balance simulation and in the hub.</summary>
+        public static RunModifiers Live;
+
+        /// <summary>The rotation as it stands: the art on each socket (Combat.Moveset), and how many
+        /// sockets. Set by the run; null in a balance simulation, which then never draws an entry
+        /// that needs an art (the ART ROLE forms and the weight trios).</summary>
+        public System.Func<int, Combat.Moveset> SocketArt;
+        public System.Func<int> SocketCount;
+
         /// <summary>The board's own change to the chain (Multiplication), so an entry that would
         /// change nothing - Short Chain on a one-basic chain - is never offered.</summary>
         public int BoardChainDelta { get; private set; }
@@ -51,10 +72,12 @@ namespace Convergence.Exchange
         }
 
         /// <summary>Who the run is: element, weapon class, the Vessel's size, the board's chain.</summary>
-        public void SetCharacter(ElementType? element, WeaponClass weapon, int masteryLevel, int boardChainDelta = 0)
+        public void SetCharacter(ElementType? element, WeaponClass weapon, int masteryLevel, int boardChainDelta = 0,
+                                 DefensiveAbility? defence = null)
         {
             Element = element;
             Weapon = weapon;
+            if (defence.HasValue) Defence = defence.Value;
             BoardChainDelta = boardChainDelta;
             MasteryLevel = masteryLevel;
             Recompute();
@@ -170,8 +193,24 @@ namespace Convergence.Exchange
         public void Inscribe(ExchangeEntry e, int socket)
         {
             if (e == null || (e.Slot == FormSlot.None && !e.SocketCost)) return;
+            int at = e.Slot == FormSlot.Art || (e.SocketCost && (e.Slot == FormSlot.None || e.Slot == FormSlot.Art)) ? socket : -1;
+            bool fresh = SocketOf(e.Id) == -2;
             _inscribed.RemoveAll(x => x.Id == e.Id);
-            _inscribed.Add((e.Id, e.Slot == FormSlot.Art || e.SocketCost ? socket : -1));
+            _inscribed.Add((e.Id, at));
+            // SOCKET CURSES (the overhaul): a new form joining a slot that carries a socket cost
+            // deepens it a stack - a heavily inscribed art becomes a cursed one, and a cursed socket
+            // can go to the circle like any Nigredo.
+            if (!fresh || e.SocketCost || e.IsConcord) return;
+            foreach (var x in _inscribed)
+            {
+                var sc = ExchangeCatalog.Get(x.Id);
+                if (sc == null || !sc.SocketCost || x.Socket != at || StacksOf(sc) <= 0 || AtCap(sc)) continue;
+                var paid = sc.Slot == FormSlot.None ? FormSlot.Art : sc.Slot;
+                if (paid != e.Slot) continue;
+                if (FormsIn(e.Slot, at).Count < 2) continue;
+                _stacks[sc.Id] = StacksOf(sc) + 1;
+            }
+            Recompute();
         }
 
         /// <summary>The socket an entry is inscribed on - -1 off the rotation, -2 not inscribed.</summary>
@@ -188,7 +227,9 @@ namespace Convergence.Exchange
             foreach (var x in _inscribed)
             {
                 var e = ExchangeCatalog.Get(x.Id);
-                if (e == null || e.SocketCost || e.Slot != slot || StacksOf(e) <= 0) continue;
+                // A CONCORD sits above its slot's sharing (the overhaul's rule 6): it neither weakens
+                // the forms beside it nor is weakened by them.
+                if (e == null || e.SocketCost || e.IsConcord || e.Slot != slot || StacksOf(e) <= 0) continue;
                 if (slot == FormSlot.Art && x.Socket != socket) continue;
                 list.Add(e);
             }
@@ -208,10 +249,85 @@ namespace Convergence.Exchange
         {
             var e = ExchangeCatalog.Get(id);
             if (e == null || e.Slot == FormSlot.None) return 1f;
+            float stacks = StackStrength(e);
+            if (e.IsConcord) return stacks;
             int socket = SocketOf(id);
-            if (socket == -2) return 1f;
-            return ShareFor(FormsIn(e.Slot, socket).Count);
+            if (socket == -2) return stacks;
+            // FORM STACKS (the overhaul): II grows the measure, III RUBEDO frees it from sharing.
+            float share = e.Stackable && AtCap(e) ? 1f : ShareFor(FormsIn(e.Slot, socket).Count);
+            return share * stacks;
         }
+
+        /// <summary>What a stackable form's stacks add to its measure - 1 at one stack.</summary>
+        public float StackStrength(ExchangeEntry e)
+        {
+            if (e == null || !e.Stackable || e.Slot == FormSlot.None) return 1f;
+            float step = e.IsConcord ? Tuning.Overhaul.ConcordStackStep : Tuning.Overhaul.FormStackStep;
+            return 1f + step * Mathf.Max(0, Mathf.Min(StacksOf(e), e.MaxStacks) - 1);
+        }
+
+        /// <summary>Whether this entry may be inscribed on this socket: an ART ROLE form only where the
+        /// socket's art has its role, a weight form only on its weight, a class form only on the arts
+        /// it names. Every other entry fits every socket.</summary>
+        public bool SocketFits(ExchangeEntry e, int socket)
+        {
+            if (e == null) return false;
+            if (e.RoleGate == ArtRole.None && e.WeightGate == null && e.ArtFits == null) return true;
+            var art = SocketArt?.Invoke(socket);
+            if (art == null || art.SignatureOnly) return false;
+            if (e.RoleGate != ArtRole.None && (ArtRoles.Of(art) & e.RoleGate) == 0) return false;
+            if (e.WeightGate != null && (art.Finisher == null || art.Finisher.Weight != e.WeightGate.Value)) return false;
+            if (e.ArtFits != null && !e.ArtFits(art.Id)) return false;
+            return true;
+        }
+
+        /// <summary>Whether ANY socket of the rotation takes it - an art-gated entry needs one.</summary>
+        public bool AnySocketFits(ExchangeEntry e)
+        {
+            if (e.RoleGate == ArtRole.None && e.WeightGate == null && e.ArtFits == null) return true;
+            int n = SocketCount?.Invoke() ?? 0;
+            for (int i = 0; i < n; i++) if (SocketFits(e, i)) return true;
+            return false;
+        }
+
+        /// <summary>
+        /// THE TRANSLATION (the user's call, 2026-11-04 - no dormant forms): the art on a socket changed.
+        /// Each ROLE form there becomes its FAMILY's form for a role the new art has (the first, in
+        /// role order), and each weight form its TRIO's form for the new weight - stacks, socket and
+        /// place in the ledger kept. A form with no counterpart (a Black Diamond signature took the
+        /// socket) stays, and fires for nothing until an art it fits returns.
+        /// </summary>
+        public List<(ExchangeEntry From, ExchangeEntry To)> TranslateSocket(int socket)
+        {
+            var moved = new List<(ExchangeEntry, ExchangeEntry)>();
+            var art = SocketArt?.Invoke(socket);
+            if (art == null) return moved;
+            foreach (var x in new List<(string Id, int Socket)>(_inscribed))
+            {
+                if (x.Socket != socket) continue;
+                var e = ExchangeCatalog.Get(x.Id);
+                if (e == null || e.RoleFamily == null || SocketFits(e, socket)) continue;
+                ExchangeEntry to = null;
+                foreach (var c in ExchangeCatalog.All)
+                {
+                    if (c.RoleFamily != e.RoleFamily || c == e || StacksOf(c) > 0 || !SocketFits(c, socket)) continue;
+                    if (to == null || (e.RoleGate != ArtRole.None && FirstRole(c.RoleGate) < FirstRole(to.RoleGate))) to = c;
+                }
+                if (to == null) continue;
+                int n = StacksOf(e);
+                int at = _order.IndexOf(e);
+                _stacks.Remove(e.Id);
+                _stacks[to.Id] = n;
+                if (at >= 0) _order[at] = to; else _order.Add(to);
+                int i = _inscribed.FindIndex(y => y.Id == e.Id);
+                if (i >= 0) _inscribed[i] = (to.Id, socket);
+                moved.Add((e, to));
+            }
+            if (moved.Count > 0) Recompute();
+            return moved;
+        }
+
+        static int FirstRole(ArtRole r) { int i = 0; foreach (var x in ArtRoles.Each(r)) return i + (int)x; return int.MaxValue; }
 
         /// <summary>Whether a socket cost of this id sits on this socket.</summary>
         public bool SocketHas(string costId, int socket) => StacksOf(costId) > 0 && SocketOf(costId) == socket;
@@ -443,6 +559,10 @@ namespace Convergence.Exchange
 
             _stacks[albedo.Id] = 1;
             _order.Add(albedo);
+            // A SOCKET CURSE's Albedo blesses the slot it sat on (the overhaul): inscribed where the cost was.
+            int sat = SocketOf(cost.Id);
+            _inscribed.RemoveAll(x => x.Id == cost.Id);
+            if (cost.SocketCost && sat != -2) _inscribed.Add((albedo.Id, sat));
             OpenCombinations();
             Recompute();
             return albedo;
@@ -475,7 +595,8 @@ namespace Convergence.Exchange
         public bool Offerable(ExchangeEntry e)
         {
             if (e == null || e.Retired || AtCap(e) || Resting(e) || _transmuted.Contains(e.Id) || _removed.Contains(e.Id)
-                || _fulfilled.Contains(e.Id) || (e.ShortOnly && !RunFormat.Short)) return false;
+                || _fulfilled.Contains(e.Id) || (e.ShortOnly && !RunFormat.Short)
+                || (e.NotInShowcase && RunFormat.Showcase)) return false;
             switch (e.Origin)
             {
                 case EntryOrigin.Albedo: return false;            // only a circle makes one
@@ -490,9 +611,93 @@ namespace Convergence.Exchange
             }
             if (e.Element != null && e.Element != Element) return false;
             if (!e.FitsClass(Weapon)) return false;
+            if (!e.FitsDefence(Defence)) return false;
+            // A Concord is offered only at the brand deal (the overhaul's call, 2026-11-04).
+            if (e.IsConcord && !ConcordDraw) return false;
+            if (!AnySocketFits(e)) return false;
+            // THE DEAD-TRIGGER GUARD: no cost that takes away a held boon's trigger, no boon whose
+            // trigger a held cost has taken.
+            if (e.Kind == ExchangeKind.Cost && (e.Blocks & HeldNeeds) != 0) return false;
+            if (e.Kind == ExchangeKind.Boon && (e.Needs & HeldBlocks) != 0) return false;
             if (DevExcluded != null && DevExcluded.Contains(e.Id)) return false;
             return !Useless(e);
         }
+
+        /// <summary>
+        /// How many held boons this entry CONNECTS to - the deal card's "FEEDS" hint and the draw's
+        /// pull: coat to coat, the same crowd intent, a humour's source to its payoff (and growth), a
+        /// defence's forms to its Concords, a role family's forms to each other.
+        /// </summary>
+        public int Connections(ExchangeEntry e)
+        {
+            if (e == null || e.Kind != ExchangeKind.Boon) return 0;
+            int n = 0;
+            foreach (var h in _order)
+            {
+                if (h == e || h.Kind != ExchangeKind.Boon || StacksOf(h) <= 0) continue;
+                if (e.Coated && h.Coated) { n++; continue; }
+                if (e.Intent != Intent.None && h.Intent == e.Intent) { n++; continue; }
+                if (e.Part != StatusPart.None && h.Part != StatusPart.None && h.Part != e.Part && h.School == e.School) { n++; continue; }
+                if (e.Defences != null && h.Defences != null && e.Defences[0] == h.Defences[0]) { n++; continue; }
+                if (e.RoleFamily != null && h.RoleFamily == e.RoleFamily) { n++; continue; }
+            }
+            return n;
+        }
+
+        /// <summary>The crowd intent the held boons lean to (None when level or empty).</summary>
+        public Intent HeldIntent
+        {
+            get
+            {
+                int g = 0, s = 0;
+                foreach (var h in _order) { if (h.Intent == Intent.Gather) g++; else if (h.Intent == Intent.Scatter) s++; }
+                return g > s ? Intent.Gather : s > g ? Intent.Scatter : Intent.None;
+            }
+        }
+
+        /// <summary>Status SOURCES held of this humour.</summary>
+        public int SourcesHeld(School s)
+        {
+            int n = 0;
+            foreach (var h in _order) if (h.Part == StatusPart.Source && h.School == s && StacksOf(h) > 0) n++;
+            return n;
+        }
+
+        /// <summary>True only while the brand deal draws - the one place a Concord may be offered.</summary>
+        public bool ConcordDraw;
+
+        /// <summary>What the held boons need and the held costs block - the dead-trigger guard.</summary>
+        public Verb HeldNeeds { get; private set; }
+        public Verb HeldBlocks { get; private set; }
+
+        /// <summary>Coated entries held - the coat's tiers count them.</summary>
+        public int CoatedHeld { get; private set; }
+
+        // ---------------------------------------------------------------- the kind clocks (the overhaul)
+
+        readonly Dictionary<DealKind, int> _kindOffered = new();
+
+        public void MarkKind(DealKind k) { if (k != DealKind.None) _kindOffered[k] = DealIndex; }
+
+        /// <summary>Deals since this kind was last on a deal - never offered counts from the run's start.</summary>
+        public int DealsSinceKind(DealKind k) => _kindOffered.TryGetValue(k, out var at) ? DealIndex - at : DealIndex;
+
+        /// <summary>Whether this kind has anything to offer at any weight now.</summary>
+        public bool KindLive(DealKind k, ExchangeKind side, FormSlot socketSlot = FormSlot.None)
+        {
+            foreach (var e in ExchangeCatalog.All)
+            {
+                if (e.Deal != k || e.Kind != side) continue;
+                if (k == DealKind.Socket && !PaysOn(e, socketSlot)) continue;
+                if (k != DealKind.Socket && e.SocketCost) continue;
+                if (Offerable(e)) return true;
+            }
+            return false;
+        }
+
+        /// <summary>A socket cost pays on this slot (the old Art socket costs carry Art).</summary>
+        public static bool PaysOn(ExchangeEntry e, FormSlot slot)
+            => e.SocketCost && slot != FormSlot.None && (e.Slot == FormSlot.None ? FormSlot.Art : e.Slot) == slot;
 
         /// <summary>Entries kept out of every deal - a testing switch, null in play. The balance model
         /// prices an entry by simulating runs that can never be offered it.</summary>
@@ -520,6 +725,20 @@ namespace Convergence.Exchange
             foreach (var e in ExchangeCatalog.All)
                 if (e.Kind == kind && e.Weight == weight && e.SocketCost == socketCosts
                     && (only == School.None || e.School == only) && Offerable(e)) list.Add(e);
+            return list;
+        }
+
+        /// <summary>The same, inside one KIND - socket costs only on their own slot.</summary>
+        public List<ExchangeEntry> Offerable(ExchangeKind kind, DealKind deal, int weight, FormSlot socketSlot, School only = School.None)
+        {
+            var list = new List<ExchangeEntry>();
+            foreach (var e in ExchangeCatalog.All)
+            {
+                if (e.Kind != kind || e.Deal != deal || e.Weight != weight) continue;
+                if (deal == DealKind.Socket ? !PaysOn(e, socketSlot) : e.SocketCost) continue;
+                if (only != School.None && e.School != only) continue;
+                if (Offerable(e)) list.Add(e);
+            }
             return list;
         }
 
@@ -612,6 +831,8 @@ namespace Convergence.Exchange
             _fulfilled.Clear();
             _tributeFloors = 0;
             LastFulfilled = null;
+            _kindOffered.Clear();
+            ConcordDraw = false;
             Recompute();
         }
 
@@ -706,6 +927,10 @@ namespace Convergence.Exchange
                 MasteryLevel = MasteryLevel,
                 Element = Element,
                 Weapon = Weapon,
+                Defence = Defence,
+                DefenceSource = DefenceSource,
+                SocketArt = SocketArt,
+                SocketCount = SocketCount,
                 BoardChainDelta = BoardChainDelta,
                 Pending = Pending.Copy(),
                 DealIndex = DealIndex,
@@ -729,6 +954,7 @@ namespace Convergence.Exchange
             foreach (var kv in _oath) c._oath[kv.Key] = kv.Value;
             foreach (var id in _fulfilled) c._fulfilled.Add(id);
             c._tributeFloors = _tributeFloors;
+            foreach (var kv in _kindOffered) c._kindOffered[kv.Key] = kv.Value;
             c.Recompute();
             return c;
         }
@@ -750,7 +976,21 @@ namespace Convergence.Exchange
 
         // ---------------------------------------------------------------- what it adds up to
 
-        void Recompute() => Current = Compute(null, null);
+        void Recompute()
+        {
+            Current = Compute(null, null);
+            Verb needs = Verb.None, blocks = Verb.None;
+            int coated = 0;
+            foreach (var e in _order)
+            {
+                if (StacksOf(e) <= 0) continue;
+                if (e.Kind == ExchangeKind.Boon) needs |= e.Needs; else blocks |= e.Blocks;
+                if (e.Coated && e.Kind == ExchangeKind.Boon) coated++;
+            }
+            HeldNeeds = needs;
+            HeldBlocks = blocks;
+            CoatedHeld = coated;
+        }
 
         /// <summary>
         /// What <see cref="Current"/> would be with one more stack of each of these - the honest

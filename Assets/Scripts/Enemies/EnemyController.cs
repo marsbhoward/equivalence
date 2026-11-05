@@ -123,7 +123,8 @@ namespace Convergence.Enemies
         /// <summary>How fast this body's attack cooldowns run right now - slower while a stagger
         /// carries the mastery board's Antimony (StatusEffects.AttackTempo), faster on an elite a
         /// Booster has roared to power (_boostTempo). Antimony never slows a telegraph.</summary>
-        float AttackTempo => (_status ? _status.AttackTempo : 1f) * (_boostTempo > 0f ? _boostTempo : 1f);
+        float AttackTempo => (_status ? _status.AttackTempo : 1f) * (_boostTempo > 0f ? _boostTempo : 1f)
+                             * Exchange.LedgerWorld.CooldownTempo(_health, Elite);   // Wrath, a cost
         float _cooldown;
 
         // ---- ranged telegraph state ----
@@ -764,7 +765,7 @@ namespace Convergence.Enemies
             // as it slows the player, and so does a mire a parry turned (see Hazards.FloorPits).
             // Folded into every walking speed below - kiting, evading and rushing included.
             float moveMul = statusMul * FloorPits.EnemySpeedMultiplierAt(pos);
-            float speed = MoveSpeed * moveMul;
+            float speed = MoveSpeed * moveMul * Exchange.LedgerWorld.MoveMul(Elite);   // Swift, a cost
             // The Hound walks in no faster than RushSpeedCap of the player (its DASH is its threat);
             // at the speed cap its approach had reached 3.92 against the player's 3.7.
             if (Kind == EnemyKind.Dasher) speed = Mathf.Min(speed, Tuning.Player.MoveSpeed * Tuning.EnemyAi.RushSpeedCap);
@@ -1294,6 +1295,7 @@ namespace Convergence.Enemies
             // Reset rather than freeze, the player's rule: a part-charged tick held across a lull
             // would land the moment the fire stirred.
             if (perSecond <= 0.001f) { _pitTick = 0f; return; }
+            perSecond *= Exchange.LedgerWorld.EnemyPitMul;   // Pit Trap, an Albedo
 
             _pitTick += dt;
             if (_pitTick < Tuning.Steering.PitEnemyTickInterval) return;
@@ -1739,8 +1741,8 @@ namespace Convergence.Enemies
             // ELITE - Volley: a spread instead of a single bolt. Fanned around the SAME frozen
             // aim the telegraph drew, so the line the player read is still the middle of what
             // arrives - a volley aimed somewhere else would make the telegraph a lie.
-            int bolts = ElitePattern == ElitePattern.Volley && ElitePatternDue()
-                ? Tuning.Enemy.VolleyBolts : 1;
+            int bolts = (ElitePattern == ElitePattern.Volley && ElitePatternDue()
+                ? Tuning.Enemy.VolleyBolts : 1) + Exchange.LedgerWorld.ExtraBolts;   // Volley, a cost
 
             for (int i = 0; i < bolts; i++)
             {

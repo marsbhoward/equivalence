@@ -417,9 +417,28 @@ namespace Convergence.UI
             var at = UiKit.Rect(a, "at", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
             _detailAction = UiKit.Label(at, "", 18, new Color(0.5f, 0.53f, 0.6f), TextAnchor.MiddleCenter);
             _actionRect = a;
+            _detailBodyRect = b;
+
+            // The release arsenal's loadout (2026-11-05): shown on the owned centre only.
+            _releaseRow = UiKit.Rect(panel, "releases", new Vector2(0, 0), new Vector2(1, 0), new Vector2(18, 86), new Vector2(-18, 132));
+            (_tapButton, _tapLabel) = ReleaseButton(_releaseRow, 0f, 0.5f);
+            (_holdButton, _holdLabel) = ReleaseButton(_releaseRow, 0.5f, 1f);
+            _releaseRow.gameObject.SetActive(false);
         }
 
-        RectTransform _actionRect;
+        (RectTransform, Text) ReleaseButton(RectTransform row, float from, float to)
+        {
+            var b = UiKit.Panel(row, new Vector2(from, 0), new Vector2(to, 1), new Vector2(from > 0 ? 4 : 0, 0), new Vector2(to < 1 ? -4 : 0, 0),
+                new Color(0.16f, 0.18f, 0.25f, 1f));
+            var l = UiKit.Label(UiKit.Rect(b, "l", Vector2.zero, Vector2.one, new Vector2(8, 0), new Vector2(-8, 0)), "", 16,
+                new Color(0.95f, 0.85f, 0.55f), TextAnchor.MiddleCenter);
+            return (b, l);
+        }
+
+        RectTransform _actionRect, _detailBodyRect, _releaseRow, _tapButton, _holdButton;
+        Text _tapLabel, _holdLabel;
+
+        bool ReleaseRowShown => _releaseRow != null && _releaseRow.gameObject.activeSelf;
 
         // ------------------------------------------------------------------ refresh
 
@@ -537,6 +556,9 @@ namespace Convergence.UI
 
             bool owned = _board.IsUnlocked(_viewing, node.Id);
             if (_actionRect) _actionRect.gameObject.SetActive(true);
+            bool arsenal = owned && node.Kind == NodeKind.Rebis;
+            if (_releaseRow) _releaseRow.gameObject.SetActive(arsenal);
+            if (_detailBodyRect) _detailBodyRect.offsetMin = new Vector2(18, arsenal ? 140 : 90);
 
             string branch = MasteryBoard.BranchName(node.Branch);
             // A lane-following rule reads the lane taken at its fork; until then it lists them.
@@ -544,7 +566,7 @@ namespace Convergence.UI
             string ruleName = rule != Notable.None ? MasteryBoard.NameOf(rule) : "Follows your lane";
             _detailTitle.text = node.Kind switch
             {
-                NodeKind.Rebis => $"{ElementInfo.AbilityName(_viewing)} - THE SIGIL",
+                NodeKind.Rebis => $"THE SIGIL - YOUR RELEASES",
                 NodeKind.Tincture when node.Fork.Length == 0 && !node.FollowsLane && node.Branch != "" &&
                                        MasteryBoard.DiagonalOf(node.Branch) != null => $"{ruleName} - {branch}",
                 NodeKind.Tincture => $"{ruleName} - CONVERGENCE",
@@ -601,15 +623,22 @@ namespace Convergence.UI
 
             if (node.Kind == NodeKind.Rebis)
             {
-                string first = ElementInfo.AbilityName(_viewing);
-                string second = ElementInfo.SecondAbilityName(_viewing);
-                if (second == null)
-                    body.Append($"\n\n{_viewing} has one release, {first}. Every path starts here.");
-                else
+                // The arsenal: every kind, what it is for this element, and what opens it.
+                body.Append("\n\nTap the release button for one release; hold it for the other. Each opens " +
+                            $"with {Tuning.Releases.UnlockPathPoints} levels on its path, free.");
+                foreach (var kind in ReleaseInfo.All)
                 {
-                    bool useSecond = _board.UsesSecondAbility(_viewing);
-                    body.Append($"\n\nABILITY   {(useSecond ? first : $"[{first}]")}  /  " +
-                                $"{(useSecond ? $"[{second}]" : second)}\nOne is active at a time, on the same button - switch here, free.");
+                    string name = ReleaseInfo.Name(_viewing, kind), path = ReleaseInfo.PathOf(kind);
+                    string state = !ReleaseInfo.Built(_viewing, kind) ? "coming"
+                                 : _board.ReleaseUnlocked(_viewing, kind) ? "open"
+                                 : $"{_board.PathPoints(_viewing, path)}/{Tuning.Releases.UnlockPathPoints} on {MasteryBoard.BranchName(path)}";
+                    body.Append($"\n  {ReleaseInfo.KindName(kind),-9} {name}  -  {state}");
+                }
+                if (_tapLabel != null)
+                {
+                    var hold = _board.HoldRelease(_viewing);
+                    _tapLabel.text = $"TAP  {ReleaseInfo.Name(_viewing, _board.TapRelease(_viewing))}";
+                    _holdLabel.text = $"HOLD  {(hold.HasValue ? ReleaseInfo.Name(_viewing, hold.Value) : "none")}";
                 }
             }
 
@@ -627,10 +656,8 @@ namespace Convergence.UI
             if (owned)
             {
                 // The one owned node a click still does something on: it switches the ability.
-                _detailAction.text = _board.HasSecondAbility(_viewing) && node.Kind == NodeKind.Rebis
-                    ? $"CLICK AGAIN TO SWITCH TO " +
-                      (_board.UsesSecondAbility(_viewing) ? ElementInfo.AbilityName(_viewing)
-                                                          : ElementInfo.SecondAbilityName(_viewing))
+                _detailAction.text = node.Kind == NodeKind.Rebis
+                    ? (_board.OpenReleases(_viewing).Count > 1 ? "CHOOSE TAP AND HOLD ABOVE" : "MORE RELEASES OPEN ON THE PATHS")
                     : "UNLOCKED";
                 return;
             }
@@ -707,6 +734,7 @@ namespace Convergence.UI
             }
             if (first != null) _focusRects.Insert(0, first);
             foreach (var chip in _elementChips) _focusRects.Add(chip.Rect);
+            if (ReleaseRowShown) { _focusRects.Add(_tapButton); _focusRects.Add(_holdButton); }
             Core.Controls.SetFocusCandidates(_focusRects);
 
             // The board is bigger than the viewport, so the node the D-pad lands on is panned to
@@ -790,6 +818,15 @@ namespace Convergence.UI
             // Switching boards. Handled apart from ClickAt because the chips are OUTSIDE the
             // viewport - the board's own tap path is gated on being over it, so that a drag that
             // wanders off the edge does not select a node on release.
+            else if (Core.Controls.PointerReleased && ReleaseRowShown &&
+                     (RectTransformUtility.RectangleContainsScreenPoint(_tapButton, at, null) ||
+                      RectTransformUtility.RectangleContainsScreenPoint(_holdButton, at, null)))
+            {
+                bool tap = RectTransformUtility.RectangleContainsScreenPoint(_tapButton, at, null);
+                if (tap ? _board.CycleTap(_viewing) : _board.CycleHold(_viewing))
+                    Debug.Log($"[Mastery] {_viewing}: tap {_board.TapRelease(_viewing)}, hold {_board.HoldRelease(_viewing)?.ToString() ?? "none"}");
+                RefreshAll();
+            }
             else if (Core.Controls.PointerReleased)
             {
                 for (int i = 0; i < _elementChips.Count; i++)
@@ -896,9 +933,8 @@ namespace Convergence.UI
                 // than being a dead click on something already bought.
                 if (hit.Kind == NodeKind.Rebis && _board.IsUnlocked(_viewing, hit.Id))
                 {
-                    if (_board.ToggleSecondAbility(_viewing))
-                        Debug.Log($"[Mastery] {_viewing}: ability -> " +
-                                  (_board.UsesSecondAbility(_viewing) ? "second" : "first"));
+                    if (_board.CycleTap(_viewing))
+                        Debug.Log($"[Mastery] {_viewing}: tap -> {_board.TapRelease(_viewing)}");
                 }
                 else if (_board.TryUnlock(_viewing, hit, out var reason))
                     Debug.Log($"[Mastery] {_viewing}: unlocked {hit.Id}");

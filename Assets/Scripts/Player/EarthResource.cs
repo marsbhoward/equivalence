@@ -3,6 +3,7 @@ using UnityEngine;
 using Convergence.Combat;
 using Convergence.Core;
 using T = Convergence.Core.Tuning.Elements.Earth;
+using R = Convergence.Core.Tuning.Releases;
 
 namespace Convergence.Player
 {
@@ -74,6 +75,12 @@ namespace Convergence.Player
             }
 
             ChargeFeedback(dt);
+
+            if (_tremorRemaining > 0f && (_tremorRemaining -= dt) <= 0f)
+            {
+                _tremorRemaining = 0f;
+                TexelFx.Ring(ReleaseCanvas.Feet(transform), TexelFx.Stone, 0.55f, 0.05f, 0.4f, 1.2f);   // closing
+            }
         }
 
         /// <summary>
@@ -108,6 +115,50 @@ namespace Convergence.Player
 
         public override bool CanRelease => Charge > 0.2f && !_quaking;
 
+        /// <summary>The arsenal spends a FULL meter on a Blast (RELEASES.md) - the partial quake went
+        /// with it; spending part of the meter is the combo's.</summary>
+        protected override bool CanFireOwn(ReleaseKind kind) => Charge >= 0.999f && !_quaking && !Tremoring;
+
+        protected override void FireOwn(ReleaseKind kind)
+        {
+            UseSecondAbility = kind == ReleaseKind.Buff;
+            if (UseSecondAbility) TremorStance();
+            else Release();
+        }
+
+        // ---- TREMOR STANCE, Earth's Buff (RELEASES.md): for a window every swing sends a crack along
+        // the floor that strikes what it reaches. Spends the full charge; standing still still builds.
+
+        float _tremorRemaining;
+        public bool Tremoring => _tremorRemaining > 0f;
+
+        void TremorStance()
+        {
+            Charge = 0f;
+            _tremorRemaining = R.TremorSeconds;
+            var feet = ReleaseCanvas.Feet(transform);
+            TexelFx.Shock(feet, TexelFx.Stone, TexelFx.RubbleOf(), 0.9f, 0.35f);
+            TexelFx.Hop(feet, TexelFx.Stone, 0.6f, 12, TexelFx.Ground);
+        }
+
+        /// <summary>A swing in the stance: the crack leaves a beat later, along the facing the strike
+        /// took (the body faces freely until the strike - RIG.md).</summary>
+        public override void OnAttackStarted()
+        {
+            if (Tremoring && Player != null) StartCoroutine(CrackAfter(0.12f));
+        }
+
+        IEnumerator CrackAfter(float delay)
+        {
+            yield return new WaitForSeconds(delay);
+            if (Player == null) yield break;
+            // A bow's crack starts where its arrow lands - a step short of the nearest, as its Blast does.
+            Vector2? start = null;
+            if (Player.Weapon == Art.Gear.WeaponClass.Bow) start = BlastCentre(out _);
+            ReleaseArsenal.Crack(Player, Player.Facing, R.TremorCrackLength * AreaScale, R.TremorCrackHalfWidth,
+                                 R.TremorCrackHitUnits * Scale, start);
+        }
+
         [SerializeField] FaultSigil _fault;
 
         public override void Release()
@@ -125,31 +176,38 @@ namespace Convergence.Player
         IEnumerator Quake(float charged, int aftershocks, float area)
         {
             _quaking = true;
-            Erupt(charged, 1f, area);
+            // With a bow the quake lands a step short of the enemy it aims at (BlastCentre), and its aftershocks stay there;
+            // otherwise they follow the player, as ever.
+            Vector2 centre = BlastCentre(out var feet);
+            Vector2? at = (centre - (Vector2)transform.position).sqrMagnitude > 1e-4f ? centre : null;
+            Erupt(charged, 1f, area, at, feet);
 
             for (int i = 0; i < aftershocks; i++)
             {
                 yield return new WaitForSeconds(0.45f);
-                Erupt(charged, 0.55f - i * 0.08f, area);
+                Erupt(charged, 0.55f - i * 0.08f, area, at, feet);
             }
             _quaking = false;
         }
 
         /// <param name="area">Area at the release, Concentrate's reach included - read once, as the
         /// aftershocks come after the button is let go.</param>
-        void Erupt(float charged, float scale, float area)
+        /// <param name="at">Where it lands when not round the player (a bow's BlastCentre), with
+        /// <paramref name="atFeet"/> where it is drawn.</param>
+        void Erupt(float charged, float scale, float area, Vector2? at = null, Vector2 atFeet = default)
         {
+            Vector2 centre = at ?? (Vector2)transform.position;
             float radius = Radius * area * (0.55f + charged * 0.45f) * Mathf.Max(0.4f, scale);
             // In hit units (Tuning.Elements): the quake grows with the player's own hit.
             float damage = (T.ShockHitUnits + charged * T.ShockHitUnitsPerCharge) * HitUnit * scale * Scale;
 
-            foreach (var col in Physics2D.OverlapCircleAll(transform.position, radius))
+            foreach (var col in Physics2D.OverlapCircleAll(centre, radius))
             {
                 if (col.gameObject == gameObject) continue;
                 var hp = col.GetComponent<Health>();
                 if (hp == null || hp.IsDead) continue;
 
-                var to = ((Vector2)col.transform.position - (Vector2)transform.position).normalized;
+                var to = ((Vector2)col.transform.position - centre).normalized;
                 PlayerController.ReleaseHitFrom(gameObject, hp, new DamageInfo(damage, ElementType.Earth, gameObject) { Knockback = to * T.ShockKnockback * scale });
                 // Through the player, so the board's Stagger Power, Antimony and Congelation reach it.
                 if (Player != null) Player.Stagger(hp, T.StaggerSeconds);
@@ -157,17 +215,18 @@ namespace Convergence.Player
             }
 
             // The fault sigil: the quake opens one, an aftershock where it stands lights it again.
-            var here = ReleaseCanvas.Feet(transform);   // drawn on the floor under the body
+            var here = at != null ? atFeet : ReleaseCanvas.Feet(transform);   // drawn on the floor under the body
             if (scale < 1f && _fault != null && Vector2.Distance(_fault.Centre, here) <= Tuning.ReleaseFx.QuakeReuseDistance)
                 _fault.Shock();
             else _fault = FaultSigil.Play(here, radius);
-            if (scale >= 1f) FightMarks.Crack(transform.position, radius * 0.6f);   // the quake, not its aftershocks
+            if (scale >= 1f) FightMarks.Crack(centre, radius * 0.6f);   // the quake, not its aftershocks
         }
 
         /// <summary>The quake once more, spending nothing (Twin Spark, Wellspring): the charge the
         /// last one spent, at the repeat's strength.</summary>
         public override void ReleaseAgain()
         {
+            if (UseSecondAbility) { _tremorRemaining = Mathf.Max(0f, _tremorRemaining) + R.TremorSeconds * RepeatStrength; return; }
             if (_lastCharged <= 0f || _quaking) return;
             int aftershocks = Mathf.FloorToInt(_lastCharged * ChargeSeconds / AftershockPerSeconds);
             StartCoroutine(Quake(_lastCharged, aftershocks, AreaScale));
@@ -183,9 +242,9 @@ namespace Convergence.Player
         /// <summary>The aftershocks a release right now would carry - the rule Release spends.</summary>
         int Aftershocks => Mathf.FloorToInt(Charge * ChargeSeconds / AftershockPerSeconds);
 
-        public override string ReleaseName => Aftershocks > 0 ? $"QUAKE +{Aftershocks}" : "QUAKE";
+        public override string ReleaseName => TapKind == ReleaseKind.Blast && !HasHold && Aftershocks > 0 ? $"QUAKE +{Aftershocks}" : base.ReleaseName;
         public override string SealTag
-            => _quaking ? "AFTERSHOCKS" : _still ? "PLANTED" : Charge > 0f ? "MOVING" : null;
+            => Tremoring ? $"TREMOR  {_tremorRemaining:0.0}s" : _quaking ? "AFTERSHOCKS" : _still ? "PLANTED" : Charge > 0f ? "MOVING" : null;
         public override int RimPips => Mathf.FloorToInt(ChargeSeconds / AftershockPerSeconds + 0.001f);
         public override int RimPipsLit => _quaking ? 0 : Aftershocks;
 

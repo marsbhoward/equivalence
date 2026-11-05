@@ -20,8 +20,8 @@ namespace Convergence.Combat
     public class StatusMarks : MonoBehaviour
     {
         const int PadX = 8, PadBelow = 12, PadAbove = 16;
-        const int Drops = 4;
-        const float DropCycle = 0.55f, DropFall = 16f, StarOrbit = 7f, CreepSeconds = 0.35f;
+        const int Drops = 6, PuddleRy = 2;
+        const float DropCycle = 0.55f, StarOrbit = 7f, CreepSeconds = 0.35f;
 
         [SerializeField] StatusEffects _status;
         [SerializeField] SpriteRenderer _sr, _body;
@@ -35,6 +35,9 @@ namespace Convergence.Combat
         static Color32 C(string hex) { ColorUtility.TryParseHtmlString(hex, out var c); return c; }
         static readonly Color32[] Drip = { C("#a8ecff"), C("#56c6f2"), C("#2c86cc"), C("#1b4f92") };
         static readonly Color32 StarHot = C("#fffbe0"), Star = C("#f2c230"), StarBack = C("#c08a10");
+        /// <summary>Drenched: the wet tint laid over the body, its top edge's sheen, the puddle.</summary>
+        static readonly Color32 WetTint = new(20, 52, 110, 96), Sheen = new(86, 198, 242, 220),
+                                Puddle = new(22, 58, 112, 150), PuddleRim = new(86, 198, 242, 170);
 
         public static StatusMarks For(StatusEffects status)
         {
@@ -68,21 +71,7 @@ namespace Convergence.Combat
             System.Array.Clear(_px, 0, _px.Length);
             float now = Time.time;
 
-            if (soaked)
-                for (int k = 0; k < Drops; k++)
-                {
-                    float phase = FireArt.Hash(k, _seed, 1) * DropCycle;
-                    float age = (now + phase) % DropCycle;
-                    int cycle = Mathf.FloorToInt((now + phase) / DropCycle);
-                    int col = Mathf.FloorToInt(FireArt.Hash(k, cycle, _seed) * p.W);
-                    if (p.Top[col] < 0) continue;
-                    int y0 = p.Bottom[col] + Mathf.FloorToInt(FireArt.Hash(k, cycle, _seed + 3) * (p.Top[col] - p.Bottom[col] + 1));
-                    int sc = flip ? p.W - 1 - col : col;
-                    int y = y0 + PadBelow - Mathf.RoundToInt(age * DropFall);
-                    var c = Drip[Mathf.Min(Drip.Length - 1, Mathf.FloorToInt(age / DropCycle * Drip.Length))];
-                    Put(sc + PadX, y, c);
-                    Put(sc + PadX, y + 1, Drip[0]);
-                }
+            if (soaked) Drench(p, flip, now);
 
             if (staggered)
             {
@@ -108,6 +97,72 @@ namespace Convergence.Combat
             var min = _body.bounds.min;
             transform.position = new Vector3(min.x - PadX / ppu, min.y - PadBelow / ppu, 0f);
             _sr.enabled = true;
+        }
+
+        /// <summary>
+        /// DRENCHED (the user's pick, 2026-11-05 - the drips alone were too faint to read in a
+        /// fight): the body darkened under a wet tint, a blue sheen along its top edge with a glint
+        /// sliding across it, drops running off its underside, and a puddle under its feet that
+        /// follows it, ringing where the drops land. Over the body's own texels only, from its
+        /// profile - never past its outline, except the puddle and the falling drops.
+        /// </summary>
+        void Drench(BurnEmbers.Profile p, bool flip, float now)
+        {
+            int Sc(int col) => flip ? p.W - 1 - col : col;
+
+            // The tint, on the silhouette's own texels.
+            if (p.Solid != null)
+                for (int y = 0; y < p.H; y++)
+                    for (int x = 0; x < p.W; x++)
+                        if (p.Solid[y * p.W + x]) Put(Sc(x) + PadX, y + PadBelow, WetTint);
+
+            // The sheen along the top edge, a glint sliding across it.
+            float glint = Mathf.Repeat(now * 0.6f + _seed * 0.01f, 1.6f) * p.W;
+            for (int col = 0; col < p.W; col++)
+            {
+                if (p.Top[col] < 0) continue;
+                bool hot = Mathf.Abs(col - glint) < 2f;
+                Put(Sc(col) + PadX, p.Top[col] + PadBelow, hot ? Drip[0] : (col & 1) == 0 ? Drip[1] : Sheen);
+            }
+
+            // The puddle under the feet, on the floor beside them (never over the body).
+            int lo = p.W, hi = -1, foot = int.MaxValue;
+            for (int col = 0; col < p.W; col++) if (p.Top[col] >= 0) { lo = Mathf.Min(lo, col); hi = Mathf.Max(hi, col); foot = Mathf.Min(foot, p.Bottom[col]); }
+            if (hi < 0) return;
+            float pcx = (Sc(lo) + Sc(hi)) * 0.5f + PadX, prx = (hi - lo) * 0.5f + 3f;
+            int pcy = foot + PadBelow - 1;
+            for (int dy = -PuddleRy; dy <= PuddleRy; dy++)
+                for (int dx = -Mathf.CeilToInt(prx); dx <= Mathf.CeilToInt(prx); dx++)
+                {
+                    float e = dx * dx / (prx * prx) + dy * dy / (float)(PuddleRy * PuddleRy);
+                    if (e > 1f) continue;
+                    int x = Mathf.RoundToInt(pcx) + dx, y = pcy + dy;
+                    if (OnBody(p, flip, x, y)) continue;
+                    Put(x, y, e > 0.7f ? PuddleRim : Puddle);
+                }
+
+            // Drops off the underside, falling into the puddle and ringing it.
+            for (int k = 0; k < Drops; k++)
+            {
+                float phase = FireArt.Hash(k, _seed, 1) * DropCycle;
+                float age = (now + phase) % DropCycle;
+                int cycle = Mathf.FloorToInt((now + phase) / DropCycle);
+                int col = lo + Mathf.FloorToInt(FireArt.Hash(k, cycle, _seed) * (hi - lo + 1));
+                if (p.Top[col] < 0) continue;
+                int x = Sc(col) + PadX, from = p.Bottom[col] + PadBelow + Mathf.Min(4, (p.Top[col] - p.Bottom[col]) / 3);
+                float u = age / DropCycle;
+                int y = Mathf.RoundToInt(Mathf.Lerp(from, pcy, u * u));
+                if (u < 0.85f) { Put(x, y, Drip[1]); Put(x, y - 1, Drip[2]); }
+                else { int rr = 1 + Mathf.RoundToInt((u - 0.85f) / 0.15f * 2f); Put(x - rr, pcy, Drip[1]); Put(x + rr, pcy, Drip[1]); }
+            }
+        }
+
+        bool OnBody(BurnEmbers.Profile p, bool flip, int cx, int cy)
+        {
+            int x = cx - PadX, y = cy - PadBelow;
+            if (x < 0 || y < 0 || x >= p.W || y >= p.H || p.Solid == null) return false;
+            if (flip) x = p.W - 1 - x;
+            return p.Solid[y * p.W + x];
         }
 
         /// <summary>Stone over each leg layer, cut at the creep's height and rising from the feet.</summary>

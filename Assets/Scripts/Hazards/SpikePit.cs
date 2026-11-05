@@ -185,7 +185,7 @@ namespace Convergence.Hazards
             _tick = 0f;
 
             PlayerHealth.Take(new DamageInfo(
-                Tuning.Hazards.SpikeDamagePerSecond * Tuning.Hazards.SpikeTickInterval * DamageScale,
+                Tuning.Hazards.SpikeDamagePerSecond * Tuning.Hazards.SpikeTickInterval * DamageScale * FloorPits.PlayerBite,
                 ElementType.Earth, gameObject) { Tick = true });
         }
     }

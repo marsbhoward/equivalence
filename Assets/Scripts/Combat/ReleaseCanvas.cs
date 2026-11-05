@@ -147,6 +147,41 @@ namespace Convergence.Combat
         // Plain static cache: a reload empties it and it refills.
         static System.Collections.Generic.Dictionary<int, (bool[], int, int)> _sigils = new();
 
+        /// <summary>Texels a body's splash rises (the canvas needs this much room above a body).</summary>
+        protected const int SplashHeight = 12;
+
+        /// <summary>Water's splash where a release met a body: drops thrown up and out, falling back,
+        /// <paramref name="since"/> seconds after it reached them (nothing before, nothing after).</summary>
+        protected void WaterSplash(Vector2 at, float since, int seed)
+        {
+            var T = Core.Tuning.ReleaseFx.Water;
+            float seconds = Core.Tuning.ReleaseFx.SplashSeconds;
+            if (since < 0f || since > seconds) return;
+            for (int k = 0; k < 10; k++)
+            {
+                float life = seconds * (0.75f + FireArt.Hash(k, seed, 1) * 0.25f);
+                if (since > life) continue;
+                float u = since / life, a = (FireArt.Hash(k, seed, 2) - 0.5f) * 2.4f;
+                int x = Mathf.RoundToInt(at.x + Mathf.Sin(a) * u * 8f);
+                int y = Mathf.RoundToInt(at.y + Mathf.Cos(a) * SplashHeight * 0.6f * (u * 2f - u * u * 1.6f));
+                Over(x, y, At(T, 0.1f + u * 0.5f));
+            }
+        }
+
+        /// <summary>A round brush of <paramref name="radius"/> texels - a stroke that reads at the floor's scale.</summary>
+        protected void Dab(float x, float y, float radius, Color32 c, float alpha = 1f)
+        {
+            int e = Mathf.CeilToInt(radius), cx = Mathf.RoundToInt(x), cy = Mathf.RoundToInt(y);
+            for (int dy = -e; dy <= e; dy++)
+                for (int dx = -e; dx <= e; dx++)
+                    if (dx * dx + dy * dy <= radius * radius + 0.25f) Over(cx + dx, cy + dy, c, alpha);
+        }
+
+        protected static float EaseOut(float x) { x = Mathf.Clamp01(x); return 1f - (1f - x) * (1f - x); }
+
+        /// <summary>The share of an ease-out run at which it reaches <paramref name="share"/> of its length.</summary>
+        protected static float EaseOutAt(float share) => 1f - Mathf.Sqrt(1f - Mathf.Clamp01(share));
+
         public static Color32 At(Color32[] ramp, float u)
             => ramp[Mathf.Clamp(Mathf.FloorToInt(u * ramp.Length), 0, ramp.Length - 1)];
 

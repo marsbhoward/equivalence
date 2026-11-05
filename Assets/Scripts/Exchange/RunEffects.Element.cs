@@ -46,7 +46,7 @@ namespace Convergence.Exchange
             var r = Resource;
             if (r == null || _pc == null || _pc.Statue) return;
             _repeatNow = scale;
-            try { r.ReleaseAgain(); }
+            try { r.Repeat(); }
             finally { _repeatNow = 1f; }
         }
 
@@ -98,6 +98,7 @@ namespace Convergence.Exchange
             if (_mods == null || r == null || _pc == null) return;
             var hp = Hp;
             _meterSpent = true;   // Sealed Vessel: spent, not lost
+            OverhaulReleased();   // the Release kind, Spent Meter, the release's socket costs
 
             if (Has("overflow")) r.Refund(T.OverflowRefund);
 
@@ -173,9 +174,9 @@ namespace Convergence.Exchange
         public float MomentumFadeMul => Has("tailwind") ? T.TailwindFadeMul : 1f;
         public float MomentumHoldSeconds => AtMax("tailwind") ? T.TailwindHoldII : 0f;
 
-        /// <summary>Air: the crit floor a hit adds, from its own base - Becalmed takes.</summary>
-        public float CritPerHit(float basePerHit)
-            => Mathf.Max(0f, basePerHit - T.BecalmedCritPerHit * N("becalmed"));
+        /// <summary>Air: the Accuracy a streak hit adds, from its own base - Becalmed takes.</summary>
+        public float AccuracyPerHit(float basePerHit)
+            => Mathf.Max(0f, basePerHit - T.BecalmedAccuracyPerHit * N("becalmed"));
 
         // ---------------------------------------------------------------- the trap boons
 

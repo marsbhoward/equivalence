@@ -212,7 +212,8 @@ namespace Convergence.Enemies
 
         public static float LivePressureCap(int floor)
             => Mathf.Min(Tuning.Waves.LivePressureBase + Core.RunFormat.Depth(floor) * Tuning.Waves.LivePressurePerFloor,
-                         Tuning.Waves.LivePressureMax);
+                         Tuning.Waves.LivePressureMax)
+               + Exchange.LedgerWorld.PressureAdd;   // Crowded, a cost - past the cap's own top
 
         /// <summary>
         /// Whether <paramref name="next"/> may come on screen now. The first body always may -

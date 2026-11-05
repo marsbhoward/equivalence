@@ -25,7 +25,7 @@ namespace Convergence.Exchange
     /// player picks the socket), the basics, a kill, or the defensive ability. A form changes what
     /// that action DOES; forms sharing a slot share its strength. None for every other entry.
     /// </summary>
-    public enum FormSlot { None, Art, Basics, Kill, Defence }
+    public enum FormSlot { None, Art, Basics, Kill, Defence, Release }   // Release appended 2026-11-04 (its socket costs)
 
     /// <summary>
     /// THE SCHOOLS (Phase 3, EXCHANGE.md 5.4-5.5): the four humours the board names, and the Ledger.
@@ -248,6 +248,31 @@ namespace Convergence.Exchange
         /// <summary>Rooted: no moving while ANY swing plays.</summary>
         public bool RootedWhileSwinging;
 
+        // ---- the overhaul (2026-11-04): what the world costs set, read by the enemies (LedgerWorld) ----
+        /// <summary>Narrow: added to the dome's front dot - a narrower arc.</summary>
+        public float BarrierDotAdd;
+        /// <summary>Brittle Guard: the parry window's length.</summary>
+        public float DefenseWindowMul = 1f;
+        /// <summary>Affixed: added to every elite's modifier chance; at III from the first band.</summary>
+        public float AffixChanceAdd;
+        public bool AffixFromBandOne;
+        /// <summary>Crowded: added to the live pressure cap.</summary>
+        public float PressureAdd;
+        /// <summary>Vigilant: the first wave arrives alert.</summary>
+        public bool NoUnaware;
+        /// <summary>Eager: more enemies may hold an attack turn at once.</summary>
+        public int ExtraTurns;
+        /// <summary>Swift: enemies' walking speed.</summary>
+        public float EnemyMoveMul = 1f;
+        /// <summary>Wrath: a wounded elite's attack cooldowns run this much of their length.</summary>
+        public float WrathCooldownMul = 1f;
+        /// <summary>Plated: armour an unarmoured enemy arrives with, as a share of its health.</summary>
+        public float PlatedShare;
+        /// <summary>Volley: bolts a ranged enemy adds to each shot.</summary>
+        public int ExtraBolts;
+        /// <summary>Twisted: bands the next mini-boss arrives above its own.</summary>
+        public int BossBandAdd;
+
         /// <summary>Extra slide when you stop, 0 for none (Mired).</summary>
         public float ExtraSlide;
     }
@@ -368,6 +393,9 @@ namespace Convergence.Exchange
         /// <summary>Offered only in the Short Descent (its run clock).</summary>
         public bool ShortOnly;
 
+        /// <summary>Never offered in the floor-10 showcase - a cost aimed at its one boss (Twisted).</summary>
+        public bool NotInShowcase;
+
         /// <summary>An EVOLUTION (Phase 5): the form it grows from and the status entry that is its
         /// catalyst - both held, it may evolve at a circle or after a boss. Null otherwise.</summary>
         public string EvolvesFrom, Catalyst;
@@ -419,6 +447,51 @@ namespace Convergence.Exchange
         {
             if (Classes == null) return true;
             foreach (var c in Classes) if (c == weapon) return true;
+            return false;
+        }
+
+        // ---------------------------------------------------------------- the overhaul (2026-11-04)
+
+        /// <summary>The KIND (EXCHANGE-OVERHAUL.md): what part of play it changes - drawn first.</summary>
+        public DealKind Deal;
+
+        /// <summary>Offered only to these defensive abilities. Null for every one.</summary>
+        public DefensiveAbility[] Defences;
+
+        /// <summary>An ART ROLE form: the role its socket's art must have (inscribed only there).</summary>
+        public ArtRole RoleGate;
+
+        /// <summary>An ART CRAFT weight form: the weight its socket's art must have.</summary>
+        public Combat.FinisherWeight? WeightGate;
+
+        /// <summary>The FAMILY a role form belongs to, or the TRIO a weight form does: on an art swap
+        /// the form becomes its family's version for the new art's role (or weight), stacks kept.</summary>
+        public string RoleFamily;
+
+        /// <summary>An ART CRAFT class form that works only on some arts (Seam's ground-strikers): asked
+        /// with the socket's art id. Null fits every art.</summary>
+        public Func<string, bool> ArtFits;
+
+        /// <summary>What it needs to happen, and what it takes away - the dead-trigger guard.</summary>
+        public Verb Needs, Blocks;
+
+        /// <summary>Finished by the element's COAT (RunEffects.Coat) - counted toward the coat's tiers.</summary>
+        public bool Coated;
+
+        /// <summary>A CONCORD: weapon + defence + element. Offered only at the brand deal; it sits
+        /// above its slot's sharing.</summary>
+        public bool IsConcord => Deal == DealKind.Concord;
+
+        /// <summary>Gathers the crowd or scatters it (the draw's lean, the deal card's hint).</summary>
+        public Intent Intent;
+
+        /// <summary>A humour entry's part (the draw shifts from sources to payoffs once sources are held).</summary>
+        public StatusPart Part;
+
+        public bool FitsDefence(DefensiveAbility defence)
+        {
+            if (Defences == null) return true;
+            foreach (var d in Defences) if (d == defence) return true;
             return false;
         }
     }

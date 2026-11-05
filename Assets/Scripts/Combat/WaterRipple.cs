@@ -13,8 +13,6 @@ namespace Convergence.Combat
     /// </summary>
     public class WaterRipple : ReleaseCanvas
     {
-        const int SplashHeight = 12;
-
         [SerializeField] float _r;
         [SerializeField] Vector2[] _bodies;   // texels from the centre
 
@@ -46,23 +44,8 @@ namespace Convergence.Combat
             });
             if (_bodies != null)
                 for (int i = 0; i < _bodies.Length; i++)
-                    Splash(_bodies[i], p - _bodies[i].magnitude / Mathf.Max(1f, _r) * T.RippleSeconds, i);
+                    WaterSplash(_bodies[i], p - _bodies[i].magnitude / Mathf.Max(1f, _r) * T.RippleSeconds, i);
             return true;
-        }
-
-        /// <summary>Drops thrown up and out where the ring met a body, falling back.</summary>
-        void Splash(Vector2 at, float since, int seed)
-        {
-            if (since < 0f || since > T.SplashSeconds) return;
-            for (int k = 0; k < 10; k++)
-            {
-                float life = T.SplashSeconds * (0.75f + FireArt.Hash(k, seed, 1) * 0.25f);
-                if (since > life) continue;
-                float u = since / life, a = (FireArt.Hash(k, seed, 2) - 0.5f) * 2.4f;
-                int x = Mathf.RoundToInt(at.x + Mathf.Sin(a) * u * 8f);
-                int y = Mathf.RoundToInt(at.y + Mathf.Cos(a) * SplashHeight * 0.6f * (u * 2f - u * u * 1.6f));
-                Over(x, y, At(T.Water, 0.1f + u * 0.5f));
-            }
         }
     }
 }

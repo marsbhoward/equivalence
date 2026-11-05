@@ -31,7 +31,18 @@ namespace Convergence.Exchange
         {
             _mods = mods;
             _pc = player;
+            Live = this;
+            if (player != null) LedgerMeter.Watch(player.gameObject);
         }
+
+        /// <summary>The run's ledger behaviour - what the arts' own objects (Revolve's ring, Palisade's
+        /// arrows) tell when they stop a shot. Found again after a domain reload.</summary>
+        public static RunEffects Live
+        {
+            get { if (_live == null) _live = FindFirstObjectByType<RunEffects>(); return _live; }
+            private set => _live = value;
+        }
+        static RunEffects _live;
 
         int N(string id) => _mods == null ? 0 : _mods.StacksOf(id);
         bool Has(string id) => N(id) > 0;
@@ -79,6 +90,7 @@ namespace Convergence.Exchange
             TickElement(dt, meter01);
             TickField(dt);
             TickAlbedos(dt, meter01);
+            OverhaulTick(dt, moving);
         }
 
         static void Countdown(ref float t, float dt) { if (t > 0f) t = Mathf.Max(0f, t - dt); }
@@ -103,6 +115,7 @@ namespace Convergence.Exchange
             _soakedDeaths = 0;       // Swell grows a floor at a time
             if (AtMax("stubborn_ore")) Resource?.Spill(1f);   // Barren: the meter empties as a floor starts
             OnFloorStartedAlbedos();
+            OverhaulFloorStarted();
 
             float start = M.StartMeterFraction;
             if (start > 0f && Resource != null && Resource.Fill01 < start)
@@ -121,6 +134,8 @@ namespace Convergence.Exchange
                 float of = AtMax("toll") ? hp.Max : hp.Current;
                 Pay(of * Mathf.Min(0.9f, T.TollFraction * toll));
             }
+
+            WorldTwoFloorCleared();   // Dead Ground, an oath
 
             // UNBLOODIED (an oath): a floor cleared without a hit fulfils it.
             if (Has("unbloodied") && !_hitThisFloor) _mods.Fulfil("unbloodied");

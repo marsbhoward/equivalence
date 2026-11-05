@@ -705,6 +705,9 @@ namespace Convergence.UI
                 else
                 {
                     player.SwapSlots(_selectedFinisher, card.Index);
+                    // THE TRANSLATION (the overhaul): forms stay on their sockets and follow the new art.
+                    Exchange.RunModifiers.Live?.TranslateSocket(_selectedFinisher);
+                    Exchange.RunModifiers.Live?.TranslateSocket(card.Index);
                     _selectedFinisher = -1;
                 }
                 Refresh();

@@ -184,6 +184,101 @@ namespace Convergence.Progression
             return true;
         }
 
+        // ---------------------------------------------------------------- the release arsenal
+
+        /// <summary>Levels spent on one path's own nodes ("v3.{path}." - the trunk, its forks, its
+        /// convergence and capstone), whichever route was taken through it.</summary>
+        public int PathPoints(ElementType element, string path)
+        {
+            if (path == null) return 0;
+            string prefix = $"v3.{path}.";
+            int total = 0;
+            foreach (var node in MasteryBoard.All)
+                if (node.Id.StartsWith(prefix) && IsUnlocked(element, node.Id)) total += node.Cost;
+            return total;
+        }
+
+        /// <summary>Whether a release kind is open on this element's board: Blast always; the rest once
+        /// Tuning.Releases.UnlockPathPoints are spent on its path - a prerequisite, costing nothing of
+        /// its own (the user's call, 2026-11-05). Only a kind that is built is ever open.</summary>
+        public bool ReleaseUnlocked(ElementType element, ReleaseKind kind)
+        {
+            if (!ReleaseInfo.Built(element, kind)) return false;
+            string path = ReleaseInfo.PathOf(kind);
+            return path == null || PathPoints(element, path) >= Tuning.Releases.UnlockPathPoints;
+        }
+
+        List<string> Choices => _profile.ReleaseChoice ??= new List<string>();
+
+        (ReleaseKind Tap, ReleaseKind? Hold) StoredChoice(ElementType element)
+        {
+            string key = element + ":";
+            foreach (var c in Choices)
+            {
+                if (!c.StartsWith(key)) continue;
+                var parts = c.Split(':');
+                ReleaseKind? hold = parts.Length > 2 && ReleaseInfo.TryParse(parts[2], out var h) ? h : null;
+                return (parts.Length > 1 && ReleaseInfo.TryParse(parts[1], out var t) ? t : ReleaseKind.Blast, hold);
+            }
+            // Before the arsenal: the second ability, where one was chosen, carries over to the tap.
+            if (UsesSecondAbility(element))
+                return (element == ElementType.Air ? ReleaseKind.Blast : ReleaseKind.Buff, null);
+            return (ReleaseKind.Blast, null);
+        }
+
+        /// <summary>The TAP release: the stored choice while it is still open, else Blast.</summary>
+        public ReleaseKind TapRelease(ElementType element)
+        {
+            var t = StoredChoice(element).Tap;
+            return ReleaseUnlocked(element, t) ? t : ReleaseKind.Blast;
+        }
+
+        /// <summary>The HOLD release, or null: the stored choice while it is still open and not the tap's.</summary>
+        public ReleaseKind? HoldRelease(ElementType element)
+        {
+            var h = StoredChoice(element).Hold;
+            return h is { } k && ReleaseUnlocked(element, k) && k != TapRelease(element) ? k : null;
+        }
+
+        void Store(ElementType element, ReleaseKind tap, ReleaseKind? hold)
+        {
+            string key = element + ":";
+            Choices.RemoveAll(c => c.StartsWith(key));
+            Choices.Add($"{element}:{tap}:{(hold.HasValue ? hold.Value.ToString() : "")}");
+        }
+
+        /// <summary>The open kinds in order (the board's list, and what the cycles step through).</summary>
+        public System.Collections.Generic.List<ReleaseKind> OpenReleases(ElementType element)
+        {
+            var list = new System.Collections.Generic.List<ReleaseKind>();
+            foreach (var k in ReleaseInfo.All) if (ReleaseUnlocked(element, k)) list.Add(k);
+            return list;
+        }
+
+        /// <summary>Step the TAP release to the next open kind; the hold steps off it if they meet.
+        /// Free and reversible - a loadout choice, not a purchase. False with nothing to step to.</summary>
+        public bool CycleTap(ElementType element)
+        {
+            var open = OpenReleases(element);
+            if (open.Count < 2) return false;
+            var tap = open[(open.IndexOf(TapRelease(element)) + 1) % open.Count];
+            var hold = HoldRelease(element);
+            Store(element, tap, hold == tap ? null : hold);
+            return true;
+        }
+
+        /// <summary>Step the HOLD release through the open kinds other than the tap's, then none.</summary>
+        public bool CycleHold(ElementType element)
+        {
+            var tap = TapRelease(element);
+            var open = OpenReleases(element); open.Remove(tap);
+            if (open.Count == 0) return false;
+            var hold = HoldRelease(element);
+            int i = hold.HasValue ? open.IndexOf(hold.Value) + 1 : 0;
+            Store(element, tap, i >= open.Count ? null : open[i]);
+            return true;
+        }
+
         // ---------------------------------------------------------------- principles
 
         /// <summary>Principle points held on one element's board.</summary>

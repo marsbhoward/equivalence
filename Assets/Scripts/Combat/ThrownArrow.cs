@@ -204,7 +204,7 @@ namespace Convergence.Combat
         {
             if (_owner == null) { Destroy(gameObject); return; }
             if (_piercing) { UpdatePierce(); return; }
-            if (_target == null || _target.IsDead) { Miss(); return; }
+            if (_target == null || _target.IsDead) { Miss(aimed: false); return; }   // killed in flight: not the player's miss
             if (_lob > 0f) { UpdateLob(); return; }
 
             if (Through != null)
@@ -250,10 +250,12 @@ namespace Convergence.Combat
         }
 
         /// <summary>The arrow ends without striking anything - its target gone, or a wall, a field or
-        /// a corpse in the way. A basic's miss tells the ledger (Thornfield, a basics form).</summary>
-        void Miss()
+        /// a corpse in the way. A basic's miss tells the ledger (Thornfield, a basics form); any miss
+        /// tells the element (Water's miss cost, Air's streak).</summary>
+        void Miss(bool aimed = true)
         {
             if (!_isFinisher && _player != null) _player.Effects?.OnArrowMissed(transform.position);
+            if (aimed) _player?.Resource?.OnAttackMissed();   // Water's miss cost, Air's streak
             Destroy(gameObject);
         }
 

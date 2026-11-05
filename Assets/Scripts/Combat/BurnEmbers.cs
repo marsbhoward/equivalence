@@ -36,7 +36,7 @@ namespace Convergence.Combat
         int _w, _h;
 
         /// <summary>A sprite's per-column top and bottom texel, and its highest texel.</summary>
-        internal class Profile { public int W, H, Highest; public int[] Top, Bottom; }
+        internal class Profile { public int W, H, Highest; public int[] Top, Bottom; public bool[] Solid; }
 
         // Plain static cache: a reload empties it, and it refills on the next frame drawn.
         static Dictionary<Sprite, Profile> _profiles = new();
@@ -166,6 +166,7 @@ namespace Convergence.Combat
                 {
                     bool solid = px == null || px[y * w + x].a > 128;
                     if (!solid) continue;
+                    if (px != null) (p.Solid ??= new bool[w * h])[y * w + x] = true;
                     if (bottom < 0) bottom = y;
                     top = y;
                 }
