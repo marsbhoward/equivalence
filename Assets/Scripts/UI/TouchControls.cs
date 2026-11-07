@@ -264,6 +264,14 @@ namespace Convergence.UI
             Pill("GEAR", PillW, TopRight, new Vector2(-120f, -86f), Controls.Context.Hub,
                  v => Controls.VirtualLoadout = v,
                  key: "C", pad: () => GamepadGlyphs.Loadout, held: () => Controls.LoadoutHeld);
+            // Settings and the inventory have only Escape/Select and I on other devices - a phone
+            // had no way to either (2026-11-05).
+            Pill("BAG", PillW, TopRight, new Vector2(-290f, -86f), Controls.Context.Hub,
+                 v => Controls.VirtualInventory = v,
+                 key: "I", pad: () => GamepadGlyphs.Inventory);
+            Pill("MENU", PillW, TopRight, new Vector2(-460f, -86f), Controls.Context.Hub,
+                 v => Controls.VirtualSettings = v,
+                 key: "ESC", pad: () => GamepadGlyphs.Settings);
 
             // Placing a trophy is its own set, because it is the one state with THREE answers -
             // put it down, send it back to the crate, put it back where it was. Two of those

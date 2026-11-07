@@ -53,6 +53,10 @@ namespace Convergence.Core
         public static bool VirtualTurnRight;
         /// <summary>The touch overlay's PHIAL button.</summary>
         public static bool VirtualPhial;
+        /// <summary>The hub's SETTINGS pill - touch has no Escape or Select.</summary>
+        public static bool VirtualSettings;
+        /// <summary>The hub's BAG pill (a run reaches its carried loot through MENU).</summary>
+        public static bool VirtualInventory;
 
         /// <summary>
         /// True while the left mouse button is on one of the overlay's buttons - set by
@@ -736,12 +740,14 @@ namespace Convergence.Core
             // sticks are: a menu button has to work even before the player has pressed anything
             // else, including before they have looked at the rebind screen.
             Edge(ref _settingsMenu, ref _settingsMenuPrev,
-                 (kb != null && kb.escapeKey.isPressed) || (pad != null && pad.selectButton.isPressed));
+                 (kb != null && kb.escapeKey.isPressed) || (pad != null && pad.selectButton.isPressed)
+                 || VirtualSettings);
 
             // The run's carried loot, straight past the pause menu. Select again, as the hub's
             // settings: the two never meet, since settings is hub-only and loot is run-only.
             Edge(ref _inventory, ref _inventoryPrev,
-                 (kb != null && kb.iKey.isPressed) || (pad != null && pad.selectButton.isPressed));
+                 (kb != null && kb.iKey.isPressed) || (pad != null && pad.selectButton.isPressed)
+                 || VirtualInventory);
 
             // ---- a first-run hint holds the world still (see WorldBlocked) ----
             _worldPressed = _attack || _release || _guard || _interact || _secondAbility || _alt;
