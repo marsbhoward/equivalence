@@ -120,7 +120,7 @@ namespace Convergence.Combat
         /// onto the target - until the first arrival; bounces after it fly straight.</summary>
         bool _homing;
         Vector2 _heading, _homeFrom;
-        float _homeU;
+        float _homeU, _homeBow = Core.Tuning.Ripple.Bow;
 
         /// <summary>Aim the throw at <paramref name="target"/> instead of the nearest in front that
         /// Throw picked (the locked enemy, when in reach). Call right after Throw.</summary>
@@ -143,16 +143,21 @@ namespace Convergence.Combat
         /// <paramref name="target"/> - a homing missile's flight (Ripple). Null: it flies straight
         /// on along the heading to its range. Call right after Throw, which had picked its own.
         /// </summary>
-        public void Home(Health target, Vector2 heading)
+        public void Home(Health target, Vector2 heading, float bow = Core.Tuning.Ripple.Bow, Vector2? at = null)
         {
             _homing = true;
             _homeU = 0f;
+            _homeBow = bow;
             _homeFrom = transform.position;
             _heading = heading.sqrMagnitude > 1e-6f ? heading.normalized : Vector2.right;
             _seeking = target;
             _target = target != null ? (Vector2)target.transform.position
-                                     : (Vector2)transform.position + _heading * _range;
+                    : at ?? (Vector2)transform.position + _heading * _range;
         }
+
+        /// <summary>Units the disc flies on along its travel past its last arrival before it turns
+        /// home - Cross Cut's pair carrying on through the crossing, so the paths draw an X.</summary>
+        public float Overshoot;
 
         public static ThrownDisc Throw(GameObject owner, Art.Gear.ICharacterRig rig, Vector2 aim,
                                        float damage, ElementType element, int ricochets,
@@ -282,7 +287,7 @@ namespace Convergence.Combat
                 var p0 = _homeFrom;
                 var p2 = _target;
                 float span = Vector2.Distance(p0, p2);
-                var p1 = p0 + _heading * Mathf.Max(0.4f, span * Core.Tuning.Ripple.Bow);
+                var p1 = p0 + _heading * Mathf.Max(0.4f, span * _homeBow);
                 float length = Vector2.Distance(p0, p1) + Vector2.Distance(p1, p2);
                 _homeU = Mathf.Min(1f, _homeU + Speed * dt / Mathf.Max(0.05f, length));
                 float u = _homeU, w = 1f - u;
@@ -323,6 +328,14 @@ namespace Convergence.Combat
                     _target = next.transform.position;
                     return;
                 }
+            }
+
+            if (Overshoot > 0f)
+            {
+                _target = (Vector2)transform.position + _travel * Overshoot;
+                Overshoot = 0f;
+                _seeking = null;
+                return;
             }
 
             _returning = true;

@@ -3455,12 +3455,80 @@ namespace Convergence.Player
                 : 0f;
             _settleIsFree = !Mods.RootedWhileSwinging;   // its hit is out: the settle is the player's (SettleRelease)
             var facing = Facing;
+            bool whiffed = _swingWhiffed;
             float wait = Rig != null ? Rig.StrikeDrawnSeconds(step.Motion, swingWindow) : 0f;
-            if (wait > 0f) yield return new WaitForSeconds(wait);
+
+            // Cross Cut in reach steps in with the cut, the step ending as the strike is drawn.
+            float stepIn = isFinisher && step.ThrowsOutOfReach && !ThrowsInsteadOfSwinging
+                ? LungeReach(facing.normalized, Tuning.CrossCut.StepIn) : 0f;
+            if (stepIn > 0.05f)
+            {
+                float stepSeconds = Mathf.Min(Tuning.CrossCut.StepSeconds, Mathf.Max(0.05f, wait));
+                if (wait > stepSeconds) yield return new WaitForSeconds(wait - stepSeconds);
+                Dash(facing, stepIn / stepSeconds, stepSeconds);
+                yield return new WaitForSeconds(stepSeconds);
+            }
+            else if (wait > 0f) yield return new WaitForSeconds(wait);
             SettleStrike();   // the drawn strike is the judged one
+
+            // Out of reach at the strike: the same stroke lets the pair go.
+            if (isFinisher && step.ThrowsOutOfReach && ThrowsInsteadOfSwinging)
+            {
+                if (!whiffed) CrossThrow(step, facing);
+                yield break;
+            }
             _arcFacing = facing;
             try { ResolveArc(step, isFinisher, advanceCombo: false); }
             finally { _arcFacing = null; }
+        }
+
+        /// <summary>
+        /// Cross Cut out of reach (AttackStep.ThrowsOutOfReach; the user's call, 2026-11-06): at the
+        /// drawn strike both discs leave their hands on MIRRORED curves (ThrownDisc.Home, bowed
+        /// Tuning.CrossCut.SplitDegrees either side of the aim) that cross on the locked enemy in
+        /// throw reach, carry on past it (Overshoot - the X), then home. Half the step a disc, no
+        /// ricochet: the whole Light on the one enemy, as the cut in reach. Nothing in throw reach:
+        /// they cross EmptyCross of the way out along the aim. Rolled once at the release.
+        /// </summary>
+        void CrossThrow(AttackStep step, Vector2 facing)
+        {
+            float dmg = (BaseDamage + Mods.BonusDamage) * step.DamageMultiplier * 0.5f
+                        * Mods.FinisherDamageMul * FinisherPowerMul * _strikeMul
+                        * (DamageDealtMultiplier?.Invoke() ?? 1f);
+            dmg *= DamageRoll();
+            dmg *= RollCritFor(true, out bool crit);
+
+            var aim = facing.sqrMagnitude > 1e-6f ? facing.normalized : Vector2.right;
+            var targets = HomingTargets(aim, ThrowReach, 1);
+            var target = targets.Count > 0 ? targets[0] : null;
+            Vector2 cross = (Vector2)transform.position + aim * ThrowReach * Tuning.CrossCut.EmptyCross;
+
+            // Where each hand is now - the discs leave from them.
+            Vector2 main = transform.position, off = transform.position;
+            if (Rig != null && Rig.Transform != null && Rig.TryGetSwordHand(out var local))
+                main = off = Rig.Transform.TransformPoint(local);
+            var offR = Rig?.OffhandRenderer;
+            if (offR != null && offR.enabled) off = offR.transform.position;
+
+            for (int i = 0; i < 2; i++)
+            {
+                bool fromOff = i == 1;
+                float a = (fromOff ? -1f : 1f) * Tuning.CrossCut.SplitDegrees * Mathf.Deg2Rad;
+                var heading = new Vector2(aim.x * Mathf.Cos(a) - aim.y * Mathf.Sin(a),
+                                          aim.x * Mathf.Sin(a) + aim.y * Mathf.Cos(a));
+                var disc = ThrownDisc.Throw(gameObject, Rig, heading, dmg,
+                                            Resource?.Element ?? ElementType.Fire,
+                                            0, ThrowReach, CurrentRange * Tuning.Disc.BounceRangeMul,
+                                            step.DiscFarFraction, isFinisher: true, discIndex: i);
+                if (disc == null) continue;
+                disc.ShowCombined();   // both discs out at once: the combined picture
+                disc.transform.position = fromOff ? off : main;
+                disc.Home(target, heading, Tuning.CrossCut.Bow, cross);
+                disc.Overshoot = Tuning.CrossCut.Overshoot;
+                disc.Crit = crit;
+                disc.SplashFraction = fromOff ? 0f : SplashFraction;   // one spill, off the main disc
+                disc.Knockback = HeavyKnockback(step, true);
+            }
         }
 
         /// <summary>

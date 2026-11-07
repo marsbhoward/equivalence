@@ -265,6 +265,11 @@ namespace Convergence.Combat
         /// the blow (Cross Cut). The timing bar counts the wait (StrikeDelay).</summary>
         public bool StrikesOnDraw;
 
+        /// <summary>Cross Cut (the user's call, 2026-11-06): a drawn strike that, with the target out
+        /// of reach, lets go - both discs on mirrored curves that cross on it, then home
+        /// (PlayerController.CrossThrow, Tuning.CrossCut).</summary>
+        public bool ThrowsOutOfReach;
+
         /// <summary>The swing hop the throw takes (a crow hop, a leap).</summary>
         public float ThrowHop;
 
@@ -775,8 +780,8 @@ namespace Convergence.Combat
             IsDefault = true,
             Class = Art.Gear.WeaponClass.Disc,
             FinisherGlyph = Glyph.Cross,
-            FinisherDescription = "Swings both discs out from crossed arms in an X across the enemy in front of you. " +
-                                  "The full blow lands on that enemy; anything beside it takes little.",
+            FinisherDescription = "Steps in and swings both discs out from crossed arms in an X across the enemy in front of you. " +
+                                  "Out of reach, the discs fly from the stroke on two curves that cross on the enemy, then come home.",
             Basics = DiscBasics(new[]
             {
                 new AttackStep { Name = "Cut", DamageMultiplier = 1f, IntervalMultiplier = 1f },
@@ -785,11 +790,13 @@ namespace Convergence.Combat
             }, DiscMelee.TwinCut, DiscRanged.Charge),
             Finisher = new AttackStep
             {
-                // A MELEE art (the disc guideline, 2026-10-15): the whole Medium on the one enemy in
-                // front - narrow, and steep falloff past it. Nothing in reach: it cuts the air.
-                Name = "Cross Cut", DamageMultiplier = 5f, IntervalMultiplier = 1.5f,
+                // The HYBRID (the user's call, 2026-11-06 - the standing art is the exception to the
+                // disc lean): Light, the whole of it on the one enemy either way. In reach the X cut
+                // - narrow, steep falloff past it; out of reach the same stroke throws the pair.
+                Name = "Cross Cut", DamageMultiplier = 3f, IntervalMultiplier = 1f,
+                Weight = FinisherWeight.Light,
                 Motion = AttackMotion.DiscCrossCut, StrikeWidth = 0.8f, ChainFalloff = 0.35f,
-                StrikesOnDraw = true,
+                StrikesOnDraw = true, ThrowsOutOfReach = true,
             },
         };
 

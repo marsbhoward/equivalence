@@ -512,6 +512,25 @@ namespace Convergence.Core
             public const float Bow = 1.1f;
         }
 
+        /// <summary>Cross Cut thrown (the target out of reach): the pair on mirrored curves that cross
+        /// on the target - PlayerController.CrossThrow, ThrownDisc.Home.</summary>
+        public static class CrossCut
+        {
+            /// <summary>Each disc's heading off the aim, one each side.</summary>
+            public const float SplitDegrees = 35f;
+            /// <summary>How far each curve bows out along its heading, as a share of the distance.</summary>
+            public const float Bow = 0.6f;
+            /// <summary>Units each disc flies on past the crossing before it turns home - the X.</summary>
+            public const float Overshoot = 0.6f;
+            /// <summary>Nothing in throw reach: where the discs cross, as a share of the throw reach.</summary>
+            public const float EmptyCross = 0.6f;
+            /// <summary>In reach, the step in toward the target with the cut (the user's call,
+            /// 2026-11-06): at most this far, stopping Impale.StopShort off the body, on the floor.</summary>
+            public const float StepIn = 0.8f;
+            /// <summary>The step's seconds, ending as the strike is drawn.</summary>
+            public const float StepSeconds = 0.14f;
+        }
+
         public static class Disc
         {
             /// <summary>Melee cadence against the greatsword's. Above 1 is slower.</summary>
