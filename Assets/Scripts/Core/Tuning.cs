@@ -5271,7 +5271,7 @@ namespace Convergence.Core
 
             /// <summary>The SUPPORT corner plate (UI/SupportCard): its size and its inset from the top
             /// right (canvas units).</summary>
-            public const float SupportW = 190f, SupportH = 60f, SupportInset = 36f;
+            public const float SupportW = 260f, SupportH = 60f, SupportInset = 36f;
 
             /// <summary>The flakes' texel grid across the screen (a texel ~1/320 of the width).</summary>
             public const int FlakeTexelsAcross = 320;

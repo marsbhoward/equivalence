@@ -265,7 +265,7 @@ namespace Convergence.UI
             _canvas = canvas;
         }
 
-        /// <summary>The corner plate, top right, with "made by one person" beside it.</summary>
+        /// <summary>The corner plate, top right: SUPPORT INDIE DEV.</summary>
         void BuildSupport(RectTransform full)
         {
             float x = 960f - TT.SupportInset - TT.SupportW;
@@ -274,9 +274,7 @@ namespace Convergence.UI
             face.sprite = Plate(false);
             face.type = Image.Type.Sliced;
             face.color = Color.white;
-            UiKit.Label(_support, "SUPPORT", 20, new Color(0.95f, 0.84f, 0.58f), TextAnchor.MiddleCenter);
-            var note = Top(full, "support.note", x - 420f - 16f, TT.SupportInset, 420f, TT.SupportH);
-            UiKit.Label(note, "made by one person", 17, Sub, TextAnchor.MiddleRight);
+            UiKit.Label(_support, "SUPPORT INDIE DEV", 20, new Color(0.95f, 0.84f, 0.58f), TextAnchor.MiddleCenter);
         }
 
         /// <summary>The bottom line - one sentence and PRIVACY after it, centred as a pair.</summary>
