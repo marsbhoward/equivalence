@@ -44,8 +44,27 @@ namespace Convergence.Rifts
         float _life = Tuning.Boss.RiftBoxLifeSeconds;
         bool _taken;
 
-        /// <summary>1 when freshly dropped, 0 as it closes.</summary>
-        public float Life01 => Mathf.Clamp01(_life / Mathf.Max(0.0001f, Tuning.Boss.RiftBoxLifeSeconds));
+        /// <summary>Dropped from the inventory: never taken, and gone in a moment
+        /// (<see cref="Fleeting"/>). Not saved with the room.</summary>
+        public bool Fleeting { get; private set; }
+
+        /// <summary>1 when freshly dropped, 0 as it closes. A fleeting box holds at 1, then closes
+        /// over Tuning.Boss.DroppedRiftBoxCloseSeconds.</summary>
+        public float Life01 => Fleeting
+            ? Mathf.Clamp01(_life / Mathf.Max(0.0001f, Tuning.Boss.DroppedRiftBoxCloseSeconds))
+            : Mathf.Clamp01(_life / Mathf.Max(0.0001f, Tuning.Boss.RiftBoxLifeSeconds));
+
+        /// <summary>A Rift Box the player dropped from the inventory: it lands and bobs as any
+        /// dropped box does, winds down quickly and implodes - the same picture as one left too
+        /// long, so what happened to it reads without a word.</summary>
+        public static RiftBoxPickup DropFleeting(Vector2 at, Transform parent, Transform player)
+        {
+            var b = Drop(at, parent, player, null,
+                         Tuning.Boss.DroppedRiftBoxHoldSeconds + Tuning.Boss.DroppedRiftBoxCloseSeconds);
+            b.Fleeting = true;
+            b._life = Tuning.Boss.DroppedRiftBoxHoldSeconds + Tuning.Boss.DroppedRiftBoxCloseSeconds;
+            return b;
+        }
 
         static readonly Color Cyan = new(0.45f, 0.88f, 1f);
 
@@ -119,7 +138,7 @@ namespace Convergence.Rifts
             _box.transform.localPosition = new Vector3(0f, FeetY * shrink + bob, 0f);
             _box.transform.localRotation = Quaternion.Euler(0f, 0f, sway);
 
-            bool near = InReach;
+            bool near = !Fleeting && InReach;
 
             // Cyan while there is time, running to hot as it closes. The last two seconds also
             // pulse faster, so "about to go" reads at a glance from across the arena rather than

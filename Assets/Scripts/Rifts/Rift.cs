@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using UnityEngine;
 using Convergence.Combat;
 using Convergence.Core;
@@ -60,6 +61,10 @@ namespace Convergence.Rifts
         /// the screen, because the screen can now be closed and reopened - counted per opening,
         /// every reopen would hand out the capacity again.</summary>
         public int Secured;
+
+        /// <summary>What this tear secured, in order, and what paid for each - so the Rift screen
+        /// can move one back and refund it. Not saved: a resumed run's earlier secures are final.</summary>
+        public List<RiftTake> Taken = new();
 
         /// <summary>Seconds left on an unstable Rift's clock.</summary>
         public float Remaining { get; private set; }
@@ -292,5 +297,15 @@ namespace Convergence.Rifts
                 }
             RimAlpha = k;
         }
+    }
+
+    /// <summary>One thing a Rift secured: a piece, a tiered box, or a Rift Box - and how it was paid.</summary>
+    public class RiftTake
+    {
+        public Chain.MintedGearRecord Gear;
+        public Art.Gear.LootTier? Tier;
+        public bool RiftBox;
+        /// <summary>Free capacity (false), or a spent Rift Box (true) from the pool in PaidFromFound.</summary>
+        public bool PaidBox, PaidFromFound;
     }
 }

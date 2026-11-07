@@ -192,6 +192,17 @@ namespace Convergence.Hub
             Apply(_lit);
         }
 
+        /// <summary>Shut at once - unfocused, not held, not staged - for the hub's last picture
+        /// (HubRoom.PoseForGlimpse).</summary>
+        public void Shut()
+        {
+            Focused = false;
+            _heldOpen = false;
+            if (_staged) { _staged = false; _stone = _stoneBefore; }
+            _openT = 0f;
+            Apply(_lit);
+        }
+
         /// <summary>How far open the doors are, 0 to 1, eased as they are drawn.</summary>
         public float OpenEased => Mathf.SmoothStep(0f, 1f, _openT);
 

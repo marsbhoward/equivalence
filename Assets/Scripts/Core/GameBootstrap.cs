@@ -2306,6 +2306,7 @@ namespace Convergence.Core
             // Photograph the room BEFORE tearing it down - this is the only moment it exists and
             // is framed. What a Rift shows through its tear is this picture: the hub as the player
             // left it, which is the thing they are deciding whether to go back to.
+            _hub.PoseForGlimpse();
             Rifts.HubGlimpse.Capture(_cam, _hub.GateFocus);
 
             _hub.Teardown();
@@ -2565,7 +2566,7 @@ namespace Convergence.Core
                 // rather than to the pause menu it was never opened from.
                 if (Controls.InventoryTapped && !InventoryScreen.IsOpen)
                 {
-                    InventoryScreen.Open(_canvas.transform, _loot);
+                    OpenRunInventory(null);
                     return;
                 }
 
@@ -5688,6 +5689,7 @@ namespace Convergence.Core
         void OpenRift()
         {
             _hud?.SetRiftPrompt(false);
+            SyncCarry();
             RiftScreen.Open(_canvas.transform, _loot, RiftCapacity(), _floor, _rift,
                 onExtract: () =>
                 {
@@ -6286,7 +6288,51 @@ namespace Convergence.Core
                 _hud?.Flash(taken.DisplayName);
                 Debug.Log($"[Rift] picked up {taken.DisplayName} " +
                           $"(carrying {_loot.CarriedCount}, secured {_loot.SecuredCount})");
-            }));
+            }, full: () => { SyncCarry(); return _loot.BagFull; },
+               onFull: () => _hud?.Flash($"bag full ({_loot.CarryLimit})  -  secure something at a Rift")));
+        }
+
+        /// <summary>
+        /// The run's bag, with its drops (the user's call, 2026-11-06): a carried piece goes down at
+        /// the player's feet and lies there like any drop until the floor is left; a carried Rift
+        /// Box is thrown away behind a confirm - it lands, winds down and implodes, and is gone.
+        /// </summary>
+        void OpenRunInventory(System.Action onClosed)
+        {
+            SyncCarry();
+            InventoryScreen.Open(_canvas.transform, _loot, onClosed,
+                onDropGear: gear =>
+                {
+                    if (_player == null) return;
+                    LayGearAt(DropBeside(), gear);
+                    Debug.Log($"[Rift] dropped {gear.DisplayName} (carrying {_loot.CarriedCount})");
+                },
+                onDropBox: closed => ConfirmDialog.Show(_canvas.transform,
+                    "DROP A RIFT BOX?",
+                    "A dropped Rift Box disappears - it can't be picked up again.",
+                    "DROP IT", "KEEP IT",
+                    onConfirm: () =>
+                    {
+                        if (_player == null || !_loot.DropFoundBox()) return;
+                        Rifts.RiftBoxPickup.DropFleeting(DropBeside(), _enemyRoot, _player.transform);
+                        Debug.Log($"[Rift] dropped a RIFT BOX (boxes {_loot.TotalBoxes})");
+                    },
+                    onCancel: () => OpenRunInventory(closed)));
+        }
+
+        /// <summary>Where a dropped thing lands: a step to the player's side, so the body doesn't
+        /// hide it (Arena.NearestFloor in each Drop keeps it on the ground).</summary>
+        Vector2 DropBeside() => (Vector2)_player.transform.position + new Vector2(0.6f, -0.2f);
+
+        /// <summary>
+        /// The bag's size for where the run stands (Tuning.Boss.CarrySlotsAfter): read off the
+        /// deepest floor CLEARED - this one once its reward is taken, else the one before - so it
+        /// needs no saving and a resume derives it again. Called before anything reads it.
+        /// </summary>
+        void SyncCarry()
+        {
+            if (_loot == null) return;
+            _loot.CarryLimit = Tuning.Boss.CarrySlotsAfter(_rewardTaken ? _floor : _floor - 1);
         }
 
         /// <summary>
@@ -6565,7 +6611,7 @@ namespace Convergence.Core
                 onInventory: () =>
                 {
                     PauseScreen.Close();
-                    InventoryScreen.Open(_canvas.transform, _loot, OpenPauseMenu);
+                    OpenRunInventory(OpenPauseMenu);
                 },
                 onEndRun: () =>
                 {
@@ -6864,7 +6910,7 @@ namespace Convergence.Core
                 // A Rift Box the last kills dropped is still lying there through the deal and the
                 // reward (their pause stops its clock) - it comes back with the room.
                 foreach (var b in FindObjectsByType<Rifts.RiftBoxPickup>(FindObjectsInactive.Exclude))
-                    if (b != null && !b.Taken)
+                    if (b != null && !b.Taken && !b.Fleeting)
                         s.GroundBoxes.Add(new GroundBox { X = b.transform.position.x, Y = b.transform.position.y, Life = b.LifeSeconds });
             }
             _player.CaptureRun(s);

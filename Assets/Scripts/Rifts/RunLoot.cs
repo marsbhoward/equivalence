@@ -35,6 +35,13 @@ namespace Convergence.Rifts
         public IReadOnlyList<MintedGearRecord> Secured => _secured;
 
         public int CarriedCount => _carried.Count;
+
+        /// <summary>How many gear pieces may be carried (Tuning.Boss.CarrySlotsAfter) - set by
+        /// GameBootstrap.SyncCarry before anything reads it, so never saved.</summary>
+        public int CarryLimit { get; set; } = int.MaxValue;
+
+        /// <summary>No room for another carried piece.</summary>
+        public bool BagFull => _carried.Count >= CarryLimit;
         public int SecuredCount => _secured.Count;
 
         // ------------------------------------------------------------------ Rift Boxes
@@ -78,6 +85,19 @@ namespace Convergence.Rifts
         }
 
         public void FindBox() => FoundBoxes++;
+
+        /// <summary>A found Rift Box thrown away from the inventory (it is gone - see
+        /// RiftBoxPickup.DropFleeting). Only a carried one; a banked box is safe and stays.</summary>
+        public bool DropFoundBox()
+        {
+            if (FoundBoxes <= 0) return false;
+            FoundBoxes--;
+            return true;
+        }
+
+        /// <summary>A carried piece put down on the floor from the inventory; it lies there as any
+        /// drop does until the floor is left.</summary>
+        public bool DropCarried(MintedGearRecord record) => record != null && _carried.Remove(record);
 
         // ------------------------------------------------------------------ tiered Forge boxes
 
@@ -188,11 +208,54 @@ namespace Convergence.Rifts
         /// ahead of the safe reserve is what the player would choose every time. Making them pick
         /// would be a decision with one right answer, which is not a decision.
         /// </summary>
-        public bool SpendBox()
+        public bool SpendBox() => SpendBox(out _);
+
+        /// <summary>As <see cref="SpendBox()"/>, saying which pool paid - so a Rift's undo can
+        /// give it back to the same one (a refund into found would put a safe box at risk).</summary>
+        public bool SpendBox(out bool fromFound)
         {
-            if (FoundBoxes > 0) { FoundBoxes--; return true; }
+            fromFound = FoundBoxes > 0;
+            if (fromFound) { FoundBoxes--; return true; }
             if (BankedBoxes > 0) { BankedBoxes--; return true; }
             return false;
+        }
+
+        public void RefundBox(bool toFound)
+        {
+            if (toFound) FoundBoxes++;
+            else BankedBoxes++;
+        }
+
+        // ------------------------------------------------------------------ undoing a secure
+
+        /// <summary>
+        /// Back across the line, at the same Rift (the user's call, 2026-11-05: a piece secured by
+        /// mistake could not be moved back). The Rift screen only offers it for what it secured
+        /// itself, and pays back what it cost. Each refuses anything not actually secured.
+        /// </summary>
+        public bool Unsecure(MintedGearRecord record)
+        {
+            if (record == null || !_secured.Remove(record)) return false;
+            _carried.Add(record);
+            return true;
+        }
+
+        public bool UnsecureTieredBox(LootTier tier)
+        {
+            if (SecuredTieredBoxes(tier) <= 0 || BankedTieredBoxes(tier) <= 0) return false;
+            _securedTieredBoxes[tier] = SecuredTieredBoxes(tier) - 1;
+            _bankedTieredBoxes[tier] = BankedTieredBoxes(tier) - 1;
+            _foundTieredBoxes[tier] = FoundTieredBoxes(tier) + 1;
+            return true;
+        }
+
+        public bool UnsecureRiftBox()
+        {
+            if (SecuredRiftBoxes <= 0 || BankedBoxes <= 0) return false;
+            SecuredRiftBoxes--;
+            BankedBoxes--;
+            FoundBoxes++;
+            return true;
         }
 
         public void Clear()

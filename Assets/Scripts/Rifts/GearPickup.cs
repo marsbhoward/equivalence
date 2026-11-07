@@ -29,6 +29,9 @@ namespace Convergence.Rifts
 
         Transform _player;
         System.Action<MintedGearRecord> _onTaken;
+        System.Func<bool> _full;
+        System.Action _onFull;
+        float _fullSaidAt = -10f;
         MintedGearRecord _record;
         SpriteRenderer _glint;
         LootBeam _beam;
@@ -46,7 +49,8 @@ namespace Convergence.Rifts
             && Vector2.Distance(_player.position, transform.position) <= Reach;
 
         public static GearPickup Drop(Vector2 at, MintedGearRecord record, Transform parent,
-                                      Transform player, System.Action<MintedGearRecord> onTaken)
+                                      Transform player, System.Action<MintedGearRecord> onTaken,
+                                      System.Func<bool> full = null, System.Action onFull = null)
         {
             var go = new GameObject("gear-drop");
             if (parent != null) go.transform.SetParent(parent, false);
@@ -56,6 +60,8 @@ namespace Convergence.Rifts
             p._player = player;
             p._record = record;
             p._onTaken = onTaken;
+            p._full = full;
+            p._onFull = onFull;
             p._tint = UI.CharacterScreen.TierColor(record.Tier);
             p._t = Random.value * 10f;   // a crowd of drops shouldn't pulse in unison
 
@@ -100,8 +106,16 @@ namespace Convergence.Rifts
             }
 
             if (!near) return;
-            Controls.OfferUse(_record?.DisplayName);   // the touch USE button (Controls.ArenaUse)
+            // A full bag leaves the piece where it lies (Tuning.Boss.CarrySlots) - said, not offered.
+            bool full = _full != null && _full();
+            Controls.OfferUse(full ? "BAG FULL" : _record?.DisplayName);   // the touch USE button (Controls.ArenaUse)
             if (!Controls.InteractTapped) return;
+            if (full)
+            {
+                if (Time.time - _fullSaidAt > 1f) _onFull?.Invoke();
+                _fullSaidAt = Time.time;
+                return;
+            }
 
             _taken = true;
             TexelFx.BeamDrop(transform.position, TexelFx.RampOf(_tint), LootBeam.Height, TexelFx.Air);

@@ -225,6 +225,17 @@ namespace Convergence.Hub
                 ? (Vector2)_door.transform.position + new Vector2(0f, Tuning.Hub.DoorHeight * 0.35f)
                 : new Vector2(Tuning.Hub.DoorX, FloorTop);
 
+        /// <summary>
+        /// Sets the room as the Rift's tear shows it, just before HubGlimpse photographs it: the
+        /// sigil door stands shut behind the player. Their figure stays in - gear can't change
+        /// mid-run, so it is still the character as they are. Only for the capture - the room is
+        /// torn down straight after.
+        /// </summary>
+        public void PoseForGlimpse()
+        {
+            if (_door != null) _door.Shut();
+        }
+
         // ------------------------------------------------------------------ build
 
         /// <param name="roster">Saved characters OTHER than the one being played. They sit on

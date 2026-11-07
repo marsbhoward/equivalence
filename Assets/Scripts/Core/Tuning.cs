@@ -2190,6 +2190,23 @@ namespace Convergence.Core
             public const int BaseRiftCapacity = 1;
 
             /// <summary>
+            /// How many gear pieces a run can carry at risk (the user's call, 2026-11-06): 5 until
+            /// floor 10 is cleared, 7 after it, 10 once floor 25 is cleared. A pickup past it stays on
+            /// the floor. Boxes don't count - they stack, and a boss box is a reward, not a pickup.
+            /// Secured pieces don't count either; the bag is what rides on the next death.
+            /// </summary>
+            public const int CarrySlots = 5;
+            public const int CarrySlotsFirstFloor = 10, CarrySlotsFirst = 7;
+            public const int CarrySlotsSecondFloor = 25, CarrySlotsSecond = 10;
+
+            /// <summary>The bag's size once <paramref name="cleared"/> is the deepest floor cleared
+            /// this run.</summary>
+            public static int CarrySlotsAfter(int cleared)
+                => cleared >= CarrySlotsSecondFloor ? CarrySlotsSecond
+                 : cleared >= CarrySlotsFirstFloor ? CarrySlotsFirst
+                 : CarrySlots;
+
+            /// <summary>
             /// Chance any ENEMY drops a Rift Box, PER BASIC CHASER IT IS WORTH - its wave cost over
             /// a Chaser's on the same floor (Enemies.WaveComposer). An elite is likelier to drop
             /// one than a Bubbles, and a floor pays in proportion to its pool whatever mix it rolled.
@@ -2245,6 +2262,11 @@ namespace Convergence.Core
             /// Scaled time, so opening the loadout mid-fight does not burn it.
             /// </summary>
             public const float RiftBoxLifeSeconds = 10f;
+
+            /// <summary>A Rift Box DROPPED from the inventory (the user's call, 2026-11-06): it stands
+            /// and bobs as a dropped one does for the first span, winds down over the second, then
+            /// implodes. It can't be taken back - dropping one is giving it up, behind a confirm.</summary>
+            public const float DroppedRiftBoxHoldSeconds = 1.0f, DroppedRiftBoxCloseSeconds = 0.45f;
 
             /// <summary>Floors that hold a boss. The reincarnation bosses of the run economy sit
             /// at 25 / 50 / 75 / 100; only the first exists so far.</summary>
