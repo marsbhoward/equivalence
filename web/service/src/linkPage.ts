@@ -34,3 +34,25 @@ export function privacyPage(): express.RequestHandler {
     },
   });
 }
+
+/** The HOME page (web/service/home) - what the game is, at `/`; its files under `/home/`. */
+const homeDir = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..', 'home');
+
+export function homeFiles(): express.RequestHandler {
+  return express.static(homeDir, {
+    index: false,
+    setHeaders(res: Response, file: string) {
+      res.setHeader('Cache-Control', file.endsWith('.html') ? 'no-cache' : 'public, max-age=3600');
+      res.setHeader('X-Content-Type-Options', 'nosniff');
+      if (file.endsWith('.html')) pageHeaders(res, file);
+    },
+  });
+}
+
+export function homePage(req: express.Request, res: Response): void {
+  const file = path.join(homeDir, 'index.html');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  pageHeaders(res, file);
+  res.sendFile(file);
+}

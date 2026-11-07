@@ -27,7 +27,7 @@ import { beatRun, claimRun, endRun, loadRun, saveRun } from './routes/runs.js';
 import { hasDatabase, migrate } from './db.js';
 import { playRouter } from './play.js';
 import { linkChallenge, linkProve, linkRequest, linkWitness, pollLink, signedLink, signLink, startLink } from './link.js';
-import { linkPage, privacyPage } from './linkPage.js';
+import { homeFiles, homePage, linkPage, privacyPage } from './linkPage.js';
 import { activatePlay, putPlayFile, rollbackPlay } from './routes/playUpload.js';
 import { LIMITS, overall, perIdentity, perIp } from './rateLimit.js';
 import { shutDownCleanly, track } from './lifecycle.js';
@@ -174,6 +174,10 @@ app.use('/link', linkPage());
 app.get('/privacy', (req, res, next) => (req.path === '/privacy' && !req.originalUrl.startsWith('/privacy/')
   ? res.redirect(301, '/privacy/') : next()));
 app.use('/privacy', perIp('public', LIMITS.publicRead), privacyPage());
+
+// What the game is (web/service/home) - the site's front page; its stylesheet, script, art and font under /home.
+app.get('/', publicRead, homePage);
+app.use('/home', publicRead, homeFiles());
 
 // The connector's /write/<kind> convention (equivalence-chain.ts `write()`).
 app.use('/write', requireSession, perIdentity('write', LIMITS.write));

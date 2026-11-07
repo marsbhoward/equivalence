@@ -1,0 +1,208 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#140b0b">
+  <meta name="referrer" content="same-origin">
+  <meta name="description" content="Equivalence: an arena roguelite about equal exchange. Fifty floors, one hour, every gift paid for.">
+  <title>Equivalence</title>
+  <link rel="preload" href="home/SourceCodePro.ttf" as="font" type="font/ttf" crossorigin>
+  <link rel="stylesheet" href="home/home.css">
+</head>
+<body>
+<header class="hero">
+  <img src="home/keyart.jpg" alt="A ruined tower breaking apart in a red glow, rifts tearing the sky around it, a sigil door at its foot." width="1920" height="1080">
+  <div class="wrap hero-copy">
+    <div class="mark" role="heading" aria-level="1" aria-label="Equivalence">
+      <span>EQUIVALENCE</span>
+      <span class="rule" aria-hidden="true"></span>
+      <span class="mirror" aria-hidden="true">EQUIVALENCE</span>
+    </div>
+    <p class="tagline">An arena roguelite about equal exchange. Climb fifty floors of a tower the world is bleeding into. Every gift you take has a price.</p>
+    <div class="facts">
+      <span><b>50</b>floors</span>
+      <span><b>~60</b>minute run</span>
+      <span><b>4</b>elements</span>
+      <span><b>3</b>weapon classes</span>
+      <span><b>6</b>mini-bosses</span>
+    </div>
+    <div class="cta"><a class="play" href="/play/">Play in your browser</a></div>
+  </div>
+</header>
+
+<main>
+  <section id="descent">
+    <div class="wrap">
+      <div class="head">
+        <span class="eyebrow">The Short Descent</span>
+        <h2>Fifty floors, one hour</h2>
+        <p class="muted">A full run fits in an evening. Waves of creatures fill the floors between the bosses. A mini-boss waits every ten floors, and an elemental avatar waits at 25 and at 50. The run clock is an hourglass. It lies on its side while you choose between floors and stands up again when the next floor's first enemy appears.</p>
+      </div>
+      <div class="floor-row" aria-label="Floors 1 to 25">
+        <div class="floors" id="f1"></div>
+      </div>
+      <div class="floor-row" aria-label="Floors 26 to 50">
+        <div class="floors" id="f2"></div>
+      </div>
+      <div class="legend">
+        <span><i></i>Wave floor</span>
+        <span><i style="background:var(--ember);border-color:var(--ember)"></i>Mini-boss</span>
+        <span><i style="background:var(--bone);border-color:var(--bone)"></i>Avatar</span>
+        <span><i style="box-shadow:inset 0 -3px 0 var(--rift)"></i>Rift opens</span>
+      </div>
+      <div class="cols" style="margin-top:44px">
+        <div><h3>Difficulty by depth</h3><p class="muted">Each mini-boss you beat makes the creatures smarter. First they lead their shots. Later they flank, punish whiffed attacks and take more turns at once. They never get faster tells.</p></div>
+        <div><h3>Floors that change</h3><p class="muted">Puzzle floors, capture spires that pay a boon, shaped rooms, fire and spike pits, and tornadoes. Rooms are open at the edges and drop away into the sky.</p></div>
+        <div><h3>Places the tower bled into</h3><p class="muted">Stretches of the climb turn into the Drowned Forest, the Sky Ruin or the Salt Flats. Near the top, the Nigredo covers everything in cinders and red light.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="combat">
+    <div class="wrap">
+      <div class="head">
+        <span class="eyebrow">Combat</span>
+        <h2>Deliberate, readable, punishing</h2>
+        <p class="muted">Every attack is a commitment. Every enemy has a tell. A pack shares a limited number of attack turns, so a crowd stays readable. Careless play gets you hurt at every depth. Careful play is how you survive.</p>
+      </div>
+      <div class="cols">
+        <div><h3>Two basics, then the art</h3><p class="muted">Each chain is two basic attacks that lead into a weapon art. Arts are rolled during the run and swapped at the reward rings. Each one pulls, pushes, repositions or defends.</p></div>
+        <div><h3>The timing bar</h3><p class="muted">A weapon art's finisher rides a timing bar. A perfect press adds damage and builds a streak that raises your critical chance. A late press costs you.</p></div>
+        <div><h3>Clashes</h3><p class="muted">When two attacks meet, they cancel. Read the swing, meet it, and the blow never lands.</p></div>
+        <div><h3>The phial</h3><p class="muted">You get a few drinks per run, and each boss you beat refills one. Drinking roots you in place, and a hit spills the charge.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="weapons">
+    <div class="wrap">
+      <div class="head">
+        <span class="eyebrow">Weapon classes</span>
+        <h2>Three ways to fight</h2>
+        <p class="muted">You pick a class when the run starts and keep it to the end. Each class has its own basic attacks, its own arts and its own grip.</p>
+      </div>
+      <div class="weapons">
+        <div class="weapon"><span class="role">Melee</span><h3>Greatsword</h3><p class="muted">Heavy, two-handed and committed. It has the highest damage per swing, and its arts carve through crowds or punish a single target.</p></div>
+        <div class="weapon"><span class="role">Hybrid</span><h3>Twin discs</h3><p class="muted">Heavy cuts up close, ricocheting throws at range, and it switches between them on its own. The throws are a dance. The first throw builds momentum with a spin, a hop or a leap, and the off hand spends it.</p></div>
+        <div class="weapon"><span class="role">Pure range</span><h3>Bow</h3><p class="muted">No melee at any distance. The bow's job is making space: kneeling shots, recoil shots, twin nocks, and arts that kite the pack away from you.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="elements">
+    <div class="wrap">
+      <div class="head">
+        <span class="eyebrow">The four elements</span>
+        <h2>An element is a way to play</h2>
+        <p class="muted">Every element fills a seal in its own way. When the seal is full, you spend it on a release. Each element gives a head start toward the same caps, so no element is the right one.</p>
+      </div>
+      <div class="elements">
+        <div class="el fire"><h3>Fire</h3><p class="muted">Heat builds when you land a hit, take one or parry. It fades if you stop fighting. Burning enemies feed it faster.</p></div>
+        <div class="el water"><h3>Water</h3><p class="muted">The tide rises with every swing that lands, and a miss drains it. Precise play keeps it full. Its releases are its identity.</p></div>
+        <div class="el earth"><h3>Earth</h3><p class="muted">Slow swings and a stubborn body. The seal shakes, cracks and lifts stones as the tremor builds.</p></div>
+        <div class="el air"><h3>Air</h3><p class="muted">The streak is accuracy. Light hits, a high critical chance, and blinks that put you where the pack isn't.</p></div>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <caption class="eyebrow" style="text-align:left;padding:14px 14px 4px;color:var(--ash)">The release arsenal: tap one, hold another</caption>
+          <thead><tr><th scope="col">Kind</th><th scope="col">Fire</th><th scope="col">Water</th><th scope="col">Earth</th><th scope="col">Air</th></tr></thead>
+          <tbody>
+            <tr><th scope="row">Blast<small>a full seal</small></th><td class="f">Erupt</td><td class="w">Burst</td><td class="e">Quake</td><td class="a">Squall</td></tr>
+            <tr><th scope="row">Buff<small>a full seal, a window</small></th><td class="f">Ignite</td><td class="w">Surge</td><td class="e">Tremor Stance</td><td class="a">Gust</td></tr>
+            <tr><th scope="row">Combo<small>a third per strike</small></th><td class="f">Flare Chain</td><td class="w">Tide Strikes</td><td class="e">Stone Chain</td><td class="a">Crosswind</td></tr>
+            <tr><th scope="row">Guard<small>a full seal, 3 charges</small></th><td class="f">Ember Guard</td><td class="w">Mist Veil</td><td class="e">Stone Thorns</td><td class="a">Windbreak</td></tr>
+            <tr><th scope="row">Mobility<small>half a seal</small></th><td class="f">Comet</td><td class="w">Wavecrest</td><td class="e">Mudslide</td><td class="a">Zephyr</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section id="exchange">
+    <div class="wrap">
+      <div class="head">
+        <span class="eyebrow">The Exchange</span>
+        <h2>Nothing is given</h2>
+        <p class="muted">After every floor you're offered deals, each one weighed on a bronze scale. Every boon comes paired with a cost, and the beam tips toward whichever side is heavier. Refuse a deal and it's gone. Accept it and you carry both for the rest of the run.</p>
+      </div>
+      <div class="scale" role="group" aria-label="An example deal">
+        <div class="pan boon"><span class="eyebrow">Boon</span><strong>Behaviours, not numbers</strong><p class="muted">Boons change how your weapon and element behave: new forms for your arts, new statuses, new ways to set them off.</p></div>
+        <div class="fulcrum" aria-hidden="true"></div>
+        <div class="pan cost"><span class="eyebrow">Cost</span><strong>Paid every floor</strong><p class="muted">Costs stack up to three deep. Armour wears faster, heals weaken, or the floors push back harder.</p></div>
+      </div>
+      <p class="muted" style="margin-top:28px">Max out a cost and the circle can transmute it. The stages of the Great Work are written into the ledger:</p>
+      <div class="stages">
+        <span class="stage n">Nigredo</span><span class="stage a">Albedo</span><span class="stage c">Citrinitas</span><span class="stage r">Rubedo</span>
+      </div>
+    </div>
+  </section>
+
+  <section id="rifts">
+    <div class="wrap">
+      <div class="head">
+        <span class="eyebrow">Rifts</span>
+        <h2>Extract, or push on</h2>
+        <p class="muted">A Rift opens around every boss. Through the tear you can see the room where your run began. Anything you've carried this far is at risk until you get it home.</p>
+      </div>
+      <div class="cols">
+        <div><h3>Carried</h3><p class="muted">Everything in the bag. If you die or leave without reaching another Rift, it's lost.</p></div>
+        <div><h3>Secured</h3><p class="muted">Only a few items fit through a Rift, and you choose them one by one. A sure thing now, or the diamond still in the bag?</p></div>
+        <div><h3>Never lost</h3><p class="muted">Experience and mastery stay with you whatever happens. Death costs you loot, never progress.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="bosses">
+    <div class="wrap">
+      <div class="head">
+        <span class="eyebrow">Mini-bosses · floors 10, 20, 30, 40</span>
+        <h2>Fights with their own rules</h2>
+        <p class="muted">The pool of mini-bosses is bigger than the four boss floors, so every run meets a different set. Each fight is a puzzle you learn by playing it.</p>
+      </div>
+      <div class="bosses">
+        <div class="boss"><span class="glyph">VOICE</span><h3>The faceless cantor</h3><p class="muted">It sings a phrase and teleports between slices of the floor. You answer by stepping the same phrase back, one beat at a time.</p></div>
+        <div class="boss"><span class="glyph">GAZE</span><h3>The serpent judge</h3><p class="muted">Hide behind pillars from a gaze that turns you to stone. She breaks the pillars, and the rubble rebuilds.</p></div>
+        <div class="boss"><span class="glyph">GROVE</span><h3>The beetle knight</h3><p class="muted">A knight in an overgrown grove who blooms a lotus to turn the fight.</p></div>
+        <div class="boss"><span class="glyph">TIDE</span><h3>The bronze serpent</h3><p class="muted">A water-and-bronze bullet hell. You break off a limb in each phase.</p></div>
+        <div class="boss"><span class="glyph">WING</span><h3>The fallen duellist</h3><p class="muted">A plumed dark knight with a steel wing and a dying-star blade. A one-on-one duel at your own pace.</p></div>
+        <div class="boss"><span class="glyph">DICE</span><h3>The gambler</h3><p class="muted">Four games of skill with shuffled, glinting tells. When she's cornered, she strips off her armour and goes all in.</p></div>
+      </div>
+      <div class="avatars">
+        <div><span class="eyebrow">Floor</span><span class="num">25</span><h3>You, in the past</h3><p class="muted">A human avatar, geared and armed the way you are. It has an element and a weapon of its own and is still learning them.</p></div>
+        <div><span class="eyebrow">Floor</span><span class="num">50</span><h3>You, in the future</h3><p class="muted">The final boss has mastered its element. Its phases vary more, and it may be awakened. What it says at the end depends on the element you carry.</p></div>
+      </div>
+    </div>
+  </section>
+
+  <section id="gear">
+    <div class="wrap">
+      <div class="head">
+        <span class="eyebrow">Gear, the Forge and the hub</span>
+        <h2>Twelve slots, one silhouette</h2>
+        <p class="muted">Armour and weapons are drawn texel by texel and worn on a rig that turns in four directions. At the Forge you can add stars, re-roll sub-stats, combine pieces and dye cloth. Between runs you return to the hub. You can theme it, hang your weapons in the armoury, and pose for the photo booth.</p>
+      </div>
+      <div class="tiers">
+        <div class="tier t-br"><b>Bronze</b><small>Dropped from floor 1</small></div>
+        <div class="tier t-si"><b>Silver</b><small>From floor 10</small></div>
+        <div class="tier t-go"><b>Gold</b><small>Deep floors</small></div>
+        <div class="tier t-di"><b>Diamond</b><small>From the avatars</small></div>
+        <div class="tier t-bd"><b>Black Diamond</b><small>Unique art, a relic and a locked weapon art</small></div>
+      </div>
+      <div class="cols" style="margin-top:40px">
+        <div><h3>Mastery</h3><p class="muted">A board with a sigil at its centre and four forked paths. It unlocks your releases and shapes your build. Reincarnate to take a new route.</p></div>
+        <div><h3>Sets that forge</h3><p class="muted">Some Diamond pieces come in sets. Three swords forge into one, and four bird bows forge into a phoenix.</p></div>
+        <div><h3>Yours to keep</h3><p class="muted">Rare gear can be minted as a token on Cardano, signed with your character's name. Bring your own NFTs into the hub.</p></div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="wrap">
+  <div class="mark" aria-hidden="true"><span>EQUIVALENCE</span><span class="rule"></span><span class="mirror">EQUIVALENCE</span></div>
+  <p class="muted">Arena roguelite · in development · keyboard, gamepad and touch.</p>
+  <p class="links"><a href="/play/">Play</a> · <a href="/privacy/">Privacy</a></p>
+</footer>
+<script src="home/home.js"></script>
+</body>
+</html>
