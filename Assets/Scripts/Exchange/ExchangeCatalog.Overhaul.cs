@@ -332,7 +332,7 @@ namespace Convergence.Exchange
 
             // ============================================================ FORTUNE
             Plain("fo_long_rift", "Long Rift", School.Ledger, D1, 1, 1, DealKind.Fortune,
-                  $"A Collapsing Rift gives you {S(T2.LongRiftSeconds)} longer.");
+                  $"A Collapsing Rift gives you {S(T2.LongRiftSeconds)} longer.").NotInShowcase();
             Plain("fo_ambush", "Ambush", School.Ledger, D2, 2, 1, DealKind.Fortune,
                   $"The first wave stays unaware {S(T2.AmbushUnawareSeconds)} longer; unaware enemies take {P(T2.AmbushTaken)} more.").Need(Verb.Unaware);
             Plain("fo_spire_echo", "Spire Echo", School.Ledger, D3, 2, 1, DealKind.Fortune,

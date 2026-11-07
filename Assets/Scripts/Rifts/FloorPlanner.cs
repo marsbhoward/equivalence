@@ -260,7 +260,9 @@ namespace Convergence.Rifts
             float red = boss ? 0f : Tuning.Floors.RedShare;
             // A boss fight has no "clear it in time" worth asking, and the first floors have no
             // pace yet to fit a clock to. anyKind: the showcase's fixed Rift floor, early or not.
-            float collapsing = !boss && (anyKind || floor >= Tuning.Floors.CollapsingMinFloor)
+            // Never in the showcase at all (the user's call, 2026-11-05).
+            float collapsing = !boss && !Core.RunFormat.Showcase
+                                     && (anyKind || floor >= Tuning.Floors.CollapsingMinFloor)
                 ? Tuning.Floors.CollapsingShare : 0f;
             double r = rng.NextDouble() * (blue + red + collapsing);
             if (r < collapsing) return RiftKind.Collapsing;
