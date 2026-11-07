@@ -2532,13 +2532,13 @@ namespace Convergence.Art.Gear
 
             if (away && _helmBack != null)
             {
-                if (sr.sprite != _helmBack) _helmFront = sr.sprite;
-                sr.sprite = _helmBack;
+                if (UnderSwap(RigLayer.HeadArmor, sr) != _helmBack) _helmFront = UnderSwap(RigLayer.HeadArmor, sr);
+                SetUnderSwap(RigLayer.HeadArmor, sr, _helmBack);
                 sr.enabled = !_helmHidden;
                 return;
             }
 
-            if (sr.sprite == _helmBack && _helmFront != null) sr.sprite = _helmFront;
+            if (UnderSwap(RigLayer.HeadArmor, sr) == _helmBack && _helmFront != null) SetUnderSwap(RigLayer.HeadArmor, sr, _helmFront);
             SetLayerEnabled(RigLayer.HeadArmor, !away && !_helmHidden);
         }
 
@@ -2562,13 +2562,13 @@ namespace Convergence.Art.Gear
 
             if (away && _hoodOn && _hoodBack != null)
             {
-                if (sr.sprite != _hoodBack) _hoodFront = sr.sprite;
-                sr.sprite = _hoodBack;
+                if (UnderSwap(RigLayer.Hood, sr) != _hoodBack) _hoodFront = UnderSwap(RigLayer.Hood, sr);
+                SetUnderSwap(RigLayer.Hood, sr, _hoodBack);
                 sr.enabled = true;
                 return;
             }
 
-            if (sr.sprite == _hoodBack && _hoodFront != null) sr.sprite = _hoodFront;
+            if (UnderSwap(RigLayer.Hood, sr) == _hoodBack && _hoodFront != null) SetUnderSwap(RigLayer.Hood, sr, _hoodFront);
             SetLayerEnabled(RigLayer.Hood, !away);
         }
 
@@ -2586,13 +2586,13 @@ namespace Convergence.Art.Gear
 
             if (away && _drapeBack != null)
             {
-                if (sr.sprite != _drapeBack) _drapeFront = sr.sprite;
-                sr.sprite = _drapeBack;
+                if (UnderSwap(RigLayer.BackOver, sr) != _drapeBack) _drapeFront = UnderSwap(RigLayer.BackOver, sr);
+                SetUnderSwap(RigLayer.BackOver, sr, _drapeBack);
                 sr.enabled = true;
                 return;
             }
 
-            if (sr.sprite == _drapeBack && _drapeFront != null) sr.sprite = _drapeFront;
+            if (UnderSwap(RigLayer.BackOver, sr) == _drapeBack && _drapeFront != null) SetUnderSwap(RigLayer.BackOver, sr, _drapeFront);
             SetLayerEnabled(RigLayer.BackOver, !away);
         }
 
@@ -3079,8 +3079,10 @@ namespace Convergence.Art.Gear
         {
             EnsureLayers();
             if (!_layers.TryGetValue(RigLayer.Weapon, out var sr) || sr == null) return;
-            if (_weaponBase == null) _weaponBase = sr.sprite;
-            sr.sprite = sprite != null ? sprite : _weaponBase;
+            // Through the flash: a baseline read mid-flash was the white silhouette, for good.
+            if (_weaponBase == null) _weaponBase = UnderSwap(RigLayer.Weapon, sr);
+            var shown = sprite != null ? sprite : _weaponBase;
+            SetUnderSwap(RigLayer.Weapon, sr, shown);
 
             // The off-hand disc is a COPY taken once by SetWeaponSplit, so a flipbook ticking the
             // main hand (Deadlights' turning lights) left the pair's other disc frozen on frame 0.
@@ -3088,7 +3090,7 @@ namespace Convergence.Art.Gear
             if (_split)
             {
                 var off = EnsureOffhand();
-                if (off != null) off.sprite = OffhandSpriteFor(sr.sprite);
+                if (off != null) off.sprite = OffhandSpriteFor(shown);
             }
         }
 
@@ -5137,6 +5139,42 @@ namespace Convergence.Art.Gear
             foreach (var kv in _preFlash)
                 if (_layers.TryGetValue(kv.Key, out var sr) && sr != null) sr.sprite = kv.Value;
             _preFlash.Clear();
+        }
+
+        /// <summary>
+        /// A layer's own sprite, under the flash's or the stone's swap. Anything that remembers a
+        /// sprite to put back later (the bow's string, the heat swap, a helm or hood turning
+        /// round) reads it here: read off the renderer mid-flash it was the WHITE SILHOUETTE,
+        /// put back after the flash had ended - a bow hit while drawing stayed white for good.
+        /// </summary>
+        Sprite UnderSwap(RigLayer layer, SpriteRenderer sr)
+        {
+            if (_stone && _preStone != null && _preStone.TryGetValue(layer, out var st)) return st;
+            if (_flashing && _preFlash.TryGetValue(layer, out var fl)) return fl;
+            return sr.sprite;
+        }
+
+        /// <summary>Sets a layer's own sprite: into the swap that will put it back, and on screen
+        /// as that swap shows it.</summary>
+        void SetUnderSwap(RigLayer layer, SpriteRenderer sr, Sprite sprite)
+        {
+            if (_stone && _preStone != null && _preStone.ContainsKey(layer))
+            {
+                _preStone[layer] = sprite;
+                var stone = sprite != null ? PixelSprite.Stone(sprite) : null;
+                if (_flashing && _preFlash.ContainsKey(layer))
+                {
+                    _preFlash[layer] = stone;
+                    sr.sprite = stone != null ? PixelSprite.Silhouette(stone) : null;
+                }
+                else sr.sprite = stone;
+            }
+            else if (_flashing && _preFlash.ContainsKey(layer))
+            {
+                _preFlash[layer] = sprite;
+                sr.sprite = sprite != null ? PixelSprite.Silhouette(sprite) : null;
+            }
+            else sr.sprite = sprite;
         }
 
         // NON-READONLY and rebuilt if null: a domain reload empties a Dictionary while the

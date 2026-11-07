@@ -440,10 +440,11 @@ namespace Convergence.Art.Gear
 
         void DrawString(SpriteRenderer weapon, Vector2 top, Vector2 bottom, Vector2 at)
         {
-            if (weapon.sprite != _bowStringless)
+            var real = UnderSwap(RigLayer.Weapon, weapon);
+            if (real != _bowStringless)
             {
-                _bowStrung = weapon.sprite;
-                weapon.sprite = _bowStringless;
+                _bowStrung = real;
+                SetUnderSwap(RigLayer.Weapon, weapon, _bowStringless);
             }
             EnsureString();
             // One bow texel thick (the authored grid's cell, at the rig's scale).
@@ -469,8 +470,8 @@ namespace Convergence.Art.Gear
         void RestoreStrung()
         {
             var weapon = WeaponRenderer;
-            if (weapon != null && _bowStringless != null && weapon.sprite == _bowStringless && _bowStrung != null)
-                weapon.sprite = _bowStrung;
+            if (weapon != null && _bowStringless != null && UnderSwap(RigLayer.Weapon, weapon) == _bowStringless && _bowStrung != null)
+                SetUnderSwap(RigLayer.Weapon, weapon, _bowStrung);
             if (_stringTop != null) _stringTop.enabled = false;
             if (_stringBottom != null) _stringBottom.enabled = false;
         }
