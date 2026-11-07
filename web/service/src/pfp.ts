@@ -10,14 +10,14 @@ import { referenceOf } from './cip68.js';
  * PfpRecipe the game assembles (PfpRecipe.cs), the depth the SERVICE attests, and the year it is
  * paid until. Under the stand-in character policy (characters.ts) until the real one is designed.
  *
- * WHAT IT COSTS (the user's calls, 2026-10-25; MONETIZATION.md "The plan as of 2026-10-25"):
+ * WHAT IT COSTS (the user's calls, 2026-10-25, the first take 300 from 2026-11-07; MONETIZATION.md):
  *
  *   the first take   MINT_ADA, year one included - we pay the mint and its deposit
  *   each re-take     RETAKE_ADA to us - we pay the transaction
  *   each later year  RENEW_ADA - while a year is unpaid, minting to the wallet PAUSES (pfpGate)
  *
  * The player pays INSIDE the transaction they sign (their coins in, the price left with us), so a
- * take is never paid without happening, nor happens unpaid. The game's copy of the prices is
+ * take is never paid without happening, nor happens unpaid. Or in NIGHT at the market rate (night.ts). The game's copy of the prices is
  * Chain.Web.PfpPrices - keep the two in step. `PFP_PRICE_SCALE` scales all three on a TESTNET
  * (test ADA is scarce); refused on mainnet.
  */
@@ -27,7 +27,7 @@ const SCALE = (() => {
   return Number.isFinite(s) && s > 0 ? s : 1;
 })();
 const ada = (n: number) => BigInt(Math.round(n * SCALE * 1_000_000));
-export const MINT_ADA = 250;
+export const MINT_ADA = 300;
 export const RETAKE_ADA = 5;
 export const RENEW_ADA = 200;
 export const MINT_LOVELACE = ada(MINT_ADA);

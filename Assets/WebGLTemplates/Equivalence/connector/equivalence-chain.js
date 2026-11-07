@@ -562,21 +562,21 @@ ${bodyHash}`;
       return burn("/write/break-boxes", { profileId, tier, count: Number(count) || 1 });
     },
     // ---- the ONE player-signed write ---------------------------------------------------------
-    assemblePfp({ profileId, accountId, datum }) {
-      return trophy("/write/pfp/mint", profileId, accountId, datum);
+    assemblePfp({ profileId, accountId, datum, currency }) {
+      return trophy("/write/pfp/mint", profileId, accountId, datum, currency);
     },
-    updatePfp({ profileId, accountId, datum }) {
-      return trophy("/write/pfp/update", profileId, accountId, datum);
+    updatePfp({ profileId, accountId, datum, currency }) {
+      return trophy("/write/pfp/update", profileId, accountId, datum, currency);
     },
-    renewPfp({ profileId, accountId }) {
-      return trophy("/write/pfp/renew", profileId, accountId, "");
+    renewPfp({ profileId, accountId, currency }) {
+      return trophy("/write/pfp/renew", profileId, accountId, "", currency);
     }
   };
-  async function trophy(endpoint, profileId, accountId, datum) {
+  async function trophy(endpoint, profileId, accountId, datum, currency) {
     if (!api) throw new Error("no wallet connected");
     const built = await service(endpoint, {
       method: "POST",
-      body: JSON.stringify({ profileId, address: accountId, recipe: datum })
+      body: JSON.stringify({ profileId, address: accountId, recipe: datum, currency: currency || "ADA" })
     });
     const { pfpId, cbor } = await built.json();
     const witness = await signTx(cbor, endpoint.endsWith("/renew") ? "pfp-renew" : "pfp");

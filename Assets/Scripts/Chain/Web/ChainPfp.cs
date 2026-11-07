@@ -24,14 +24,15 @@ namespace Convergence.Chain.Web
     /// they like into their own trophy. It wants BOTH signatures on an update.
     /// </summary>
     /// <summary>
-    /// What a PORTRAIT costs (the user's calls, 2026-10-25; MONETIZATION.md "The plan as of
-    /// 2026-10-25"). The SERVICE's copy is what is charged (web/service/src/pfp.ts) - this is what
-    /// the game SAYS, keep them in step.
+    /// What a PORTRAIT costs (the user's calls, 2026-10-25, the first take 300 from 2026-11-07;
+    /// MONETIZATION.md). The SERVICE's copy is what is charged (web/service/src/pfp.ts) - this is what
+    /// the game SAYS, keep them in step. Each can be paid in NIGHT instead: the same ADA price at the
+    /// market rate, quoted by the service as it builds the transaction (web/service/src/night.ts).
     /// </summary>
     public static class PfpPrices
     {
         /// <summary>The first take: the character's token and portrait, year one included. We pay its mint.</summary>
-        public const int MintAda = 250;
+        public const int MintAda = 300;
         /// <summary>Each re-take, to us; we pay the transaction. Every new look is a reason to re-take.</summary>
         public const int RetakeAda = 5;
         /// <summary>Each later year - minting to the wallet pauses while a year is unpaid.</summary>
@@ -40,6 +41,12 @@ namespace Convergence.Chain.Web
 
     public static class ChainPfp
     {
+        public const string Ada = "ADA", Night = "NIGHT";
+
+        /// <summary>The service's refusal when NIGHT cannot be quoted right now (a thin or moved
+        /// pool, an unreadable one) - the caller offers ADA instead.</summary>
+        public static bool NightUnavailable(ChainException e) => e.Message.Contains("night_unavailable");
+
         /// <summary>Raised after a successful take, so the couch and the sheet redraw.</summary>
         public static event Action Changed;
 
@@ -51,7 +58,7 @@ namespace Convergence.Chain.Web
         /// happened and a UI that had to ask first could get the answer wrong. Refusals run
         /// cheapest-first: no wallet, unreadable chain, nothing changed, parts not owned.
         /// </summary>
-        public static async Task<string> TakeAsync(CharacterProfile profile)
+        public static async Task<string> TakeAsync(CharacterProfile profile, string currency = Ada)
         {
             if (!ChainWallet.Connected)
                 throw new ChainException("connect a wallet before taking a portrait");
@@ -92,6 +99,7 @@ namespace Convergence.Chain.Web
                     profileId = profile.ProfileId,
                     accountId = ChainWallet.Address,
                     datum = JsonUtility.ToJson(recipe),
+                    currency = currency,
                 });
 
                 if (string.IsNullOrEmpty(hash))
@@ -146,7 +154,15 @@ namespace Convergence.Chain.Web
         /// paying to change, before a wallet dialog opens rather than afterwards in an explorer.
         /// </summary>
         [Serializable]
-        public class Status { public bool taken; public int revision; public string paidUntil; public bool lapsed; }
+        public class Status { public bool taken; public int revision; public string paidUntil; public bool lapsed; public Prices prices; }
+
+        /// <summary>What the service charges - only whether NIGHT is accepted is read; the ADA
+        /// figures shown are <see cref="PfpPrices"/>.</summary>
+        [Serializable]
+        public class Prices { public bool night; }
+
+        /// <summary>Whether a payment may be made in NIGHT, from a status read.</summary>
+        public static bool AcceptsNight(Status s) => s?.prices != null && s.prices.night;
 
         /// <summary>The portrait's year, or null when it cannot be read.</summary>
         public static async Task<Status> StatusAsync(string profileId)
@@ -168,13 +184,13 @@ namespace Convergence.Chain.Web
         /// resumes. The player pays inside the transaction they sign, as for a take; only a player
         /// pressing the button reaches this.
         /// </summary>
-        public static async Task<string> RenewAsync(CharacterProfile profile)
+        public static async Task<string> RenewAsync(CharacterProfile profile, string currency = Ada)
         {
             if (!ChainWallet.Connected) throw new ChainException("connect a wallet first");
-            var tx = TxLog.Post(TxKind.Portrait, $"Portrait renewed - a year", $"profile {profile.ProfileId}\n{PfpPrices.RenewAda} ADA");
+            var tx = TxLog.Post(TxKind.Portrait, $"Portrait renewed - a year", $"profile {profile.ProfileId}\n{PfpPrices.RenewAda} ADA{(currency == Night ? " in NIGHT" : "")}");
             try
             {
-                var hash = await WebChainBridge.Call("renewPfp", new ChainArgs { profileId = profile.ProfileId, accountId = ChainWallet.Address });
+                var hash = await WebChainBridge.Call("renewPfp", new ChainArgs { profileId = profile.ProfileId, accountId = ChainWallet.Address, currency = currency });
                 if (string.IsNullOrEmpty(hash))
                 {
                     TxLog.Fail(tx, "connector returned no transaction hash");

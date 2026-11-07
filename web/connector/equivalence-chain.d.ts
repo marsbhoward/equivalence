@@ -165,7 +165,7 @@ export interface EquivalenceChain {
    * REJECT a mint for a character that already has a portrait. The game checks first, but two
    * tabs can race and a duplicate cannot be taken back.
    */
-  assemblePfp(args: { profileId: string; accountId: string; datum: string }): Promise<string>;
+  assemblePfp(args: { profileId: string; accountId: string; datum: string; currency?: string }): Promise<string>;
 
   /**
    * EVERY re-take after the first - a CIP-68 datum update on the (100) reference token. The
@@ -183,11 +183,11 @@ export interface EquivalenceChain {
    *
    * Same ownership re-check as the mint.
    */
-  updatePfp(args: { profileId: string; accountId: string; datum: string }): Promise<string>;
+  updatePfp(args: { profileId: string; accountId: string; datum: string; currency?: string }): Promise<string>;
 
   /** Another YEAR on the portrait (MONETIZATION.md: 200 ADA) - the player pays inside the transaction
    *  they sign, the service writes the new paid-until date. Resolves the hash. */
-  renewPfp(args: { profileId: string; accountId: string }): Promise<string>;
+  renewPfp(args: { profileId: string; accountId: string; currency?: string }): Promise<string>;
 
 
 }

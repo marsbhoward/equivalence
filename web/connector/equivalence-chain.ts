@@ -696,19 +696,19 @@ export const connector: EquivalenceChain = {
 
   // ---- the ONE player-signed write ---------------------------------------------------------
 
-  assemblePfp({ profileId, accountId, datum }) {
-    return trophy('/write/pfp/mint', profileId, accountId, datum);
+  assemblePfp({ profileId, accountId, datum, currency }) {
+    return trophy('/write/pfp/mint', profileId, accountId, datum, currency);
   },
 
-  updatePfp({ profileId, accountId, datum }) {
+  updatePfp({ profileId, accountId, datum, currency }) {
     // A CIP-68 datum update on the (100) reference token. The (222) token in the wallet is
     // untouched - the same trophy, saying something new.
-    return trophy('/write/pfp/update', profileId, accountId, datum);
+    return trophy('/write/pfp/update', profileId, accountId, datum, currency);
   },
 
-  renewPfp({ profileId, accountId }) {
+  renewPfp({ profileId, accountId, currency }) {
     // Another year on the portrait's record - minting to the wallet resumes. Paid like a take.
-    return trophy('/write/pfp/renew', profileId, accountId, '');
+    return trophy('/write/pfp/renew', profileId, accountId, '', currency);
   },
 };
 
@@ -722,14 +722,15 @@ export const connector: EquivalenceChain = {
  * revision is exactly one past what is on chain. The player then signs because they are the one
  * choosing to re-take it, and paying for it.
  */
-async function trophy(endpoint: string, profileId: string, accountId: string, datum: string) {
+async function trophy(endpoint: string, profileId: string, accountId: string, datum: string, currency?: string) {
   if (!api) throw new Error('no wallet connected');
 
   // The service builds it - the player's coins in, the price left with the service, the depth
-  // attested - and keeps it; only a witness comes back.
+  // attested - and keeps it; only a witness comes back. In NIGHT, the service quotes the price as
+  // it builds, and the wallet's dialog shows the exact amount.
   const built = await service(endpoint, {
     method: 'POST',
-    body: JSON.stringify({ profileId, address: accountId, recipe: datum }),
+    body: JSON.stringify({ profileId, address: accountId, recipe: datum, currency: currency || 'ADA' }),
   });
   const { pfpId, cbor } = await built.json();
 

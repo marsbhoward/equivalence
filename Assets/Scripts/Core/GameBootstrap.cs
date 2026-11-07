@@ -2131,43 +2131,76 @@ namespace Convergence.Core
 
             // A portrait already taken can also have its YEAR renewed here (the yearly charge).
             var status = await Chain.Web.ChainPfp.StatusAsync(_profile.ProfileId);
+            bool night = Chain.Web.ChainPfp.AcceptsNight(status);
             if (status != null && status.taken)
             {
                 diff += status.lapsed ? $"\nYour year ran out on {status.paidUntil?.Substring(0, 10)} - minting to your wallet is paused."
                                       : $"\nPaid until {status.paidUntil?.Substring(0, 10)}.";
                 ConfirmDialog.ShowChoice(_canvas.transform, "Your portrait", diff, "Re-take",
                     $"Renew a year ({Chain.Web.PfpPrices.RenewAda} ADA)", "Not yet",
-                    () => TakeNow(), RenewPortrait, () => _hub?.AvatarRig?.HoldPose(null));
+                    () => PayWith(night, Chain.Web.PfpPrices.RetakeAda, c => TakeNow(c, Chain.Web.PfpPrices.RetakeAda)),
+                    () => PayWith(night, Chain.Web.PfpPrices.RenewAda, RenewPortrait),
+                    () => _hub?.AvatarRig?.HoldPose(null));
                 return;
             }
             ConfirmDialog.Show(_canvas.transform, "Take a portrait?", diff, "Take it", "Not yet",
-                () => TakeNow(), () => _hub?.AvatarRig?.HoldPose(null));
+                () => PayWith(night, Chain.Web.PfpPrices.MintAda, c => TakeNow(c, Chain.Web.PfpPrices.MintAda)), () => _hub?.AvatarRig?.HoldPose(null));
         }
 
-        async void RenewPortrait()
+        /// <summary>
+        /// ADA or NIGHT, when the service accepts NIGHT (the user's call, 2026-11-07). NIGHT is the
+        /// same ADA price at the market rate, quoted only as the transaction is built - the wallet's
+        /// dialog shows the exact amount. ENTER takes ADA (the middle answer).
+        /// </summary>
+        void PayWith(bool night, int ada, Action<string> pay)
+        {
+            if (!night) { pay(Chain.Web.ChainPfp.Ada); return; }
+            ConfirmDialog.ShowChoice(_canvas.transform, "Pay with",
+                $"{ada} ADA, or the same in NIGHT at the market rate - your wallet shows the exact amount before you sign.",
+                "NIGHT", $"{ada} ADA", "Back",
+                () => pay(Chain.Web.ChainPfp.Night), () => pay(Chain.Web.ChainPfp.Ada),
+                () => _hub?.AvatarRig?.HoldPose(null));
+        }
+
+        /// <summary>NIGHT could not be quoted right now (the service's guards) - offer ADA instead.</summary>
+        void OfferAda(int ada, Action<string> pay)
+            => ConfirmDialog.Show(_canvas.transform, "NIGHT unavailable",
+                "NIGHT can't be priced right now. Pay in ADA instead?", $"Pay {ada} ADA", "Not now",
+                () => pay(Chain.Web.ChainPfp.Ada), () => _hub?.AvatarRig?.HoldPose(null));
+
+        async void RenewPortrait(string currency)
         {
             _hub?.AvatarRig?.HoldPose(null);
             try
             {
-                var hash = await Chain.Web.ChainPfp.RenewAsync(_profile);
+                var hash = await Chain.Web.ChainPfp.RenewAsync(_profile, currency);
                 Debug.Log($"[Convergence] portrait renewed: {hash}");
                 _hub?.FlashBooth();
             }
-            catch (Chain.Web.ChainException e) { Debug.LogWarning($"[Convergence] portrait not renewed: {e.Message}"); }
+            catch (Chain.Web.ChainException e)
+            {
+                if (currency == Chain.Web.ChainPfp.Night && Chain.Web.ChainPfp.NightUnavailable(e))
+                    OfferAda(Chain.Web.PfpPrices.RenewAda, RenewPortrait);
+                Debug.LogWarning($"[Convergence] portrait not renewed: {e.Message}");
+            }
             _hub?.RefreshBooth();
         }
 
-        async void TakeNow()
+        /// <summary>A take paid in <paramref name="currency"/>; <paramref name="ada"/> is its ADA price,
+        /// offered instead if NIGHT cannot be quoted.</summary>
+        async void TakeNow(string currency, int ada)
         {
             _hub?.AvatarRig?.HoldPose(null);
             try
             {
-                var hash = await Chain.Web.ChainPfp.TakeAsync(_profile);
+                var hash = await Chain.Web.ChainPfp.TakeAsync(_profile, currency);
                 Debug.Log($"[Convergence] portrait taken: {hash}");
                 _hub?.FlashBooth();
             }
             catch (Chain.Web.ChainException e)
             {
+                if (currency == Chain.Web.ChainPfp.Night && Chain.Web.ChainPfp.NightUnavailable(e))
+                    OfferAda(ada, c => TakeNow(c, ada));
                 // A refused wallet dialog lands here too, and is not an error - the player
                 // said no and nothing was spent. Logged rather than surfaced further; the
                 // booth's own re-read is what the player actually sees on their next visit.

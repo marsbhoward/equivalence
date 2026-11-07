@@ -7,6 +7,7 @@ import { q } from '../db.js';
 import { fundingInputs, getLucid, rememberSpentCbor, serialized, serviceAddress } from '../chain.js';
 import { characterPolicy, characterUnits } from '../characters.js';
 import { referenceDatum } from '../cip68.js';
+import { NIGHT_UNIT, NightUnavailable, nightAccepted, quoteNight } from '../night.js';
 import {
   MINT_ADA, MINT_LOVELACE, PFP_SCHEMA, RENEW_ADA, RENEW_LOVELACE, RETAKE_ADA, RETAKE_LOVELACE, YEAR_MS, portraitOf,
 } from '../pfp.js';
@@ -17,9 +18,12 @@ import {
  *
  *   GET  /pfp/:profileId          -> the PfpRecipe JSON, or null          (the connector's currentPfp)
  *   GET  /pfp/:profileId/status   -> { taken, revision, paidUntil, prices }
- *   POST /write/pfp/mint          { profileId, recipe } -> { pfpId, cbor, price }   the FIRST take
- *   POST /write/pfp/update        { profileId, recipe } -> { pfpId, cbor, price }   a RE-TAKE
- *   POST /write/pfp/renew         { profileId }         -> { pfpId, cbor, price }   a YEAR
+ *   POST /write/pfp/mint          { profileId, recipe, currency? } -> { pfpId, cbor, price, currency }   the FIRST take
+ *   POST /write/pfp/update        { profileId, recipe, currency? } -> { pfpId, cbor, price, currency }   a RE-TAKE
+ *   POST /write/pfp/renew         { profileId, currency? }         -> { pfpId, cbor, price, currency }   a YEAR
+ *
+ * `currency` is "ADA" (the default) or "NIGHT": the ADA price quoted in NIGHT as the transaction is
+ * built (night.ts), `price` then in NIGHT's base units; 503 `night_unavailable` when it cannot be.
  *   POST /write/pfp/submit        { pfpId, witness }    -> { hash }
  *
  * THE PLAYER CHOOSES WHEN, THE SERVICE VOUCHES FOR WHAT (CLAUDE.md, "Who signs what"): the player
@@ -50,7 +54,8 @@ function sweep() {
 }
 
 const prices = () => ({ mint: MINT_ADA, retake: RETAKE_ADA, renew: RENEW_ADA,
-  mintLovelace: Number(MINT_LOVELACE), retakeLovelace: Number(RETAKE_LOVELACE), renewLovelace: Number(RENEW_LOVELACE) });
+  mintLovelace: Number(MINT_LOVELACE), retakeLovelace: Number(RETAKE_LOVELACE), renewLovelace: Number(RENEW_LOVELACE),
+  night: nightAccepted() });
 
 export async function readPortrait(req: Request, res: Response): Promise<void> {
   const profileId = String(req.params.profileId ?? '');
@@ -103,25 +108,29 @@ const add = (into: Assets, unit: string, n: bigint) => {
 };
 
 /**
- * A take the player pays `price` for: their coins in, EXACTLY what they held back less the price
- * (which stays with the service, in its change). `extend` adds the take itself; the service's own
+ * A take the player pays `price` of `unit` for (lovelace, or NIGHT): their coins in, EXACTLY what
+ * they held back less the price (which stays with the service, in its change - a NIGHT change coin
+ * is never a funding input, so it sits untouched). `extend` adds the take itself; the service's own
  * coins pay the fee and every deposit.
  */
-async function buildPaid(address: string, price: bigint, extend: (t: TxBuilder) => Promise<TxBuilder>) {
+async function buildPaid(address: string, unit: string, price: bigint, extend: (t: TxBuilder) => Promise<TxBuilder>) {
   return serialized(async () => {
     const lucid = await getLucid();
-    const coins = (await lucid.utxosAt(address)).sort((a, b) => Number((b.assets.lovelace ?? 0n) - (a.assets.lovelace ?? 0n)));
+    const coins = (await lucid.utxosAt(address)).sort((a, b) => Number((b.assets[unit] ?? 0n) - (a.assets[unit] ?? 0n)));
+    // ADA keeps DUST over for the change; NIGHT needs only the price, the coins' own ADA carries the change.
+    const spare = unit === 'lovelace' ? DUST : 0n;
     const spend: UTxO[] = [];
     let covered = 0n;
     for (const u of coins) {
-      if (covered >= price + 2n * DUST) break;
+      if (covered >= price + 2n * spare || !(u.assets[unit] ?? 0n)) break;
       spend.push(u);
-      covered += u.assets.lovelace ?? 0n;
+      covered += u.assets[unit] ?? 0n;
     }
-    if (covered < price + DUST) throw Object.assign(new Error('not_enough_ada'), { status: 402, have: Number(covered) });
+    if (covered < price + spare)
+      throw Object.assign(new Error(unit === 'lovelace' ? 'not_enough_ada' : 'not_enough_night'), { status: 402, have: Number(covered) });
     const back: Assets = {};
     for (const u of spend) for (const [k, n] of Object.entries(u.assets)) add(back, k, n);
-    add(back, 'lovelace', -price);
+    add(back, unit, -price);
     let t = lucid.newTx().collectFrom(spend).validFrom(Date.now() - 3_600_000).validTo(Date.now() + TTL_MS);
     t = t.pay.ToAddress(address, back);
     t = await extend(t);
@@ -142,6 +151,8 @@ async function start(req: Request, res: Response, kind: 'mint' | 'update' | 'ren
   const address = res.locals.address as string;
   const profileId = String(req.body?.profileId ?? '');
   if (!ID.test(profileId)) return fail(res, 400, 'profileId is required');
+  const currency = String(req.body?.currency ?? 'ADA').toUpperCase();
+  if (currency !== 'ADA' && currency !== 'NIGHT') return fail(res, 400, 'currency is ADA or NIGHT');
   sweep();
   try {
     if (!(await q('SELECT 1 FROM characters WHERE owner = $1 AND profile_id = $2', [address, profileId])).length)
@@ -189,18 +200,33 @@ async function start(req: Request, res: Response, kind: 'mint' | 'update' | 'ren
         .pay.ToAddressWithData(service, { kind: 'inline', value: referenceDatum(meta, PFP_SCHEMA) }, { [units.reference]: 1n });
     }
 
+    // NIGHT: the ADA price at the market rate, read now - as the transaction is built, not before.
+    let unit = 'lovelace';
+    if (currency === 'NIGHT') {
+      try {
+        price = (await quoteNight(price)).night;
+        unit = NIGHT_UNIT;
+      } catch (e) {
+        if (e instanceof NightUnavailable) {
+          console.warn(`[pfp] ${e.message}`);
+          return fail(res, 503, 'night_unavailable', { ada: Number(price) });
+        }
+        throw e;
+      }
+    }
+
     let built;
     try {
-      built = await buildPaid(address, price, extend);
+      built = await buildPaid(address, unit, price, extend);
     } catch (e) {
       const err = e as Error & { status?: number; have?: number };
-      if (err.status === 402) return fail(res, 402, 'not_enough_ada', { have: err.have, need: Number(price) });
+      if (err.status === 402) return fail(res, 402, err.message, { have: err.have, need: Number(price) });
       throw e;
     }
     for (const [id, t] of takes) if (t.address === address && t.profileId === profileId) takes.delete(id);
     const pfpId = randomUUID();
     takes.set(pfpId, { address, profileId, kind, ...built, expires: Date.now() + TTL_MS });
-    res.json({ pfpId, cbor: built.unsigned, kind, price: Number(price) });
+    res.json({ pfpId, cbor: built.unsigned, kind, price: Number(price), currency });
   } catch (e) {
     internal(res, e, `pfp/${kind}`);
   }

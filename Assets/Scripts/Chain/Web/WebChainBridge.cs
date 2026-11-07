@@ -36,6 +36,8 @@ namespace Convergence.Chain.Web
         public string count = "";
         /// <summary>A dye withdrawal or deposit: the swatch id (Art.Gear.DyeCatalog).</summary>
         public string swatch = "";
+        /// <summary>A portrait payment: "ADA" or "NIGHT" (the service quotes NIGHT as it builds).</summary>
+        public string currency = "";
         /// <summary>share / copy (UI/SupportCard): the text to share or put on the clipboard.</summary>
         public string text = "";
 
