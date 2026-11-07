@@ -543,10 +543,25 @@ namespace Convergence.UI
         {
             var p = _profile();
             var item = GearCatalog.Get(p.Gear.Get(slot));
-            var sb = new StringBuilder();
             if (item == null)
                 return $"<color=#{Hex(Dim)}>{slot.Label().ToUpper()}</color>\nnothing worn";
 
+            var lines = ItemLines(item, p);
+            if (p.Look.IsTransmogged(slot, p.Gear))
+            {
+                var over = GearCatalog.Get(p.Look.Transmog.Get(slot));
+                if (over != null) lines += $"\n<color=#{Hex(MercuryInk)}>perceived as {over.DisplayName}</color>";
+            }
+            return lines;
+        }
+
+        /// <summary>One piece's full read - name, tier and stars, every stat, its ability or weapon
+        /// art, its condition. The slot tooltip's body, and what the gear picker shows for the card
+        /// it has selected (worn or not).</summary>
+        internal static string ItemLines(GearItem item, CharacterProfile p)
+        {
+            var slot = item.Slot;
+            var sb = new StringBuilder();
             sb.Append($"<size=21><color=#{Hex(CharacterScreen.TierColor(item.Tier))}>{item.DisplayName}</color></size>");
             string tier = item.Tier == LootTier.BlackDiamond ? "Black Diamond" : item.Tier.ToString();
             string stars = item.Stars > 0 ? $"  {item.Stars} star{(item.Stars == 1 ? "" : "s")}" : "";
@@ -586,13 +601,17 @@ namespace Convergence.UI
                 float cond = p.Wear.Get(item.ItemId) / item.MaxDurability;
                 sb.Append($"\n<color=#{Hex(Dim)}>condition {Mathf.Clamp01(cond) * 100f:0}%</color>");
             }
-
-            if (p.Look.IsTransmogged(slot, p.Gear))
-            {
-                var over = GearCatalog.Get(p.Look.Transmog.Get(slot));
-                if (over != null) sb.Append($"\n<color=#{Hex(MercuryInk)}>perceived as {over.DisplayName}</color>");
-            }
             return sb.ToString();
+        }
+
+        /// <summary>A look offered as a perception: what it is, and that it grants nothing.</summary>
+        internal static string LookLines(GearItem item)
+        {
+            string tier = item.Tier == LootTier.BlackDiamond ? "Black Diamond" : item.Tier.ToString();
+            string kind = item.Slot == GearSlot.Weapon ? WeaponClasses.Name(item.Class) : item.Slot.Label();
+            return $"<size=21><color=#{Hex(CharacterScreen.TierColor(item.Tier))}>{item.DisplayName}</color></size>" +
+                   $"\n<color=#{Hex(Dim)}>{tier}  {kind}</color>" +
+                   $"\n<color=#{Hex(Dim)}>a perception grants nothing</color>";
         }
 
         /// <summary>MERCURY: what the slot is perceived as, over what is really worn. A
@@ -899,7 +918,8 @@ namespace Convergence.UI
             {
                 _picker.Open(_root.transform, slot, held, _profile().Gear.Get(slot),
                              id => { _equip(slot, id); Refresh(); },
-                             id => _profile().Wear.Get(id));
+                             id => _profile().Wear.Get(id),
+                             describe: i => ItemLines(i, _profile()));
                 return;
             }
 
@@ -923,7 +943,9 @@ namespace Convergence.UI
                          emptyLabel: "as equipped",
                          titleSuffix: "PERCEPTION",
                          wornLabel: "shown",
-                         emptyItem: worn);
+                         emptyItem: worn,
+                         describe: LookLines,
+                         pickLabel: "SHOW");
         }
 
         /// <summary>

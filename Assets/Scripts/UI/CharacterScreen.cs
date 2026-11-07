@@ -748,7 +748,8 @@ namespace Convergence.UI
             // of what makes two pieces stack; see GearPicker's own note.
             _picker.Open(_canvas.transform, slot, held, _profile().Gear.Get(slot),
                          id => _equip(slot, id),
-                         id => _profile().Wear.Get(id));
+                         id => _profile().Wear.Get(id),
+                         describe: i => TransmutationScreen.ItemLines(i, _profile()));
         }
     }
 }

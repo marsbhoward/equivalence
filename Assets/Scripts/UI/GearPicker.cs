@@ -108,6 +108,19 @@ namespace Convergence.UI
         /// perception of itself.</summary>
         GearItem _emptyItem;
 
+        /// <summary>A card's full read for the details panel, or null for the name and tier alone.</summary>
+        Func<GearItem, string> _describe;
+
+        /// <summary>What the details panel's button says for a piece not yet chosen: "EQUIP" for gear,
+        /// "SHOW" on the perception tab.</summary>
+        string _pickLabel = "EQUIP";
+
+        // ---- inspecting: a press SELECTS a card and reads it; only the panel's button chooses it
+        // (the user's call, 2026-11-06 - a press that equipped gave no chance to read the piece first).
+        int _selected = -1;
+        RectTransform _detail, _actionRect;
+        readonly List<GearItem> _cellItems = new();
+
         /// <summary>
         /// One card: a single item, or several that are identical in every attribute.
         /// <see cref="PickId"/> is the instance actually equipped when the card is pressed.
@@ -141,7 +154,11 @@ namespace Convergence.UI
         // it whatever the item count does next. Tabs are 128 tall for the same rule - it is the
         // SMALLEST dimension of a target that counts.
         const int Cols = 8;
-        const float Cell = 132f, Gap = 16f, LabelH = 26f;
+        // LabelH holds TWO lines of name: the names are wrapped to their own card, since a name
+        // left to overflow ran into the next card's (2026-11-06).
+        const float Cell = 132f, Gap = 20f, LabelH = 44f;
+        // The details panel, to the right of the grid.
+        const float DetailW = 440f, DetailGap = 32f;
         const float TabW = 260f, TabH = 128f, TabGap = 18f;
 
         /// <param name="options">The list to show, or null to ask the catalogue for the slot.
@@ -152,7 +169,8 @@ namespace Convergence.UI
                          string equippedId, Action<string> onPick, Func<string, float> wear = null,
                          StackBy stackBy = StackBy.Attributes, List<GearItem> options = null,
                          string emptyLabel = "empty", string titleSuffix = null,
-                         string wornLabel = "worn", GearItem emptyItem = null)
+                         string wornLabel = "worn", GearItem emptyItem = null,
+                         Func<GearItem, string> describe = null, string pickLabel = "EQUIP")
         {
             if (IsOpen) return;
             IsOpen = true;
@@ -166,6 +184,9 @@ namespace Convergence.UI
             _titleSuffix = titleSuffix;
             _wornLabel = string.IsNullOrEmpty(wornLabel) ? "worn" : wornLabel;
             _emptyItem = emptyItem;
+            _describe = describe;
+            _pickLabel = string.IsNullOrEmpty(pickLabel) ? "EQUIP" : pickLabel;
+            _selected = -1;
 
             // The relic socket lists by what is HELD rather than by slot - a signature relic only
             // fits beside a weapon of its own class. Everything else is a plain slot lookup.
@@ -343,6 +364,7 @@ namespace Convergence.UI
         {
             if (_gridRoot) Destroy(_gridRoot);
             _cells.Clear();
+            _cellItems.Clear();
             _wornRect = null;
 
             _gridRoot = new GameObject("grid", typeof(RectTransform));
@@ -375,6 +397,12 @@ namespace Convergence.UI
             // grid that re-centres itself on every tab press makes the cards jump under the cursor.
             float top = _activeClass != null ? 118f : 292f;
 
+            // The grid stands left of centre so the grid and the details panel are centred as one.
+            float shift = -(DetailW + DetailGap) * 0.5f;
+            _gridRight = shift + gridW * 0.5f;
+            _gridTop = top;
+            int select = 0;
+
             for (int i = 0; i < count; i++)
             {
                 var stack = i == 0 ? null : shown[i - 1];
@@ -384,7 +412,7 @@ namespace Convergence.UI
                 bool nothingWorn = string.IsNullOrEmpty(_equippedId);
 
                 int col = i % Cols, row = i / Cols;
-                float x = -gridW * 0.5f + col * (Cell + Gap);
+                float x = shift - gridW * 0.5f + col * (Cell + Gap);
                 float y = top - row * pitch;
 
                 var card = UiKit.Panel(gr, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
@@ -461,13 +489,13 @@ namespace Convergence.UI
                     // TORSO ONLY - every torso rolls one of the four defensive abilities and
                     // nothing anywhere used to say which. A player choosing between two cuirasses
                     // could see their tier and power differ and had no way to see the one thing
-                    // that actually changes how the character plays. Sits in the gap between the
-                    // tier swatch and the power figure, which is otherwise empty on every card.
+                    // that actually changes how the character plays. Along the card's foot, under
+                    // the art: between the swatch and the stars it ran into the stars (2026-11-06).
                     if (item.Slot == GearSlot.Torso)
-                        UiKit.Label(UiKit.Rect(card, "ability", new Vector2(0, 1), new Vector2(0, 1),
-                            new Vector2(28, -22), new Vector2(96, -4)),
+                        UiKit.Label(UiKit.Rect(card, "ability", new Vector2(0, 0), new Vector2(1, 0),
+                            new Vector2(4, 3), new Vector2(-4, 19)),
                             item.DefensiveAbility.Label(), 11,
-                            new Color(0.58f, 0.74f, 0.86f), TextAnchor.MiddleLeft);
+                            new Color(0.58f, 0.74f, 0.86f), TextAnchor.MiddleCenter);
                 }
 
                 // The count rides the NAME rather than sitting in the card's top-right corner,
@@ -480,17 +508,111 @@ namespace Convergence.UI
                                         + (stack.Count > 1 ? "  x" + stack.Count : "")
                                         + (worn ? "  (" + _wornLabel + ")" : "");
 
-                UiKit.Label(UiKit.Rect(card, "n", new Vector2(0, 0), new Vector2(1, 0),
-                    new Vector2(4, -30), new Vector2(-4, -2)),
+                // Wrapped to the card plus half a gap each side, so it never reaches the next one.
+                var label = UiKit.Label(UiKit.Rect(card, "n", new Vector2(0, 0), new Vector2(1, 0),
+                    new Vector2(-Gap * 0.5f + 2f, -LabelH), new Vector2(Gap * 0.5f - 2f, -4)),
                     name,
                     14,
                     worn || (isEmpty && nothingWorn) ? new Color(0.92f, 0.78f, 0.42f)
                                                      : new Color(0.8f, 0.83f, 0.9f),
-                    TextAnchor.MiddleCenter);
+                    TextAnchor.UpperCenter);
+                label.horizontalOverflow = HorizontalWrapMode.Wrap;
+                label.lineSpacing = 0.9f;
+
+                // The selection's outline, off until the card is selected.
+                var outline = card.gameObject.AddComponent<Outline>();
+                outline.effectColor = new Color(0.94f, 0.82f, 0.46f);
+                outline.effectDistance = new Vector2(3f, -3f);
+                outline.enabled = false;
 
                 _cells.Add((card, stack?.PickId));
-                if (worn || (isEmpty && nothingWorn)) _wornRect = card;
+                _cellItems.Add(isEmpty ? null : item);
+                if (worn || (isEmpty && nothingWorn)) { _wornRect = card; select = i; }
             }
+
+            // Opens reading what is worn - the piece every other card is being compared with.
+            Select(Mathf.Clamp(_selected >= 0 && _selected < count ? _selected : select, 0, count - 1));
+        }
+
+        float _gridRight, _gridTop;
+
+        /// <summary>Whether cell <paramref name="i"/> is what the slot holds now.</summary>
+        bool IsCurrent(int i) => i == 0 ? string.IsNullOrEmpty(_equippedId)
+                                        : _cells[i].ItemId == _equippedId ||
+                                          (_wornRect != null && _cells[i].Rect == _wornRect);
+
+        /// <summary>Select a card: outline it and read it in the details panel.</summary>
+        void Select(int i)
+        {
+            _selected = i;
+            for (int c = 0; c < _cells.Count; c++)
+            {
+                var o = _cells[c].Rect.GetComponent<Outline>();
+                if (o != null) o.enabled = c == i;
+            }
+            BuildDetail();
+        }
+
+        void BuildDetail()
+        {
+            if (_detail) Destroy(_detail.gameObject);
+            _detail = null;
+            _actionRect = null;
+            if (_gridRoot == null || _selected < 0 || _selected >= _cells.Count) return;
+
+            var item = _cellItems[_selected];
+            bool current = IsCurrent(_selected);
+            var ink = new Color(0.85f, 0.87f, 0.92f);
+            var dim = new Color(0.5f, 0.53f, 0.6f);
+
+            string text;
+            if (item != null)
+                text = _describe != null ? _describe(item)
+                     : $"<size=21><color=#{ColorUtility.ToHtmlStringRGB(CharacterScreen.TierColor(item.Tier))}>{item.DisplayName}</color></size>";
+            else if (_emptyItem != null)
+                text = $"<size=21>{_emptyLabel.ToUpperInvariant()}</size>\n<color=#{ColorUtility.ToHtmlStringRGB(dim)}>shows {_emptyItem.DisplayName}, as it is</color>";
+            else
+                text = $"<size=21>{_emptyLabel.ToUpperInvariant()}</size>\n<color=#{ColorUtility.ToHtmlStringRGB(dim)}>nothing in this slot</color>";
+
+            const float ButtonH = 128f, Pad = 20f;
+            float left = _gridRight + DetailGap;
+            var gr = (RectTransform)_gridRoot.transform;
+            _detail = UiKit.Panel(gr, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                new Vector2(left, _gridTop - 200f), new Vector2(left + DetailW, _gridTop),
+                new Color(0.07f, 0.075f, 0.1f, 1f));
+
+            var t = UiKit.Label(UiKit.Rect(_detail, "t", Vector2.zero, Vector2.one,
+                    new Vector2(Pad, Pad + ButtonH + Pad), new Vector2(-Pad, -Pad)),
+                text, 17, ink, TextAnchor.UpperLeft);
+            t.supportRichText = true;
+            t.lineSpacing = 1.05f;
+            t.horizontalOverflow = HorizontalWrapMode.Wrap;
+
+            // Sized to the read as laid out at the panel's width.
+            float h = Mathf.Max(200f, t.preferredHeight + Pad * 3f + ButtonH);
+            _detail.offsetMin = new Vector2(left, _gridTop - h);
+
+            // The button: what choosing this card would do. On what is already worn it says so,
+            // and pressing it only closes.
+            string action = current ? _wornLabel.ToUpperInvariant()
+                          : item == null ? (_emptyItem != null ? _emptyLabel.ToUpperInvariant() : "TAKE OFF")
+                          : _pickLabel;
+            _actionRect = UiKit.Panel(_detail, new Vector2(0, 0), new Vector2(1, 0),
+                new Vector2(Pad, Pad), new Vector2(-Pad, Pad + ButtonH),
+                current ? new Color(0.12f, 0.13f, 0.17f) : new Color(0.20f, 0.17f, 0.09f));
+            UiKit.Label(_actionRect, action, 24,
+                current ? dim : new Color(0.94f, 0.82f, 0.46f), TextAnchor.MiddleCenter);
+        }
+
+        /// <summary>Choose the selected card: equip it (or show it), then close.</summary>
+        void PickSelected()
+        {
+            if (_selected < 0 || _selected >= _cells.Count) return;
+            bool current = IsCurrent(_selected);
+            var pick = _cells[_selected].ItemId;
+            var cb = _onPick;
+            Close();
+            if (!current) cb?.Invoke(pick);
         }
 
         /// <summary>Repaint the tab strip so the active one reads as active.</summary>
@@ -518,7 +640,12 @@ namespace Convergence.UI
             _full = null;
             _countText = null;
             _cells.Clear();
+            _cellItems.Clear();
             _tabs.Clear();
+            _detail = _actionRect = null;
+            _selected = -1;
+            _describe = null;
+            _pickLabel = "EQUIP";
             _onPick = null;
             _wear = null;
             _stackBy = StackBy.Attributes;
@@ -537,6 +664,7 @@ namespace Convergence.UI
             _focusRects.Clear();
             if (_wornRect != null) _focusRects.Add(_wornRect);
             foreach (var (rect, _) in _cells) _focusRects.Add(rect);
+            if (_actionRect != null) _focusRects.Add(_actionRect);
             foreach (var (rect, _) in _tabs) _focusRects.Add(rect);
             Core.Controls.SetFocusCandidates(_focusRects);
 
@@ -554,18 +682,22 @@ namespace Convergence.UI
                 if (!RectTransformUtility.RectangleContainsScreenPoint(rect, at, null)) continue;
                 if (_activeClass == c) return;
                 _activeClass = c;
+                _selected = -1;
                 RefreshTabs();
                 BuildGrid();
                 return;
             }
 
-            foreach (var (rect, itemId) in _cells)
+            if (_actionRect != null && RectTransformUtility.RectangleContainsScreenPoint(_actionRect, at, null))
             {
-                if (!RectTransformUtility.RectangleContainsScreenPoint(rect, at, null)) continue;
-                var pick = itemId;
-                var cb = _onPick;
-                Close();
-                cb?.Invoke(pick);
+                PickSelected();
+                return;
+            }
+
+            for (int i = 0; i < _cells.Count; i++)
+            {
+                if (!RectTransformUtility.RectangleContainsScreenPoint(_cells[i].Rect, at, null)) continue;
+                if (i != _selected) Select(i);
                 return;
             }
         }
