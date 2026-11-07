@@ -665,7 +665,7 @@ namespace Convergence.Balance
         static RunModifiers LedgerFor(Build b, ExchangeEntry e, int stacks, bool withParts)
         {
             var l = new RunModifiers();
-            l.SetCharacter(b.Element, WeaponClass.Greatsword, Tuning.Mastery.LevelCap);
+            l.SetCharacter(b.Element, b.Weapon, Tuning.Mastery.LevelCap);
             if (withParts && e.Parts != null)
                 foreach (var part in e.Parts) l.Take(ExchangeCatalog.Get(part));
             for (int i = 0; i < stacks; i++) l.Take(e);

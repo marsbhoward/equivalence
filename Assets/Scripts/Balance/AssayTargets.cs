@@ -174,7 +174,7 @@ namespace Convergence.Balance
                 $"{invested.Min():0.0}-{invested.Max():0.0}s", invested.Max() <= Targets.ReleaseSecondsInvestedMax);
 
             // ---- the gear grind
-            var gear = Archetypes.Select(GearMultiplier).ToArray();
+            var gear = Archetypes.Select(a => GearMultiplier(a)).ToArray();
             Row(sb, "gear's multiplier, spread across builds", $"<= {Targets.GearMultiplierSpread:P0}",
                 $"{Spread(gear):P0} (x{gear.Min():0.00}-{gear.Max():0.00})", Spread(gear) <= Targets.GearMultiplierSpread);
 

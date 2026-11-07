@@ -31,14 +31,7 @@ namespace Convergence.Balance
         /// single-target damage: (on one target fought alone, on the whole pack).</summary>
         public static (float one, float pack) KindSeconds(ElementType e, ReleaseKind kind, WeaponClass w = WeaponClass.Greatsword)
         {
-            _weapon = w;
-            try { return KindSecondsNow(e, kind); }
-            finally { _weapon = WeaponClass.Greatsword; }
-        }
-
-        static (float one, float pack) KindSecondsNow(ElementType e, ReleaseKind kind)
-        {
-            var b = Carrying(e, kind);
+            var b = Carrying(e, kind, w);   // the class's own chain, and its shapes (Evaluate sets them)
             var none = new Exchange.Mods();
             var on = Evaluate(b, none, _ => 0, 1);
             _alone = true;
@@ -59,7 +52,7 @@ namespace Convergence.Balance
         public static string Arsenal()
         {
             var sb = new StringBuilder("A FULL METER, fresh character, seconds of its own damage: one target alone / the pack (target + "
-                                       + $"{Assume.CrowdPack:0} round it), the shapes read for each weapon on the one chain\n");
+                                       + $"{Assume.CrowdPack:0} round it), each weapon on its own chain\n");
             bool stAhead = true, mtAhead = true;
             foreach (var w in new[] { WeaponClass.Greatsword, WeaponClass.Disc, WeaponClass.Bow })
             foreach (var e in new[] { ElementType.Fire, ElementType.Water, ElementType.Earth, ElementType.Air })

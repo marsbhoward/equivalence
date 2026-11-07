@@ -96,7 +96,7 @@ namespace Convergence.Balance
                     var ledger = new RunModifiers();
                     // The Vessel is sized by mastery: an unlevelled character's is the smallest. A
                     // legacy build has no element (PlayerPower's), so no element entries either.
-                    ledger.SetCharacter(b.Legacy ? null : b.Element, Art.Gear.WeaponClass.Greatsword,
+                    ledger.SetCharacter(b.Legacy ? null : b.Element, b.Weapon,
                                         b.Kit == Kit.Reference && !b.Legacy ? 0 : Tuning.Mastery.LevelCap);
                     int refusedThisRun = 0, refusedInARow = 0;
 

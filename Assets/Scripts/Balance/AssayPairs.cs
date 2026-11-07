@@ -108,7 +108,7 @@ namespace Convergence.Balance
         static float Product(Build b, ExchangeEntry a, ExchangeEntry c)
         {
             var l = new RunModifiers();
-            l.SetCharacter(b.Element, WeaponClass.Greatsword, Tuning.Mastery.LevelCap);
+            l.SetCharacter(b.Element, b.Weapon, Tuning.Mastery.LevelCap);
             if (a != null) l.Take(a);
             if (c != null) l.Take(c);
             // Entries that grow by the floor are priced over the horizon, as Entries prices them.

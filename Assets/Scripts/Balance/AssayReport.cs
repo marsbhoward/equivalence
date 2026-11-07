@@ -188,7 +188,7 @@ namespace Convergence.Balance
             {
                 if (entry.Kind != Exchange.ExchangeKind.Cost || Array.IndexOf(OfferShapers, entry.Id) >= 0) continue;
                 var ledger = new Exchange.RunModifiers();
-                ledger.SetCharacter(b.Element, Art.Gear.WeaponClass.Greatsword, Tuning.Mastery.LevelCap);
+                ledger.SetCharacter(b.Element, b.Weapon, Tuning.Mastery.LevelCap);
                 for (int i = 0; i < entry.MaxStacks; i++) ledger.Take(entry);
                 // Withering bites over the floors it is carried, not the moment it is taken.
                 if (entry.Id == "withering")

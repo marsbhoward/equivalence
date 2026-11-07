@@ -63,7 +63,7 @@ namespace Convergence.Balance
                 reached = Mathf.Lerp(reached, BodiesWithin(Tuning.Player.BaseRange + B.BoraxPullDistance), bunched);
             }
             float keep = 1f - (1f - SwingFalloff) * StatPercents.ReductionFactor(s.Cleave + m.CleavePoints);
-            crowd += targetChain * ChainThrough(reached, keep);
+            crowd += targetChain * ClassThrough(b.Weapon, reached, keep, m);
 
             // ---- Splash: a share of every hit on the designated target, to each body near it.
             crowd += targetChain * s.Splash / 100f * BodiesWithin(Tuning.Attack.SplashRadius);

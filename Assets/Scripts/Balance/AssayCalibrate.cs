@@ -211,7 +211,7 @@ namespace Convergence.Balance
             foreach (var k in Knobs)
                 sb.Append($"  {k.Field,-32} {(float)NumberField(k.Field).GetValue(null),7:0.##}\n");
             sb.Append(ElementTable());
-            var gear = Archetypes.Select(GearMultiplier).ToArray();
+            var gear = Archetypes.Select(a => GearMultiplier(a)).ToArray();
             sb.Append($"gear's multiplier by build: {string.Join("  ", Archetypes.Select((a, i) => $"{a} x{gear[i]:0.00}"))}\n");
             return sb.ToString();
         }

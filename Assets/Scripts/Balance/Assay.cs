@@ -104,7 +104,7 @@ namespace Convergence.Balance
         /// statement about how the game is PLAYED, and each is meant to be argued with and replaced
         /// by measured play once there is some.
         /// </summary>
-        public static class Assume
+        public static partial class Assume
         {
             /// <summary>Share of hits taken while moving (Graze) rather than standing (Brace).</summary>
             public const float MovingShare = 0.6f;
@@ -532,8 +532,8 @@ namespace Convergence.Balance
         /// a release is all its own, and nothing else is there.</summary>
         static bool _alone;
 
-        /// <summary>The weapon the releases' shapes are read for (AssayShapes) - a greatsword but while
-        /// Assay.Arsenal compares a weapon's kinds. The chain itself is the Assay's one chain.</summary>
+        /// <summary>The weapon the releases' shapes are read for (AssayShapes): the build's own, set by
+        /// Evaluate for the length of one evaluation.</summary>
         static WeaponClass _weapon = WeaponClass.Greatsword;
 
         public static ElementProfile Profile(ElementType? element, float gainRatePoints, Func<string, int> n,
@@ -773,6 +773,14 @@ namespace Convergence.Balance
 
         public static Worth Evaluate(Build b, Mods m, Func<string, int> n, int floor, float witheringLost = 0f)
         {
+            var was = _weapon;
+            _weapon = b.Weapon;
+            try { return EvaluateAs(b, m, n, floor, witheringLost); }
+            finally { _weapon = was; }
+        }
+
+        static Worth EvaluateAs(Build b, Mods m, Func<string, int> n, int floor, float witheringLost)
+        {
             ElementType? element = b.Legacy ? null : b.Element;
             // A legacy build replays PlayerPower, which knows nothing of the ledger's conditional
             // half - every term AssayExchange adds is off for it, so its DAMAGE stays identical.
@@ -891,6 +899,7 @@ namespace Convergence.Balance
                 ehp -= Mathf.Min(0.9f, Tuning.Exchange.TollFraction * n("toll")) * maxHp
                      * (AtMax(n, "toll") ? 1f : 0.75f) * 0.5f / Mathf.Max(0.01f, incoming);
             if (m.HealCeiling < 1f) ehp *= m.HealCeiling;   // Hollow: fought from the ceiling
+            ehp /= Assume.Exposure(b.Weapon);   // range: fewer of the blows reach you (AssayClasses)
             ehp *= Judged.Survival(n);
             ehp *= oh.EhpMul;
 
@@ -936,15 +945,17 @@ namespace Convergence.Balance
                                       + (Owns(b, Progression.Notable.Multiplication) ? -1 : 0));
             float tempo = legacyTempo ? 1f : Tuning.Attack.GlobalTempo;
             float speed = StatPercents.Apply(1f, s.AttackSpeed) * Mathf.Max(0.35f, m.AttackSpeedMul) * tempo;
-            float interval = Tuning.Attack.BaseInterval / speed;
+            // The class's cadence and what each of its hits lands for (AssayClasses) - all 1 on a sword.
+            var cls = ChainOf(b.Weapon);
+            float interval = Tuning.Attack.BaseInterval * cls.IntervalMul / speed;
 
             // PlayerController.HitUnit: the basic hit before crit and the damage roll.
             hitUnit = (Tuning.Player.BaseDamage + m.BonusDamage) * StatPercents.Apply(1f, s.Damage);
 
             // The damage range's average: Accuracy lifts its bottom, worth up to +DamageSpread.
             float accuracy = 1f + Tuning.Attack.DamageSpread * Mathf.Clamp01(s.Accuracy / 100f);
-            float basic = hitUnit * accuracy;
-            float finisher = basic * Tuning.Finisher.DamageMedium
+            float basic = hitUnit * accuracy * cls.BasicMul;
+            float finisher = hitUnit * accuracy * cls.ArtMul * Tuning.Finisher.DamageMedium
                            * Mathf.Max(0.25f, m.FinisherDamageMul) * StatPercents.Apply(1f, s.FinisherPower);
             float lockSeconds = Tuning.Finisher.LockMedium * m.LockMul * interval;
             float seconds = basics * interval + lockSeconds;

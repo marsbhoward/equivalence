@@ -43,6 +43,11 @@ namespace Convergence.Balance
         public ElementType? Element;
         public Kit Kit;
 
+        /// <summary>The weapon class it fights with (AssayClasses): the chain's cadence and damage,
+        /// the crowd it reaches, the releases' shapes, the weapon's stat pool and the deals it is
+        /// offered. A greatsword unless asked - every report before 2026-11-06 was one.</summary>
+        public WeaponClass Weapon = WeaponClass.Greatsword;
+
         /// <summary>Gear plus board, in percentage points.</summary>
         public StatPercents Stats = new();
 
@@ -132,13 +137,19 @@ namespace Convergence.Balance
         };
 
         /// <summary>A fresh character carrying one kind on a full meter - the arsenal's measure.</summary>
-        public static Build Carrying(ElementType element, ReleaseKind kind)
-            => new() { Name = $"Reference/{element}/{kind}", Element = element, Kit = Kit.Reference, Tap = kind };
+        public static Build Carrying(ElementType element, ReleaseKind kind, WeaponClass weapon = WeaponClass.Greatsword)
+            => new() { Name = $"Reference/{element}/{kind}{ClassTag(weapon)}", Element = element, Kit = Kit.Reference,
+                       Tap = kind, Weapon = weapon };
+
+        /// <summary>A build's key suffix for its class: none for the greatsword, so every key - and
+        /// every cached curve - from before the classes reads as it did.</summary>
+        static string ClassTag(WeaponClass weapon) => weapon == WeaponClass.Greatsword ? "" : $"/{weapon}";
 
         // ------------------------------------------------------------------ construction
 
-        public static Build Reference(ElementType? element = null)
-            => new() { Name = $"Reference/{(element?.ToString() ?? "none")}", Element = element, Kit = Kit.Reference };
+        public static Build Reference(ElementType? element = null, WeaponClass weapon = WeaponClass.Greatsword)
+            => new() { Name = $"Reference/{(element?.ToString() ?? "none")}{ClassTag(weapon)}", Element = element,
+                       Kit = Kit.Reference, Weapon = weapon };
 
         /// <summary>One of PlayerPower's builds, for the regression check.</summary>
         public static Build Legacy(Player.PowerBuild build)
@@ -146,12 +157,13 @@ namespace Convergence.Balance
 
         static readonly Dictionary<string, Build> _builds = new();
 
-        public static Build Make(Archetype archetype, ElementType element, Kit kit)
+        public static Build Make(Archetype archetype, ElementType element, Kit kit,
+                                 WeaponClass weapon = WeaponClass.Greatsword)
         {
-            string key = $"{archetype}/{element}/{kit}";
+            string key = $"{archetype}/{element}/{kit}{ClassTag(weapon)}";
             if (_builds.TryGetValue(key, out var cached)) return cached;
 
-            var b = new Build { Name = key, Archetype = archetype, Element = element, Kit = kit };
+            var b = new Build { Name = key, Archetype = archetype, Element = element, Kit = kit, Weapon = weapon };
             if (kit != Kit.Reference)
             {
                 (b.Tap, b.Hold) = Loadouts[archetype];
@@ -164,11 +176,12 @@ namespace Convergence.Balance
 
         /// <summary>The Max board with NO gear - what gear is measured against
         /// (<see cref="GearMultiplier"/>).</summary>
-        public static Build BoardOnly(Archetype archetype, ElementType element)
+        public static Build BoardOnly(Archetype archetype, ElementType element,
+                                      WeaponClass weapon = WeaponClass.Greatsword)
         {
-            string key = $"{archetype}/{element}/BoardOnly";
+            string key = $"{archetype}/{element}/BoardOnly{ClassTag(weapon)}";
             if (_builds.TryGetValue(key, out var cached)) return cached;
-            var b = new Build { Name = key, Archetype = archetype, Element = element, Kit = Kit.Max };
+            var b = new Build { Name = key, Archetype = archetype, Element = element, Kit = Kit.Max, Weapon = weapon };
             (b.Tap, b.Hold) = Loadouts[archetype];
             Spend(b);
             _builds[key] = b;
@@ -177,13 +190,13 @@ namespace Convergence.Balance
 
         /// <summary>What gear multiplies a build's worth, sqrt(damage x survival), by: its Max kit
         /// over the same board bare, averaged over the four elements.</summary>
-        public static float GearMultiplier(Archetype archetype)
+        public static float GearMultiplier(Archetype archetype, WeaponClass weapon = WeaponClass.Greatsword)
         {
             var none = new Exchange.Mods();
             return Elements.Average(e =>
             {
-                var max = Evaluate(Make(archetype, e, Kit.Max), none, _ => 0, 1);
-                var bare = Evaluate(BoardOnly(archetype, e), none, _ => 0, 1);
+                var max = Evaluate(Make(archetype, e, Kit.Max, weapon), none, _ => 0, 1);
+                var bare = Evaluate(BoardOnly(archetype, e, weapon), none, _ => 0, 1);
                 return Mathf.Sqrt(max.Dps / bare.Dps * (max.Ehp / bare.Ehp));
             });
         }
@@ -229,14 +242,14 @@ namespace Convergence.Balance
             have.Add(HeadStarts(b.Element));   // the element, at its average state
             float dr = b.Element == null ? 0f : Profile(b.Element, 0f, _ => 0).Dr;
 
-            var ranked = ArmourSlots.OrderByDescending(slot => Target(prio, slot, null, dr).Score).ToList();
+            var ranked = ArmourSlots.OrderByDescending(slot => Target(prio, slot, null, dr, b.Weapon).Score).ToList();
             var maxed = b.Kit == Kit.Ceiling ? new HashSet<GearSlot>(ArmourSlots)
                                              : new HashSet<GearSlot>(ranked.Take(3));
 
             // The weapon first - every build has it - then the slots that serve the build best.
-            have.Add(Wear(b, GearSlot.Weapon, Target(prio, GearSlot.Weapon, have, dr), GearRoller.MaxLevel));
+            have.Add(Wear(b, GearSlot.Weapon, Target(prio, GearSlot.Weapon, have, dr, b.Weapon), GearRoller.MaxLevel));
             foreach (var slot in ranked)
-                have.Add(Wear(b, slot, Target(prio, slot, have, dr), maxed.Contains(slot) ? GearRoller.MaxLevel : 1));
+                have.Add(Wear(b, slot, Target(prio, slot, have, dr, b.Weapon), maxed.Contains(slot) ? GearRoller.MaxLevel : 1));
 
             // The meter grows by Element Growth from gear and board alike, as in BuildPlayer.
             b.GainRatePoints = b.Stats.ElementGrowth;
@@ -314,9 +327,10 @@ namespace Convergence.Balance
         /// shape a player re-rolling toward a build ends up with. With <paramref name="have"/>, a
         /// stat already saturated is passed over for the next one the build wants.</summary>
         static (StatKind Primary, StatKind[] Subs, float Score) Target(StatKind[] prio, GearSlot slot,
-                                                                      StatPercents have, float dr = 0f)
+                                                                      StatPercents have, float dr = 0f,
+                                                                      WeaponClass weapon = WeaponClass.Greatsword)
         {
-            var pool = GearRoller.Pool(slot);
+            var pool = GearRoller.Pool(slot, weapon);   // a bow's weapon rolls from its own pool
             var wanted = pool.Where(k => Array.IndexOf(prio, k) >= 0).Distinct()
                              .OrderBy(k => Array.IndexOf(prio, k)).ToList();
             var ranked = wanted.Where(k => !Saturated(k, have, dr)).ToList();
