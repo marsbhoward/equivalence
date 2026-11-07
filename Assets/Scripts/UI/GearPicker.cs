@@ -205,7 +205,9 @@ namespace Convergence.UI
                 GamepadGlyphs.Cancel + " to go back");
 
             // Only the weapon slot splits. Every other slot is one kind of thing with few enough
-            // entries that a filter would be furniture.
+            // entries that a filter would be furniture. The picker is reused, so the class a weapon
+            // grid was left on has to be cleared here or it filters the next slot's pieces away.
+            _activeClass = null;
             if (slot == GearSlot.Weapon)
             {
                 // Open on the class already in hand - that is the one being asked about.
