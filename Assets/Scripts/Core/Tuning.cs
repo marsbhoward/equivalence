@@ -3150,8 +3150,8 @@ namespace Convergence.Core
             /// <summary>Seconds from dispatch to the second cut (rising) landing.</summary>
             public const float CutTwoAt = 0.20f;
 
-            /// <summary>Seconds from dispatch to the pommel landing - the judged strike, so this is
-            /// StrikeDelay. At or past a Light bar (0.4s) the art needs no added wind-up.</summary>
+            /// <summary>Seconds from dispatch to the pommel landing. The bar is judged at CutOneAt,
+            /// before the first blow (StrikeDelay).</summary>
             public const float PommelAt = 0.40f;
 
             /// <summary>The whole motion, recovery included: the hands come back to the opener's

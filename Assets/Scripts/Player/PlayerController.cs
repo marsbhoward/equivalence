@@ -464,11 +464,15 @@ namespace Convergence.Player
             get
             {
                 if (_artUnstruck && !AttackLocked && !_barLive) _artUnstruck = false;
-                return _artUnstruck || (_lunging && Dashing);
+                return _artUnstruck || (_lunging && Dashing) || (_artActing && AttackLocked);
             }
         }
-        /// <summary>A lunge art in flight - judged at its launch, committed until it lands (LungeStrike).</summary>
+        /// <summary>A lunge art in flight - judged at its launch, committed until it lands (LungeStrike,
+        /// Disengage's flip, Cross Cut's step-in).</summary>
         bool _lunging;
+        /// <summary>An art judged before it acts, still acting (Gyre's pull and cut, the Flurry's cuts
+        /// to the pommel): committed as it was before the verdict moved, bounded by its own lock.</summary>
+        bool _artActing;
 
         /// <summary>
         /// A basic swing in its strike, or just past it: the feet stay put
@@ -2561,6 +2565,9 @@ namespace Convergence.Player
         /// <summary>
         /// Seconds from a finisher's dispatch to the hit its bar judges. MUST follow Dispatch's
         /// branch order and each path's own timing - the bar ends where this says the strike is.
+        /// The verdict comes before the art ACTS (the user's call, 2026-11-07): no hit, pull, dash
+        /// or flip before it - Gyre is judged as the rotor leaves, the Flurry at its first cut,
+        /// Disengage at takeoff, Cross Cut before its step-in.
         /// </summary>
         float StrikeDelay(AttackStep step, float swingWindow)
         {
@@ -2568,13 +2575,12 @@ namespace Convergence.Player
             if (step.Swarm) return AttackMotions.SwingSeconds(swingWindow);   // the Swarm art: the draw, then the hive
             if (step.Formation) return AttackMotions.SwingSeconds(swingWindow);   // the Four Birds: the draw, then the volley
             if (step.Longshot) return Tuning.Longshot.DrawSeconds;                 // the long draw's loose
-            if (step.Disengage) return AttackMotions.SwingSeconds(swingWindow) * Tuning.Disengage.LooseAt;   // the top of the flip
+            if (step.Disengage) return AttackMotions.SwingSeconds(swingWindow) * Tuning.Disengage.TakeoffAt;   // the takeoff
             if (Weapon == Art.Gear.WeaponClass.Bow) return AttackMotions.SwingSeconds(swingWindow);  // ReleaseArrow's draw
             if (step.DiscSpray && Rig != null)                                     // Kickback's fling
                 return Rig.StrikeDrawnSeconds(step.Motion, swingWindow);
-            if (step.Gyres && Rig != null)                                         // Gyre: lift, pull, cut
-                return Rig.StrikeDrawnSeconds(step.Motion, swingWindow) + Tuning.Gyre.PullSeconds
-                       + Rig.StrikeDrawnSeconds(AttackMotion.DiscGyreCut, swingWindow);
+            if (step.Gyres && Rig != null)                                         // Gyre: the rotor leaves the hands
+                return Rig.StrikeDrawnSeconds(step.Motion, swingWindow);
             if (step.DiscOrrery && Rig != null)                                    // Orrery's cast
                 return Rig.StrikeDrawnSeconds(step.Motion, swingWindow);
             if (step.DiscSuspends && Rig != null)                                  // Sublimate's opening
@@ -2604,11 +2610,20 @@ namespace Convergence.Player
             // The LAUNCH, not the end (the user's report, 2026-11-03: the body moved while the meter was
             // still running). The bar is judged before the lunge goes; its hit lands where it ends.
             if (step.LungeDistance > 0f) return 0f;
-            if (step.PommelFlurry) return Core.Tuning.Flurry.PommelAt;             // the pommel
+            if (step.PommelFlurry) return Core.Tuning.Flurry.CutOneAt;             // the first cut
             if (step.StrikesOnDraw && Rig != null)                                  // the drawn strike
-                return Rig.StrikeDrawnSeconds(step.Motion, swingWindow);
+                return DrawnSettleSeconds(step, Rig.StrikeDrawnSeconds(step.Motion, swingWindow));
             return 0f;   // an ordinary swing or a thrown blade strikes on dispatch
         }
+
+        /// <summary>
+        /// Where a drawn strike (DrawnStrike) is judged: at the drawn strike, or - for Cross Cut -
+        /// where its step-in would begin, in reach or not, so the body never moves under the bar.
+        /// </summary>
+        static float DrawnSettleSeconds(AttackStep step, float drawn)
+            => step.ThrowsOutOfReach
+                ? Mathf.Max(0f, drawn - Mathf.Min(Tuning.CrossCut.StepSeconds, Mathf.Max(0.05f, drawn)))
+                : drawn;
 
         /// <summary>
         /// Seconds a finisher still spends AFTER its bar is judged before its own swing starts -
@@ -2713,7 +2728,7 @@ namespace Convergence.Player
             }
 
             // The perfect streak. Anything but PERFECT breaks it now. A perfect counts once the
-            // finisher CONNECTS: already, for the Flurry's cuts; on this same frame, for a swing or
+            // finisher CONNECTS: on this same frame, for a swing, the Flurry's first cut or
             // Crosscut's first cut (its hits resolve right after this call); or later, for anything thrown or
             // fired - so it waits. Sublimate is judged on timing alone: by design it deals nothing
             // until the NEXT finisher sets it off, which would otherwise always read as air.
@@ -2790,6 +2805,7 @@ namespace Convergence.Player
             AttackStarted?.Invoke(isFinisher);
             _basicSwing = !isFinisher;
             _artUnstruck = isFinisher;
+            _artActing = false;
 
             // Blood Blade: a full vial swaps in the Heavy release for this cast and empties
             // itself in the same moment - spent on CASTING the release, not on it connecting,
@@ -3458,18 +3474,23 @@ namespace Convergence.Player
             bool whiffed = _swingWhiffed;
             float wait = Rig != null ? Rig.StrikeDrawnSeconds(step.Motion, swingWindow) : 0f;
 
+            // Judged where Cross Cut's step-in begins, in reach or not (DrawnSettleSeconds) - the
+            // body never moves under the bar - and held committed until the strike it steps into.
+            float settleAt = isFinisher ? DrawnSettleSeconds(step, wait) : wait;
+            if (settleAt > 0f) yield return new WaitForSeconds(settleAt);
+            SettleStrike();   // the drawn strike is the judged one
+
             // Cross Cut in reach steps in with the cut, the step ending as the strike is drawn.
             float stepIn = isFinisher && step.ThrowsOutOfReach && !ThrowsInsteadOfSwinging
                 ? LungeReach(facing.normalized, Tuning.CrossCut.StepIn) : 0f;
-            if (stepIn > 0.05f)
+            float rest = wait - settleAt;
+            if (stepIn > 0.05f && rest > 0f)
             {
-                float stepSeconds = Mathf.Min(Tuning.CrossCut.StepSeconds, Mathf.Max(0.05f, wait));
-                if (wait > stepSeconds) yield return new WaitForSeconds(wait - stepSeconds);
-                Dash(facing, stepIn / stepSeconds, stepSeconds);
-                yield return new WaitForSeconds(stepSeconds);
+                _lunging = true;
+                Dash(facing, stepIn / rest, rest);
             }
-            else if (wait > 0f) yield return new WaitForSeconds(wait);
-            SettleStrike();   // the drawn strike is the judged one
+            if (rest > 0f) yield return new WaitForSeconds(rest);
+            _lunging = false;
 
             // Out of reach at the strike: the same stroke lets the pair go.
             if (isFinisher && step.ThrowsOutOfReach && ThrowsInsteadOfSwinging)
@@ -3616,8 +3637,10 @@ namespace Convergence.Player
         /// physics step, marked shoved, a wall between snags it; an Anchored elite in the cone is
         /// FLINCHED instead, a boss untouched) while the rig holds the cut's first frame, and the
         /// rotor GRINDS whatever comes near it (Tuning.Gyre.Grind*); then the cut - the arms slash
-        /// down, the discs back in the hands - is the judged strike, an ordinary melee hit
-        /// (ResolveArc) along the aim. Rooted throughout; the gate held to the end.
+        /// down, the discs back in the hands - an ordinary melee hit (ResolveArc) along the aim. The
+        /// bar is judged as the rotor leaves the hands (the user's call, 2026-11-07: nothing acts
+        /// before the verdict), so every grind and the cut carry it. Rooted throughout; the gate held
+        /// to the end.
         /// </summary>
         IEnumerator GyreStrike(AttackStep step, bool isFinisher, float swingWindow)
         {
@@ -3632,6 +3655,11 @@ namespace Convergence.Player
             float total = lift + Tuning.Gyre.PullSeconds + swing;
             _lockTimer = total * ArtLockMul;
             if (lift > 0f) yield return new WaitForSeconds(lift);
+
+            // Judged as the discs leave the hands (StrikeDelay), before anything is pulled or ground:
+            // the grind and the cut both carry the verdict. Committed to the cut, as before.
+            SettleStrike();   // the rotor is the strike
+            _artActing = true;
 
             // The discs leave the raised hands: the rotor.
             Vector2 main = transform.position, off = transform.position;
@@ -3740,7 +3768,7 @@ namespace Convergence.Player
             rotor.Land(cut);
             if (cut > 0f) yield return new WaitForSeconds(cut);
             Facing = aim;
-            SettleStrike();   // the cut is the strike
+            _artActing = false;
             if (!whiffed)
             {
                 // The grind already spent the swing's once-only effects if it struck anything.
@@ -3865,9 +3893,10 @@ namespace Convergence.Player
         /// Flurry: a downward cut, a rising cut, then the hilt turned and the pommel driven into
         /// the target (Tuning.Flurry). One motion plays the whole thing (AttackMotion.Flurry, keyed
         /// off the same Tuning numbers), and the hits land on its beats. The cuts are ordinary
-        /// ResolveArc calls on a clone of the step at the cut's share, landing before the bar
-        /// closes at its provisional GOOD; the pommel is
-        /// the strike the bar judges - short, narrow, and the sequence's one hit-stop. The chain
+        /// ResolveArc calls on a clone of the step at the cut's share; the pommel is the heavy
+        /// blow - short, narrow, and the sequence's one hit-stop. The bar is judged at the first
+        /// cut (the user's call, 2026-11-07: nothing acts before the verdict), so all three blows
+        /// carry it, and the art stays committed until the pommel. The chain
         /// already advanced at dispatch, so every resolve passes advanceCombo: false. Committed for
         /// its whole length (_lockTimer), so the three blows land where the press aimed them.
         /// </summary>
@@ -3899,6 +3928,8 @@ namespace Convergence.Player
             float clock = 0f;
             yield return new WaitForSeconds(Core.Tuning.Flurry.CutOneAt - clock);
             clock = Core.Tuning.Flurry.CutOneAt;
+            SettleStrike();   // the first cut is the strike
+            _artActing = true;
             ResolveArc(cut, isFinisher, advanceCombo: false);
 
             yield return new WaitForSeconds(Core.Tuning.Flurry.CutTwoAt - clock);
@@ -3907,7 +3938,7 @@ namespace Convergence.Player
 
             yield return new WaitForSeconds(Core.Tuning.Flurry.PommelAt - clock);
 
-            SettleStrike();   // the pommel is the strike
+            _artActing = false;
             var range = (Art.Gear.StatPercents.Apply(BaseRange, Stats.Range) + pommel.RangeBonus) * Mods.RangeMul;
             // A puff of dust where the pommel lands (the user's pick, group 2 - "dust and cracks").
             TexelFx.Puff(ReleaseCanvas.Feet(transform) + Facing * Mathf.Max(0.3f, range * 0.8f), TexelFx.Stone, 10, 6f, 0.45f, TexelFx.Ground);
@@ -7132,17 +7163,20 @@ namespace Convergence.Player
             Rig?.PlayAttack(step.Motion, swingWindow, false);
             _lockTimer = anim * ArtLockMul;
 
-            // Off the ground: the dash runs from takeoff to touchdown.
+            // Off the ground: the dash runs from takeoff to touchdown. Judged at the TAKEOFF, before
+            // the body moves (StrikeDelay); the loose at the top carries the verdict, committed till then.
             float takeoff = anim * Tuning.Disengage.TakeoffAt;
             float flight = anim * (Tuning.Disengage.LandAt - Tuning.Disengage.TakeoffAt);
             if (takeoff > 0f) yield return new WaitForSeconds(takeoff);
+            SettleStrike();   // the takeoff is the judged moment
+            _lunging = true;
             Dash(dir, Tuning.Disengage.Distance / flight, flight);
 
             // The loose, at the top.
             float loose = anim * (Tuning.Disengage.LooseAt - Tuning.Disengage.TakeoffAt);
             if (loose > 0f) yield return new WaitForSeconds(loose);
+            _lunging = false;
             var nockedAt = Rig?.LooseArrow();
-            SettleStrike();   // the loose is the strike
 
             if (target == null || target.IsDead
                 || Vector2.Distance(transform.position, target.transform.position) > CurrentRange + Tuning.Disengage.Distance)
