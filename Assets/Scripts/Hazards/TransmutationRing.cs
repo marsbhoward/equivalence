@@ -9,15 +9,21 @@ namespace Convergence.Hazards
     /// (Hub.TransmutationCircle), which shares the look and nothing else.
     ///
     /// Drawn like a spire's ring, from the START of the floor, on a combat floor the run chose for
-    /// it (GameBootstrap.CircleDue). It ACTIVATES after three combat contacts made while standing in
-    /// it - a hit landed on an enemy, or a hit taken from one - so the transmutation is done
-    /// mid-fight, never in the calm after. Each contact lights one of the three principle marks,
-    /// Sulfur, Mercury, Salt, so progress reads at a glance. A floor cleared before the third
-    /// fades it, and the Nigredo waits for the next circle.
+    /// it (GameBootstrap.CircleDue). It LIGHTS after three combat contacts made while standing in
+    /// it - a hit landed on an enemy, or a hit taken from one - so it is EARNED mid-fight. Each
+    /// contact lights one of the three principle marks, Sulfur, Mercury, Salt, so progress reads at
+    /// a glance. A floor cleared before the third fades it, and the Nigredo waits for the next circle.
+    ///
+    /// LIT, IT WAITS TO BE USED (the user's call, 2026-11-07): it stays lit until the player leaves
+    /// the floor, fight or no fight, and transmutes only when the player stands in it and presses
+    /// USE - the Albedo screen always opens, one Nigredo or several. It used to transmute on the
+    /// third contact by itself: with one Nigredo there was no screen, so a player saw it light and
+    /// found nothing to do; with several, a third contact on the floor's last blow lost the circle
+    /// to the clear.
     ///
     /// The circle knows nothing of the exchange: GameBootstrap feeds it contacts and POLLS
-    /// <see cref="TryActivate"/> (a callback would not survive a domain reload). Every cached field
-    /// is serialized and non-readonly, for FloorPit's reason.
+    /// <see cref="Ready"/> (a callback would not survive a domain reload). Every cached field is
+    /// serialized and non-readonly, for FloorPit's reason.
     /// </summary>
     public class TransmutationRing : MonoBehaviour
     {
@@ -29,7 +35,7 @@ namespace Convergence.Hazards
         [SerializeField] CircleArt _art;
         [SerializeField] float _completeAge = -1f;
         [SerializeField] int _lit;
-        [SerializeField] bool _claimed, _fading, _spent;
+        [SerializeField] bool _announced, _fading, _spent;
         [SerializeField] float _fade = 1f, _flash;
         /// <summary>The ring's own clock, and when the newest mark was lit on it - the Tree of Life's
         /// pillar for that contact draws in from then (CircleArt).</summary>
@@ -67,11 +73,14 @@ namespace Convergence.Hazards
             _litAt = _clock;
         }
 
-        /// <summary>True ONCE, when the third mark is lit - the run then transmutes.</summary>
-        public bool TryActivate()
+        /// <summary>All three marks lit and not yet used: standing in it, USE transmutes.</summary>
+        public bool Ready => !Spent && _lit >= ContactsNeeded;
+
+        /// <summary>True ONCE, the first time it is <see cref="Ready"/> - the run says so.</summary>
+        public bool JustLit()
         {
-            if (_claimed || Spent || _lit < ContactsNeeded) return false;
-            _claimed = true;
+            if (_announced || !Ready) return false;
+            _announced = true;
             return true;
         }
 

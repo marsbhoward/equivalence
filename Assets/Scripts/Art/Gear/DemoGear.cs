@@ -2171,7 +2171,8 @@ namespace Convergence.Art.Gear
         }
 
         /// <summary>
-        /// One leg's armour across, in body texels: the bare leg's 8 plus two either side, under
+        /// One leg's armour across, in body texels: the bare leg's 8 plus two either side (the leg is 10
+        /// since 2026-11-07, a texel under each edge - every leg and boot piece checked), under
         /// Silver's boot (10 at the shaft, 14 at the foot). The old per-leg grids were 16 at
         /// GearPpu - 32 body texels, four legs wide - so each pair merged into one block across
         /// both legs and the gap between them.

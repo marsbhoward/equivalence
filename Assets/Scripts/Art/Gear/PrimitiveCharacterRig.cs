@@ -216,7 +216,7 @@ namespace Convergence.Art.Gear
             public static float ElbowArtYCells => -Cells(ElbowArtTexels);
 
             /// <summary>One leg, hip to sole.</summary>
-            public const int LegW = 8, LegH = 48;
+            public const int LegW = 10, LegH = 48;
 
             /// <summary>
             /// Where the knee falls IN THE ART, in BODY TEXELS down from the hip - the middle of the
@@ -1271,8 +1271,8 @@ namespace Convergence.Art.Gear
 
         /// <summary>
         /// Seconds after a swing or charge ends before the grip starts back for the carry. A chain
-        /// leaves a gap between swings (the animation fills 85% of each interval, and a HELD attack
-        /// waits HoldExtraDelay on top), and starting the return in that gap swung the arm partway
+        /// leaves a gap between swings (the animation fills 85% of each interval, and a tap may come
+        /// a moment late), and starting the return in that gap swung the arm partway
         /// to the shoulder and snapped it back on the next swing - the near pauldron flickered out
         /// from behind the arm for a frame between every basic. Longer than any gap in a chain,
         /// short enough that stopping still reads as letting go.
@@ -2394,56 +2394,61 @@ namespace Convergence.Art.Gear
         // has to spend, so it is one column each: shadow, base, base, light. The silhouette is
         // untouched, texel for texel - only the tones inside it moved, so nothing about
         // proportion, placement or the greave that sits on top of this had to be re-derived.
+        //
+        // TEN WIDE (the user's call, 2026-11-07: the legs read too thin - eight with a two-texel
+        // outline either side left four texels of leg). Two interior texels added, the outline,
+        // pinches and lit leading column kept; still under leg armour's 12 (DemoGear.LegArmourWidth)
+        // with a texel to spare, and every leg and boot piece checked against it before and after.
         static readonly string[] Leg =
         {
-                "..kkkk..",
-                "..kkkk..",
-                "kkdbblkk",
-                "kkdbblkk",
-                "kkdbblkk",
-                "kkdbblkk",
-                "kkdbblkk",
-                "kkdbblkk",
-                "kkdbblkk",
-                "kkdbblkk",
-                "kkdbblkk",
-                "kkdbblkk",
-                "kkdbblkk",
-                "kkdbblkk",
-                "kkdbblkk",
-                "kkdbblkk",
-                "kkdbblkk",
-                "kkdbblkk",
-                "kkdbblkk",
-                "kkdbblkk",
-                "kkdbblkk",
-                "kkdbblkk",
-                ".kdbblk.",
-                ".kdbblk.",
-                ".kdbblk.",
-                ".kdbblk.",
-                "kkdbblkk",
-                "kkdbblkk",
-                "kksdblkk",
-                "kksdblkk",
-                "kksdblkk",
-                "kksdblkk",
-                "kksdblkk",
-                "kksdblkk",
-                "kksdblkk",
-                "kksdblkk",
-                "kksdblkk",
-                "kksdblkk",
-                "kksdblkk",
-                "kksdblkk",
-                ".ksdblk.",
-                ".ksdblk.",
-                ".ksdblk.",
-                ".ksdblk.",
-                "kksdblkk",
-                "kksdblkk",
-                "kksdblkk",
-                "kksdblkk",
+                "..kkkkkk..",
+                "..kkkkkk..",
+                "kkdbbbblkk",
+                "kkdbbbblkk",
+                "kkdbbbblkk",
+                "kkdbbbblkk",
+                "kkdbbbblkk",
+                "kkdbbbblkk",
+                "kkdbbbblkk",
+                "kkdbbbblkk",
+                "kkdbbbblkk",
+                "kkdbbbblkk",
+                "kkdbbbblkk",
+                "kkdbbbblkk",
+                "kkdbbbblkk",
+                "kkdbbbblkk",
+                "kkdbbbblkk",
+                "kkdbbbblkk",
+                "kkdbbbblkk",
+                "kkdbbbblkk",
+                "kkdbbbblkk",
+                "kkdbbbblkk",
+                ".kdbbbblk.",
+                ".kdbbbblk.",
+                ".kdbbbblk.",
+                ".kdbbbblk.",
+                "kkdbbbblkk",
+                "kkdbbbblkk",
+                "kksddbblkk",
+                "kksddbblkk",
+                "kksddbblkk",
+                "kksddbblkk",
+                "kksddbblkk",
+                "kksddbblkk",
+                "kksddbblkk",
+                "kksddbblkk",
+                "kksddbblkk",
+                "kksddbblkk",
+                "kksddbblkk",
+                "kksddbblkk",
+                ".ksddbblk.",
+                ".ksddbblk.",
+                ".ksddbblk.",
+                ".ksddbblk.",
+                "kksddbblkk",
+                "kksddbblkk",
+                "kksddbblkk",
+                "kksddbblkk",
         };
 
         bool _helmHidden;

@@ -307,6 +307,8 @@ namespace Convergence.Core
 
         static bool _attack, _attackPrev;
         static bool _release, _releasePrev;
+        /// <summary>E's press began while USE was on offer - it is USE until let go (the release above).</summary>
+        static bool _eIsUse, _eWasDown;
         static bool _secondAbility, _secondAbilityPrev;
         static bool _interact, _interactPrev;
         static bool _cancel, _cancelPrev;
@@ -647,9 +649,18 @@ namespace Convergence.Core
 
             // The element release. Its own pad button, never Interact's: on keyboard both still
             // ride E, but on a pad the ability is a trigger and the A button is the action.
+            // E is USE, not the release, while something in reach answers it (ArenaUse - a lit
+            // circle, a Rift, a drop, a blink; the user's call, 2026-11-07): a press that starts
+            // there stays USE until E is let go, so walking out of reach holding it fires nothing.
+            // Shift and the right button still release.
+            bool e = kb != null && kb.eKey.isPressed;
+            if (!e) _eIsUse = false;
+            else if (!_eWasDown && ArenaUse != null) _eIsUse = true;
+            _eWasDown = e;
             Edge(ref _release, ref _releasePrev,
                  (mouseRight && mouse.rightButton.isPressed)
-                 || (kb != null && (kb.eKey.isPressed || kb.leftShiftKey.isPressed))
+                 || (e && !_eIsUse)
+                 || (kb != null && kb.leftShiftKey.isPressed)
                  || World(abilityBtn)
                  || VirtualRelease);
 

@@ -22,13 +22,20 @@ namespace Convergence.UI
         GameObject _root;
         readonly List<(RectTransform Rect, ExchangeEntry Cost)> _rows = new();
         Action<ExchangeEntry> _chosen;
+        Action _cancelled;
         int _openedFrame = -1;
 
-        public void Show(Transform canvas, List<ExchangeEntry> nigredos, RunModifiers mods, Action<ExchangeEntry> chosen)
+        /// <summary>Whether it may be backed out of - when it was opened with a <c>cancelled</c>.</summary>
+        public bool CanDismiss => IsOpen && _cancelled != null;
+
+        /// <param name="cancelled">Set, Escape / back closes it without a choice (the circle stays lit).</param>
+        public void Show(Transform canvas, List<ExchangeEntry> nigredos, RunModifiers mods, Action<ExchangeEntry> chosen,
+                         Action cancelled = null)
         {
             if (IsOpen || nigredos == null || nigredos.Count == 0) { chosen?.Invoke(null); return; }
             IsOpen = true;
             _chosen = chosen;
+            _cancelled = cancelled;
             _openedFrame = Time.frameCount;
             _rows.Clear();
             Core.GamePause.Hold(this);
@@ -120,11 +127,20 @@ namespace Convergence.UI
             if (_root) Destroy(_root);
             _root = null;
             _rows.Clear();
+            _cancelled = null;
         }
 
         void Update()
         {
             if (!IsOpen || Time.frameCount == _openedFrame || _rows.Count == 0) return;
+
+            if (_cancelled != null && Core.Controls.CancelTapped)
+            {
+                var back = _cancelled;
+                Close();
+                back();
+                return;
+            }
 
             for (int i = 0; i < _rows.Count && i < 9; i++)
                 if (Core.Controls.DigitTapped(i)) { Pick(_rows[i].Cost); return; }

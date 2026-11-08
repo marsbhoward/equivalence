@@ -805,12 +805,13 @@ namespace Convergence.Core
             public const Art.Gear.LootTier GearCeiling = Art.Gear.LootTier.Bronze;
 
             /// <summary>The kit's relic: a standard look at random, carrying the class's MOBILITY art
-            /// (the user's call, 2026-10-31: mobility relics for the demo; any look, any art).</summary>
+            /// (the user's call, 2026-10-31: mobility relics for the demo; any look, any art). The
+            /// greatsword's is Impale (the user's call, 2026-11-07; was the Grappling Hook).</summary>
             public static string KitRelicArt(Art.Gear.WeaponClass weaponClass) => weaponClass switch
             {
                 Art.Gear.WeaponClass.Disc => "disc_kickback",
                 Art.Gear.WeaponClass.Bow  => "bow_disengage",
-                _                         => "grappling_hook",
+                _                         => "impale",
             };
 
             /// <summary>The closing card's Discord (the user's, 2026-10-31).</summary>
@@ -3512,13 +3513,6 @@ namespace Convergence.Core
         {
             /// <summary>Seconds of not swinging before a partial chain resets. A banked finisher never expires.</summary>
             public const float ResetSeconds = 1.8f;
-
-            /// <summary>
-            /// Extra pause a HELD attack button waits on top of the swing's interval before
-            /// auto-firing. A fresh tap ignores this, so tapping on the beat is always faster
-            /// than lazily holding - without capping a tapping player's true APM.
-            /// </summary>
-            public const float HoldExtraDelay = 0.10f;
 
             /// <summary>
             /// How long a fresh tap is remembered when it arrives too early to fire.
@@ -7692,9 +7686,9 @@ namespace Convergence.Core
         /// </summary>
         public static class Phial
         {
-            /// <summary>Bronze took a 4th drink with the floor-10 tuning (2026-11-03); Silver and Gold
-            /// moved with it, so forging still adds one.</summary>
-            public static readonly int[] Charges = { 4, 5, 6 };
+            /// <summary>Three drinks at every tier (the user's call, 2026-11-08; was 4/5/6 - Bronze took a
+            /// 4th with the floor-10 tuning, 2026-11-03). Forging a better phial now adds heal, not drinks.</summary>
+            public static readonly int[] Charges = { 3, 3, 3 };
             public static readonly float[] HealFraction = { 0.30f, 0.35f, 0.40f };
             /// <summary>Boxes of the phial's own tier its forging costs (Silver, Gold).</summary>
             public const int CraftBoxes = 3;

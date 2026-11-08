@@ -2462,7 +2462,7 @@ namespace Convergence.Core
             // means exactly what Escape means there.
             bool dismissible = !(FloorRewardScreen.IsOpen && !FloorRewardScreen.CanDismiss)
                             && !(ExchangeScreen.IsOpen && !ExchangeScreen.CanDismiss)
-                            && !TransmuteScreen.IsOpen;
+                            && !(TransmuteScreen.IsOpen && !TransmuteScreen.CanDismiss);
 
             Controls.Screen =
                   placing ? Controls.Context.Placing
@@ -2682,10 +2682,12 @@ namespace Convergence.Core
                 // Nothing is built past the Short Descent's final floor: its clear opens the ending
                 // (ShowEnding), with no door - and a cleared floor without one reads, to this check, as
                 // a floor whose next should be built.
+                // The Albedo picker too: a circle lit by the floor's LAST blow opens it in this same
+                // frame (TickCircle, above), and the clear used to fade the circle out from under it.
                 bool runComplete = Core.RunFormat.Short && _floor >= Rifts.RunLoot.FinalFloor && _rewardTaken;
                 if (!dummyHoldsFloor && !runComplete && _boss == null && _activeDoor == null && _puzzle == null &&
                     !_transitioning && !_spawning && _alive.Count == 0 && _spawnQueue.Count == 0 &&
-                    !FloorRewardScreen.IsOpen && !MasteryScreen.IsOpen &&
+                    !FloorRewardScreen.IsOpen && !MasteryScreen.IsOpen && !TransmuteScreen.IsOpen &&
                     !ConfirmDialog.IsOpen && !(ExchangeScreen.IsOpen || ChoiceList.IsOpen))
                 {
                     if (_floor > 0 && !_rewardTaken) OfferFloorReward();
@@ -3955,6 +3957,7 @@ namespace Convergence.Core
             _spawning = true;
             CloseRift();   // a Rift left unanswered closes behind the player
             ClearPuzzle();
+            _circle = null;   // a lit circle left unused stays with its floor; the Nigredo waits for another
 
             // THE FLOOR-START SNAPSHOT: everything the last floor settled, before this one is so
             // much as planned - a resume replays the floor from here (continuation section).
@@ -4120,7 +4123,7 @@ namespace Convergence.Core
                 Art.Biomes.Decor.Dress(_hazardRoot, (_planner != null ? _planner.SceneSeed(_floor) : _floor) + 101,
                                        Arena.HalfExtents, _spire != null ? (Vector2?)_spire.transform.position : null);
                 if (_circle != null)
-                    _hud?.Flash("a transmutation circle is drawn  -  land or take three blows inside it");
+                    _hud?.Flash("a transmutation circle is drawn  -  land or take three blows inside it, then use it");
             }
 
             // A BOSS FLOOR IS THE BOSS AND NOTHING ELSE. Adding a wave underneath it would put a
@@ -4255,14 +4258,24 @@ namespace Convergence.Core
         /// <summary>A combat contact for the circle: a landed swing or throw, or a blow taken.</summary>
         void CircleContact() => _circle?.Contact();
 
-        /// <summary>Polled while playing: the circle lit - transmute, asking which when several wait.</summary>
+        /// <summary>
+        /// Polled while playing. LIT, the circle waits for the player (the user's call, 2026-11-07):
+        /// standing in it, USE opens the Albedo screen - always, one Nigredo or several - and backing
+        /// out leaves it lit until the floor is left. A Rift's own USE wins where the two overlap.
+        /// </summary>
         void TickCircle()
         {
-            if (_circle == null || !_circle.TryActivate()) return;
+            if (_circle == null || !_circle.Ready) return;
+            if (_circle.JustLit()) _hud?.Flash("the circle is lit  -  stand in it and use it to transmute");
+            if (!_circle.PlayerInside || TransmuteScreen.IsOpen) return;
+            if (_rift != null && _rift.Usable && _rift.PlayerInside) return;
+            Controls.OfferUse("TRANSMUTE");
+            if (!Controls.InteractTapped) return;
+
             var nigredos = Modifiers.Nigredos();
             if (nigredos.Count == 0) { _circle.Complete(); return; }
-            if (nigredos.Count == 1) { Transmute(nigredos[0]); return; }
-            TransmuteScreen.Show(_canvas.transform, nigredos, Modifiers, cost => Transmute(cost ?? nigredos[0]));
+            TransmuteScreen.Show(_canvas.transform, nigredos, Modifiers, cost => Transmute(cost ?? nigredos[0]),
+                                 cancelled: () => { });
         }
 
         void Transmute(Exchange.ExchangeEntry cost)
@@ -4429,9 +4442,9 @@ namespace Convergence.Core
 
             // The spire sinks into the floor, taken or not - see Spire.Sink.
             if (_spire != null) _spire.Sink();
-            // An unlit transmutation circle fades with the fight; its Nigredo waits for another.
-            if (_circle != null && !_circle.Spent) _circle.Fade();
-            _circle = null;
+            // An unlit transmutation circle fades with the fight; its Nigredo waits for another. A LIT
+            // one stays until the floor is left - it is the player's to use (TickCircle).
+            if (_circle != null && !_circle.Spent && !_circle.Ready) { _circle.Fade(); _circle = null; }
             // No enemies left: the storm stops forming and its funnels die away, harmless.
             TornadoStorm.CalmAll();
 

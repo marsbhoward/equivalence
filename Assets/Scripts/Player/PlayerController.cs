@@ -1613,20 +1613,6 @@ namespace Convergence.Player
         }
 
         /// <summary>
-        /// Remaining grace period before a HELD (not freshly tapped) button may fire the next
-        /// swing. Reset to <see cref="HoldExtraDelay"/> every time any attack fires, tapped or
-        /// held, so only the NEXT hold-triggered swing pays it.
-        /// </summary>
-        float _holdDelay;
-
-        [Tooltip("Extra pause a HELD attack button waits, on top of the swing's own interval, " +
-                 "before auto-firing again. A fresh tap ignores this entirely and fires the " +
-                 "instant the previous swing concludes - the delay exists so that lazily holding " +
-                 "the button down settles into a visibly slower rhythm than deliberately timing " +
-                 "taps, without capping how fast a player who taps on the beat can actually go.")]
-        public float HoldExtraDelay = Tuning.Combo.HoldExtraDelay;
-
-        /// <summary>
         /// Remaining life of a remembered attack tap. See <see cref="Tuning.Combo.TapBufferSeconds"/>
         /// - set on the press edge, spent by whichever gate opens first, and never extended by
         /// holding (the edge is what fills it, so a held button fills it exactly once).
@@ -2049,12 +2035,11 @@ namespace Convergence.Player
 
             // ---- attack ----
             //
-            // _cooldown gates the swing that is about to start; it is what has to be true for
-            // EITHER a tap or a hold to fire. _holdDelay gates only the HOLD path on top of that -
-            // it is what makes holding the button down read as a hair lazier than deliberately
-            // timing taps, and it never touches a fresh press.
+            // _cooldown gates the swing that is about to start. Every swing is a TAP: holding the
+            // button no longer repeats swings (the user's call, 2026-11-08 - an auto-attack ran
+            // through the finisher's timing bar and the art's held aim). A hold on an aimable
+            // art still aims it (_artHolding, below).
             _cooldown -= Time.deltaTime;
-            _holdDelay -= Time.deltaTime;
             _tapBuffer -= Time.deltaTime;
             _throwTapGuard -= Time.deltaTime;
             TickStreak();
@@ -2073,8 +2058,8 @@ namespace Convergence.Player
 
             // While the blade is out the attack button means "call it home" and nothing else; the
             // action button (below) means "blink to it". Both are fresh TAPS, not the held
-            // state: attacking is a hold in this game, so reading isPressed would fire on the
-            // very next frame after the throw and the player would never see the choice. A tap
+            // state: reading isPressed would fire on the very next frame after the throw, while
+            // the button from the throw is still down, and the player would never see the choice. A tap
             // inside _throwTapGuard was aimed at the bar that just closed and does nothing.
             if (Blade != null)
             {
@@ -2108,7 +2093,7 @@ namespace Convergence.Player
                 _artAim = null;
                 _tapBuffer = 0f;
             }
-            else if (_cooldown <= 0f && (tapPending || (attackHeld && _holdDelay <= 0f)))
+            else if (_cooldown <= 0f && tapPending)
                 FireSwing();
             if (_artHolding) Core.Controls.HoldingArt(ArtAimShown);
 
@@ -2201,21 +2186,18 @@ namespace Convergence.Player
         }
 
         /// <summary>Start the next swing - basic or weapon art - through the attack gate: the
-        /// cooldown, the hold delay, the ledger's whiff and the swing itself.</summary>
+        /// cooldown, the ledger's whiff and the swing itself.</summary>
         void FireSwing()
         {
             // A tap that lands the instant the previous swing concludes fires immediately -
-            // that is the reward for timing it. Continuing to hold through that same moment
-            // waits out HoldExtraDelay first, so idly holding the button down settles into a
-            // visibly slower cadence than a player pressing on the beat.
+            // that is the reward for timing it (a tap a moment early waits in the buffer).
             // The board's Realgar quickens the basics right after a weapon art lands - this
             // swing's gate AND its animation (DoAttack reads _quickSwing), so the animation is
             // never longer than the gate holding the next swing.
             _quickSwing = !FinisherNext && Board != null && Board.ConsumeQuickBasic()
                 ? Tuning.Board.RealgarSpeedMul : 1f;
             _cooldown = AttackMotions.CooldownFor(CurrentInterval / _quickSwing);
-            _holdDelay = HoldExtraDelay;
-            _tapBuffer = 0f;      // spent, whichever of the two gates it opened
+            _tapBuffer = 0f;      // spent
 
             // A fumbled swing still costs the swing - the animation plays, the chain advances
             // and the cooldown runs. It simply connects with nothing, which is what makes it

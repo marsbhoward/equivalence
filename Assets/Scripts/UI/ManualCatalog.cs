@@ -90,10 +90,10 @@ namespace Convergence.UI
                 "[[humour|humours]] that let any element apply them."),
 
             new("THE PHIAL",
-                "Your healing is carried, not handed out. Your phial holds a few drinks, full at the start of a run; " +
+                "Your healing is carried, not handed out. Your phial holds three drinks, full at the start of a run; " +
                 "each boss and, now and then, a floor reward put one drink back. Drinking holds you " +
                 "still for a moment, and a hit before you swallow spills it. Forge a Silver or Gold phial from boxes " +
-                "for more drinks that heal more."),
+                "for drinks that heal more."),
 
             new("ARMOR AND WEAR",
                 "Your eight armor pieces turn away part of every hit - more from Silver and Gold - and wear down as " +
