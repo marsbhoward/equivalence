@@ -217,6 +217,7 @@ namespace Convergence.Art.Gear
         /// open a grip. See ICharacterRig.SetGripShouldered.
         /// </summary>
         public void SetGripShouldered(bool shouldered) { }
+        public void SetInCombat(bool inCombat) { }
         public void SetHandTarget(Vector2? rootLocal, float offHand = 1f) { }
         public void SetTwinHandTargets(Vector2? front, Vector2? back) { }
         public bool TryGetSwordHand(out Vector2 rootLocal) { rootLocal = default; return false; }

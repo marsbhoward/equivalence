@@ -2400,6 +2400,9 @@ namespace Convergence.Core
             // snapshot of a run being left still gets through.
             _keeperField?.Tick(Time.unscaledTime);
 
+            // The disc pair comes off the back while a fight is on (the rig's DiscStance partial).
+            if (_player != null) _player.Rig?.SetInCombat(FightOn());
+
             // This used to open with `if (kb == null) return;`. On a device with no keyboard -
             // which is every phone - that returned before the floor-clear check, the camera track
             // and every screen toggle, so the game came up, drew itself, and then did nothing at
@@ -7138,6 +7141,11 @@ namespace Convergence.Core
 
         /// <summary>A floor is being FOUGHT: a wave arriving or alive, a boss, or a puzzle in play -
         /// the time the run clock counts (SHORT-DESCENT.md: from the first spawn to the clear).</summary>
+        /// <summary>A fight on this floor: a wave arriving or alive, or a boss - FightLive without the puzzles.</summary>
+        bool FightOn() =>
+            _state == State.Playing && _floor > 0 &&
+            (_spawning || _alive.Count > 0 || _spawnQueue.Count > 0 || _boss != null);
+
         bool FightLive() =>
             _state == State.Playing && _floor > 0 &&
             (_spawning || _alive.Count > 0 || _spawnQueue.Count > 0 || _boss != null ||

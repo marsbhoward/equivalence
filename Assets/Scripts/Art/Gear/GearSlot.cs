@@ -345,6 +345,18 @@ namespace Convergence.Art.Gear
         /// inserts it (PrimitiveCharacterRig.TrinketBehindBody).
         /// </summary>
         TrinketBack,
+
+        /// <summary>
+        /// The worn ACCESSORY's two pictures (GearItem.Accessory - the bandolier, the collar, the
+        /// hourglass...), drawn live by PrimitiveCharacterRig.Accessory.cs. Generic on purpose: a piece
+        /// needs at most two pictures in a view, but where they hang and rank is the piece's own - the
+        /// harness's straps under the relic and its flask over the pauldrons, the stones over everything
+        /// and under everything - so each piece re-parents and re-ranks these two
+        /// (Accessories.Placement, PrimitiveCharacterRig.PlaceAccessories) instead of the enum carrying
+        /// a layer per rank. APPENDED for NeckOver's reason.
+        /// </summary>
+        Accessory,
+        Accessory2,
     }
 
     /// <summary>

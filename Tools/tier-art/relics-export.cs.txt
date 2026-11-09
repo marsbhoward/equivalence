@@ -1,0 +1,33 @@
+var sb = new System.Text.StringBuilder();
+sb.Append("[");
+bool first = true;
+foreach (var it in Convergence.Art.Gear.GearCatalog.ForSlot(Convergence.Art.Gear.GearSlot.Relic))
+{
+    if (it.Slot != Convergence.Art.Gear.GearSlot.Relic) continue;
+    foreach (var ls in it.Layers)
+    {
+        if (ls == null || ls.Sprite == null) continue;
+        var ln = ls.Layer.ToString();
+        if (ln != "Trinket" && ln != "TrinketBack") continue;
+        var sp = ls.Sprite; var tex = sp.texture; var r = sp.rect;
+        Color32[] px;
+        try { px = tex.GetPixels32(); } catch { continue; }
+        var rows = new System.Text.StringBuilder();
+        int w = (int)r.width, h = (int)r.height, tw = tex.width;
+        for (int y = h - 1; y >= 0; y--) {
+            for (int x = 0; x < w; x++) {
+                var c = px[((int)r.y + y) * tw + (int)r.x + x];
+                if (c.a < 128) rows.Append("......"); else rows.Append(c.r.ToString("X2") + c.g.ToString("X2") + c.b.ToString("X2"));
+            }
+            if (y > 0) rows.Append("|");
+        }
+        if (!first) sb.Append(","); first = false;
+        sb.Append("{\"id\":\"" + it.ItemId + "\",\"name\":\"" + it.DisplayName.Replace("\"", "'") + "\",\"tier\":\"" + it.Tier + "\",\"layer\":\"" + ln + "\",\"w\":" + w + ",\"h\":" + h
+          + ",\"ox\":" + ls.Offset.x.ToString(System.Globalization.CultureInfo.InvariantCulture) + ",\"oy\":" + ls.Offset.y.ToString(System.Globalization.CultureInfo.InvariantCulture)
+          + ",\"sx\":" + ls.Size.x.ToString(System.Globalization.CultureInfo.InvariantCulture) + ",\"sy\":" + ls.Size.y.ToString(System.Globalization.CultureInfo.InvariantCulture)
+          + ",\"key\":\"" + sp.name + "\",\"rows\":\"" + rows + "\"}");
+    }
+}
+sb.Append("]");
+System.IO.File.WriteAllText("/private/tmp/claude-501/-Users-marshoward-Coalescence/608fafe2-eefa-4ba2-97ff-090f4e6992e1/scratchpad/relics.json", sb.ToString());
+return "ok";

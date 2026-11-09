@@ -38,6 +38,21 @@ namespace Convergence.Chain
             }
             if (!string.IsNullOrEmpty(itemId))
                 Equipped.Add(new LoadoutEntry { Slot = slot, ItemId = itemId });
+            DropHipClash(keep: slot);
+        }
+
+        /// <summary>
+        /// THE TOME AND THE SHEATHS (the user's call, 2026-11-08): the Chained Tome hangs from the relic's
+        /// hip, where a saya hangs (GearItem.IsSheath), so the two are never worn together - the one just
+        /// equipped stays and the other comes off. <paramref name="keep"/> null (a loaded save holding both)
+        /// keeps the sheath: it carries the relic's signature.
+        /// </summary>
+        void DropHipClash(GearSlot? keep)
+        {
+            var relic = GearCatalog.Get(Get(GearSlot.Relic));
+            var acc = GearCatalog.Get(Get(GearSlot.Ring));
+            if (relic == null || acc == null || !relic.IsSheath || acc.Accessory != AccessoryKind.ChainedTome) return;
+            Clear(keep == GearSlot.Ring ? GearSlot.Relic : GearSlot.Ring);
         }
 
         public void Clear(GearSlot slot) => Set(slot, null);
@@ -123,7 +138,9 @@ namespace Convergence.Chain
                 Equipped.RemoveAt(i);
                 removed++;
             }
-            return removed;
+            int before = Equipped.Count;
+            DropHipClash(keep: null);
+            return removed + before - Equipped.Count;
         }
     }
 

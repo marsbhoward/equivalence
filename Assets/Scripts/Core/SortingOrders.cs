@@ -103,16 +103,17 @@ namespace Convergence.Core
         /// 40, up from 32, when the elbow added four forearm layers; 44 when the wrist added four
         /// hands (37 layers and 3 vials filled 40 exactly, leaving the off-hand disc no spare order
         /// below the next step); 50 when the knee added six shins (43 layers and 3 vials, four
-        /// spare - three since NeckOver made it 44). The band's TOP has to stay under <see cref="StatusOverlay"/>, so
-        /// <see cref="DepthSteps"/> came down to pay for it each time.
+        /// spare - three since NeckOver made it 44); 52 when the accessory added two layers (47 and 3
+        /// vials, and the accessory's glows one above them - one spare). The band's TOP has to stay under
+        /// <see cref="StatusOverlay"/>, so <see cref="DepthSteps"/> came down to pay for it each time.
         /// </summary>
-        public const int DepthStride = 50;
+        public const int DepthStride = 52;
 
         /// <summary>
-        /// Depth steps across the band. 471 over 32 units is ~7cm of resolution, and
-        /// DepthBase + DepthSteps * DepthStride (23650) stays clear of StatusOverlay.
+        /// Depth steps across the band. 459 over 32 units is ~7cm of resolution, and
+        /// DepthBase + DepthSteps * DepthStride (23968) stays clear of StatusOverlay.
         /// </summary>
-        public const int DepthSteps = 471;
+        public const int DepthSteps = 459;
 
         /// <summary>
         /// World y mapped to the front and back of the band. Wide enough for the ARENA (half

@@ -429,15 +429,68 @@ namespace Convergence.Art.Gear
         /// so it reads THIS frame's body (the walk's own hips height comes in as
         /// <paramref name="gaitHipsY"/>).
         /// </summary>
+        /// <summary>
+        /// How far each foot stands out from under its hip at rest, rig units - feet apart, for every
+        /// character (the user's call, 2026-11-09, off the disc stance mocks: "this should go everywhere").
+        /// Out to the side of the picture, so each leg stays straight and just leans out a few degrees
+        /// (SolveLeg points a leg that cannot reach straight at its foot). Gives way to the stride like the
+        /// swing's stance (BodyStanceWalkGive). The front leg hangs on +X, the back on -X.
+        /// </summary>
+        const float FeetApart = 0.02f;
+
+        // ---- weight on one leg at rest (the user's call, 2026-11-09) ----
+        //
+        // Standing, the figure puts its weight on one leg: the hips slide over the standing leg, the torso
+        // follows them part of the way, and the other leg leans out further with its knee a little soft. The
+        // feet stay planted - the hips' shift is taken back off both feet. Every so often the weight changes
+        // legs, eased, on a clock hashed from the rig (never UnityEngine.Random in looks). Translations only,
+        // in whole texels at full weight: a rotated torso breaks up the point-filtered art.
+
+        /// <summary>The hips' slide over the standing leg, and the torso's, rig units (two and one body texels).</summary>
+        const float StandHips = 2f / Proportions.BodyPpu, StandTorso = 1f / Proportions.BodyPpu;
+        /// <summary>How far the resting leg's foot comes up toward its hip, rig units - just enough to soften the
+        /// knee (SolveLeg bends a leg that can more than reach).</summary>
+        const float StandSoftKnee = 0.004f;
+        /// <summary>Seconds on one leg: this plus up to StandHoldSpread more, hashed per change.</summary>
+        const float StandHoldSeconds = 6f, StandHoldSpread = 5f;
+        const float StandShiftSharpness = 3f;
+        /// <summary>How quickly the weight shift comes in at rest and goes out for a walk or a swing.</summary>
+        const float StandRestSharpness = 4f;
+
+        float _standSide = 1f, _standShown, _standRest, _standClock;
+        int _standChanges;
+
+        /// <summary>This frame's slide toward the standing leg (+X the front leg), 0..1 of the full shift.</summary>
+        float AdvanceStandingLeg(float dt)
+        {
+            bool still = _attackTimer <= 0f && _chargeTimer <= 0f && _sinceSwing >= CarryReturnDelay;
+            _standRest = Mathf.Lerp(_standRest, still ? 1f - _gaitWeight : 0f, 1f - Mathf.Exp(-StandRestSharpness * dt));
+
+            _standClock -= dt;
+            if (_standClock <= 0f)
+            {
+                uint h = (uint)(GetEntityId().GetHashCode() * 73856093) ^ (uint)(_standChanges * 19349663);
+                h ^= h >> 13; h *= 0x5bd1e995; h ^= h >> 15;
+                if (_standChanges > 0) _standSide = -_standSide;
+                _standChanges++;
+                _standClock = StandHoldSeconds + (h & 0xffff) / 65535f * StandHoldSpread;
+            }
+            _standShown = Mathf.Lerp(_standShown, _standSide, 1f - Mathf.Exp(-StandShiftSharpness * dt));
+            return _standShown * _standRest;
+        }
+
         void PlaceBody(float cycle, float gaitHipsY, float dt)
         {
             float legs = 1f - BodyStanceWalkGive * _gaitWeight;
+            float apart = FeetApart * legs;
+            float weight = AdvanceStandingLeg(dt);
+            float slide = weight * StandHips;
             float stance = _poseBody.Stance * legs;
             float step = _poseBody.Step * legs;
 
-            if (_torso) _torso.localPosition += Vector3.down * _poseBody.Crouch;
+            if (_torso) _torso.localPosition += Vector3.down * _poseBody.Crouch + Vector3.right * (weight * StandTorso);
             float hipsY = gaitHipsY - _poseBody.Crouch;
-            if (_hips) _hips.localPosition = new Vector3(HipsRest.x, hipsY, 0f);
+            if (_hips) _hips.localPosition = new Vector3(HipsRest.x + slide, hipsY, 0f);
 
             // The front foot carries the step with the figure; the back foot is held where it
             // stood, so it moves BACK in the rig's frame by exactly what the figure travelled -
@@ -445,7 +498,10 @@ namespace Convergence.Art.Gear
             // Facing partial's StepDirection) carries both feet with it for the rest.
             // Standing, the reach holds the back foot too, so the figure stretches into the cut
             // rather than sliding; walking, the stride carries the feet and the figure just goes.
-            PoseLegs(cycle, hipsY, stance, -stance - (step + _reach * legs) * StepDirection.x);
+            // the hips' slide taken back off both feet; the leg NOT taking the weight softens its knee
+            float softFront = Mathf.Max(0f, -weight) * StandSoftKnee, softBack = Mathf.Max(0f, weight) * StandSoftKnee;
+            PoseLegs(cycle, hipsY, stance + apart - slide, -stance - apart - slide - (step + _reach * legs) * StepDirection.x,
+                     softFront, softBack);
 
             // The reach moves the figure too, so it kicks the cape with the step.
             _bodyStepVelocity = dt > 0f ? (step - _lastBodyStep + _reach - _lastReach) / dt : 0f;

@@ -1131,8 +1131,13 @@ namespace Convergence.Art.Gear
         /// raise to stay there; at a quarter it hung off the shoulder while the arm lifted away.
         /// The item says which it is (GearItem.HangsAlongArm), since the rig cannot tell a cap
         /// from a hanging plate by its sprite. See _pauldronFollow.
+        ///
+        /// 2026-11-09, the user's call: every pauldron now follows its arm as the arm pieces' shoulders do
+        /// (ArmPieces.ShoulderShare) - its centre carried round the joint WITH the arm, the plate turned by
+        /// this share of the arm's angle, in every pose, not only the carry. Past 0.25 the plate was found to
+        /// stand up beside the head in the carry (above); this is the trade the user chose.
         /// </summary>
-        const float PauldronFollow = 0.25f;
+        const float PauldronFollow = ArmPieces.ShoulderShare;
 
         /// <summary>The follow the equipped pauldrons take - PauldronFollow for a cap, the whole
         /// raise for a plate that hangs along the arm. Set by Apply.</summary>
@@ -2846,7 +2851,11 @@ namespace Convergence.Art.Gear
             lo.enabled = forearm != null;
             if (below == null) return;
 
-            hand.sprite = below;
+            // the fist reshaped - tapered, a thumb, knuckles (the Fist partial); the bare hand never plated
+            bool front = handLayer is RigLayer.ArmFrontHand or RigLayer.GlovesFrontHand;
+            bool gloved = handLayer is RigLayer.GlovesFrontHand or RigLayer.GlovesBackHand;
+            hand.sprite = ShapedFist(below, front, _platedFists && gloved,
+                                     Mathf.Max(1, Mathf.RoundToInt(ElbowOverlap * below.pixelsPerUnit)));
             hand.color = lo.color;
             hand.drawMode = SpriteDrawMode.Simple;
             hand.enabled = true;
@@ -3181,6 +3190,7 @@ namespace Convergence.Art.Gear
             _trinketBackTurned = null;
             _hipSwingPivot = Vector2.zero;
             _clothDyed = false;
+            _accessory = AccessoryKind.None;
             bool wantGlowEye = false;
 
             if (loadout == null) { _glowEyeItem = false; SyncGlowEye(); return; }
@@ -3188,6 +3198,8 @@ namespace Convergence.Art.Gear
             // Before the loop, not inside it: the cape may come after the tabard it dyes in
             // Equipped (GearItem.DyedByBack).
             _clothDyed = ClothDye.TryMassOf(GearCatalog.Get(loadout.Get(GearSlot.Back)), out _clothDye);
+            // a plated gauntlet's fist takes the knuckle notches only (the Fist partial); before the gloves are cut
+            _platedFists = loadout.Get(GearSlot.Gloves) is { } gloveId && PlatedFists.Contains(gloveId);
 
             foreach (var entry in loadout.Equipped)
             {
@@ -3277,6 +3289,9 @@ namespace Convergence.Art.Gear
 
             _glowEyeItem = wantGlowEye;
             SyncGlowEye();
+
+            // The accessory draws itself, live - after every item, on two layers no slot paints.
+            ApplyAccessory(loadout);
 
             _dualWield = WeaponIsDualWield(loadout);
             SetTwoHanded(WeaponIsTwoHanded(loadout));   // recomputes the whole stack
@@ -3674,7 +3689,7 @@ namespace Convergence.Art.Gear
         /// either facing (turned away the hip relics are hidden anyway).
         /// </summary>
         static int[] TrinketBehindBody(int[] table)
-            => Inserted(table, RigLayer.TrinketBack, RigLayer.Back, above: true);
+            => WithAccessoryLayers(Inserted(table, RigLayer.TrinketBack, RigLayer.Back, above: true));
 
         /// <summary>
         /// Put <paramref name="layer"/> directly above or below <paramref name="anchor"/>, adding
@@ -4603,6 +4618,9 @@ namespace Convergence.Art.Gear
                 table = Reranked(table, RigLayer.Shoulders, after: RigLayer.ShouldersBack);
             }
 
+            // The worn accessory's two layers, last: each ranks against whatever it is defined by.
+            table = PlaceAccessories(table);
+
             foreach (var layer in RigLayers.All)
             {
                 if (!_layers.TryGetValue(layer, out var sr) || sr == null) continue;
@@ -4780,6 +4798,8 @@ namespace Convergence.Art.Gear
             if (_twinReach) ApplyTwinReach();
             else if (_reaching) ApplyReach();
             PlaceNockedArrow();   // the bow's arrow in the string hand, on the posed arm
+            FollowArmPiece();     // the arm piece's shoulder onto the posed arm
+            PlaceElbowCaps();     // a round elbow under both halves of each bent arm (the ElbowCap partial)
         }
 
         /// <summary>
@@ -6096,6 +6116,8 @@ namespace Convergence.Art.Gear
             AnimateScarf(dt, speed);
             AnimateVials(dt);
             AnimateQuiver();
+            AnimateAccessory(dt, speed);
+            AnimateArmPiece(dt, speed);
             AnimateLegCloth(dt, speed);
             TickGroundPierce();
 
@@ -6385,7 +6407,7 @@ namespace Convergence.Art.Gear
                     // hand hanging at the body's edge put its disc straight behind the body.
                     // Eased on UNSCALED time: the character screen pauses the game, and a swing
                     // eased on game time would never arrive there.
-                    _offSplay = Mathf.MoveTowards(_offSplay, _split ? SplitOffArmDegrees : 0f,
+                    _offSplay = Mathf.MoveTowards(_offSplay, _split && !_discStowed ? SplitOffArmDegrees : 0f,
                                                   SplitOffArmDegreesPerSecond * Time.unscaledDeltaTime);
                     _armBack.localRotation = Quaternion.Euler(0, 0, backSwing + aim * 0.4f + _offSplay);
                     _armBack.localPosition = _armBackRest;
@@ -6407,6 +6429,8 @@ namespace Convergence.Art.Gear
                 if (_elbowBack) _elbowBack.localRotation = Quaternion.Euler(0, 0, elbow);
             }
 
+            PoseDiscStance(dt, armTravel, swinging);   // the disc pair stowed, raised or edge-on (the DiscStance partial)
+            LiftBowGrip(swinging);                     // from behind, the resting bow's fist over the cape (the BackGrip partial)
             ApplyPresent();
 
             FollowPauldron(RigLayer.Shoulders, _shouldersRest, carryBack, side, carryBlend);
@@ -6869,17 +6893,12 @@ namespace Convergence.Art.Gear
         /// different moment than the strike would fight it rather than power it.
         /// </summary>
         /// <summary>
-        /// Turn one pauldron about the shoulder it caps by <see cref="PauldronFollow"/> of the
-        /// carry's raise - only the plate over the CARRYING arm, and only in the carry. Every
-        /// other pose writes the plate back to exactly where Apply put it, so combat, where the
-        /// arms swing through half a circle, never flaps the armour.
+        /// Follow one pauldron with the arm it caps (the user's call, 2026-11-09, matching the arm pieces'
+        /// shoulders): its centre carried round the joint by the arm's whole live angle, the plate turned by
+        /// <see cref="PauldronFollow"/> of it - in every pose, the carry, a swing, the disc stance's splay. Before
+        /// this it took a quarter of the carry's raise only and held still in combat.
         ///
-        /// The one exception is the disc stance's splay (_offSplay), which the plate over the far
-        /// arm follows by the same share: that arm is held OUT for as long as the discs are, so it
-        /// is a pose, not a swing.
-        ///
-        /// About the joint's REST position, not its live one: the carrying shoulder is at rest
-        /// whenever the carry is fully open, and the two-handed grip's relocated off-hand
+        /// About the joint's REST position, not its live one: the two-handed grip's relocated off-hand
         /// shoulder (ArmBackGripRest) would drag a plate across the chest mid-blend.
         /// </summary>
         void FollowPauldron(RigLayer layer, Vector3 rest, bool carryBack, float side, float carryBlend)
@@ -6887,18 +6906,17 @@ namespace Convergence.Art.Gear
             if (!_layers.TryGetValue(layer, out var sr) || sr == null || !sr.enabled) return;
 
             bool onBack = rest.x > 0f;
+            // an arm piece's own shoulder rides its arm in LateUpdate (FollowArmPiece)
+            if (!onBack && layer == RigLayer.Shoulders && _armPiece != AccessoryKind.None) return;
+            // the arm's live angle (the carry's raise, a swing, the disc stance's splay all in it); the
+            // plate's centre goes round the joint with the whole of it and the plate turns by the share.
+            // About the joint's REST position: the two-handed grip's relocated off-hand shoulder
+            // (ArmBackGripRest) would drag a plate across the chest.
+            var arm = onBack ? _armBack : _armFront;
             Vector3 joint = onBack ? _armBackRest : _armFrontRest;
-            float a = onBack == carryBack
-                ? side * CarryShoulderNow * _pauldronFollow * carryBlend
-                : 0f;
-            // The disc stance's far arm swings OUT to carry its disc clear of the body, and the
-            // plate over it goes with it by the same share as a raise - left flat, the arm slid
-            // out from under it while the near plate sat on its own arm (the user's report).
-            if (onBack) a += _offSplay * _pauldronFollow;
-
-            var turn = Quaternion.Euler(0f, 0f, a);
-            sr.transform.localPosition = joint + turn * (rest - joint);
-            sr.transform.localRotation = turn;
+            float angle = arm != null ? Mathf.DeltaAngle(0f, arm.localEulerAngles.z) : 0f;
+            sr.transform.localPosition = joint + Quaternion.Euler(0f, 0f, angle) * (rest - joint);
+            sr.transform.localRotation = Quaternion.Euler(0f, 0f, angle * _pauldronFollow);
         }
 
         static void ChopPhases(float seconds, out float cockEnd, out float strikeEnd)

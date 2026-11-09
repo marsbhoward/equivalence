@@ -380,6 +380,13 @@ namespace Convergence.Art.Gear
         void SetGripShouldered(bool shouldered);
 
         /// <summary>
+        /// Whether a fight is on (GameBootstrap, for the arena's player: a wave arriving or alive, or a boss).
+        /// The disc pair is stowed on the back out of one; a chain under way counts as one too. A rig nobody
+        /// drives stays in combat, so a preview shows its discs in hand.
+        /// </summary>
+        void SetInCombat(bool inCombat);
+
+        /// <summary>
         /// Send the character's RIGHT fist to a point, in the rig ROOT's local frame (so the
         /// mirror is the rig's business, not the caller's), or null to hand the arm back.
         ///

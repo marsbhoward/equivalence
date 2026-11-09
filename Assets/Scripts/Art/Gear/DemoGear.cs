@@ -386,6 +386,9 @@ namespace Convergence.Art.Gear
             WraithEyeDisplay(wraithEye);   // a picture for cards and its NFT only - never worn
             items.Add(wraithEye);
 
+            // The accessories drawn live (DemoGear.Accessories.cs).
+            AddAccessories(items);
+
             // The reference's most distinctive piece - a domed cap plate over a flared lower
             // skirt, the two separated by a full black accent seam rather than the thin gold
             // rivet-edge the first pass used, so the pauldron reads as two overlapping plates.
@@ -1212,6 +1215,7 @@ namespace Convergence.Art.Gear
                        ZanmatoPal(), SayaOffsetCells.x, SayaOffsetCells.y, ppu: BodyPpu));
             zanmatoSaya.SignatureFinisher = "crosscut";
             zanmatoSaya.WornOnLeftHip = true;
+            zanmatoSaya.IsSheath = true;   // not worn with the Chained Tome
             items.Add(zanmatoSaya);
 
             // ---- discs: the second weapon class ----

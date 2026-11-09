@@ -89,6 +89,7 @@ namespace Convergence.Art.Gear
                            GeminiSayaRows(frosted: false, far: true), sayaPal, farHip.x, farHip.y, ppu: BodyPpu),
             };
             saya.HipSwingPivot = GeminiSayaMouthFromCentre / BodyPpu;
+            saya.IsSheath = true;   // not worn with the Chained Tome
             RelicGrants(saya, SolveCoagulaId);
             items.Add(saya);
         }

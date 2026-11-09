@@ -129,6 +129,21 @@ namespace Convergence.Art.Gear
                  "the blade in it, and facing left it would otherwise hang under that same hand.")]
         public bool WornOnLeftHip;
 
+        [Tooltip("Relic slot only. A SHEATH (the Zanmato and Gemini Sayas): it hangs from the hip the " +
+                 "Chained Tome takes, so the two are never worn together - equipping one takes the " +
+                 "other off (Loadout.Set; the user's call, 2026-11-08).")]
+        public bool IsSheath;
+
+        [Tooltip("Accessory slot (GearSlot.Ring) only. The piece the rig draws LIVE for this item - " +
+                 "see Accessories and PrimitiveCharacterRig.Accessory.cs. None for a ring or the " +
+                 "Wraith's Eye, which paint their own layers or none.")]
+        public AccessoryKind Accessory;
+
+        [Tooltip("Accessory slot only. The piece's variant - the collar's bird (Crow, Swan, Peacock, " +
+                 "Phoenix) or the cloth of the banner and the wraps (Crimson, Linen, Ink, Navy, Element). " +
+                 "Empty is the first of each.")]
+        public string AccessoryLook;
+
         [Tooltip("Relic slot only. What each of this relic's layers shows after a HALF TURN - facing " +
                  "left, or turned away (both together is the first picture again) - matched by " +
                  "RigLayer. A mirror alone keeps the same piece in front; a pair worn one on each hip " +

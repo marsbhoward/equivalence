@@ -335,14 +335,15 @@ namespace Convergence.Art.Gear
         /// along the facing off where the walk puts it - a swing's split stance (see the Body
         /// partial); 0 for the walk alone.
         /// </summary>
-        void PoseLegs(float cycle, float hipsY, float frontShift = 0f, float backShift = 0f)
+        void PoseLegs(float cycle, float hipsY, float frontShift = 0f, float backShift = 0f,
+                      float frontLift = 0f, float backLift = 0f)
         {
             EnsureKnees();
-            PoseLeg(_legFront, _kneeFront, cycle, hipsY, frontShift);
-            PoseLeg(_legBack, _kneeBack, cycle + 0.5f, hipsY, backShift);
+            PoseLeg(_legFront, _kneeFront, cycle, hipsY, frontShift, frontLift);
+            PoseLeg(_legBack, _kneeBack, cycle + 0.5f, hipsY, backShift, backLift);
         }
 
-        void PoseLeg(Transform hip, Transform knee, float cycle, float hipsY, float footShift)
+        void PoseLeg(Transform hip, Transform knee, float cycle, float hipsY, float footShift, float footLift = 0f)
         {
             if (hip == null) return;
             float travel = GaitLegTravel(cycle) * _gaitWeight;
@@ -357,7 +358,7 @@ namespace Convergence.Art.Gear
             // The foot's target against the hip joint, in the rig's own frame. The joint sits on
             // the hips' pivot line, so its height is the hips'.
             float sole = HipsRest.y - LegLength;
-            float footY = sole + GaitFootLift(cycle) * _gaitWeight - travel * WalkFootDepth;
+            float footY = sole + GaitFootLift(cycle) * _gaitWeight - travel * WalkFootDepth + footLift;
             SolveLeg(travel * WalkStride * _strideScale + footShift, footY - hipsY, out float thigh, out float bend);
 
             hip.localRotation = Quaternion.Euler(0f, 0f, thigh);

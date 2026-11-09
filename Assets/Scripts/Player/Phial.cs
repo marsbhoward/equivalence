@@ -18,6 +18,10 @@ namespace Convergence.Player
         public int Charges { get; private set; }
         public int MaxCharges => Tuning.Phial.ChargesFor(Tier);
         public bool Drinking => _drinkT >= 0f;
+        /// <summary>Seconds into the drink (-1 when not drinking) - a worn bandolier or harness plays it.</summary>
+        public float DrinkT => _drinkT;
+        /// <summary>Time.time of the last spill - a worn bandolier or harness cracks and sprays.</summary>
+        public float SpilledAt { get; private set; } = float.NegativeInfinity;
 
         float _drinkT = -1f;
         bool _gulped;
@@ -105,6 +109,7 @@ namespace Convergence.Player
         {
             if (!Drinking || _gulped || d.Tick || d.Price || d.Amount <= 0f) return;
             Chain.Service.Telemetry.Drink(spilled: true);
+            SpilledAt = Time.time;
             ShowFlask(false);
             TexelFx.Motes(ReleaseCanvas.Feet(transform), TexelFx.Heal, 0.4f, ReleaseCanvas.UnderBody(transform), 8);
             Audio.Sfx.Play(Audio.Sound.Rattle, (Vector2)transform.position, 0.7f);
