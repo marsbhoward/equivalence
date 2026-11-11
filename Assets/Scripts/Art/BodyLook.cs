@@ -2889,8 +2889,11 @@ namespace Convergence.Art
             // The style's TURNED view, composed into the head like any other layer - see
             // BodyLook.HairViews. Every style has one.
             var side = View(HairStyle(hairStyle).Key, back: false);
-            var big = FaceDetail.Build(Head(expression, beard, brows, gaze: gaze, hair: side?.Cap), face,
-                                       scale, HairValue(hair), side?.Mane != null, beardMask, leftEyeGlow);
+            var flat = Head(expression, beard, brows, gaze: gaze, hair: side?.Cap);
+            // A front 3/4 the eight-direction pass redrew was approved with its top open under a standing mane
+            // (FaceDetail.ThinOutline); the rest keep today's pass exactly.
+            var maneAbove = TurnedArt5.ContainsKey(HairStyle(hairStyle).Key) ? ManeAbove(side?.Mane, side?.ManeTop ?? 0, flat) : null;
+            var big = FaceDetail.Build(flat, face, scale, HairValue(hair), side?.Mane != null, beardMask, leftEyeGlow, maneAbove);
             BeardOwnInk(big, beardMask, side?.Cap, scale);
             var drawn = DrawnEyeArt(expression);
             if (drawn != null) StampEyes(big, expression, gaze, scale, drawn, leftEyeGlow);

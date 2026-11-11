@@ -159,5 +159,67 @@ namespace Convergence.EditorTools
             Object.DestroyImmediate(tex);
             return $"{W * px}x{H * px}";
         }
+    
+        /// <summary>
+        /// The GAME's eight-direction head (BodyLook.HeadDetail5 / ManeDetail5) for checking against the reviews: per
+        /// look, the five views facing right, then front 3/4, side and back 3/4 facing left (mirrored, as the rig shows
+        /// them). Each look is "style:beard:brows:mark".
+        /// </summary>
+        public static string GameHeads(string outPath, string looks, string hair = "brown", int px = 2)
+        {
+            int s = BodyLook.DetailScale, headW = 32 * s, cellW = 64 * s, cellH = 76 * s;
+            var list = looks.Split(',');
+            int W = cellW * 8, H = cellH * list.Length;
+            var img = new Color32[W * H];
+            var bg = new Color32(76, 80, 90, 255);
+            for (int i = 0; i < img.Length; i++) img[i] = bg;
+            var pal = BodyLook.HeadPalette(BodyLook.SkinRamp("fair"), BodyLook.HairRamp(hair), BodyLook.EyeRamp("slate"));
+            void Blit(string[] rows, int ox, int oy)
+            {
+                if (rows == null) return;
+                for (int y = 0; y < rows.Length; y++)
+                for (int x = 0; x < rows[y].Length; x++)
+                {
+                    char c = rows[y][x];
+                    if (c == '.' || !pal.TryGetValue(c, out var col)) continue;
+                    int X = ox + x, Y = oy + y;
+                    if (X < 0 || Y < 0 || X >= W || Y >= H) continue;
+                    img[(H - 1 - Y) * W + X] = col;
+                }
+            }
+            var views = new[] { (BodyLook.HeadView5.Front, false), (BodyLook.HeadView5.FrontQuarter, false), (BodyLook.HeadView5.Side, false),
+                                (BodyLook.HeadView5.BackQuarter, false), (BodyLook.HeadView5.Back, false),
+                                (BodyLook.HeadView5.FrontQuarter, true), (BodyLook.HeadView5.Side, true), (BodyLook.HeadView5.BackQuarter, true) };
+            for (int k = 0; k < list.Length; k++)
+            {
+                var p = list[k].Split(':');
+                string style = p[0], beard = p.Length > 1 ? p[1] : "none", brows = p.Length > 2 ? p[2] : "natural", mark = p.Length > 3 ? p[3] : "none";
+                for (int v = 0; v < views.Length; v++)
+                {
+                    var (view, left) = views[v];
+                    var head = BodyLook.HeadDetail5(view, left, "neutral", style, beard, brows, hair, mark, gaze: view == BodyLook.HeadView5.Front ? 0 : 2);
+                    var mane = view == BodyLook.HeadView5.Back || view == BodyLook.HeadView5.Front || view == BodyLook.HeadView5.FrontQuarter
+                        ? (left && view != BodyLook.HeadView5.Back ? BodyLook.ManeDetail5(view, true, style, hair) : BodyLook.ManeDetail(BodyLook.HairStyle(style).Key, false, hair, back: view == BodyLook.HeadView5.Back))
+                        : BodyLook.ManeDetail5(view, left, style, hair);
+                    int top = view == BodyLook.HeadView5.Back ? (BodyLook.View(BodyLook.HairStyle(style).Key, true)?.ManeTop ?? 32)
+                            : (BodyLook.View5(style, view, left)?.ManeTop ?? 32);
+                    bool over = view == BodyLook.HeadView5.Back || view == BodyLook.HeadView5.BackQuarter;
+                    if (left) { head = head == null ? null : BodyLook.Mirror(head); mane = mane == null ? null : BodyLook.Mirror(mane); }
+                    int ox = v * cellW + (cellW - headW) / 2, oy = k * cellH + 14 * s;
+                    int mw = mane != null && mane.Length > 0 ? mane[0].Length : 0;
+                    int mox = ox + (headW - mw) / 2, moy = oy + (32 - top) * s;
+                    if (!over) Blit(mane, mox, moy);
+                    Blit(head, ox, oy);
+                    if (over) Blit(mane, mox, moy);
+                }
+            }
+            var tex = new Texture2D(W * px, H * px, TextureFormat.RGBA32, false);
+            var dst = new Color32[W * px * H * px];
+            for (int y = 0; y < H * px; y++) for (int x = 0; x < W * px; x++) dst[y * W * px + x] = img[(y / px) * W + x / px];
+            tex.SetPixels32(dst); tex.Apply();
+            System.IO.File.WriteAllBytes(outPath, tex.EncodeToPNG());
+            Object.DestroyImmediate(tex);
+            return $"{W * px}x{H * px}";
+        }
     }
 }

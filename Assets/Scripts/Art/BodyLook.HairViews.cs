@@ -84,8 +84,11 @@ namespace Convergence.Art
         /// <see cref="HairStyle"/> first); null only for a key no style has.</summary>
         public static HairView View(string hairStyle, bool back)
         {
+            if (hairStyle == null) return null;
+            // The eight-direction pass's approved changes to the front 3/4 and back (Views5Art) win.
+            if ((back ? BackArt5 : TurnedArt5).TryGetValue(hairStyle, out var changed)) return changed;
             var table = back ? BackArt : SideArt;
-            return table != null && hairStyle != null && table.TryGetValue(hairStyle, out var v) ? v : null;
+            return table != null && table.TryGetValue(hairStyle, out var v) ? v : null;
         }
 
         /// <summary>

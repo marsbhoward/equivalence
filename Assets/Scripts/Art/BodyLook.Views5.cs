@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 namespace Convergence.Art
 {
     // EIGHT DIRECTIONS (RIG.md, adopted 2026-11-09): the head's two NEW views - SIDE (profile, facing right) and
@@ -253,6 +254,118 @@ namespace Convergence.Art
                         PixelDetail.Put(big, px, py, ch);
                 }
             }
+        }
+    
+        // ================================================================ the game's eight-direction head
+        //
+        // The approved art (Views5Art, generated from Tools/hair/views5 and Tools/faces) as the game draws it. Five
+        // views; FRONT and FRONT 3/4 are both today's turned head. Facing LEFT the rig mirrors the sprite, so the
+        // left-facing picture of a one-sided part (Swept, Veil, Quizzical, Slit, every mark) is built from its stored
+        // mirror image facing right and comes out right once flipped.
+
+        public enum HeadView5 { Front, FrontQuarter, Side, BackQuarter, Back }
+
+        static string[] Placed((int at, string[] rows) part)
+        {
+            var g = Blank();
+            for (int i = 0; i < part.rows.Length && part.at + i < g.Length; i++) g[part.at + i] = part.rows[i];
+            return g;
+        }
+
+        static string[] FacePart(Dictionary<string, (int at, string[] rows)> right, Dictionary<string, (int at, string[] rows)> left,
+                                 string key, bool facingLeft)
+        {
+            if (string.IsNullOrEmpty(key)) return null;
+            if (facingLeft && left != null && left.TryGetValue(key, out var l)) return Placed(l);
+            return right.TryGetValue(key, out var r) ? Placed(r) : null;
+        }
+
+        /// <summary>The hairstyle's hair for a new view; null when it has none (Shaved, an unknown key).</summary>
+        public static HairView View5(string hairStyle, HeadView5 view, bool facingLeft)
+        {
+            string key = HairStyle(hairStyle).Key;
+            switch (view)
+            {
+                case HeadView5.Side:
+                    if (facingLeft && ProfileArtLeft.TryGetValue(key, out var sl)) return sl;
+                    return ProfileArt.TryGetValue(key, out var s) ? s : null;
+                case HeadView5.BackQuarter:
+                    if (facingLeft && BackQuarterArtLeft.TryGetValue(key, out var ql)) return ql;
+                    return BackQuarterArt.TryGetValue(key, out var q) ? q : null;
+                case HeadView5.Back:
+                    return View(key, back: true);
+                default:
+                    if (facingLeft && TurnedArt5Left.TryGetValue(key, out var tl)) return tl;
+                    return View(key, back: false);
+            }
+        }
+
+        /// <summary>
+        /// The head for any of the five views, detail texels at <paramref name="scale"/>. Front and front 3/4: today's
+        /// turned head (its own picture facing left for a one-sided style or mark). Side and back 3/4: the profile and
+        /// the back a step round, with the brows, marks and beards drawn for them. Back: today's back of the head.
+        /// </summary>
+        public static string[] HeadDetail5(HeadView5 view, bool facingLeft, string expression, string hairStyle, string beard,
+                                           string brows, string hair, string mark, int scale = DetailScale, int gaze = 2)
+        {
+            string key = HairStyle(hairStyle).Key;
+            var hv = View5(key, view, facingLeft);
+            switch (view)
+            {
+                case HeadView5.Side:
+                    return HeadProfileFull(expression, hair, hv?.Cap, hv?.Mane != null,
+                        FacePart(BrowProfile, BrowProfileLeft, brows, facingLeft),
+                        FacePart(BeardProfile, null, beard, facingLeft),
+                        FacePart(MarkProfile, MarkProfileLeft, mark, facingLeft),
+                        hv?.Mane, hv?.ManeTop ?? ManeHeadTop, scale);
+                case HeadView5.BackQuarter:
+                    return HeadBackQuarterFull(hair, hv?.Cap, hv?.Mane != null, FacePart(BeardBackQuarter, null, beard, facingLeft),
+                                               null, scale);
+                case HeadView5.Back:
+                    return HeadBackDetail(key, hair, scale, false);
+                default:
+                    if (facingLeft && (TurnedArt5Left.ContainsKey(key) || IsOneSidedFace(brows, mark)))
+                        return HeadTurnedLeft(expression, key, beard, brows, hair, mark, scale, gaze);
+                    return HeadDetail(expression, key, beard, brows, hair, scale: scale, gaze: gaze, mark: mark);
+            }
+        }
+
+        static bool IsOneSidedFace(string brows, string mark)
+            => (!string.IsNullOrEmpty(brows) && brows != "natural" && Asymmetric("brow", brows))
+            || (!string.IsNullOrEmpty(mark) && mark != "none" && Asymmetric("mark", mark));
+
+        /// <summary>
+        /// The turned head facing LEFT, built facing right from the mirrored parts so the rig's flip shows each
+        /// one-sided part on its own side: the style's own left picture, and a one-sided brow or mark mirrored.
+        /// </summary>
+        static string[] HeadTurnedLeft(string expression, string key, string beard, string brows, string hair, string mark,
+                                       int scale, int gaze)
+        {
+            string b = brows, m = mark;
+            if (!string.IsNullOrEmpty(brows) && brows != "natural" && Asymmetric("brow", brows))
+            { b = brows + "~"; if (!(_devBrows?.ContainsKey(b) ?? false)) DevAddBrow(b, b, string.Join("|", Mirror(Brow(brows).Grid))); }
+            if (!string.IsNullOrEmpty(mark) && mark != "none" && Asymmetric("mark", mark))
+            { m = mark + "~"; if (!(_devMarks?.ContainsKey(m) ?? false)) DevAddMark(m, m, string.Join("|", Mirror(Mark(mark).Grid))); }
+            var hv = View5(key, HeadView5.FrontQuarter, true);
+            if (!TurnedArt5Left.ContainsKey(key)) return HeadDetail(expression, key, beard, b, hair, scale: scale, gaze: gaze, mark: m);
+            var face = Expand(Expression(expression).Grid, solid: false);
+            if (gaze != 0) face = Gaze(face, gaze);
+            var beardMask = BeardTurned(BeardGrid(beard), gaze, Beard(beard).Key);
+            var flat = Head(expression, beard, b, gaze: gaze, hair: hv.Cap);
+            var big = FaceDetail.Build(flat, face, scale, HairValue(hair), hv.Mane != null, beardMask, false,
+                                       ManeAbove(hv.Mane, hv.ManeTop, flat));
+            BeardOwnInk(big, beardMask, hv.Cap, scale);
+            var drawn = DrawnEyeArt(expression);
+            if (drawn != null) StampEyes(big, expression, gaze, scale, drawn, false);
+            StampMark(big, m, gaze, scale);
+            return big;
+        }
+
+        /// <summary>The hair past the skull for a view, through the hair pass; null when the view has none.</summary>
+        public static string[] ManeDetail5(HeadView5 view, bool facingLeft, string hairStyle, string hair, int scale = DetailScale)
+        {
+            var hv = View5(hairStyle, view, facingLeft);
+            return hv?.Mane == null ? null : ManeFromRows(hv.Mane, hv.ManeTop, hair, scale);
         }
     }
 }
