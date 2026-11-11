@@ -4800,6 +4800,8 @@ namespace Convergence.Art.Gear
             PlaceNockedArrow();   // the bow's arrow in the string hand, on the posed arm
             FollowArmPiece();     // the arm piece's shoulder onto the posed arm
             PlaceElbowCaps();     // a round elbow under both halves of each bent arm (the ElbowCap partial)
+            DrawSwing8();         // eight directions, phase 4: a swing drawn into the figure (the Dir8 partial)
+            Hide8();              // eight directions: only the head and the drawn body (the Dir8 partial)
         }
 
         /// <summary>
@@ -6089,6 +6091,7 @@ namespace Convergence.Art.Gear
             PoseDash();
             // The hips, legs and crouch, now that this frame's body is known.
             PlaceBody(cycle, gaitHipsY, dt);
+            PlaceLegs8(dt, speed);
 
             // Grounded motions ignore the aim entirely; everything else rides on it as before.
             float suppressTarget = _attackTimer > 0f && IgnoresAim(_motion) ? 1f : 0f;
@@ -6111,6 +6114,7 @@ namespace Convergence.Art.Gear
             // FaceAim first: the arms need this frame's residual, not last frame's, and the cape
             // needs this frame's mirror to know which way "behind" is.
             FaceAim();
+            SyncHeadView8();
             ApplyWeightShift(wasFacingLeft, waistTurn);
             AdvanceBillow(dt);
             AnimateCape(dt, speed);

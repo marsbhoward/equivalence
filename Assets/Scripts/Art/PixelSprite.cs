@@ -184,6 +184,40 @@ namespace Convergence.Art
             return sprite;
         }
 
+        /// <summary>
+        /// A sprite from raw colours (<paramref name="px"/> row 0 the TOP, as grids are written), uncached - for pictures
+        /// composed at runtime with more colours than a palette holds (Body8). <paramref name="crop"/> trims the clear
+        /// border to an even width; the pivot stays on <paramref name="pivotTexel"/> (x across, y down).
+        /// </summary>
+        public static Sprite FromPixels(Color[] px, int w, int h, Vector2Int pivotTexel, float pixelsPerUnit, bool crop = false)
+        {
+            int x0 = 0, y0 = 0, x1 = w - 1, y1 = h - 1;
+            if (crop)
+            {
+                x0 = w; y0 = h; x1 = -1; y1 = -1;
+                for (int y = 0; y < h; y++)
+                for (int x = 0; x < w; x++)
+                    if (px[y * w + x].a > 0f) { x0 = Mathf.Min(x0, x); x1 = Mathf.Max(x1, x); y0 = Mathf.Min(y0, y); y1 = Mathf.Max(y1, y); }
+                if (x1 < 0) { x0 = y0 = 0; x1 = y1 = 1; }
+                if (((x1 - x0 + 1) & 1) != 0) { if (x1 + 1 < w) x1++; else x0--; }
+            }
+            int cw = x1 - x0 + 1, ch = y1 - y0 + 1;
+            var tex = new Texture2D(cw, ch, TextureFormat.RGBA32, false)
+            {
+                filterMode = FilterMode.Point,
+                wrapMode = TextureWrapMode.Clamp,
+                hideFlags = HideFlags.HideAndDontSave,
+            };
+            var o = new Color[cw * ch];
+            for (int y = 0; y < ch; y++)
+            for (int x = 0; x < cw; x++)
+                o[(ch - 1 - y) * cw + x] = px[(y0 + y) * w + (x0 + x)];
+            tex.SetPixels(o);
+            tex.Apply();
+            var pivot = new Vector2((pivotTexel.x - x0 + 0.5f) / cw, (ch - 1 - (pivotTexel.y - y0) + 0.5f) / ch);
+            return Sprite.Create(tex, new Rect(0, 0, cw, ch), pivot, pixelsPerUnit);
+        }
+
         static readonly Dictionary<Sprite, Sprite> _silhouettes = new();
 
         /// <summary>

@@ -55,7 +55,8 @@ namespace Convergence.Art.Gear
             ApplyLayerOrder();
         }
 
-        bool HasQuiver => _quiver != null && _quiver.sprite != null && _quiver.enabled;
+        bool HasQuiver => _quiver != null && _quiver.sprite != null
+                          && (_quiver.enabled || (_hidden8 != null && _hidden8.Contains(_quiver)));   // eight directions hides it, the draw still has it
 
         /// <summary>Every bow draw - standing, from the kneel, from the recoil.</summary>
         static bool IsBowDraw(AttackMotion m) =>

@@ -324,6 +324,7 @@ namespace Convergence.Art.Gear
         /// </summary>
         void FaceAimTurning(Vector2 live)
         {
+            live = EightDirTarget(live);
             bool swinging = _attackTimer > 0f && _attackHold <= 0f;
             float cockEnd = 0f, strikeEnd = 0f, k = 0f;
             if (swinging)

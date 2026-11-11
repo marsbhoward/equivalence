@@ -391,6 +391,28 @@ namespace Convergence.Art.Gear
             return result;
         }
 
+        /// <summary>A palette with each channel in its swatch, or null when the dye reaches none of it - for art
+        /// built outside the item's layers (the eight-direction pictures, Body8Art).</summary>
+        public static Dictionary<char, Color> Repainted(IReadOnlyDictionary<char, Color> pal, DyeChannel[] channels, string[] swatchIds)
+        {
+            if (pal == null || channels == null || swatchIds == null) return null;
+            var tones = DyedTones(channels, swatchIds, out string tag);
+            return tag == null ? null : RepaintPalette(pal, channels, tones);
+        }
+
+        /// <summary>The swatches a dyed copy's id names ("design@dye.copper.-" -> dye.copper, none), or null
+        /// for an undyed id - the inverse of <see cref="DyedCopy"/>'s naming.</summary>
+        public static string[] SwatchesOf(string itemId)
+        {
+            int at = itemId == null ? -1 : itemId.IndexOf('@');
+            if (at < 0) return null;
+            var parts = itemId.Substring(at + 1).Split('.');
+            if (parts.Length < 2 || parts[0] != "dye") return null;
+            var ids = new string[parts.Length - 1];
+            for (int i = 1; i < parts.Length; i++) ids[i - 1] = parts[i] == "-" ? null : "dye." + parts[i];
+            return ids;
+        }
+
         /// <summary>
         /// A copy of <paramref name="design"/> wearing <paramref name="swatchIds"/> (one per
         /// channel, null = as authored), arena and menu art both, under the id

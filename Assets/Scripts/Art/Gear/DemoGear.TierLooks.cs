@@ -83,7 +83,9 @@ namespace Convergence.Art.Gear
         /// <summary>
         /// Every tier back's CLOTH as one baked channel (DyeChannel.Baked): its colours as the baked
         /// palette writes them, darkest first, the main body's colour the base - read off the grids'
-        /// counts. Trim, clasps, the Athanor flask and the bedroll's caps are left as drawn.
+        /// counts. Trim, clasps, the Athanor flask and the bedroll's caps are left as drawn. The
+        /// eight-direction pictures (Body8Art) light the cloth further than the front art does: their
+        /// extra tones are listed too (each colour is dyed on its own, so the front art is unchanged).
         /// </summary>
         static void TierBackDyes(List<GearItem> items)
         {
@@ -94,10 +96,10 @@ namespace Convergence.Art.Gear
                 item.DyeChannels = new[] { DyeChannel.Baked("Cloth", material, baseHex, cloth) };
                 _freeBacks.Add(id);
             }
-            Back("tier_hoplite_back", DyeMaterial.Cloth, "6D1D19", "471311", "6D1D19", "9B2A24");
+            Back("tier_hoplite_back", DyeMaterial.Cloth, "6D1D19", "471311", "6D1D19", "9B2A24", "B94C3B", "D76D53");
             Back("tier_wayfarer_back", DyeMaterial.Cloth, "56602F", "282C16", "3C4321", "56602F", "7D864F", "A4AD6F");
             Back("tier_athanor_back", DyeMaterial.Leather, "7A4A2A",
-                 "22150D", "342014", "4A2E1C", "55341D", "64422A", "7A4A2A", "95623E", "B17C53", "E7B66C");
+                 "22150D", "342014", "4A2E1C", "55341D", "64422A", "7A4A2A", "81583A", "95623E", "B17C53", "E7B66C");
             Back("tier_hauberk_back", DyeMaterial.Cloth, "3D4147", "282B2F", "3D4147", "575D66");
             Back("tier_kettle_back", DyeMaterial.Cloth, "213727", "162419", "213727", "2F4F37");
             Back("tier_sentinel_back", DyeMaterial.Cloth, "2C3A5C", "141B2A", "1F2940", "2C3A5C", "4E5F86");
