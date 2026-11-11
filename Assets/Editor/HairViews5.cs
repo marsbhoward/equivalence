@@ -21,7 +21,7 @@ namespace Convergence.EditorTools
     /// </summary>
     public static class HairViews5
     {
-        sealed class Props { public string[] SideCap, SideMane, QCap, QMane, TCap, TMane, BCap, BMane; public bool BSet; public int SideTop = BodyLook.ManeHeadTop, QTop = BodyLook.ManeHeadTop, TTop = BodyLook.ManeHeadTop, BTop = BodyLook.ManeHeadTop; }
+        internal sealed class Props { public string[] SideCap, SideMane, QCap, QMane, TCap, TMane, BCap, BMane; public bool BSet; public int SideTop = BodyLook.ManeHeadTop, QTop = BodyLook.ManeHeadTop, TTop = BodyLook.ManeHeadTop, BTop = BodyLook.ManeHeadTop; }
 
         static string[] Double(List<string> cells)
         {
@@ -36,7 +36,7 @@ namespace Convergence.EditorTools
             return rows;
         }
 
-        static Dictionary<string, Props> Load(string path)
+        internal static Dictionary<string, Props> Load(string path)
         {
             var all = new Dictionary<string, Props>();
             string key = null, part = null; var parts = new Dictionary<string, List<string>>(); var tops = new Dictionary<string, int>();
@@ -77,7 +77,12 @@ namespace Convergence.EditorTools
             var props = Load(propsPath);
             int s = BodyLook.DetailScale, headW = 32 * s, cellW = 64 * s, cellH = 76 * s;
             var keyList = keys.Split(','); var hairList = hairs.Split(',');
-            int W = cellW * 4 * hairList.Length, H = cellH * keyList.Length;
+            // A style that is not the same both sides carries "@key~": its mirror image facing right (turned, side, back 3/4),
+            // shown mirrored - the views facing LEFT, three more columns.
+            bool anyOther = false;
+            foreach (var k0 in keyList) if (props.ContainsKey(k0.Trim() + "~")) anyOther = true;
+            int per = anyOther ? 7 : 4;
+            int W = cellW * per * hairList.Length, H = cellH * keyList.Length;
             var img = new Color32[W * H];
             var bg = new Color32(76, 80, 90, 255);
             for (int i = 0; i < img.Length; i++) img[i] = bg;
@@ -117,9 +122,26 @@ namespace Convergence.EditorTools
                         ? (BodyLook.HeadBackQuarterDetail(hair, pr.BCap, pr.BMane != null), BodyLook.ManeFromRows(pr.BMane, pr.BTop, hair), pr.BTop, true)
                         : (BodyLook.HeadBackDetail(key, hair, s, false), BodyLook.ManeDetail(key, false, hair, back: true), back?.ManeTop ?? 32, true),
                 };
-                for (int v = 0; v < 4; v++)
+                if (props.TryGetValue(keyList[k].Trim() + "~", out var po) && po.TCap != null)
                 {
-                    int ox = (hcol * 4 + v) * cellW + (cellW - headW) / 2, oy = k * cellH + 14 * s;
+                    static string[] M(string[] g) => g == null ? null : BodyLook.Mirror(g);
+                    var extra = new (string[] head, string[] mane, int top, bool over)[]
+                    {
+                        (M(BodyLook.HeadTurnedDetail(expression, brows, hair, po.TCap, po.TMane != null, mane: po.TMane, maneTop: po.TTop)),
+                         M(BodyLook.ManeFromRows(po.TMane, po.TTop, hair)), po.TTop, false),
+                        (M(po.SideCap != null ? BodyLook.HeadProfileDetail(expression, brows, hair, po.SideCap, po.SideMane != null, mane: po.SideMane, maneTop: po.SideTop) : null),
+                         M(BodyLook.ManeFromRows(po.SideMane, po.SideTop, hair)), po.SideTop, false),
+                        (M(po.QCap != null ? BodyLook.HeadBackQuarterDetail(hair, po.QCap, po.QMane != null) : null),
+                         M(BodyLook.ManeFromRows(po.QMane, po.QTop, hair)), po.QTop, true),
+                    };
+                    var all = new (string[] head, string[] mane, int top, bool over)[7];
+                    for (int i = 0; i < 4; i++) all[i] = cols[i];
+                    for (int i = 0; i < 3; i++) all[4 + i] = extra[i];
+                    cols = all;
+                }
+                for (int v = 0; v < cols.Length; v++)
+                {
+                    int ox = (hcol * per + v) * cellW + (cellW - headW) / 2, oy = k * cellH + 14 * s;
                     var c = cols[v];
                     int mw = c.mane != null && c.mane.Length > 0 ? c.mane[0].Length : 0;
                     int mox = ox + (headW - mw) / 2, moy = oy + (32 - c.top) * s;
