@@ -55,13 +55,16 @@ namespace Convergence.Art
         /// The EXPANDED beard grid (same size as <paramref name="flat"/>), or null for none - see
         /// the note on <see cref="Hair.Draw"/> for why this exists.
         /// </param>
+        /// <param name="maneAbove">Per texel column of <paramref name="flat"/>: a mane stands straight
+        /// up out of the head there, so the head's top border is not an edge in that column (see
+        /// <see cref="ThinOutline"/>). Null for none - today's heads.</param>
         public static string[] Build(string[] flat, string[] expression, int k, float hairValue,
                                      bool openTop = false, string[] beard = null,
-                                     bool leftEyeGlow = false)
+                                     bool leftEyeGlow = false, bool[] maneAbove = null)
         {
             var big = PixelDetail.Upscale(flat, k);
 
-            ThinOutline(big, OutlineTexels);
+            ThinOutline(big, OutlineTexels, maneAbove, k);
             RoundSilhouette(big);
             SoftLight(big, "ksdblh");
             Hair.Draw(big, k, BodyLook.ManeHeadTop, hairValue, openTop, Mask(beard, k));
@@ -123,7 +126,11 @@ namespace Convergence.Art
         /// An outline texel more than <paramref name="keep"/> from the transparent outside is not
         /// carrying the silhouette, it is filling space that should have been face.
         /// </summary>
-        static void ThinOutline(string[] big, int keep)
+        /// <param name="maneAbove">Columns (in texels of <paramref name="k"/> detail texels each) where
+        /// the hair carries on above the grid into a mane. There the top border is not an edge: an
+        /// outline texel near it was kept as a stub at each top corner - a tick in the side outline
+        /// where the head meets a mane standing straight up out of it (Tall Top).</param>
+        static void ThinOutline(string[] big, int keep, bool[] maneAbove = null, int k = 1)
         {
             // ONLY THE SILHOUETTE. An interior line - a brow, and historically the mouth before it
             // was removed from BodyLook entirely - is drawn in the same outline tone, and thinning
@@ -141,7 +148,7 @@ namespace Convergence.Art
                 char c = PixelDetail.At(big, x, y);
                 if (c != 'k' && c != 'K') continue;
                 if (!rim[y][x]) continue;
-                if (NearEdge(big, x, y, keep)) continue;
+                if (NearEdge(big, x, y, keep, maneAbove, k)) continue;
 
                 // Take the nearest non-outline tone, so a line between hair and skin resolves to
                 // the side it is actually on.
@@ -181,11 +188,16 @@ namespace Convergence.Art
             return seen;
         }
 
-        static bool NearEdge(string[] g, int x, int y, int r)
+        static bool NearEdge(string[] g, int x, int y, int r, bool[] maneAbove = null, int k = 1)
         {
             for (int dy = -r; dy <= r; dy++)
             for (int dx = -r; dx <= r; dx++)
-                if (!Solid(g, x + dx, y + dy)) return true;
+            {
+                int xx = x + dx, yy = y + dy, col = xx / k;
+                // Above the head, a column a mane rises out of carries on as its top texel.
+                if (yy < 0 && maneAbove != null && xx >= 0 && col < maneAbove.Length && maneAbove[col]) yy = 0;
+                if (!Solid(g, xx, yy)) return true;
+            }
             return false;
         }
 

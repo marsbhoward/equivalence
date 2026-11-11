@@ -227,7 +227,7 @@ namespace Convergence.Art.Gear
             if (_facingLeft) forward = -forward;
             float direction = forward < -WalkBackpedalThreshold * speed ? -1f : 1f;
 
-            float rate = direction * Mathf.PI * 2f * WalkStrideHz * Mathf.Pow(relative, WalkCadenceExponent);
+            float rate = direction * Mathf.PI * 2f * WalkStrideHz * TuneHz * Mathf.Pow(relative, WalkCadenceExponent);
             _strideRate = Mathf.Lerp(_strideRate, rate, 1f - Mathf.Exp(-WalkRateSharpness * dt));
             // A stop keeps the last stride while the walk shrinks (_gaitWeight), so the legs don't
             // snap together; only real movement re-sizes it.
@@ -255,8 +255,8 @@ namespace Convergence.Art.Gear
             float reference = Player != null ? Mathf.Max(0.1f, Player.MoveSpeed)
                                              : Convergence.Core.Tuning.Player.MoveSpeed;
             float lean = forward >= 0f
-                ? -Mathf.Clamp01(forward / reference) * WalkLeanDegrees
-                : Mathf.Clamp01(-forward / reference) * WalkLeanDegrees * WalkBackpedalLeanShare;
+                ? -Mathf.Clamp01(forward / reference) * (WalkLeanDegrees + TuneLeanAdd)
+                : Mathf.Clamp01(-forward / reference) * (WalkLeanDegrees + TuneLeanAdd) * WalkBackpedalLeanShare;
             _walkLean = Mathf.Lerp(_walkLean, lean * _gaitWeight, 1f - Mathf.Exp(-WalkLeanSharpness * dt));
         }
 
@@ -271,10 +271,9 @@ namespace Convergence.Art.Gear
         /// the footfall and is pulled back into it. A sine has neither part: it spends as long
         /// bringing the leg forward as pushing it back, and stops dead at both ends.
         /// </summary>
-        static float GaitLegTravel(float cycle)
+        static float GaitLegTravel(float cycle, float s = WalkStanceFraction)
         {
             float p = cycle - Mathf.Floor(cycle);
-            const float s = WalkStanceFraction;
             if (p < s) return 1f - 2f * p / s;
 
             float u = (p - s) / (1f - s);
@@ -291,9 +290,9 @@ namespace Convergence.Art.Gear
         /// step - highest at mid-stance, vaulting over the planted leg, and lowest half a step
         /// later, in the double support just after the other foot lands.
         /// </summary>
-        static float GaitBob(float cycle)
+        static float GaitBob(float cycle, float stance = WalkStanceFraction)
         {
-            float high = WalkStanceFraction * 0.5f;
+            float high = stance * 0.5f;
             return -WalkBob * 0.5f * (1f - Mathf.Cos(4f * Mathf.PI * (cycle - high)));
         }
 
@@ -314,20 +313,19 @@ namespace Convergence.Art.Gear
         /// toe leaves the ground, then the shin swings through and the leg reaches out straight
         /// for the next footfall.
         /// </summary>
-        static float GaitFootLift(float cycle)
+        static float GaitFootLift(float cycle, float s = WalkStanceFraction, float early = 0.8f)
         {
             float p = cycle - Mathf.Floor(cycle);
-            const float s = WalkStanceFraction;
             if (p < s) return 0f;
             float u = (p - s) / (1f - s);
-            return WalkFootLift * Mathf.Sin(Mathf.PI * Mathf.Pow(u, 0.8f));
+            return WalkFootLift * Mathf.Sin(Mathf.PI * Mathf.Pow(u, early));
         }
 
         /// <summary>
         /// Where the body sits this frame, against rest, world units (negative is down): the bob
         /// on top of the walk's soft knees. Torso and hips both take it, so the waist never stretches.
         /// </summary>
-        float GaitBody(float cycle) => (GaitBob(cycle) - WalkCrouch) * _gaitWeight;
+        float GaitBody(float cycle) => (GaitBob(cycle, TuneStance) * TuneBob - WalkCrouch - TuneCrouchAdd) * _gaitWeight;
 
         /// <summary>
         /// Pose both legs for this frame, given where the hips' pivot now sits. Every other leg
@@ -346,7 +344,7 @@ namespace Convergence.Art.Gear
         void PoseLeg(Transform hip, Transform knee, float cycle, float hipsY, float footShift, float footLift = 0f)
         {
             if (hip == null) return;
-            float travel = GaitLegTravel(cycle) * _gaitWeight;
+            float travel = GaitLegTravel(cycle, TuneStance) * _gaitWeight;
 
             if (TopDown || knee == null)
             {
@@ -357,9 +355,10 @@ namespace Convergence.Art.Gear
 
             // The foot's target against the hip joint, in the rig's own frame. The joint sits on
             // the hips' pivot line, so its height is the hips'.
-            float sole = HipsRest.y - LegLength;
-            float footY = sole + GaitFootLift(cycle) * _gaitWeight - travel * WalkFootDepth + footLift;
-            SolveLeg(travel * WalkStride * _strideScale + footShift, footY - hipsY, out float thigh, out float bend);
+            float sole = HipsRest.y - LegLength * DevLegScale;
+            TuneFoot(travel, out float side, out float liftMul, out float depthMul);   // WALK MOCKS (the WalkTune partial)
+            float footY = sole + GaitFootLift(cycle, TuneStance, TuneLiftEarly) * liftMul * _gaitWeight - travel * WalkFootDepth * depthMul + footLift + _tuneFar;
+            SolveLeg(travel * side * _strideScale + footShift, footY - hipsY, out float thigh, out float bend, DevLegScale);
 
             hip.localRotation = Quaternion.Euler(0f, 0f, thigh);
             knee.localRotation = Quaternion.Euler(0f, 0f, bend);
@@ -377,10 +376,10 @@ namespace Convergence.Art.Gear
         /// as the square root of the shortfall, so a margin of half a millimetre already popped the
         /// knee seven degrees as the leg crossed it.
         /// </summary>
-        static void SolveLeg(float dx, float dy, out float thighDegrees, out float kneeDegrees)
+        static void SolveLeg(float dx, float dy, out float thighDegrees, out float kneeDegrees, float scale = 1f)
         {
-            float thighLength = -KneeRest.y;
-            float shinLength = LegLength - thighLength;
+            float thighLength = -KneeRest.y * scale;
+            float shinLength = LegLength * scale - thighLength;
             float reach = thighLength + shinLength;
 
             float d = Mathf.Sqrt(dx * dx + dy * dy);
@@ -408,7 +407,7 @@ namespace Convergence.Art.Gear
         /// forward), before the arm's own share.
         /// </summary>
         float GaitElbowDegrees(float travel) =>
-            (WalkElbowDegrees + WalkElbowPumpDegrees * travel) * _gaitWeight;
+            (WalkElbowDegrees + TuneElbowAdd + (WalkElbowPumpDegrees + TuneElbowAdd * 0.3f) * travel) * _gaitWeight;
 
         /// <summary>
         /// How much of the walk's elbow each arm takes: all of it for an empty hand, part of it

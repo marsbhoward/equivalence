@@ -47,20 +47,27 @@ namespace Convergence.Enemies
 
         // ---------------------------------------------------------------- the Brute
 
-        /// <summary>How far the Brute's swing reaches - its lunge (band 1) adds to it.</summary>
-        float ChaserReach => AttackRange + (AtBand(Tuning.EnemyBands.BruteLungeFromBand) ? Tuning.EnemyBands.BruteLungeReach : 0f);
+        /// <summary>How far the Brute's swing steps in: a short step on every band, the long lunge from band 1.</summary>
+        float ChaserLungeReach => AtBand(Tuning.EnemyBands.BruteLungeFromBand) ? Tuning.EnemyBands.BruteLungeReach : Tuning.EnemyBands.BruteStepReach;
+
+        /// <summary>How far the Brute's swing reaches - its step-in adds to it.</summary>
+        float ChaserReach => AttackRange + ChaserLungeReach;
 
         float _lungeTimer;
-        Vector2 _lungeDir;
+        Vector2 _lungeVelocity;
 
         /// <summary>The swing STEPS IN when the player stands past its plain reach: the body is
-        /// driven the gap over BruteLungeSeconds (FixedUpdate, <see cref="TickLunge"/>).</summary>
+        /// driven the gap over BruteLungeSeconds (FixedUpdate, <see cref="TickLunge"/>), stopping
+        /// short of the player (BruteLungeStopShare) rather than passing through them.</summary>
         void BeginLunge()
         {
-            if (_target == null || !AtBand(Tuning.EnemyBands.BruteLungeFromBand)) return;
+            if (_target == null) return;
             Vector2 to = (Vector2)_target.position - (Vector2)transform.position;
-            if (to.magnitude <= AttackRange * 0.8f) return;
-            _lungeDir = to.normalized;
+            float dist = to.magnitude;
+            if (dist <= AttackRange * 0.8f) return;
+            float travel = Mathf.Min(ChaserLungeReach, dist - AttackRange * Tuning.EnemyBands.BruteLungeStopShare);
+            if (travel <= 0f) return;
+            _lungeVelocity = to / dist * (travel / Tuning.EnemyBands.BruteLungeSeconds);
             _lungeTimer = Tuning.EnemyBands.BruteLungeSeconds;
         }
 
@@ -70,7 +77,7 @@ namespace Convergence.Enemies
             if (_lungeTimer <= 0f || _rb == null) return false;
             _lungeTimer -= Time.fixedDeltaTime;
             _rb.linearDamping = 0f;
-            _rb.linearVelocity = _lungeDir * (Tuning.EnemyBands.BruteLungeReach / Tuning.EnemyBands.BruteLungeSeconds);
+            _rb.linearVelocity = _lungeVelocity;
             if (_lungeTimer <= 0f) _rb.linearVelocity = Vector2.zero;
             return true;
         }

@@ -475,13 +475,13 @@ namespace Convergence.Player
         bool _artActing;
 
         /// <summary>
-        /// A basic swing in its strike, or just past it: the feet stay put
-        /// (Tuning.Combo.BasicRootHoldSeconds). Walking between swings stays free.
+        /// A basic swing in its strike, or just past it: the walk is cut to
+        /// Tuning.Combo.BasicStrikeMoveShare (Tuning.Combo.BasicRootHoldSeconds). Walking between
+        /// swings stays free.
         /// </summary>
         public bool BasicRooted =>
-            (_basicSwing && Rig != null
-             && (Rig.InStrike || (Rig.SinceStrike > 0f && Rig.SinceStrike < Tuning.Combo.BasicRootHoldSeconds)))
-            || (Effects != null && Effects.ConnectorRooted);   // Planted Link, a socket cost
+            _basicSwing && Rig != null
+            && (Rig.InStrike || (Rig.SinceStrike > 0f && Rig.SinceStrike < Tuning.Combo.BasicRootHoldSeconds));
 
         void ActivateDefensiveAbility()
         {
@@ -2253,7 +2253,7 @@ namespace Convergence.Player
             // MoveIntent above still reflects what the player is ASKING for, so a rooted Air
             // character does not lose momentum credit for an enemy's own CC on top of losing it
             // for their own finisher lock.
-            if (AttackLocked || BasicRooted || Petrified || Statue) input = Vector2.zero;
+            if (AttackLocked || Petrified || Statue || (Effects != null && Effects.ConnectorRooted)) input = Vector2.zero;   // Planted Link, a socket cost
 
             IsMoving = input.sqrMagnitude > 0.01f;
             Resource?.OnMoved(IsMoving);
@@ -2322,7 +2322,13 @@ namespace Convergence.Player
             // Mired: the slow bites twice as hard.
             if (Effects != null && Effects.Mired) terrain = Mathf.Max(0.2f, 1f - (1f - terrain) * Tuning.Exchange.MiredSlowMul);
 
-            var target = input.normalized
+            // Analog walk: part tilt walks slower (Tuning.Player.AnalogWalkFullTilt). A basic's
+            // strike only SLOWS the walk (the root shifted to a slow, 2026-11-09).
+            float tilt = input.magnitude;
+            float tiltShare = tilt <= 0.0001f ? 0f
+                : Mathf.Lerp(Tuning.Player.AnalogWalkMinShare, 1f, Mathf.InverseLerp(0f, Tuning.Player.AnalogWalkFullTilt, tilt));
+            if (BasicRooted) tiltShare *= Tuning.Combo.BasicStrikeMoveShare;
+            var target = input.normalized * tiltShare
                          * (BaseMoveSpeed * Art.Gear.StatPercents.Apply(1f, MoveSpeedPointsNow)
                             * mods.MoveSpeedMul * timed * terrain
                             * (Principles != null ? Principles.MoveSpeedMultiplier : 1f));

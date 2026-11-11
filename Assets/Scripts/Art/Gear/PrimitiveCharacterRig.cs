@@ -5776,7 +5776,7 @@ namespace Convergence.Art.Gear
             if (_stone) return;
 
             float dt = Dt;
-            float speed = Body != null ? Body.linearVelocity.magnitude : 0f;
+            float speed = DevSpeed >= 0f ? DevSpeed : Body != null ? Body.linearVelocity.magnitude : 0f;
 
             // Advanced before anything reads it, and before FaceAim can change the frame it is
             // measured in - the flip is handled in ApplyWeightShift, which is the only place that
@@ -5801,6 +5801,7 @@ namespace Convergence.Art.Gear
 
             // The walk: one clock, every part reading its own point on it - see the Gait partial.
             AdvanceGait(dt, speed);
+            AdvanceDash(dt);   // the dash takes the legs from the walk (the Dash partial)
             AdvanceMarch(dt, speed);
             float cycle = _stride / (Mathf.PI * 2f);
 
@@ -5869,7 +5870,7 @@ namespace Convergence.Art.Gear
             }
 
             // The arms swing against the legs, a beat behind them. Attack overrides both.
-            float armWalk = GaitArmTravel(cycle) * WalkArmDegrees * _gaitWeight;
+            float armWalk = GaitArmTravel(cycle) * TuneArmDegrees * _gaitWeight;
             if (HeldTwoHanded && !HeldBow) armWalk *= Mathf.Lerp(WalkHiltSwingShare, 1f, _gripBlend);
             float idleArmSwing = armWalk;
             float idleBackSwing = -armWalk;
@@ -6085,6 +6086,7 @@ namespace Convergence.Art.Gear
             if (!reachPosed)
                 _reach = Mathf.Lerp(_reach, 0f, 1f - Mathf.Exp(-PoseRecoverySharpness * dt));
 
+            PoseDash();
             // The hips, legs and crouch, now that this frame's body is known.
             PlaceBody(cycle, gaitHipsY, dt);
 

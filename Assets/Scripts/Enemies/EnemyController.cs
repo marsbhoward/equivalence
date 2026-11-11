@@ -1533,7 +1533,7 @@ namespace Convergence.Enemies
             // "it attacked" rather than "it hit you".
             BeginRecover(Tuning.Enemy.ChaserRecoverSeconds);
 
-            // Band 1: the swing steps in to a player past its plain reach.
+            // The swing steps in to a player past its plain reach (further from band 1).
             BeginLunge();
             LandMelee(1f);
         }

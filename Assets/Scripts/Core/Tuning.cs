@@ -171,6 +171,16 @@ namespace Convergence.Core
             public const float BodyDamping = 6f;
 
             /// <summary>
+            /// ANALOG WALK (the user's go, 2026-11-09): a stick or the touch stick tilted part way
+            /// walks slower - for placing the feet against a tell. Past this much tilt (after the
+            /// dead zone) it is the full walk, so a thumb that is roughly all the way over never
+            /// loses speed; just past the dead zone it walks at <see cref="AnalogWalkMinShare"/>.
+            /// Keys are always full tilt.
+            /// </summary>
+            public const float AnalogWalkFullTilt = 0.75f;
+            public const float AnalogWalkMinShare = 0.3f;
+
+            /// <summary>
             /// Damage of a 1.0x swing before the element's own multiplier. 100%.
             ///
             /// For scale: a bomb enemy has 65 HP and an elite 185, so an unbuffed basic swing is
@@ -3540,6 +3550,15 @@ namespace Convergence.Core
             public const float BasicRootHoldSeconds = 0.06f;
 
             /// <summary>
+            /// Share of the walk left to the player through a basic's strike (BasicRootHoldSeconds
+            /// included) - the root SHIFTED to a heavy slow (the user's call, 2026-11-09). Zero was
+            /// the full root; fully free made kiting too easy, which is why the Brute now steps in
+            /// on every band (EnemyBands.BruteStepReach). A finisher's lock and Planted Link still
+            /// root outright.
+            /// </summary>
+            public const float BasicStrikeMoveShare = 0.35f;
+
+            /// <summary>
             /// How long a fresh press on a banked weapon art must be HELD before it aims (the
             /// user's call, 2026-10-14: hold to aim, release to fire). Released sooner it was a
             /// tap and the art goes at the auto-target; held past it the aim arrow appears and the
@@ -6658,6 +6677,15 @@ namespace Convergence.Core
             public const int BruteLungeFromBand = 1;
             public const float BruteLungeReach = 0.8f;
             public const float BruteLungeSeconds = 0.12f;
+
+            /// <summary>Below BruteLungeFromBand the swing still STEPS IN, this far (the user's call,
+            /// 2026-11-09, with the basic's root shifted to a slow): a player walking off a Brute's
+            /// tell has to clear its reach plus this. The band-1 lunge is the long version.</summary>
+            public const float BruteStepReach = 0.45f;
+
+            /// <summary>A lunge stops this far short of the player (fraction of the Brute's plain
+            /// reach) - it closes the gap, it never carries the body through them.</summary>
+            public const float BruteLungeStopShare = 0.5f;
 
             // ---- band 2: new moves ----
 

@@ -2113,6 +2113,10 @@ namespace Convergence.Art
             map['n'] = b.Base;
             map['N'] = b.Dark;
             map['w'] = new Color(1.00f, 1.00f, 1.00f);   // pure white
+            // A LINE DRAWN IN THE HAIR (Waves' rings): the hair's outline colour on a character the menu-density
+            // pass leaves alone. In 'K' a line that reaches the edge joins the silhouette and the outline thinning
+            // fills it in; 'Z' is neither outline nor hair, so it stays exactly as drawn (FaceDetail).
+            map['Z'] = map['K'];
             // STUBBLE is a shadow on skin, so it is mixed from the skin and the hair - drawn in a hair tone
             // alone ('S', the old stubble) it read as a dark beard with holes in it.
             map['m'] = Color.Lerp(skin.Base, bd.Dark, 0.38f);   // stubble

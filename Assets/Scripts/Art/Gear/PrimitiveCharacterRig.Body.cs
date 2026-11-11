@@ -482,7 +482,7 @@ namespace Convergence.Art.Gear
         void PlaceBody(float cycle, float gaitHipsY, float dt)
         {
             float legs = 1f - BodyStanceWalkGive * _gaitWeight;
-            float apart = FeetApart * legs;
+            float apart = FeetApart * legs + TuneApart;
             float weight = AdvanceStandingLeg(dt);
             float slide = weight * StandHips;
             float stance = _poseBody.Stance * legs;
@@ -501,7 +501,9 @@ namespace Convergence.Art.Gear
             // the hips' slide taken back off both feet; the leg NOT taking the weight softens its knee
             float softFront = Mathf.Max(0f, -weight) * StandSoftKnee, softBack = Mathf.Max(0f, weight) * StandSoftKnee;
             PoseLegs(cycle, hipsY, stance + apart - slide, -stance - apart - slide - (step + _reach * legs) * StepDirection.x,
-                     softFront, softBack);
+                     softFront + _dashLiftFront, softBack + _dashLiftBack);
+
+            ApplyDevLegs();   // proportion mocks (the WalkTune partial)
 
             // The reach moves the figure too, so it kicks the cape with the step.
             _bodyStepVelocity = dt > 0f ? (step - _lastBodyStep + _reach - _lastReach) / dt : 0f;
