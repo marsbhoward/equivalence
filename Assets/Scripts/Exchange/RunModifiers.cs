@@ -269,11 +269,13 @@ namespace Convergence.Exchange
         /// <summary>Whether this entry may be inscribed on this socket: an ART ROLE form only where the
         /// socket's art has its role, a weight form only on its weight, a class form only on the arts
         /// it names. Every other entry fits every socket.</summary>
-        public bool SocketFits(ExchangeEntry e, int socket)
+        public bool SocketFits(ExchangeEntry e, int socket) => ArtFitsEntry(e, SocketArt?.Invoke(socket));
+
+        /// <summary><see cref="SocketFits"/> for an art not yet on a socket (the reward screen's preview).</summary>
+        public static bool ArtFitsEntry(ExchangeEntry e, Combat.Moveset art)
         {
             if (e == null) return false;
             if (e.RoleGate == ArtRole.None && e.WeightGate == null && e.ArtFits == null) return true;
-            var art = SocketArt?.Invoke(socket);
             if (art == null || art.SignatureOnly) return false;
             if (e.RoleGate != ArtRole.None && (ArtRoles.Of(art) & e.RoleGate) == 0) return false;
             if (e.WeightGate != null && (art.Finisher == null || art.Finisher.Weight != e.WeightGate.Value)) return false;
@@ -288,6 +290,23 @@ namespace Convergence.Exchange
             int n = SocketCount?.Invoke() ?? 0;
             for (int i = 0; i < n; i++) if (SocketFits(e, i)) return true;
             return false;
+        }
+
+        /// <summary>
+        /// A REORDER (the user's call, 2026-11-12): two arts traded places in the rotation, and every
+        /// entry inscribed on either goes with its art - forms and socket costs alike, nothing translated.
+        /// Only a floor reward putting a NEW art in a socket translates (<see cref="TranslateSocket"/>).
+        /// </summary>
+        public void SwapSockets(int a, int b)
+        {
+            if (a == b) return;
+            for (int i = 0; i < _inscribed.Count; i++)
+            {
+                var x = _inscribed[i];
+                if (x.Socket == a) _inscribed[i] = (x.Id, b);
+                else if (x.Socket == b) _inscribed[i] = (x.Id, a);
+            }
+            Recompute();
         }
 
         /// <summary>
@@ -307,12 +326,7 @@ namespace Convergence.Exchange
                 if (x.Socket != socket) continue;
                 var e = ExchangeCatalog.Get(x.Id);
                 if (e == null || e.RoleFamily == null || SocketFits(e, socket)) continue;
-                ExchangeEntry to = null;
-                foreach (var c in ExchangeCatalog.All)
-                {
-                    if (c.RoleFamily != e.RoleFamily || c == e || StacksOf(c) > 0 || !SocketFits(c, socket)) continue;
-                    if (to == null || (e.RoleGate != ArtRole.None && FirstRole(c.RoleGate) < FirstRole(to.RoleGate))) to = c;
-                }
+                var to = CounterpartFor(e, art);
                 if (to == null) continue;
                 int n = StacksOf(e);
                 int at = _order.IndexOf(e);
@@ -325,6 +339,36 @@ namespace Convergence.Exchange
             }
             if (moved.Count > 0) Recompute();
             return moved;
+        }
+
+        /// <summary>The form of <paramref name="e"/>'s family or trio that fits <paramref name="art"/>,
+        /// one not already held - null when there is none.</summary>
+        ExchangeEntry CounterpartFor(ExchangeEntry e, Combat.Moveset art)
+        {
+            ExchangeEntry to = null;
+            foreach (var c in ExchangeCatalog.All)
+            {
+                if (c.RoleFamily != e.RoleFamily || c == e || StacksOf(c) > 0 || !ArtFitsEntry(c, art)) continue;
+                if (to == null || (e.RoleGate != ArtRole.None && FirstRole(c.RoleGate) < FirstRole(to.RoleGate))) to = c;
+            }
+            return to;
+        }
+
+        /// <summary>What a socket carries and what each piece would do if <paramref name="art"/> took it:
+        /// <c>To</c> is the entry itself when it stays working, its family's form when it would translate,
+        /// and null when it would sit dormant until an art it fits returns. Socket costs always stay.</summary>
+        public List<(ExchangeEntry Entry, ExchangeEntry To)> SocketPreview(int socket, Combat.Moveset art)
+        {
+            var list = new List<(ExchangeEntry, ExchangeEntry)>();
+            foreach (var x in _inscribed)
+            {
+                if (x.Socket != socket) continue;
+                var e = ExchangeCatalog.Get(x.Id);
+                if (e == null || StacksOf(e) <= 0) continue;
+                if (art == null || e.SocketCost || ArtFitsEntry(e, art)) { list.Add((e, e)); continue; }
+                list.Add((e, e.RoleFamily != null ? CounterpartFor(e, art) : null));
+            }
+            return list;
         }
 
         static int FirstRole(ArtRole r) { int i = 0; foreach (var x in ArtRoles.Each(r)) return i + (int)x; return int.MaxValue; }

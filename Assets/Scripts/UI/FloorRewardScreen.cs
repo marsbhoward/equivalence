@@ -59,7 +59,7 @@ namespace Convergence.UI
 
         /// <summary>BACK means something only while comparing (it returns to the rings); the
         /// reward itself has to be answered, so the touch overlay leaves the button off otherwise.</summary>
-        public bool CanDismiss => IsOpen && _mode == Mode.Compare;
+        public bool CanDismiss => IsOpen && (_mode == Mode.Compare || _suspended);
 
         // ---- layout, canvas units, origin at the screen's centre
         const float RingsY = -60f;
@@ -91,6 +91,13 @@ namespace Convergence.UI
         int _focus, _slot, _touchRing = -1, _openedFrame;
         Moveset _art;   // the art being compared in
 
+        // REORDER ARTS: hands the screen to the loadout's reorder window and takes it back.
+        // Given a resume callback; null hides the button.
+        Action<Action> _reorder;
+        bool _suspended;
+        Transform _canvas;
+        int _floor;
+
         // ---- built pieces (not readonly - see CLAUDE.md's domain reload traps)
         RectTransform _rings, _rotPanel, _rewPanel, _rotFace, _rewFace, _compareBar, _arrow;
         CanvasGroup _ringsGroup, _rotGroup, _rewGroup, _compareGroup, _arrowGroup;
@@ -98,7 +105,7 @@ namespace Convergence.UI
         Texture2D _ringTex;
         Color32[] _px;
         Text _prompt, _rerollLabel, _footer, _swapLabel;
-        RectTransform _takeRect, _swapRect, _backRect, _rerollRect;
+        RectTransform _takeRect, _swapRect, _backRect, _rerollRect, _reorderRect;
         List<RectTransform> _cells = new();
         List<SlotRow> _rows = new();
         List<RectTransform> _focusRects = new();
@@ -110,16 +117,22 @@ namespace Convergence.UI
             public Image Frame;
             public Text Sub;
             public bool Locked;
+            public int Inscribed;   // exchange entries on this socket
         }
 
         // ================================================================== open
 
         public void Show(Transform canvas, int floor, IReadOnlyList<Option> options, IReadOnlyList<Moveset> slots,
                          Func<int, bool> slotLocked, int rotationIndex, ElementType element,
-                         Func<List<Option>> reroll, int rerolls, Action<FloorOutcome, int, Moveset> done)
+                         Func<List<Option>> reroll, int rerolls, Action<FloorOutcome, int, Moveset> done,
+                         Action<Action> reorder = null)
         {
             if (IsOpen) return;
             IsOpen = true;
+            _canvas = canvas;
+            _floor = floor;
+            _reorder = reorder;
+            _suspended = false;
             _options = new List<Option>(options);
             _slots = slots;
             _slotLocked = slotLocked ?? (_ => false);
@@ -133,20 +146,24 @@ namespace Convergence.UI
             _slot = FirstUnlocked();
             _touchRing = -1;
             _art = null;
+            Core.GamePause.Hold(this);
+            Build();
+        }
+
+        void Build()
+        {
             _openedFrame = Time.frameCount;
             _builtRot = _builtRew = _drawnRings = null;
 
-            Core.GamePause.Hold(this);
-
             _root = new GameObject("FloorReward", typeof(RectTransform));
-            _root.transform.SetParent(canvas, false);
+            _root.transform.SetParent(_canvas, false);
             var full = (RectTransform)_root.transform;
             full.anchorMin = Vector2.zero; full.anchorMax = Vector2.one;
             full.offsetMin = Vector2.zero; full.offsetMax = Vector2.zero;
             // A veil, not a wall: the cleared room stays dimly behind the choice.
             UiKit.Panel(full, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero, Veil);
 
-            BuildHeader(full, floor);
+            BuildHeader(full, _floor);
             BuildRotation(full);
             BuildRings(full);
             BuildPanels(full);
@@ -223,12 +240,50 @@ namespace Convergence.UI
                     new Vector2(60, 6), new Vector2(-10, 30)), "", 13, Faint);
                 sub.fontStyle = FontStyle.Bold;
 
-                _rows.Add(new SlotRow { Rect = rt, Frame = frame, Sub = sub, Locked = _slotLocked(j) });
+                _rows.Add(new SlotRow { Rect = rt, Frame = frame, Sub = sub, Locked = _slotLocked(j),
+                                    Inscribed = Exchange.RunModifiers.Live?.SocketPreview(j, null).Count ?? 0 });
             }
 
             float noteY = -34f - n * (RowH + RowGap) - 4f;
             UiKit.Label(UiKit.Rect(col, "note", new Vector2(0, 1), new Vector2(1, 1),
-                new Vector2(0, noteY - 28), new Vector2(0, noteY)), "Reorder at the door ahead.", 18, Faint);
+                new Vector2(0, noteY - 28), new Vector2(0, noteY)),
+                _reorder != null ? "" : "Reorder at the door ahead.", 18, Faint);
+
+            // The swap lives on the loadout sheet, open from now until the door; this puts it one
+            // press from the screen the player is already on (2026-11-12).
+            _reorderRect = null;
+            if (_reorder != null)
+            {
+                Text label;
+                (_reorderRect, label) = Button(col, "reorder", new Vector2(0, noteY - 30f), SideW, GiltC, Hex(0x2a2414), GoldC);
+                label.text = "REORDER ARTS";
+            }
+        }
+
+        /// <summary>REORDER ARTS: the screen steps aside (still open, still holding the pause)
+        /// while the loadout's reorder window is up, then rebuilds - the rotation has moved.</summary>
+        void Suspend()
+        {
+            if (_reorder == null || _suspended) return;
+            _suspended = true;
+            if (_root) _root.SetActive(false);
+            _reorder(Resume);
+        }
+
+        void Resume()
+        {
+            if (!IsOpen || !_suspended) return;
+            _suspended = false;
+            if (_root) Destroy(_root);
+            if (_ringTex) Destroy(_ringTex);
+            _cells.Clear();
+            _rows.Clear();
+            _takeRect = _swapRect = _backRect = _rerollRect = _reorderRect = null;
+            int n = _slots?.Count ?? 0;
+            _rotationIndex = Mathf.Clamp(_rotationIndex, 0, Mathf.Max(0, n - 1));
+            _slot = FirstUnlocked();
+            if (_mode == Mode.Rotation) _mode = Mode.Rewards;
+            Build();
         }
 
         void BuildRings(RectTransform full)
@@ -372,7 +427,7 @@ namespace Convergence.UI
         {
             bool compare = _mode == Mode.Compare;
 
-            string rotKey = $"{compare}|{_slot}";
+            string rotKey = $"{compare}|{_slot}|{_art?.Id}";
             if (rotKey != _builtRot && _slots != null && _slot < _slots.Count)
             {
                 _builtRot = rotKey;
@@ -386,6 +441,7 @@ namespace Convergence.UI
                 Heading(_rotFace, Glyphs.Get(m.FinisherGlyph), Hex(0xd8d2c4), m.DisplayName);
                 WeightRow(_rotFace, RotationWheel.WeightOf(m));
                 Para(_rotFace, m.FinisherDescription, 20, Body);
+                Inscribed(_rotFace, _slot, compare ? _art : null);
                 Rule(_rotFace);
                 Para(_rotFace, compare ? "Pick another slot on the left to compare it instead."
                                        : locked ? "This weapon's signature art. It cannot be replaced."
@@ -430,6 +486,40 @@ namespace Convergence.UI
             l.fontStyle = FontStyle.Bold;
             _takeRect = holder;
         }
+
+        /// <summary>
+        /// What the exchange has inscribed on this socket - the weapon-art deals and their socket costs -
+        /// so a swap is never blind. With an art coming in (<paramref name="incoming"/>), each line says
+        /// what the swap does to it: stays, becomes its family's form for the new art, or STOPS (it sits
+        /// on the socket and fires for nothing until an art it fits comes back).
+        /// </summary>
+        static void Inscribed(RectTransform face, int socket, Moveset incoming)
+        {
+            var mods = Exchange.RunModifiers.Live;
+            if (mods == null) return;
+            var held = mods.SocketPreview(socket, incoming);
+            if (held.Count == 0) return;
+            Rule(face);
+            Tag(face, "INSCRIBED", Hex(0xbb96f2));
+            foreach (var (e, to) in held)
+            {
+                string name = Ink(e.Name, ExchangeInk.Tint(e));
+                string line = incoming == null || to == e ? name
+                            : to != null ? $"{name}  {Ink("»", GoldC)}  {Ink(to.Name, ExchangeInk.Tint(to))}"
+                            : $"{name}  {Ink("·  STOPS", OutText)}  {Ink(NeedOf(e), Muted)}";
+                Para(face, line, 18, Body, bold: true);
+            }
+        }
+
+        /// <summary>What an art must be for this entry to fire: "needs a Medium art".</summary>
+        static string NeedOf(Exchange.ExchangeEntry e)
+        {
+            if (e.WeightGate != null) return $"needs a {e.WeightGate.Value} art";
+            if (e.RoleGate != Exchange.ArtRole.None) return $"needs a {e.RoleGate} art";
+            return "needs another art";
+        }
+
+        static string Ink(string text, Color c) => $"<color=#{ColorUtility.ToHtmlStringRGB(c)}>{text}</color>";
 
         static void Clear(RectTransform face)
         {
@@ -495,7 +585,7 @@ namespace Convergence.UI
 
         void Update()
         {
-            if (!IsOpen) return;
+            if (!IsOpen || _suspended) return;
 
             RegisterFocus();
             if (Time.frameCount != _openedFrame && HandleInput()) return;
@@ -524,6 +614,7 @@ namespace Convergence.UI
                 foreach (var r in _rows) _focusRects.Add(r.Rect);
                 if (_mode == Mode.Rewards && _takeRect != null) _focusRects.Add(_takeRect);
                 if (_rerollRect != null && _rerollsLeft > 0) _focusRects.Add(_rerollRect);
+                if (_reorderRect != null) _focusRects.Add(_reorderRect);
             }
             Core.Controls.SetFocusCandidates(_focusRects);
         }
@@ -597,6 +688,7 @@ namespace Convergence.UI
                 if (Hit(_rows[j].Rect, at)) { _mode = Mode.Rotation; _slot = j; _touchRing = -1; return false; }
             if (_mode == Mode.Rewards && Hit(_takeRect, at)) return Take(_focus);
             if (Hit(_rerollRect, at)) Reroll();
+            if (Hit(_reorderRect, at)) Suspend();
             return false;
         }
 
@@ -649,6 +741,8 @@ namespace Convergence.UI
         {
             if (!IsOpen) return;
             IsOpen = false;
+            _suspended = false;
+            _reorder = null;
             Core.GamePause.Release(this);
             if (_root) Destroy(_root);
             if (_ringTex) Destroy(_ringTex);
@@ -656,7 +750,7 @@ namespace Convergence.UI
             _ringTex = null;
             _cells?.Clear();
             _rows?.Clear();
-            _takeRect = _swapRect = _backRect = _rerollRect = null;
+            _takeRect = _swapRect = _backRect = _rerollRect = _reorderRect = null;
         }
 
         static bool Hit(RectTransform rt, Vector2 screenPoint)
@@ -674,7 +768,8 @@ namespace Convergence.UI
                 UiKit.SetColor(r.Frame, sel ? (compare ? OutC : BronzeLt) : FrameC);
                 string sub = compare && sel ? $"REPLACED BY {_art?.DisplayName.ToUpperInvariant()}"
                            : r.Locked ? $"SLOT {j + 1}  ·  SIGNATURE"
-                           : j == _rotationIndex ? $"SLOT {j + 1}  ·  UP NEXT" : $"SLOT {j + 1}";
+                           : j == _rotationIndex ? $"SLOT {j + 1}  ·  UP NEXT"
+                           : r.Inscribed > 0 ? $"SLOT {j + 1}  ·  {r.Inscribed} INSCRIBED" : $"SLOT {j + 1}";
                 UiKit.SetText(r.Sub, sub);
                 UiKit.SetColor(r.Sub, compare && sel ? OutText : j == _rotationIndex ? GoldC : Faint);
             }
@@ -690,7 +785,7 @@ namespace Convergence.UI
             }
             UiKit.SetText(_footer, _mode == Mode.Compare
                 ? $"[ 1 - {_rows.Count} ]  PICK A SLOT    ·    [ ENTER ]  SWAP    ·    [ ESC ]  BACK"
-                : "[ 1 - 4 ]  OR  D-PAD  CHOOSE    ·    ARTS CAN BE REORDERED AT THE DOOR");
+                : "[ 1 - 4 ]  OR  D-PAD  CHOOSE    ·    REORDER ARTS UNDER YOUR ROTATION");
         }
 
         /// <summary>Eases every moving piece toward where the mode puts it; k = 1 snaps.</summary>
@@ -709,6 +804,7 @@ namespace Convergence.UI
             Move(_arrow, _arrowGroup, new Vector2(60f, 90f), 0f, 1f, compare ? 1f : 0f, k, keepWidth: true);
             Move(_compareBar, _compareGroup, new Vector2(60f, -390f), 0f, 1f, compare ? 1f : 0f, k, keepWidth: true);
             if (_rerollRect != null) _rerollRect.gameObject.SetActive(_mode == Mode.Rewards && _rerollsLeft > 0);
+            if (_reorderRect != null) _reorderRect.gameObject.SetActive(_mode != Mode.Compare);
         }
 
         static void Move(RectTransform rt, CanvasGroup g, Vector2 at, float width, float scale, float alpha,
@@ -771,11 +867,11 @@ namespace Convergence.UI
         static Color IconTint(Option o, Color colour)
             => o.Kind is FloorReward.Heal or FloorReward.Repair or FloorReward.Calx ? Color.white : colour;
 
-        static string WeightName(int w) => w switch { 1 => "LIGHT", 2 => "MEDIUM", 3 => "HEAVY", _ => "" };
+        internal static string WeightName(int w) => w switch { 1 => "LIGHT", 2 => "MEDIUM", 3 => "HEAVY", _ => "" };
 
         // ================================================================== kit
 
-        static Color Hex(int rgb) => new(((rgb >> 16) & 0xff) / 255f, ((rgb >> 8) & 0xff) / 255f, (rgb & 0xff) / 255f, 1f);
+        internal static Color Hex(int rgb) => new(((rgb >> 16) & 0xff) / 255f, ((rgb >> 8) & 0xff) / 255f, (rgb & 0xff) / 255f, 1f);
 
         /// <summary>A rect pivoted at its top middle, placed from the screen's centre.</summary>
         static RectTransform Centred(RectTransform parent, string name, Vector2 topMiddle, Vector2 size)
@@ -795,7 +891,7 @@ namespace Convergence.UI
             rt.anchoredPosition = at;
         }
 
-        static Image Img(Transform parent, string name, Sprite sprite, Color c)
+        internal static Image Img(Transform parent, string name, Sprite sprite, Color c)
         {
             var go = new GameObject(name, typeof(RectTransform), typeof(Image));
             go.transform.SetParent(parent, false);
@@ -809,7 +905,7 @@ namespace Convergence.UI
 
         /// <summary>The mockups' pixel frame: a panel with one texel cut from each corner, sliced
         /// so the cut stays one mockup pixel (six canvas units) at any size.</summary>
-        static Image Notched(RectTransform rt, Color c)
+        internal static Image Notched(RectTransform rt, Color c)
         {
             var img = rt.gameObject.GetComponent<Image>();
             if (img == null) img = rt.gameObject.AddComponent<Image>();
@@ -822,7 +918,7 @@ namespace Convergence.UI
         }
 
         /// <summary>1 Light, 2 Medium, 3 Heavy - the rotation wheel's notches.</summary>
-        static void Notches(RectTransform parent, int weight, Vector2 anchor, Vector2 at, float w, float h, float gap)
+        internal static void Notches(RectTransform parent, int weight, Vector2 anchor, Vector2 at, float w, float h, float gap)
         {
             if (weight <= 0) return;
             for (int n = 0; n < 3; n++)

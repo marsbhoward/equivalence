@@ -2547,7 +2547,8 @@ namespace Convergence.Core
                 if (toggle) { CharacterScreen.Toggle(_canvas.transform, ScreenElement()); return; }
             }
             else if (_state == State.Playing && CharacterScreen.IsOpen
-                     && (Controls.LoadoutTapped || (!CharacterScreen.PickerOpen && Controls.CancelTapped)))
+                     && (Controls.LoadoutTapped || (!CharacterScreen.PickerOpen && !CharacterScreen.ReorderPanelUp
+                                                    && Controls.CancelTapped)))
             {
                 CharacterScreen.Close();
                 return;
@@ -5029,7 +5030,10 @@ namespace Convergence.Core
                 _player != null ? _player.SlotLocked : _ => false,
                 _player != null ? _player.RotationIndex : 0,
                 element, reroll, Mathf.Max(0, Modifiers.Current.ExtraRewardOptions - _rewardRerolls),
-                (outcome, slot, art) => ApplyFloorReward(outcome, slot, art, showing.HealAmount, xpAmount));
+                (outcome, slot, art) => ApplyFloorReward(outcome, slot, art, showing.HealAmount, xpAmount),
+                // REORDER ARTS: the loadout's reorder window, then back to the reward. The door is
+                // already up here (OfferFloorReward), so the window is open.
+                _player != null ? resume => CharacterScreen.OpenReorder(_canvas.transform, ScreenElement(), resume) : null);
         }
 
         void ApplyFloorReward(UI.FloorOutcome outcome, int slot, Combat.Moveset offered, float healAmount,

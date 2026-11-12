@@ -20,7 +20,7 @@ namespace Convergence.UI
     /// The preview is a second rig built far from the arena and filmed by its own camera into a
     /// RenderTexture, so it can be posed and lit independently of gameplay.
     /// </summary>
-    public class CharacterScreen : MonoBehaviour
+    public partial class CharacterScreen : MonoBehaviour
     {
         public bool IsOpen { get; private set; }
 
@@ -47,19 +47,16 @@ namespace Convergence.UI
         bool ReorderAvailable;
 
         /// <summary>
-        /// The reorder window is open, but that is still inspect-only - see
-        /// <see cref="Rearranging"/>. Reset on every Open()/Close(), never read outside this
-        /// screen's own session.
+        /// The reorder window is up (CharacterScreen.Reorder.cs). Reset on every Open()/Close().
         /// </summary>
         bool ReorderPanelOpen;
 
         /// <summary>
-        /// True once the player has pressed the panel's own "REARRANGE" button. Below this, the
-        /// panel shows the wheel but taps on its cards and the slot-3 toggle do nothing - an
-        /// inspect mode for a screen whose only other state used to be "already mutating your
-        /// wheel the instant it opened." Reset alongside ReorderPanelOpen.
+        /// Opened by <see cref="OpenReorder"/> (the floor reward's REORDER ARTS button): the
+        /// screen exists only for the reorder window, so closing the window closes the screen and
+        /// BACK does too - the reward screen behind it is what the player returns to.
         /// </summary>
-        bool Rearranging;
+        bool _reorderOnly;
 
         System.Func<CharacterProfile> _profile;
 
@@ -86,20 +83,14 @@ namespace Convergence.UI
         RectTransform _helmToggleRect;
         Text _helmToggleText;
 
-        readonly List<FinisherCard> _finisherCards = new();
-        int _selectedFinisher = -1;
-        RectTransform _slot3ToggleRect;
-        Text _slot3ToggleText;
         readonly List<RectTransform> _focusRects = new();
 
         // The button on the ordinary sheet that opens the reorder window, and the window's own
-        // panel plus its "start rearranging" toggle. Built once (only when ReorderAvailable),
-        // toggled by SetActive rather than rebuilt - the same lazy-but-kept shape _picker uses.
+        // panel. Built once (only when ReorderAvailable), toggled by SetActive rather than
+        // rebuilt - the same lazy-but-kept shape _picker uses.
         RectTransform _reorderButtonRect;
         Text _reorderButtonText;
         RectTransform _reorderPanel;
-        RectTransform _rearrangeButtonRect;
-        Text _rearrangeButtonText;
 
         class SlotRow
         {
@@ -108,14 +99,6 @@ namespace Convergence.UI
             public Text Name, Item;
             public Image Swatch;
             public RectTransform Stars;
-        }
-
-        class FinisherCard
-        {
-            public int Index;
-            public RectTransform Rect;
-            public Image Bg;
-            public Text Name;
         }
 
         public void Init(System.Func<CharacterProfile> profile, System.Action<GearSlot, string> equip,
@@ -148,8 +131,8 @@ namespace Convergence.UI
             Locked = _mods?.Invoke() != null;
             ReorderAvailable = Locked && (_reorderOpen?.Invoke() ?? false);
             ReorderPanelOpen = false;
-            Rearranging = false;
-            _selectedFinisher = -1;
+            _reorderOnly = false;
+            _picked = -1;
 
             // Never capture a paused scale: if Open() is reached while time is already stopped,
             // saving 0 means Close() restores the freeze and the game soft-locks with no UI up.
@@ -157,6 +140,20 @@ namespace Convergence.UI
 
             BuildPreview();
             BuildUi(canvas);
+            Refresh();
+        }
+
+        /// <summary>
+        /// Straight into the reorder window - the floor reward's REORDER ARTS button. Does nothing
+        /// (and calls <paramref name="onClosed"/> at once) outside the door window.
+        /// </summary>
+        public void OpenReorder(Transform canvas, ElementType element, System.Action onClosed)
+        {
+            if (IsOpen) return;
+            Open(canvas, element, onClosed);
+            if (!ReorderAvailable) { Close(); return; }
+            _reorderOnly = true;
+            OpenReorderPanel();
             Refresh();
         }
 
@@ -174,16 +171,16 @@ namespace Convergence.UI
             _rows.Clear();
             _helmToggleRect = null;
             _helmToggleText = null;
-            _finisherCards.Clear();
-            _slot3ToggleRect = null;
-            _slot3ToggleText = null;
+            _swap.Clear();
+            _origin.Clear();
+            _swapCards = _undoRect = _doneRect = null;
+            _swapStatus = _undoText = _doneText = null;
+            _picked = -1;
             _reorderButtonRect = null;
             _reorderButtonText = null;
             _reorderPanel = null;
-            _rearrangeButtonRect = null;
-            _rearrangeButtonText = null;
             ReorderPanelOpen = false;
-            Rearranging = false;
+            _reorderOnly = false;
 
             var cb = _onClosed;
             _onClosed = null;
@@ -312,22 +309,31 @@ namespace Convergence.UI
             // scoped to that window, this just stops the sheet from jumping straight into it.
             // A button rather than anything automatic: pressing it OPENS the reorder window,
             // which itself opens inspect-only - see BuildReorderOverlay.
+            //
+            // Top right, beside the title (2026-11-12: under the helmet toggle it was buried). Shown
+            // all run long - dimmed and inert outside the door window, saying when it opens - so
+            // a player learns it exists before the one moment it works.
             if (ReorderAvailable)
             {
-                _reorderButtonRect = UiKit.Panel(full, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-                    new Vector2(-620, -310 - 8 - UiKit.TouchTarget), new Vector2(-260, -310 - 8),
-                    new Color(0.14f, 0.13f, 0.09f, 1f));
-                _reorderButtonText = UiKit.Label(_reorderButtonRect, "", 18,
-                    new Color(0.95f, 0.78f, 0.32f), TextAnchor.MiddleCenter);
+                _reorderButtonRect = UiKit.Panel(full, new Vector2(1, 1), new Vector2(1, 1),
+                    new Vector2(-440, -46 - UiKit.TouchTarget), new Vector2(-60, -46),
+                    new Color(0.22f, 0.18f, 0.08f, 1f));
+                _reorderButtonText = UiKit.Label(_reorderButtonRect, "", 20,
+                    new Color(1f, 0.85f, 0.35f), TextAnchor.MiddleCenter);
+                _reorderButtonText.fontStyle = FontStyle.Bold;
+            }
+            else if (Locked)
+            {
+                var idle = UiKit.Panel(full, new Vector2(1, 1), new Vector2(1, 1),
+                    new Vector2(-440, -46 - UiKit.TouchTarget), new Vector2(-60, -46),
+                    new Color(0.07f, 0.075f, 0.09f, 1f));
+                UiKit.Label(idle, "REORDER WEAPON ARTS\nafter a floor's reward", 15,
+                    new Color(0.42f, 0.44f, 0.5f), TextAnchor.MiddleCenter);
             }
 
             BuildLedger(full);
 
-            // Covers the (already non-interactive) gear grid entirely rather than sharing the
-            // screen with it - the two coordinate systems the grid and the preview panel already
-            // use leave no clean gap to fit a new row into, and reordering is rare and temporary
-            // enough that a full-screen takeover for its one window is the honest shape for it.
-            //
+            // The reorder window (CharacterScreen.Reorder.cs) takes the whole screen over the sheet.
             // Built now but INACTIVE - toggled by the button above rather than rebuilt each time,
             // the same lazy-but-kept shape _picker uses for the gear grid.
             if (ReorderAvailable)
@@ -335,72 +341,6 @@ namespace Convergence.UI
                 BuildReorderOverlay(full);
                 _reorderPanel.gameObject.SetActive(false);
             }
-        }
-
-        /// <summary>
-        /// The one exception to Locked: reordering the finisher wheel, open only for the walk to
-        /// the door after a floor's reward. Opens INSPECT ONLY - the wheel is shown, but the cards
-        /// and the slot 3 toggle do nothing until the player presses REARRANGE. Once rearranging,
-        /// tap one card then another to swap them; a locked slot (a signature, weapon or relic)
-        /// cannot be picked at all. The slot 3 toggle is the only other lever here - dropping it
-        /// takes the wheel to its two-finisher minimum, restoring it puts the default back.
-        /// </summary>
-        void BuildReorderOverlay(RectTransform full)
-        {
-            _reorderPanel = UiKit.Panel(full, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-                new Vector2(-520, -300), new Vector2(520, 300), new Color(0.05f, 0.055f, 0.075f, 0.97f));
-            var panel = _reorderPanel;
-
-            UiKit.Label(UiKit.Rect(panel, "reorder-title", new Vector2(0, 1), new Vector2(1, 1),
-                new Vector2(0, -56), new Vector2(0, -12)),
-                "WEAPON ART WHEEL", 30, new Color(0.93f, 0.94f, 0.97f), TextAnchor.MiddleCenter);
-
-            // The button that flips Rearranging on and off - the whole point of this pass. It
-            // reads TEXT from RefreshReorderOverlay rather than here, so it can say which state
-            // it is currently in and what pressing it does next.
-            _rearrangeButtonRect = UiKit.Panel(panel, new Vector2(1f, 1f), new Vector2(1f, 1f),
-                new Vector2(-232, -58), new Vector2(-12, -14), new Color(0.14f, 0.13f, 0.09f, 1f));
-            _rearrangeButtonText = UiKit.Label(_rearrangeButtonRect, "", 18,
-                new Color(0.95f, 0.78f, 0.32f), TextAnchor.MiddleCenter);
-
-            UiKit.Hint(UiKit.Rect(panel, "reorder-hint", new Vector2(0, 1), new Vector2(1, 1),
-                new Vector2(0, -88), new Vector2(0, -60)),
-                "REARRANGE to enable swapping    -    inspecting only until then    -    " +
-                "a locked slot cannot be moved",
-                "REARRANGE to enable swapping    -    inspecting only until then    -    " +
-                "a locked slot cannot be moved",
-                16, new Color(0.5f, 0.53f, 0.6f), TextAnchor.MiddleCenter,
-                UI.GamepadGlyphs.Confirm + " REARRANGE to enable swapping    -    inspecting only " +
-                "until then    -    a locked slot cannot be moved");
-
-            var player = _player?.Invoke();
-            int count = player != null ? player.Slots.Count : 0;
-            const float cardW = 200f, cardH = UiKit.TouchTarget, gap = 20f;
-            float totalW = count * cardW + Mathf.Max(0, count - 1) * gap;
-            float startX = -totalW * 0.5f;
-
-            for (int i = 0; i < count; i++)
-            {
-                float x = startX + i * (cardW + gap);
-                var cardRect = UiKit.Panel(panel, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-                    new Vector2(x, -20 - cardH), new Vector2(x + cardW, -20), new Color(0.1f, 0.11f, 0.15f, 1f));
-                var bg = cardRect.GetComponent<Image>();
-
-                var nameTxt = UiKit.Label(UiKit.Rect(cardRect, "name", Vector2.zero, Vector2.one,
-                    new Vector2(8, 8), new Vector2(-8, -8)),
-                    "", 17, new Color(0.9f, 0.92f, 0.96f), TextAnchor.MiddleCenter);
-
-                _finisherCards.Add(new FinisherCard { Index = i, Rect = cardRect, Bg = bg, Name = nameTxt });
-            }
-
-            const int thirdSlot = Player.PlayerController.BaseSlots - 1;
-            bool thirdLocked = player == null || player.SlotLocked(thirdSlot);
-            _slot3ToggleRect = UiKit.Panel(panel, new Vector2(0.5f, 0f), new Vector2(0.5f, 0f),
-                new Vector2(-160, 24), new Vector2(160, 24 + UiKit.TouchTarget),
-                thirdLocked ? new Color(0.07f, 0.075f, 0.09f, 1f) : new Color(0.14f, 0.13f, 0.09f, 1f));
-            _slot3ToggleText = UiKit.Label(_slot3ToggleRect, "", 18,
-                thirdLocked ? new Color(0.4f, 0.42f, 0.48f) : new Color(0.95f, 0.78f, 0.32f),
-                TextAnchor.MiddleCenter);
         }
 
         /// <summary>
@@ -460,52 +400,7 @@ namespace Convergence.UI
             if (_helmToggleText)
                 _helmToggleText.text = helmHidden ? "HELMET: HIDDEN (click to show)" : "HELMET: SHOWN (click to hide)";
 
-            if (_reorderButtonText)
-                _reorderButtonText.text = ReorderPanelOpen ? "CLOSE REORDER WINDOW" : "REORDER WEAPON ARTS";
-
-            if (ReorderAvailable) RefreshReorderOverlay();
-        }
-
-        void RefreshReorderOverlay()
-        {
-            var player = _player?.Invoke();
-            if (player == null) return;
-
-            if (_rearrangeButtonText)
-                _rearrangeButtonText.text = Rearranging ? "DONE REARRANGING" : "REARRANGE";
-
-            foreach (var card in _finisherCards)
-            {
-                bool inRange = card.Index < player.Slots.Count;
-                card.Rect.gameObject.SetActive(inRange);
-                if (!inRange) continue;
-
-                // "Locked" here only ever meant "a floor reward cannot overwrite this" - see
-                // PlayerController.SlotLocked. It used to also mean "cannot be tapped in this
-                // screen", which was a second, stricter rule stacked on top for no real reason:
-                // moving a signature to a different spot in the wheel doesn't touch what it's
-                // protected from, so a reward-locked slot is a full participant in a swap now.
-                // SwapSlots carries the lock flag along with the moveset, so the protection
-                // follows whichever slot ends up holding the signature.
-                bool locked = player.SlotLocked(card.Index);
-                bool selected = card.Index == _selectedFinisher;
-                card.Name.text = (player.Slots[card.Index]?.DisplayName ?? "-")
-                                + (locked ? "\n(reward-locked)" : "");
-                card.Name.color = new Color(0.9f, 0.92f, 0.96f);
-                card.Bg.color = selected ? new Color(0.22f, 0.28f, 0.34f, 1f)
-                              : locked   ? new Color(0.16f, 0.14f, 0.08f, 1f)
-                                         : new Color(0.1f, 0.11f, 0.15f, 1f);
-            }
-
-            const int thirdSlot = Player.PlayerController.BaseSlots - 1;
-            bool removed = thirdSlot >= player.Slots.Count;
-            bool thirdLocked = !removed && player.SlotLocked(thirdSlot);
-            if (_slot3ToggleText)
-            {
-                _slot3ToggleText.text = thirdLocked ? "SLOT 3 IS LOCKED"
-                                      : removed      ? "RESTORE SLOT 3"
-                                                     : "DROP SLOT 3 (2 weapon arts)";
-            }
+            if (_reorderButtonText) _reorderButtonText.text = "REORDER WEAPON ARTS";
         }
 
         public static Color TierColor(LootTier tier) => tier switch
@@ -584,42 +479,28 @@ namespace Convergence.UI
             // down here a tap on a picker card would ALSO hit the slot row behind it.
             if (PickerOpen) return;
 
-            // D-pad navigation - registered BEFORE the preview's gesture, which returns early. The
-            // reorder panel's cards replace the gear grid entirely while it's open, the same
-            // "covers the grid, handled completely separately" split the tap handling below
-            // already uses. Its own cards only become real targets once Rearranging is on; before
-            // that the panel has the REARRANGE button and the button that closes it again.
+            // The reorder window covers the whole sheet and owns all input while it is up
+            // (CharacterScreen.Reorder.cs) - BACK included, which the bootstrap leaves to it.
             _focusRects.Clear();
             if (ReorderPanelOpen)
             {
-                if (_rearrangeButtonRect != null) _focusRects.Add(_rearrangeButtonRect);
-                if (Rearranging)
-                {
-                    if (_slot3ToggleRect != null) _focusRects.Add(_slot3ToggleRect);
-                    foreach (var c in _finisherCards) _focusRects.Add(c.Rect);
-                }
-                if (_reorderButtonRect != null) _focusRects.Add(_reorderButtonRect);
+                RegisterReorderFocus();
+                Core.Controls.SetFocusCandidates(_focusRects);
+                HandleReorderInput();
+                return;
             }
-            else
-            {
-                // Slots first: they are what a gamepad lands on as the screen opens.
-                if (!Locked) foreach (var r in _rows) _focusRects.Add(r.Rect);
-                if (_helmToggleRect != null) _focusRects.Add(_helmToggleRect);
-                if (_reorderButtonRect != null) _focusRects.Add(_reorderButtonRect);
-            }
+
+            // D-pad navigation - registered BEFORE the preview's gesture, which returns early.
+            // Slots first: they are what a gamepad lands on as the screen opens.
+            if (!Locked) foreach (var r in _rows) _focusRects.Add(r.Rect);
+            if (_helmToggleRect != null) _focusRects.Add(_helmToggleRect);
+            if (_reorderButtonRect != null) _focusRects.Add(_reorderButtonRect);
             Core.Controls.SetFocusCandidates(_focusRects);
 
             // The preview swallows its own gestures, so a drag across it never also cycles a slot.
             if (PreviewGesture()) return;
 
-
             if (!Core.Controls.Tapped(out var p)) return;
-
-            // The panel covers the grid entirely, so its own taps are handled completely
-            // separately rather than falling through to the (locked, inert) cards underneath -
-            // including the reorder button itself, which stays live behind the panel only so a
-            // second press can close it again.
-            if (ReorderPanelOpen) { HandleReorderTap(p); return; }
 
             if (_helmToggleRect != null &&
                 RectTransformUtility.RectangleContainsScreenPoint(_helmToggleRect, p, null))
@@ -631,9 +512,7 @@ namespace Convergence.UI
             if (_reorderButtonRect != null &&
                 RectTransformUtility.RectangleContainsScreenPoint(_reorderButtonRect, p, null))
             {
-                ReorderPanelOpen = true;
-                if (_reorderPanel != null) _reorderPanel.gameObject.SetActive(true);
-                Refresh();
+                OpenReorderPanel();
                 return;
             }
 
@@ -646,71 +525,6 @@ namespace Convergence.UI
             {
                 if (!RectTransformUtility.RectangleContainsScreenPoint(row.Rect, p, null)) continue;
                 OpenPicker(row.Slot);
-                return;
-            }
-        }
-
-        void HandleReorderTap(Vector2 p)
-        {
-            var player = _player?.Invoke();
-            if (player == null) return;
-
-            if (_rearrangeButtonRect != null &&
-                RectTransformUtility.RectangleContainsScreenPoint(_rearrangeButtonRect, p, null))
-            {
-                Rearranging = !Rearranging;
-                _selectedFinisher = -1;
-                Refresh();
-                return;
-            }
-
-            // Closing from inside the panel - tapping the (now-relabelled) button that opened it,
-            // still visible below the panel's own bottom edge.
-            if (_reorderButtonRect != null &&
-                RectTransformUtility.RectangleContainsScreenPoint(_reorderButtonRect, p, null))
-            {
-                ReorderPanelOpen = false;
-                Rearranging = false;
-                _selectedFinisher = -1;
-                if (_reorderPanel != null) _reorderPanel.gameObject.SetActive(false);
-                Refresh();
-                return;
-            }
-
-            // Everything below here MUTATES the wheel, so none of it responds until the player
-            // has explicitly pressed REARRANGE - opening the panel is inspect-only by default.
-            if (!Rearranging) return;
-
-            if (_slot3ToggleRect != null &&
-                RectTransformUtility.RectangleContainsScreenPoint(_slot3ToggleRect, p, null))
-            {
-                const int thirdSlot = Player.PlayerController.BaseSlots - 1;
-                if (thirdSlot >= player.Slots.Count) player.RestoreThirdSlot();
-                else if (!player.SlotLocked(thirdSlot)) player.RemoveThirdSlot();
-                _selectedFinisher = -1;
-                Refresh();
-                return;
-            }
-
-            foreach (var card in _finisherCards)
-            {
-                if (card.Index >= player.Slots.Count) continue;
-                if (!RectTransformUtility.RectangleContainsScreenPoint(card.Rect, p, null)) continue;
-
-                // A reward-locked slot can be picked up and swapped like any other now - see
-                // RefreshReorderOverlay's own note. SwapSlots carries the lock flag with the
-                // moveset, so the protection follows it to wherever it ends up.
-                if (_selectedFinisher < 0) _selectedFinisher = card.Index;
-                else if (_selectedFinisher == card.Index) _selectedFinisher = -1;   // tapped itself - deselect
-                else
-                {
-                    player.SwapSlots(_selectedFinisher, card.Index);
-                    // THE TRANSLATION (the overhaul): forms stay on their sockets and follow the new art.
-                    Exchange.RunModifiers.Live?.TranslateSocket(_selectedFinisher);
-                    Exchange.RunModifiers.Live?.TranslateSocket(card.Index);
-                    _selectedFinisher = -1;
-                }
-                Refresh();
                 return;
             }
         }

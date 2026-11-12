@@ -124,33 +124,19 @@ namespace Convergence.Player
         /// it now occupies slot 3 instead of appending a fourth. Extra Sigil is the only source
         /// left, and it is capped at one stack, so the whole ceiling is BaseSlots + 1.
         ///
-        /// Growing appends defaults; shrinking is not attempted here. Nothing in the ledger
-        /// removes a boon mid-run, and a shrink would have to decide which earned finisher to
-        /// throw away - see RemoveThirdSlot for the one shrink this file DOES support, which is a
-        /// player's own choice rather than something the ledger would ever trigger.
-        ///
-        /// The base it grows FROM respects that choice too - a ledger change after the player
-        /// dropped slot 3 must not silently regrow it, or a boon taken later in the run would
-        /// undo a decision made three floors ago.
+        /// Growing appends defaults; shrinking is never done. Nothing in the ledger removes a boon
+        /// mid-run, and arts are only ever replaced, never dropped (the user's call, 2026-11-12 -
+        /// the old drop-slot-3 choice is gone).
         /// </summary>
         public void SyncSlotCount(int extraFromLedger)
         {
-            int baseNow = _thirdSlotRemoved ? MinSlots : BaseSlots;
-            int want = Mathf.Clamp(baseNow + extraFromLedger, MinSlots, MaxSlots);
+            int want = Mathf.Clamp(BaseSlots + extraFromLedger, BaseSlots, MaxSlots);
             while (Slots.Count < want) { Slots.Add(MovesetLibrary.DefaultFor(Weapon)); _locked.Add(false); }
             while (_locked.Count < Slots.Count) _locked.Add(false);
         }
 
-        bool _thirdSlotRemoved;
-
         /// <summary>The wheel's default size - three, one of which (slot 3) is the relic-tied one.</summary>
         public const int BaseSlots = MaxMovesets;
-
-        /// <summary>
-        /// The floor: slot 3 dropped by the player's own choice, and nothing else earned yet.
-        /// Never reachable while slot 3 is locked - see RemoveThirdSlot.
-        /// </summary>
-        public const int MinSlots = BaseSlots - 1;
 
         /// <summary>
         /// The ceiling. Extra Sigil is the only source left that grows the wheel, and it is
@@ -197,29 +183,6 @@ namespace Convergence.Player
         {
             if (granted == null || _locked[ThirdSlotIndex]) return;
             Slots[ThirdSlotIndex] = granted;
-        }
-
-        /// <summary>
-        /// Drops the wheel to its minimum by removing slot 3 - only possible while it holds the
-        /// default or an unlocked relic pick, matching "locked means unreplaceable" everywhere
-        /// else in this file. The reorder screen is what actually offers this to the player.
-        /// </summary>
-        public bool RemoveThirdSlot()
-        {
-            if (_locked[ThirdSlotIndex] || Slots.Count <= MinSlots) return false;
-            Slots.RemoveAt(ThirdSlotIndex);
-            _locked.RemoveAt(ThirdSlotIndex);
-            _thirdSlotRemoved = true;
-            return true;
-        }
-
-        /// <summary>Restores slot 3 (the default for this weapon class) after RemoveThirdSlot.</summary>
-        public void RestoreThirdSlot()
-        {
-            if (!_thirdSlotRemoved) return;
-            Slots.Insert(ThirdSlotIndex, MovesetLibrary.DefaultFor(Weapon));
-            _locked.Insert(ThirdSlotIndex, false);
-            _thirdSlotRemoved = false;
         }
 
         /// <summary>
@@ -7760,7 +7723,7 @@ namespace Convergence.Player
                 s.Slots.Add(Slots[i] != null ? Slots[i].Id : null);
                 s.SlotLocked.Add(SlotLocked(i));
             }
-            s.ThirdSlotRemoved = _thirdSlotRemoved;
+            s.ThirdSlotRemoved = false;   // slot 3 can no longer be dropped (2026-11-12)
             s.RotationIndex = RotationIndex;
             s.Kills = Kills;
             s.PerfectStreak = _perfectStreak;
@@ -7797,7 +7760,9 @@ namespace Convergence.Player
                     Slots.Add(m ?? MovesetLibrary.DefaultFor(Weapon));
                     _locked.Add(s.SlotLocked != null && i < s.SlotLocked.Count && s.SlotLocked[i]);
                 }
-                _thirdSlotRemoved = s.ThirdSlotRemoved;
+                // A run saved with slot 3 dropped (before arts could only be replaced, 2026-11-12)
+                // gets a default back - appended, so no inscribed socket shifts.
+                while (Slots.Count < BaseSlots) { Slots.Add(MovesetLibrary.DefaultFor(Weapon)); _locked.Add(false); }
             }
             RotationIndex = Slots.Count > 0 ? Mathf.Clamp(s.RotationIndex, 0, Slots.Count - 1) : 0;
             ComboIndex = 0;
