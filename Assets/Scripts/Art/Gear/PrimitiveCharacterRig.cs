@@ -4628,6 +4628,7 @@ namespace Convergence.Art.Gear
             }
             _weaponRank = table[(int)RigLayer.Weapon];
             OrderQuiver(table);   // the bow's quiver: behind the figure, or over the cape turned away
+            SyncOrders8();        // the drawn body and what rides on it, in the same step
 
             if (_split) SetWeaponSplit(true);   // re-derives the off-hand's order from the new base
         }

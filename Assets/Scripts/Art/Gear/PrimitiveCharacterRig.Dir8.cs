@@ -424,6 +424,28 @@ namespace Convergence.Art.Gear
         public static float HelmLift8 = 0f;
         float _head8Centre;
 
+        /// <summary>
+        /// The layers were re-ranked (ApplyLayerOrder - the depth sort moving the base as the figure walks, or a turn):
+        /// the eight-direction pieces follow NOW - the drawn body onto the torso's rank, the helm and near layer over
+        /// the head, the glows and the orbiting stones with the body. They were ranked only in this rig's own update,
+        /// a frame after the layers, so every step a walking figure took down the screen put the mane over the body
+        /// for a frame: the hair flickered (the showcase, 2026-11-13; worst over a back piece, which the body draws).
+        /// </summary>
+        void SyncOrders8()
+        {
+            if (_legs8 == null || !_layers.TryGetValue(RigLayer.Torso, out var torso) || torso == null) return;
+            int delta = torso.sortingOrder - _legs8.sortingOrder;
+            _legs8.sortingOrder = torso.sortingOrder;
+            int headTop = _legs8.sortingOrder;
+            foreach (var l in new[] { RigLayer.Head, RigLayer.HeadBack, RigLayer.HeadArmor })
+                if (_layers.TryGetValue(l, out var hs) && hs != null) headTop = Mathf.Max(headTop, hs.sortingOrder);
+            if (_helm8 != null) _helm8.sortingOrder = headTop + 1;
+            if (_over8 != null) _over8.sortingOrder = headTop + 2;
+            if (delta == 0) return;
+            if (_glows8 != null) foreach (var g in _glows8) if (g != null) g.sortingOrder += delta;
+            if (_stones8 != null) foreach (var st in _stones8) if (st != null) st.sortingOrder += delta;
+        }
+
         /// <summary>LateUpdate, last: every sprite of the rig but the head and the drawn body stays hidden.</summary>
         void Hide8()
         {
