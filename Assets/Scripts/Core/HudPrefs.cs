@@ -71,6 +71,14 @@ namespace Convergence.Core
         }
 
         /// <summary>The key (or pad button) under each button's name, off touch.</summary>
+        /// <summary>The lock range ring on every tap out of range (the user's call, 2026-11-13). Off: the ring shows only
+        /// until a character's first lock, and after that a refused tap flashes the enemy's dashed rim alone.</summary>
+        public static bool LockRangeRing
+        {
+            get => Get("lockring", 0, 1) == 1;
+            set => Set("lockring", value ? 1 : 0);
+        }
+
         /// <summary>First-run hints (UI/FirstRunHints). Turning them back on shows them all again.</summary>
         public static bool FirstRunHints
         {

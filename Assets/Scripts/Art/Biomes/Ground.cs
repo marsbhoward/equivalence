@@ -25,6 +25,7 @@ namespace Convergence.Art.Biomes
 
         public static void Build()
         {
+            Parallax.Rise = 0f;
             var root = Scenery.Root;
             if (root == null) return;
             var floor = root.Find("Floor");
@@ -47,6 +48,7 @@ namespace Convergence.Art.Biomes
             Paint(scenery, owned, fsr.sprite, Scenery.Current.Seed);
             Void(scenery);
             FarLayers.Build(scenery, owned, Scenery.Current.Seed);
+            FarSights.Build(scenery.Find("far") ?? scenery, owned, Scenery.Current.Seed);
             Foreground.Build(scenery, owned, Scenery.Current.Seed);
         }
 
@@ -150,6 +152,27 @@ namespace Convergence.Art.Biomes
             cliffTop.a = cliffLow.a = 1f;
             int face = Tuning.Ground.FaceTexels;
 
+            // ---- each texel's tier (Hazards.TierLayouts), for the shading of higher and lower ground
+            sbyte[] tierOf = null;
+            if (Arena.HasTiers)
+            {
+                tierOf = new sbyte[W * H];
+                for (int j = 0; j < H; j++)
+                for (int i = 0; i < W; i++)
+                    tierOf[j * W + i] = (sbyte)Arena.TierAt(new Vector2(x0 + (i + 0.5f) / Ppu, y0 + (j + 0.5f) / Ppu));
+            }
+            int TierTexel(int i, int j) => tierOf[Mathf.Clamp(j, 0, H - 1) * W + Mathf.Clamp(i, 0, W - 1)];
+            // The tile's own colour, averaged: the stone a tier's face is cut from.
+            Color tpxAvg = Color.black;
+            if (tierOf != null)
+            {
+                double rr = 0, gg = 0, bb = 0; int nn = 0;
+                for (int y = ty0; y < ty0 + th; y++)
+                for (int x = tx0; x < tx0 + tw; x++)
+                { var q = tpx[y * texW + x]; rr += q.r; gg += q.g; bb += q.b; nn++; }
+                if (nn > 0) tpxAvg = new Color((float)(rr / nn / 255.0), (float)(gg / nn / 255.0), (float)(bb / nn / 255.0), 1f);
+            }
+
             var px = new Color32[W * H];
             for (int j = 0; j < H; j++)
             for (int i = 0; i < W; i++)
@@ -165,12 +188,46 @@ namespace Convergence.Art.Biomes
                     bool rim = i == 0 || i == W - 1 || j == H - 1 || !ground[k - 1] || !ground[k + 1] || !ground[k + W];
                     if (lipBelow) c = water ? Color.Lerp(c, Hazards.LakeSurface.Lip, 0.55f) : Shade(c, 0.09f);
                     else if (rim) c = Shade(c, water ? -0.08f : -0.05f);
-                    // The dais's top stands nearer the light, its edge catching it.
-                    var dais = Arena.Dais;
-                    if (dais.width > 0f && dais.Contains(new Vector2(wx, wy)))
+                    // A TIER above stands nearer the light, a sunken one in shade; a raised edge
+                    // catches the light along its arris and casts a shade on the ground beside it.
+                    if (tierOf != null)
                     {
-                        bool edgeTexel = wy - dais.yMin < 1.5f / Ppu || wx - dais.xMin < 1.5f / Ppu || dais.xMax - wx < 1.5f / Ppu;
-                        c = Shade(c, edgeTexel ? 0.16f : 0.09f);
+                        int tier = tierOf[k];
+                        c = Shade(c, tier > 0 ? Tuning.Tiers.ShadeUp * tier : tier < 0 ? Tuning.Tiers.ShadeDown : 0f);
+                        bool arris = false, shade = false;
+                        for (int n = 1; n <= 2; n++)
+                        {
+                            if (TierTexel(i - n, j) < tier || TierTexel(i + n, j) < tier || TierTexel(i, j + n) < tier || TierTexel(i, j - n) < tier) arris = true;
+                            if (TierTexel(i - n, j) > tier || TierTexel(i + n, j) > tier || TierTexel(i, j + n) > tier) shade = true;
+                        }
+                        if (arris) c = Shade(c, Tuning.Tiers.EdgeLight);
+                        else if (shade) c = Shade(c, Tuning.Tiers.EdgeShade);
+
+                        // A FACE: the texels just under a raised edge, the tier's stone seen side on
+                        // in courses going dark toward the foot - or a flight of STAIRS, three treads
+                        // lit along their noses.
+                        int faceTexels = Mathf.RoundToInt(Tuning.Tiers.Face * Ppu);
+                        for (int n = 1; n <= faceTexels; n++)
+                        {
+                            if (TierTexel(i, j + n) <= tier) continue;
+                            float f = (n - 1f) / faceTexels;
+                            var stone = tpxAvg;
+                            if (Arena.StepsAt(new Vector2(wx, wy)))
+                            {
+                                int tread = (n - 1) * 3 / faceTexels;
+                                c = Color.Lerp(stone * 1.05f, stone * 0.72f, tread / 2f);
+                                if ((n - 1) % Mathf.Max(1, faceTexels / 3) == 0) c = stone * 1.22f;   // the nose
+                                bool sideL = !Arena.StepsAt(new Vector2(wx - 1.5f / Ppu, wy)), sideR = !Arena.StepsAt(new Vector2(wx + 1.5f / Ppu, wy));
+                                if (sideL || sideR) c = stone * 0.5f;
+                            }
+                            else
+                            {
+                                c = Color.Lerp(stone * 0.78f, stone * 0.42f, f);
+                                if (n == 1) c = stone * 0.9f;
+                                else if (n % 5 == 0 || ((i + (n > faceTexels / 2 ? 7 : 0)) % 16 == 0)) c = Shade(c, -0.06f);
+                            }
+                            break;
+                        }
                     }
                     c.a = 1f;
                     px[k] = c;

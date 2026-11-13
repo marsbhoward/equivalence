@@ -306,7 +306,7 @@ namespace Convergence.Exchange
                   m.Add(StatKind.AttackSpeed, -T.HeavyArmsSpeed * n);
                   if (n >= 3) m.UpVoid[(int)StatKind.AttackSpeed] = true;
               })
-              .Cap("Leaden Limbs", "Attack speed from boons and spires stops counting.");
+              .Cap("Leaden Limbs", "Attack speed from benefits and spires stops counting.");
             C("cold_iron", "Cold Iron", Blunt, Cross, 2, 3,
               "Crits lose a third of their bonus (all at III).", conditional: true)
               .Cap("Quenched", $"Crits deal {Pct(1f - T.QuenchedMul)} less than a normal hit.");
@@ -387,9 +387,9 @@ namespace Convergence.Exchange
             // something a deal is worth.
             C("caput_mortuum", "Caput Mortuum", Tithe, Ring, 2, 1, "The next two deals: one pair each, no refusing.")
               .Recurs(p => { p.PairsDelta -= 1; p.PairsDeltaNext -= 1; p.Forced = true; p.ForcedNext = true; });
-            C("indenture", "Indenture", Tithe, Dot1, 2, 1, "The next deal: no refusing, lighter boons.")
+            C("indenture", "Indenture", Tithe, Dot1, 2, 1, "The next deal: no refusing, lighter benefits.")
               .Recurs(p => { p.Forced = true; p.BoonWeightDelta -= 1; });
-            C("debt", "Debt", Tithe, NoMark, 3, 1, "The next deal: a cost and no boon, no refusing.")
+            C("debt", "Debt", Tithe, NoMark, 3, 1, "The next deal: a burden and no benefit, no refusing.")
               .Recurs(p => { p.NoBoon = true; p.Forced = true; });
 
             // ---- Leaden: movement ----
@@ -789,7 +789,7 @@ namespace Convergence.Exchange
                   $"+1 Damage per {Pct(T.BloodstoneMissingPerPoint)} health missing, to +{N(T.BloodstoneCap)}.",
                   conditional: true);
             Combo(EntryOrigin.Citrinitas, "ponderous", "Ponderous", "heavy_arms", "heavy_payoff", Anvil, Dot2,
-                  "Attack speed lost to costs becomes Weapon Art.",
+                  "Attack speed lost to burdens becomes Weapon Art.",
                   (m, n) => m.Add(StatKind.FinisherPower, -m.Down[(int)StatKind.AttackSpeed]));
             Combo(EntryOrigin.Citrinitas, "iron_rhythm", "Iron Rhythm", "fumbler", "reiteration", Edge, Dot1,
                   "A miss makes your next hit repeat.", conditional: true);

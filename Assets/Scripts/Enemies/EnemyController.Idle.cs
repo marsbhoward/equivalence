@@ -29,6 +29,31 @@ namespace Convergence.Enemies
 
         public bool Unaware => _unaware;
 
+        /// <summary>
+        /// GATED (the Gates platform floor; the user's call, 2026-11-13): a body of the NEXT round
+        /// waiting on a terrace behind sealed stairs, in view. It only idles - nothing it sees or
+        /// suffers wakes it, and its time never runs out - until the gates open
+        /// (<see cref="ReleaseGate"/>). A body that LOBS (the Mortar) is never held: it fires over
+        /// the face meanwhile.
+        /// </summary>
+        [SerializeField] bool _gated;
+        public bool Gated => _gated;
+
+        /// <summary>Hold this body idle until its gates open.</summary>
+        public void BeginGated()
+        {
+            BeginUnaware();
+            _gated = true;
+        }
+
+        /// <summary>The gates are open: the held body wakes, marked like any other.</summary>
+        public void ReleaseGate()
+        {
+            if (!_gated) return;
+            _gated = false;
+            Wake(spread: false);
+        }
+
         /// <summary>No body STARTS an attack before this (scaled time) - the floor's entry grace,
         /// set by GameBootstrap as the first wave arrives. Bodies may still move. Static and plain:
         /// a reload leaving it at 0 only ends a grace early.</summary>
@@ -53,6 +78,7 @@ namespace Convergence.Enemies
             if (Time.time < EntryGraceUntil) return true;   // the entry grace: nothing is begun yet
             if (!_unaware) return false;
 
+            if (_gated) return true;   // held behind the gates: idle, nothing wakes it
             if (_wakeIn >= 0f)
             {
                 _wakeIn -= Time.deltaTime;
@@ -81,7 +107,7 @@ namespace Convergence.Enemies
         /// <summary>Hit while unaware: awake at once.</summary>
         void WakeOnHurt(DamageInfo info)
         {
-            if (_unaware && !info.Tick) Wake(spread: true);
+            if (_unaware && !_gated && !info.Tick) Wake(spread: true);
         }
 
         void Wake(bool spread)
@@ -101,7 +127,7 @@ namespace Convergence.Enemies
             if (!spread) return;
             foreach (var e in EnemyRegistry.All)
             {
-                if (e == null || e == this || !e._unaware || e._wakeIn >= 0f) continue;
+                if (e == null || e == this || !e._unaware || e._gated || e._wakeIn >= 0f) continue;
                 if (((Vector2)e.transform.position - (Vector2)transform.position).sqrMagnitude
                     > Tuning.Idle.SpreadRadius * Tuning.Idle.SpreadRadius) continue;
                 e._wakeIn = Mathf.Lerp(Tuning.Idle.SpreadDelayMin, Tuning.Idle.SpreadDelayMax,
@@ -128,7 +154,8 @@ namespace Convergence.Enemies
                     {
                         float a = (float)_idleRng.NextDouble() * Mathf.PI * 2f, r = Tuning.Idle.WanderRadius * Mathf.Sqrt((float)_idleRng.NextDouble());
                         var p = _home + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * r;
-                        if (Arena.OnFloor(p, 0.4f) && FloorPits.At(p) == null) { _wanderTo = p; break; }
+                        if (Arena.OnFloor(p, 0.4f) && FloorPits.At(p) == null
+                            && Arena.TierAt(p) == Arena.TierAt(_home) && !Arena.NearTierEdge(p, 0.4f)) { _wanderTo = p; break; }
                     }
                 }
                 return;

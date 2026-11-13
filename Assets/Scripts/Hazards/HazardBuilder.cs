@@ -205,7 +205,7 @@ namespace Convergence.Hazards
                 if (Vector2.Distance(p, Arena.NorthDoorPoint) < clear) continue;
                 if (Vector2.Distance(p, Arena.SouthSpawnPoint) < clear) continue;
                 // The whole ring on open floor - a capture half inside a wall is half a capture.
-                if (!Arena.OnFloor(p, r + 0.3f) || Arena.NearDaisEdge(p, r + 0.3f)) continue;
+                if (!Arena.OnFloor(p, r + 0.3f) || Arena.NearTierEdge(p, r + 0.3f)) continue;
 
                 var boon = Spire.DevForceBoon ?? SpireBoons.Roll(hurt, worn);
                 int lines = Spire.DevForceLines >= 0 ? Spire.DevForceLines : RollLines(floor);
@@ -240,7 +240,7 @@ namespace Convergence.Hazards
                 if (Vector2.Distance(p, playerPos) < clear + 0.6f) continue;
                 if (Vector2.Distance(p, Arena.NorthDoorPoint) < clear) continue;
                 if (Vector2.Distance(p, Arena.SouthSpawnPoint) < clear) continue;
-                if (!Arena.OnFloor(p, r + 0.3f) || Arena.NearDaisEdge(p, r + 0.3f)) continue;
+                if (!Arena.OnFloor(p, r + 0.3f) || Arena.NearTierEdge(p, r + 0.3f)) continue;
                 Debug.Log($"[Circle] transmutation circle at {p}");
                 return TransmutationRing.Spawn(p, player, parent);
             }
@@ -414,7 +414,7 @@ namespace Convergence.Hazards
                 // Off the room's walls by the biggest pillar's radius and a body - a column hard
                 // against a wall would close the gap beside it into a one-body corridor.
                 if (!Arena.OnFloor(p, Tuning.Hazards.ColumnRadiusLarge + 0.6f)
-                    || Arena.NearDaisEdge(p, Tuning.Hazards.ColumnRadiusLarge + 0.6f)) continue;
+                    || Arena.NearTierEdge(p, Tuning.Hazards.ColumnRadiusLarge + 0.6f)) continue;
 
                 bool blocked = false;
                 for (int k = 0; k < pits.Count && !blocked; k++)

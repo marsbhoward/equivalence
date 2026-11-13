@@ -90,6 +90,9 @@ namespace Convergence.UI
             if (_root) Destroy(_root);
         }
 
+        /// <summary>The element seal (the meter) on screen, for the full meter's hint.</summary>
+        public Vector2? SealScreen => _sealRt != null ? (Vector2)_sealRt.position : (Vector2?)null;
+
         public void Build(PlayerController player, Transform canvasRoot)
         {
             _root = new GameObject("HudRoot", typeof(RectTransform));

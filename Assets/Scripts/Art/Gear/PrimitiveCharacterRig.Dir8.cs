@@ -10,8 +10,10 @@ namespace Convergence.Art.Gear
     // DevEightDir: the body keeps today's front and back pictures until the skeleton (phase 2) replaces them.
     public partial class PrimitiveCharacterRig
     {
-        /// <summary>DEV ONLY: the eight-direction facing and head (phase 1). Off = today's rig exactly.</summary>
-        public static bool DevEightDir;
+        /// <summary>The eight-direction rig, ON by default since 2026-11-13 (the showcase is Bronze only, the one tier
+        /// baked). Off = the four-view rig exactly; the Editor's Convergence > Dev > Eight Directions switches it.
+        /// Pieces with no eight-direction bake (Silver and up) draw as the bare suit until they are baked.</summary>
+        public static bool DevEightDir = true;
 
         /// <summary>DEV ONLY: a direction of travel to face as if moving (checking the views without input).</summary>
         public static Vector2? DevTravel;

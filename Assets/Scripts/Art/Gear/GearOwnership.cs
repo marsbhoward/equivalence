@@ -46,6 +46,7 @@ namespace Convergence.Art.Gear
         {
             if (item == null) return false;
             if (!string.IsNullOrEmpty(item.StackKey)) return HoldsInstance == null || HoldsInstance(item.ItemId);
+            if (Core.PerfTest.Build && item.ItemId == Core.PerfTest.Accessory) return true;
             if (AuthoredHeld == null || AuthoredHeld()) return true;
             return (StartersHeld == null || StartersHeld()) && Array.IndexOf(Starters, item.ItemId) >= 0;
         }

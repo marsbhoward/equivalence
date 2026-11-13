@@ -5011,6 +5011,10 @@ namespace Convergence.Player
             ImpactRadius = radius;
             ImpactCentre = transform.position;
             if (Health) Health.Immune = true;
+            // A LEAP CLEARS A TIER'S FACE (the user's call, 2026-11-13): the only way off one but
+            // the stairs. Its barriers are ignored while airborne; the landing is set clear of them.
+            int tierFrom = Arena.TierAt(transform.position);
+            IgnoreTierBarriers(true);
 
             // A DIRECTED leap: carried along the aim (the facing, which the art's aim and the
             // auto-target both set), landing ON a locked target in front when it is within reach.
@@ -5143,7 +5147,16 @@ namespace Convergence.Player
             _leapCarry = Vector2.zero;
             if (mark != null) Destroy(mark.gameObject, 0.4f);   // its last pulses fade out on it
             if (Health) Health.Immune = false;
+            IgnoreTierBarriers(false);
+            if (Arena.HasTiers)
+            {
+                var clear = Arena.OffTierEdge(_rb.position, TierClearance);
+                if (clear != _rb.position) { _rb.position = clear; transform.position = clear; }
+            }
             SettleOverChasm();
+            // The sword's jump art landing LOWER than it left hits harder (the user's call).
+            float dropMul = Arena.HasTiers && Weapon == Art.Gear.WeaponClass.Greatsword
+                            && Arena.TierAt(_rb.position) < tierFrom ? Tuning.Tiers.LeapDropDamageMul : 1f;
 
             // Landing commits like every other finisher, and the recovery starts the moment the
             // feet touch - not when the animation ends. The exposure IS the animation's meaning.
@@ -5169,7 +5182,24 @@ namespace Convergence.Player
             _ = tint;
             Impact(ReleaseCanvas.Feet(transform), Mathf.Max(1f, radius));
             SettleStrike();   // the landing is the strike
-            ResolveArc(step, isFinisher, advanceCombo: false);
+            ResolveArc(step, isFinisher, advanceCombo: false, damageScale: dropMul);
+        }
+
+        /// <summary>How far a landing is set clear of a tier's barrier: the body's own radius.</summary>
+        const float TierClearance = 0.3f;
+
+        /// <summary>The tiers' barriers ignored by the player's own colliders (a leap), or felt
+        /// again. Open edges' barriers are never ignored - nothing goes over the lip.</summary>
+        void IgnoreTierBarriers(bool ignore)
+        {
+            if (!Arena.HasTiers && ignore) return;
+            var mine = GetComponents<Collider2D>();
+            foreach (var b in FindObjectsByType<Hazards.Barrier>(FindObjectsSortMode.None))
+            {
+                if (!b.Tier) continue;
+                foreach (var bc in b.GetComponents<Collider2D>())
+                    foreach (var c in mine) if (c != null && bc != null) Physics2D.IgnoreCollision(c, bc, ignore);
+            }
         }
 
         static readonly RaycastHit2D[] _leapHits = new RaycastHit2D[8];
@@ -5192,6 +5222,7 @@ namespace Convergence.Player
             {
                 var c = _leapHits[i].collider;
                 if (c == null || c.GetComponentInParent<Enemies.EnemyController>() != null) continue;
+                if (c.TryGetComponent<Hazards.Barrier>(out var bar) && bar.Tier) continue;   // a leap clears a face
                 stop = Mathf.Min(stop, _leapHits[i].distance);
             }
             return from + by / dist * stop;

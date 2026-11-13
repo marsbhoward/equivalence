@@ -186,7 +186,7 @@ namespace Convergence.UI
                         UiKit.Label(UiKit.Rect(row, "name", Vector2.zero, Vector2.one, new Vector2(16, 0), new Vector2(-8, 0)),
                             e.Name, 21, ink, TextAnchor.MiddleLeft);
                         UiKit.Label(UiKit.Rect(row, "kind", Vector2.zero, Vector2.one, new Vector2(16, 0), new Vector2(-14, 0)),
-                            e.SocketCost ? "SOCKET COST" : "FORM", 13, SwMuted, TextAnchor.MiddleRight).fontStyle = FontStyle.Bold;
+                            e.SocketCost ? "SOCKET BURDEN" : "FORM", 13, SwMuted, TextAnchor.MiddleRight).fontStyle = FontStyle.Bold;
                     }
 
                 var cta = UiKit.Label(UiKit.Rect(face, "cta", Vector2.zero, new Vector2(1, 0), new Vector2(0, 18), new Vector2(0, 52)),

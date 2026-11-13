@@ -12,9 +12,11 @@ namespace Convergence.UI
     /// goes on - and the game resumes when that press is LET GO, so a tap on ATTACK over the
     /// timing bar is never also the strike or a swing (<see cref="Controls.WorldBlocked"/>).
     ///
-    /// Six moments, each shown once per CHARACTER (<see cref="Chain.CharacterProfile.HintsSeen"/>),
-    /// asked for by GameBootstrap where they happen: move, bar, aim, guard, exchange, rift. Never
-    /// two at once, none in a floor's first seconds, a gap between two (<see cref="Tuning.Hints"/>).
+    /// The moments, each shown once per CHARACTER (<see cref="Chain.CharacterProfile.HintsSeen"/>),
+    /// asked for by GameBootstrap where they happen: move, lock, bar, aim, guard, meter, the deal
+    /// overview, rift, and in the hub the forge, the grid and the stake. Never two at once, none in a
+    /// floor's first seconds, a gap between two (<see cref="Tuning.Hints"/>). A hint may be a few STEPS
+    /// (<see cref="OfferSteps"/> - the deal overview, 2026-11-13): each press goes on to the next, no gap.
     /// HUD &amp; TOUCH turns them off; turning them back on shows them all again.
     ///
     /// Its own canvas at 16: over the screens (10) - the exchange hint sits on the deal screen -
@@ -41,6 +43,8 @@ namespace Convergence.UI
         int _floor = int.MinValue;
         float _floorSince;
         readonly List<RectTransform> _focus = new();
+        // Not readonly (domain reload); guarded where used.
+        Queue<(string text, Vector2? at)> _steps;
 
         static readonly Color Gold = new(0.85f, 0.71f, 0.35f, 0.95f);
 
@@ -113,6 +117,30 @@ namespace Convergence.UI
             return true;
         }
 
+        /// <summary>
+        /// <see cref="Offer"/> as a few STEPS under one key: each press shows the next, and the game
+        /// resumes after the last. Each step's text may break with '\n'. True when it opened.
+        /// </summary>
+        public static bool OfferSteps(string key, IList<(string text, Vector2? at)> steps)
+        {
+            var h = _instance;
+            if (h == null || steps == null || steps.Count == 0 || !Offer(key, steps[0].text, steps[0].at)) return false;
+            h._steps ??= new Queue<(string, Vector2?)>();
+            h._steps.Clear();
+            for (int i = 1; i < steps.Count; i++) h._steps.Enqueue(steps[i]);
+            return true;
+        }
+
+        /// <summary>Record <paramref name="key"/> as seen without showing anything - a lesson learned by doing (the
+        /// first lock, PlayerTargeting). Saved with the character's next save.</summary>
+        public static void Mark(string key)
+        {
+            var p = Profile?.Invoke();
+            if (p == null || Seen(key)) return;
+            p.HintsSeen ??= new List<string>();
+            p.HintsSeen.Add(key);
+        }
+
         /// <summary>Every hint again - HUD &amp; TOUCH turning them back on.</summary>
         public static void ClearSeen() => Profile?.Invoke()?.HintsSeen?.Clear();
 
@@ -152,7 +180,9 @@ namespace Convergence.UI
         {
             var size = _root.rect.size;
             float w = Mathf.Clamp(_text.preferredWidth + 48f, 360f, size.x - 80f);
-            const float h = 104f;
+            int lines = 1;
+            foreach (char ch in _text.text) if (ch == '\n') lines++;
+            float h = 104f + 34f * (lines - 1);
             _box.sizeDelta = new Vector2(w, h);
             _box.offsetMin = new Vector2(-w * 0.5f, -h * 0.5f);
             _box.offsetMax = new Vector2(w * 0.5f, h * 0.5f);
@@ -209,6 +239,14 @@ namespace Convergence.UI
             if (_closing)
             {
                 if (held) return;
+                if (_steps != null && _steps.Count > 0)
+                {
+                    // the next step, on the let-go - the pause and the block stay held between them
+                    var (text, at) = _steps.Dequeue();
+                    GamePause.Release(this);
+                    Show(text, at, null);
+                    return;
+                }
                 _open = _closing = false;
                 _clearedFrame = Time.frameCount + 1;
                 _closedAt = Time.unscaledTime;
@@ -238,6 +276,7 @@ namespace Convergence.UI
         {
             if (_instance != this) return;
             if (_open) { Controls.WorldBlocked = false; GamePause.Release(this); }
+            _steps?.Clear();
             _instance = null;
         }
     }

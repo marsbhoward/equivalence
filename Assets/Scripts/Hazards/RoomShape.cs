@@ -63,16 +63,25 @@ namespace Convergence.Hazards
         public readonly bool Dais;
         public const int DaisCol0 = 8, DaisCols = 8, DaisRows = 3, DaisStepCol0 = 11, DaisSteps = 2;
 
-        RoomShape(string name, string[] grid, bool lake = false, Landmark[] landmarks = null, bool dais = false)
+        /// <summary>The TIER grid over this room (Hazards.TierLayouts), or null when it is all one
+        /// height. The dais is one; a tiered room (terraces, sunken, overlook) is another.</summary>
+        public readonly string[] Tiers;
+
+        /// <summary>True when the tiers carry GATES - sealed stairs that open for the second round.</summary>
+        public bool HasGates { get { if (Tiers != null) foreach (var r in Tiers) if (r.IndexOf('g') >= 0) return true; return false; } }
+
+        RoomShape(string name, string[] grid, bool lake = false, Landmark[] landmarks = null, bool dais = false,
+                  string[] tiers = null)
         {
             Name = name; Grid = grid; Lake = lake;
             if (landmarks != null) Landmarks = landmarks;
             Dais = dais;
+            Tiers = tiers ?? (dais ? TierLayouts.Dais() : null);
             foreach (var row in grid) if (row.IndexOf('~') >= 0) { HasChasm = true; break; }
         }
 
         /// <summary>This shape with its chasms drawn as a lake (or as a drop).</summary>
-        public RoomShape AsLake(bool lake) => lake == Lake || !HasChasm ? this : new RoomShape(Name, Grid, lake, Landmarks, Dais);
+        public RoomShape AsLake(bool lake) => lake == Lake || !HasChasm ? this : new RoomShape(Name, Grid, lake, Landmarks, Dais, Tiers);
 
         /// <summary>The name with the chasm style, for logs and dev tools: "maw (lake)".</summary>
         public string Describe => Lake ? $"{Name} (lake)" : Name;
@@ -329,6 +338,8 @@ namespace Convergence.Hazards
             {
                 string forced = DevForceNext;
                 DevForceNext = null;
+                if (forced == "terraces" || forced == "sunken" || forced == "overlook" || forced == "gates")
+                    return Tiered(new System.Random(seed), forced);
                 if (forced == "composed")
                 {
                     var c = Compose(seed);
@@ -342,6 +353,7 @@ namespace Convergence.Hazards
             string name = Draw(floor, seed);
             if (name == null) return null;
             var rng = new System.Random(unchecked(seed * 31 + 7));
+            if (name == TieredKey) return Tiered(rng);
             // A COMPOSED room (RoomShape.Compose) - hundreds of them, so no repeat rule is needed;
             // none validating leaves the floor open.
             if (name == ComposedKey)
@@ -372,6 +384,32 @@ namespace Convergence.Hazards
 
         /// <summary>What <see cref="Draw"/> returns for a composed room - not a catalogue name.</summary>
         const string ComposedKey = "\u0001composed";
+        /// <summary>What <see cref="Draw"/> returns for a tiered room (Hazards.TierLayouts).</summary>
+        const string TieredKey = "\u0001tiered";
+
+        /// <summary>
+        /// A TIERED room: the open grid with a tier layout over it - terraces, a sunken court or an
+        /// overlook, drawn evenly (the user's call: the designs are pulled at random). "gates" is
+        /// the terraces with sealed stairs, for the Gates platform floor.
+        /// </summary>
+        public static RoomShape Tiered(System.Random rng, string kind = null)
+        {
+            var open = new string[Rows];
+            for (int r = 0; r < Rows; r++) open[r] = new string('.', Cols);
+            var k = kind switch
+            {
+                "terraces" or "gates" => TierLayouts.Kind.Terraces,
+                "sunken" => TierLayouts.Kind.Sunken,
+                "overlook" => TierLayouts.Kind.Overlook,
+                _ => (TierLayouts.Kind)rng.Next(3),
+            };
+            bool gates = kind == "gates";
+            var tiers = TierLayouts.Make(k, rng, gates);
+            var why = TierLayouts.Validate(tiers, open);
+            if (why != null) { Debug.LogWarning($"[Room] tier layout {k} dropped: {why}"); return null; }
+            string name = gates ? "gates" : k.ToString().ToLowerInvariant();
+            return new RoomShape(name, open, false, null, false, tiers);
+        }
 
         /// <summary>The raw draw for a floor: a name, <see cref="ComposedKey"/>, or null for open.</summary>
         static string Draw(int floor, int seed)
@@ -379,6 +417,7 @@ namespace Convergence.Hazards
             if (Core.RunFormat.Depth(floor) < Tuning.Rooms.FromFloor || _names.Count == 0) return null;
             var rng = new System.Random(seed);
             if (rng.NextDouble() >= Tuning.Rooms.ShapedChance) return null;
+            if (rng.NextDouble() < Tuning.Tiers.TieredShare) return TieredKey;
             if (rng.NextDouble() < Tuning.Rooms.ComposedShare) return ComposedKey;
             return _names[rng.Next(_names.Count)];
         }

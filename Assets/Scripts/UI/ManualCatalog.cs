@@ -44,6 +44,15 @@ namespace Convergence.UI
                 $"[[crit]] chance each, on every hit, up to +{T.StrikeTiming.StreakCap * T.StrikeTiming.StreakCritPerPerfect * 100f:0}%. " +
                 "Anything else resets it."),
 
+            new("LOCK-ON",
+                "Your attacks go at the enemy you [[lock]] on to. On a touch screen, tap an enemy to lock on and tap it " +
+                "again to let go. With a keyboard, Tab locks the enemy under the cursor. On a gamepad, click the right " +
+                "stick to lock the enemy you are aiming at, and flick it to move the lock to the next one. While you hold " +
+                "a lock you keep facing your target, wherever you move; when it falls, the lock moves to the nearest enemy. " +
+                "Each weapon locks only so far, a little past its own [[reach]].\n\n" +
+                "With nothing locked, a swing turns to an enemy in reach in front of you, and the outline that marks it is " +
+                "fainter than a lock's."),
+
             new("DEFENSIVE ABILITIES",
                 "Every chest piece grants one [[defensive ability]], chosen at random when it is forged: Dash, Barrier, " +
                 "Bulwark or Parry Stance. All four share the same instant - use one at the exact moment a hit lands and " +
@@ -104,11 +113,11 @@ namespace Convergence.UI
                 "and Brace while you stand still."),
 
             new("BETWEEN FLOORS: THE EXCHANGE",
-                "After every floor the exchange offers its deals, each a boon paired with a cost and weighed on a scale. " +
+                "After every floor the exchange offers its deals, each [[benefit|a benefit]] paired with [[burden|a burden]] and weighed on a scale. " +
                 $"Take one, or refuse - a run allows {T.Exchange.RefusalsPerRun} refusals. What you take lasts until the run " +
                 "ends, and repeats stack. Some deals change how a weapon art or a status behaves rather than adding a " +
-                "number, and a cost carried far enough can be transmuted into something new. Read the scale: early on a " +
-                "boon outweighs its cost, and higher up the two weigh closer to even."),
+                "number, and a burden carried far enough can be transmuted into something new. Read the scale: early on " +
+                "the benefit outweighs the burden, and higher up the two weigh closer to even."),
 
             new("THE FLOOR REWARD",
                 "After every second floor, four rings: two weapon arts above and below, a restore on the left - Heal or " +

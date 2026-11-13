@@ -105,19 +105,91 @@ namespace Convergence.Core
             EdgeIsWater = open && water;
         }
 
-        /// <summary>The raised dais before the door this floor (Hazards.RoomShape.Dais), in world
-        /// units; zero size when there is none. Its cells are floor - only its edge holds bodies.</summary>
-        public static Rect Dais;
+        // ------------------------------------------------------------------ tiers
+        //
+        // GROUND AT MORE THAN ONE HEIGHT (Hazards.TierLayouts; the dais is the smallest). Height is
+        // DRAWN, never simulated: one play plane, a face under each raised edge, a BARRIER holding
+        // bodies along every edge between heights but the stairs (Hazards.RoomWalls.BuildTiers).
+        // Shots and sight pass over. What asks here is placement - nothing may straddle an edge
+        // or stand in a barrier - and what wants to know which tier a point is on (a thrown body
+        // going over a face, a leap landing lower than it left).
 
-        /// <summary>Would a round thing of radius <paramref name="r"/> at <paramref name="p"/>
-        /// straddle the dais's edge or its face? (Wholly on it, or wholly off it, is fine.)</summary>
-        public static bool NearDaisEdge(Vector2 p, float r)
+        static sbyte[] _tier;
+        static bool[] _tierSteps;
+        // Where a barrier stands (not standing room), and the flights of stairs (standing room,
+        // but nothing is PLACED across one).
+        static Rect[] _tierBands, _tierStairs;
+
+        /// <summary>True while the floor has ground at more than one height.</summary>
+        public static bool HasTiers => _tier != null;
+
+        /// <summary>Install the floor's tiers - each cell's height (cols x rows, bottom row first,
+        /// the wall mask's grid), the rects each barrier holds, and each flight of stairs - or
+        /// clear them with null.</summary>
+        public static void SetTiers(sbyte[] height, Rect[] barriers, Rect[] stairs, bool[] steps = null)
         {
-            if (Dais.width <= 0f) return false;
-            var d = Dais;
-            bool outside = p.x < d.xMin - r || p.x > d.xMax + r || p.y < d.yMin - Tuning.Rooms.DaisFace - r;
-            bool inside = p.x > d.xMin + r && p.x < d.xMax - r && p.y > d.yMin + r;
-            return !outside && !inside;
+            _tier = height;
+            _tierSteps = height != null ? steps : null;
+            _tierBands = height != null ? barriers : null;
+            _tierStairs = height != null ? stairs : null;
+        }
+
+        static bool NearAny(Rect[] rects, Vector2 p, float r)
+        {
+            if (rects == null) return false;
+            foreach (var b in rects)
+            {
+                float dx = Mathf.Max(b.xMin - p.x, 0f, p.x - b.xMax);
+                float dy = Mathf.Max(b.yMin - p.y, 0f, p.y - b.yMax);
+                if (dx * dx + dy * dy <= r * r) return true;
+            }
+            return false;
+        }
+
+        /// <summary>The tier under <paramref name="p"/>: 0 the ground, 1 or 2 above it, -1 sunken.</summary>
+        public static int TierAt(Vector2 p)
+        {
+            if (_tier == null || _wall == null) return 0;
+            var c = CellOf(p);
+            c.x = Mathf.Clamp(c.x, 0, _cols - 1);
+            c.y = Mathf.Clamp(c.y, 0, _rows - 1);
+            return _tier[c.y * _cols + c.x];
+        }
+
+        /// <summary>Is the cell under <paramref name="p"/> drawn as STAIRS (open or a sealed gate)?
+        /// For the ground's picture (Art.Biomes.Ground) - what climbs is the barriers' business.</summary>
+        public static bool StepsAt(Vector2 p)
+        {
+            if (_tierSteps == null || _wall == null) return false;
+            var c = CellOf(p);
+            return c.x >= 0 && c.y >= 0 && c.x < _cols && c.y < _rows && _tierSteps[c.y * _cols + c.x];
+        }
+
+        /// <summary>Would a round thing of radius <paramref name="r"/> at <paramref name="p"/> touch
+        /// a tier's edge - its barrier, its face, or a flight of stairs? (Wholly on one tier is fine.)</summary>
+        public static bool NearTierEdge(Vector2 p, float r)
+            => NearAny(_tierBands, p, r) || NearAny(_tierStairs, p, r);
+
+        /// <summary>Is <paramref name="p"/> (grown by <paramref name="r"/>) in a tier's BARRIER -
+        /// where no body stands? Stairs are standing room.</summary>
+        public static bool InTierBarrier(Vector2 p, float r) => NearAny(_tierBands, p, r);
+
+        /// <summary>
+        /// <paramref name="p"/>, or the nearest point out of every tier barrier (and on the floor) - for
+        /// a body put down where a barrier stands: a leap's landing, a dropped enemy. Searched in
+        /// rings, so the answer stays on the side of the edge it was nearer.
+        /// </summary>
+        public static Vector2 OffTierEdge(Vector2 p, float r)
+        {
+            if (_tierBands == null || !InTierBarrier(p, r)) return p;
+            for (float d = 0.15f; d <= 2.5f; d += 0.15f)
+            for (int i = 0; i < 16; i++)
+            {
+                float a = i * Mathf.PI / 8f;
+                var q = p + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * d;
+                if (!InTierBarrier(q, r) && OnFloor(q, r)) return q;
+            }
+            return p;
         }
 
         /// <summary>The inner faces of the outer walls - where the floor ends.</summary>
@@ -313,6 +385,7 @@ namespace Convergence.Core
         public static bool OnFloor(Vector2 p, float margin = 0f)
         {
             if (Mathf.Abs(p.x) > HalfExtents.x - margin || Mathf.Abs(p.y) > HalfExtents.y - margin) return false;
+            if (_tierBands != null && InTierBarrier(p, margin)) return false;
             return _wall == null || !Near(p, margin, BlockedAt);
         }
 
@@ -320,13 +393,18 @@ namespace Convergence.Core
         /// clear of interior walls and chasms? (The outer bound is the caller's own business.)</summary>
         public static bool RectOnFloor(Rect rect, float margin = 0f)
         {
-            // A pit (or anything laid as a rect) never cuts the dais or its face.
-            if (Dais.width > 0f)
+            // A pit (or anything laid as a rect) never cuts a tier's edge, its face or its stairs.
+            if (_tierBands != null)
             {
-                var d = Dais;
-                var near = new Rect(d.xMin - margin - 0.2f, d.yMin - Tuning.Rooms.DaisFace - margin - 0.2f,
-                                    d.width + 2f * margin + 0.4f, d.height + Tuning.Rooms.DaisFace + 2f * margin + 0.4f);
-                if (near.Overlaps(rect)) return false;
+                var grown = new Rect(rect.xMin - margin - 0.2f, rect.yMin - margin - 0.2f,
+                                     rect.width + 2f * margin + 0.4f, rect.height + 2f * margin + 0.4f);
+                foreach (var b in _tierBands) if (grown.Overlaps(b)) return false;
+                if (_tierStairs != null) foreach (var b in _tierStairs) if (grown.Overlaps(b)) return false;
+                // Wholly on one tier, too: a rect over a tier's flat edge with no band between
+                // (never in a valid layout, but cheap to refuse).
+                int t0 = TierAt(rect.min), t1 = TierAt(rect.max), t2 = TierAt(new Vector2(rect.xMin, rect.yMax)),
+                    t3 = TierAt(new Vector2(rect.xMax, rect.yMin));
+                if (t0 != t1 || t0 != t2 || t0 != t3) return false;
             }
             if (_wall == null) return true;
             var cell = CellSize;

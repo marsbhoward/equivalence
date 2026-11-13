@@ -44,6 +44,8 @@ namespace Convergence.Hub
 
         /// <summary>Where the forge stands, for a hint that points at it (the showcase's kit).</summary>
         public Vector3? ForgeAt => _forge != null ? _forge.transform.position : (Vector3?)null;
+        /// <summary>The mastery table (the grid), for the first level's hint.</summary>
+        public Vector3? TableAt => _table != null ? _table.transform.position : (Vector3?)null;
         ManualShrine _shrine;
 
         GameObject _avatarGo;

@@ -96,6 +96,9 @@ namespace Convergence.UI
         const float BayX0 = 53.8f, BayX1 = 281.5f, BayTop = 121f, BayBottom = 866.5f;
         const float Slot = 174f, VoidSize = 165f;
 
+        /// <summary>The first piece that can be staked, on screen - for the stake's first hint.</summary>
+        public Vector2? HintAnchor => _hits != null && _hits.Count > 0 && _hits[0].Rect != null ? (Vector2)_hits[0].Rect.position : (Vector2?)null;
+
         public void Open(Transform canvas, IReadOnlyList<MintedGearRecord> candidates, int riftBoxes,
                          Hub.HubRoom hub, Action<MintedGearRecord, bool> onChoose, Action onCancel)
         {
@@ -446,6 +449,7 @@ namespace Convergence.UI
             if (_doorway != null) _doorway.alpha = Mathf.InverseLerp(0.75f, 1f, open);
             if (_spill != null) _spill.alpha = _doorway != null ? _doorway.alpha : 1f;
             AnimateVoid();
+            if (FirstRunHints.Blocking) return;   // the stake hint over the door: its press is not a pick
 
             _focusRects ??= new();
             _focusRects.Clear();

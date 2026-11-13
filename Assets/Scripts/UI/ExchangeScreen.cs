@@ -32,6 +32,31 @@ namespace Convergence.UI
         /// <summary>An offer that cannot be refused has no back button - see FloorRewardScreen.</summary>
         public bool CanDismiss => _offer != null && _offer.CanRefuse && _taking == null;
 
+        /// <summary>Refusals the run has left, for the deal overview hint.</summary>
+        public int RefusalsLeft => _mods != null ? _mods.RefusalsLeft : 0;
+
+        /// <summary>
+        /// Where a part of the row is on screen, for the deal overview hint (FirstRunHints): "scale",
+        /// "boon" or "cost" of the first slate, or "refuse". False when the part is not on show.
+        /// </summary>
+        public bool HintAnchor(string part, out Vector2 screen)
+        {
+            screen = default;
+            RectTransform rect = part == "refuse" ? _refuseRect : _slates != null && _slates.Count > 0 ? _slates[0].Rect : null;
+            if (rect == null) return false;
+            var c = new Vector3[4];
+            rect.GetWorldCorners(c);   // an overlay canvas: world is screen pixels
+            var at = part switch
+            {
+                "scale" => new Vector2(0.5f, 0.78f),
+                "boon" => new Vector2(0.25f, 0.3f),
+                "cost" => new Vector2(0.75f, 0.3f),
+                _ => new Vector2(0.5f, 0.5f),
+            };
+            screen = new Vector2(Mathf.Lerp(c[0].x, c[2].x, at.x), Mathf.Lerp(c[0].y, c[2].y, at.y));
+            return true;
+        }
+
         // Card layout, in canvas units at the 1920 x 1080 reference.
         const float CardW = 420f, CardH = 640f, CardGap = 24f, CardTop = 360f;
         const float ColumnsTop = 296f, IconSize = ExchangeScale.IconTexels * 3f;
@@ -353,7 +378,7 @@ namespace Convergence.UI
 
             if (e == null)
             {
-                Line(stack, "no boon", 26, Faint, FontStyle.Bold);
+                Line(stack, "no benefit", 26, Faint, FontStyle.Bold);
                 Line(stack, "This side of the scale is empty.", 20, Muted);
                 return;
             }

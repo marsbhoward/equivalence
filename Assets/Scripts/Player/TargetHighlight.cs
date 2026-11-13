@@ -59,11 +59,14 @@ namespace Convergence.Player
             _rims ??= new List<SpriteRenderer>();
             _sources ??= new List<SpriteRenderer>();
 
+            int used = DrawRefused();
+            DrawRing();
+
             var t = _targeting != null && _targeting.HasTarget ? _targeting.Target : null;
             if (t == null || _player == null || _player.Airborne || _player.Statue
                 || _player.Ledger.HideTargetHighlight)   // Fog
             {
-                Hide(0);
+                Hide(used);
                 _last = null;
                 return;
             }
@@ -82,21 +85,25 @@ namespace Convergence.Player
             _last = t;
             _alpha = Mathf.Lerp(_alpha, wantAlpha, 1f - Mathf.Exp(-Tuning.Highlight.Ease * Time.deltaTime));
 
+            var c = Tuning.Highlight.Tint;
+            c.a *= _alpha;
+            if (t != _targeting.Refused || !RefusalShowing) used = DrawRims(t, c, !solid, thickness, used);
+            Hide(used);
+        }
+
+        /// <summary>Rims round <paramref name="t"/>'s body from rim slot <paramref name="used"/> on; the next free slot.</summary>
+        int DrawRims(Health t, Color c, bool dashed, float thickness, int used)
+        {
             CollectSources(t);
             int lowest = int.MaxValue;
             foreach (var s in _sources) lowest = Mathf.Min(lowest, s.sortingOrder);
-
-            var c = Tuning.Highlight.Tint;
-            c.a *= _alpha;
-
-            int used = 0;
             foreach (var src in _sources)
             {
                 var st = src.transform;
                 var scale = st.lossyScale;
                 float texelWorld = Mathf.Abs(scale.y) / Mathf.Max(1f, src.sprite.pixelsPerUnit);
                 int pad = Mathf.Max(1, Mathf.RoundToInt(thickness / Mathf.Max(1e-5f, texelWorld)));
-                var rimSprite = PixelSprite.Rim(src.sprite, pad, dashed: !solid);
+                var rimSprite = PixelSprite.Rim(src.sprite, pad, dashed: dashed);
                 if (rimSprite == null) continue;
 
                 var rim = RimAt(used++);
@@ -110,7 +117,87 @@ namespace Convergence.Player
                 rim.transform.localScale = scale;
                 rim.enabled = true;
             }
-            Hide(used);
+            return used;
+        }
+
+        // ------------------------------------------------------------ out of range (the user's call, 2026-11-13)
+        //
+        // A tap (or Tab) on an enemy past lock range: its rim flashes twice, dashed and warm - mock A. Until the
+        // character's first lock, or always with HUD & TOUCH's LOCK RANGE RING, the lock range ring shows on the
+        // floor round the player as well - mock E.
+
+        float RefusalAge => _targeting != null ? Time.time - _targeting.RefusedAt : float.PositiveInfinity;
+        bool RefusalShowing => RefusalAge < Tuning.Highlight.RefuseSeconds;
+
+        int DrawRefused()
+        {
+            if (_targeting == null || !RefusalShowing) return 0;
+            var t = _targeting.Refused;
+            if (t == null || t.IsDead) return 0;
+            // Two flashes: on through the first and third fifths of the time.
+            int fifth = Mathf.FloorToInt(RefusalAge / Tuning.Highlight.RefuseSeconds * 5f);
+            if (fifth != 0 && fifth != 2) return 0;
+            return DrawRims(t, Tuning.Highlight.RefuseTint, true, Tuning.Highlight.Thickness * Tuning.Highlight.LockThickness, 0);
+        }
+
+        SpriteRenderer _ring;
+        static Dictionary<int, Sprite> _ringSprites;
+
+        /// <summary>The lock range ring: dotted, Tuning.Highlight.RingTexels thick at the rim's own texel size (one body
+        /// pixel), white to be tinted, centred. Cached per radius in texels.</summary>
+        static Sprite RingSprite(float radius)
+        {
+            _ringSprites ??= new Dictionary<int, Sprite>();
+            float ppu = 1f / Tuning.Highlight.Thickness;
+            int rT = Mathf.Clamp(Mathf.RoundToInt(radius * ppu), 4, 600);
+            if (_ringSprites.TryGetValue(rT, out var hit) && hit != null) return hit;
+            int n = rT * 2 + 3;
+            var px = new Color32[n * n];
+            float c = n / 2f, thick = Tuning.Highlight.RingTexels;
+            // Dots of RingDash texels along the circumference, as many gaps.
+            int dashes = Mathf.Max(8, Mathf.RoundToInt(2f * Mathf.PI * rT / (2f * Tuning.Highlight.RingDash)));
+            for (int y = 0; y < n; y++)
+                for (int x = 0; x < n; x++)
+                {
+                    float dx = x + 0.5f - c, dy = y + 0.5f - c, d = Mathf.Sqrt(dx * dx + dy * dy);
+                    if (d > rT || d < rT - thick) continue;
+                    float a = (Mathf.Atan2(dy, dx) + Mathf.PI) / (2f * Mathf.PI);
+                    if ((Mathf.FloorToInt(a * dashes * 2f) & 1) == 1) continue;
+                    px[y * n + x] = new Color32(255, 255, 255, 255);
+                }
+            var tex = new Texture2D(n, n, TextureFormat.RGBA32, false)
+            {
+                filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp, hideFlags = HideFlags.HideAndDontSave,
+            };
+            tex.SetPixels32(px);
+            tex.Apply();
+            return _ringSprites[rT] = Sprite.Create(tex, new Rect(0, 0, n, n), new Vector2(0.5f, 0.5f), ppu, 0, SpriteMeshType.FullRect);
+        }
+
+        void DrawRing()
+        {
+            float age = RefusalAge;
+            bool show = age < Tuning.Highlight.RingSeconds && _player != null
+                        && (Core.HudPrefs.LockRangeRing || !UI.FirstRunHints.Seen("lock-made"));
+            if (!show)
+            {
+                if (_ring != null && _ring.enabled) _ring.enabled = false;
+                return;
+            }
+            if (_ring == null)
+            {
+                var go = new GameObject("lock-range-ring");
+                _ring = go.AddComponent<SpriteRenderer>();
+                _ring.sortingOrder = SortingOrders.GroundFx;
+            }
+            _ring.sprite = RingSprite(_targeting.LockRadius);
+            _ring.transform.position = _player.transform.position;
+            var c = Tuning.Highlight.Tint;
+            // In over the first tenth, held, then out over the last half.
+            float k = age / Tuning.Highlight.RingSeconds;
+            c.a = Tuning.Highlight.RingAlpha * Mathf.Clamp01(k * 10f) * Mathf.Clamp01((1f - k) * 2f);
+            _ring.color = c;
+            _ring.enabled = true;
         }
 
         /// <summary>How a press right now meets <paramref name="t"/>.</summary>
@@ -198,6 +285,7 @@ namespace Convergence.Player
 
         void OnDestroy()
         {
+            if (_ring != null) Destroy(_ring.gameObject);
             if (_rims == null) return;
             foreach (var r in _rims) if (r != null) Destroy(r.gameObject);
         }

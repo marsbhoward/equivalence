@@ -32,9 +32,18 @@ namespace Convergence.Hazards
         [SerializeField] int _cols, _rows;
         [SerializeField] string _shapeName;
         [SerializeField] bool _lake;
-        [SerializeField] Rect _dais;
-        /// <summary>Textures and sprites made for this room alone (the dais's face), freed with it.</summary>
-        readonly List<Object> _made = new();
+        // The TIERS (Hazards.TierLayouts): the grid as rolled, whether its gates are open, and
+        // what was built from it - kept serialized to hand back to Arena after a domain reload.
+        [SerializeField] string[] _tiers;
+        [SerializeField] bool _gatesOpen;
+        [SerializeField] sbyte[] _height;
+        [SerializeField] Rect[] _tierBarriers, _tierStairs;
+        [SerializeField] bool[] _tierSteps;
+        [SerializeField] GameObject _tierRoot;
+        [SerializeField] Vector2 _cell;
+        /// <summary>Textures and sprites made for this room alone (the tiers' faces), freed with it.
+        /// Not readonly: a domain reload brings it back null.</summary>
+        List<Object> _made = new();
 
         static RoomWalls _current;
 
@@ -56,7 +65,7 @@ namespace Convergence.Hazards
                 _current = null;
             }
             Arena.SetWalls(null, null, 0, 0);
-            Arena.Dais = default;
+            Arena.SetTiers(null, null, null);
             Enemies.NavField.MarkDirty();
             if (shape == null || parent == null) { Art.Biomes.Ground.Build(); return; }
 
@@ -75,15 +84,16 @@ namespace Convergence.Hazards
             if (_wall == null || _wall.Length == 0) return;
             _current = this;
             Arena.SetWalls(_wall, _chasm, _cols, _rows, _lake, _edge);
-            Arena.Dais = _dais;
+            Arena.SetTiers(_height != null && _height.Length > 0 ? _height : null, _tierBarriers, _tierStairs, _tierSteps);
         }
 
         void OnDestroy()
         {
-            foreach (var o in _made) if (o != null) Destroy(o);
+            if (_made != null) foreach (var o in _made) if (o != null) Destroy(o);
             if (_current != this) return;
             _current = null;
             Arena.SetWalls(null, null, 0, 0);
+            Arena.SetTiers(null, null, null);
             Enemies.NavField.MarkDirty();
         }
 
@@ -138,28 +148,10 @@ namespace Convergence.Hazards
             // ---- the opened edge: a BARRIER, one collider per run, felt by bodies alone ----
             // On its own object, marked, so sight (HazardQuery.Query) passes over it as it passes
             // over the void - an open edge never cuts a line.
-            var barrier = new GameObject("barrier");
-            barrier.transform.SetParent(transform, false);
-            barrier.AddComponent<Barrier>();
-            Runs(barrier, Edge);
+            _cell = cell;
+            BuildEdgeBarrier();
 
-            void Runs(GameObject owner, System.Func<int, int, bool> take)
-            {
-                for (int y = 0; y < _rows; y++)
-                {
-                    int x = 0;
-                    while (x < _cols)
-                    {
-                        if (!take(x, y)) { x++; continue; }
-                        int start = x;
-                        while (x < _cols && take(x, y)) x++;
-                        var box = owner.AddComponent<BoxCollider2D>();
-                        var lo = Corner(start, y);
-                        box.size = new Vector2((x - start) * cell.x, cell.y);
-                        box.offset = lo + box.size * 0.5f;
-                    }
-                }
-            }
+            void Runs(GameObject owner, System.Func<int, int, bool> take) => ColliderRuns(owner, take);
 
             // ---- landmarks: one picture over each footprint, its cells walls to every rule ----
             var landmarkCell = new bool[_cols * _rows];
@@ -186,10 +178,9 @@ namespace Convergence.Hazards
                 ss.sortingOrder = SortingOrders.GroundDecal;
             }
 
-            // ---- the dais before the door: its edge a barrier, but for the steps ----
-            _dais = default;
-            if (shape.Dais) BuildDais(cell, Corner);
-            Arena.Dais = _dais;
+            // ---- the tiers (the dais among them): barriers along their edges, but for the stairs ----
+            _tiers = shape.Tiers;
+            _gatesOpen = false;
 
             // ---- the stone, one block per cell ----
             for (int y = 0; y < _rows; y++)
@@ -237,96 +228,384 @@ namespace Convergence.Hazards
             // its shore is rounded and its depth runs out from the bank, neither of which a cell
             // drawn alone can know.
             if (_lake) LakeSurface.BuildAll(transform, _cols, _rows, cell, Corner, Wet, Void);
+            else DrawChasms();
+            if (shape.Name == "lift") LiftDressing();
+
+            // Published HERE, not only in OnEnable: AddComponent runs OnEnable before Build has
+            // filled the mask, so the first floor in a shape was placed as if it were open.
+            Arena.SetWalls(_wall, _chasm, _cols, _rows, _lake, _edge);
+            // After the mask: the tiers ask which cells are floor.
+            BuildTiers();
+        }
+
+        [SerializeField] GameObject _edgeBarrier, _liftDressing;
+        List<GameObject> _chasmCells = new();
+
+        Vector2 CellCorner(int x, int y) => new Vector2(x * _cell.x, y * _cell.y) - Arena.HalfExtents;
+
+        /// <summary>One box collider per horizontal run of cells <paramref name="take"/> accepts.</summary>
+        void ColliderRuns(GameObject owner, System.Func<int, int, bool> take)
+        {
+            for (int y = 0; y < _rows; y++)
+            {
+                int x = 0;
+                while (x < _cols)
+                {
+                    if (!take(x, y)) { x++; continue; }
+                    int start = x;
+                    while (x < _cols && take(x, y)) x++;
+                    var box = owner.AddComponent<BoxCollider2D>();
+                    var lo = CellCorner(start, y);
+                    box.size = new Vector2((x - start) * _cell.x, _cell.y);
+                    box.offset = lo + box.size * 0.5f;
+                }
+            }
+        }
+
+        /// <summary>The opened edge's BARRIER: one collider per run, felt by bodies alone - on
+        /// its own object, marked, so sight (HazardQuery.Query) passes over it as it passes over
+        /// the void. Rebuilt when the lift docks and its void becomes ground.</summary>
+        void BuildEdgeBarrier()
+        {
+            if (_edgeBarrier != null) { _edgeBarrier.SetActive(false); Destroy(_edgeBarrier); }
+            _edgeBarrier = new GameObject("barrier");
+            _edgeBarrier.transform.SetParent(transform, false);
+            _edgeBarrier.AddComponent<Barrier>();
+            ColliderRuns(_edgeBarrier, (x, y) => _edge[y * _cols + x]);
+        }
+
+        /// <summary>The chasms (a drop - a lake is LakeSurface's): one cell of void each, a lip
+        /// wherever it meets something standing. Outside the room counts as chasm, so a chasm
+        /// against the outer wall shows the wall's own face going down rather than a lip that is
+        /// not there. Redrawn whole when a bridge rises across one.</summary>
+        void DrawChasms()
+        {
+            _chasmCells ??= new List<GameObject>();
+            foreach (var o in _chasmCells) if (o != null) Destroy(o);
+            _chasmCells.Clear();
+            bool Void(int x, int y) => x < 0 || y < 0 || x >= _cols || y >= _rows || _chasm[y * _cols + x] || _edge[y * _cols + x];
             for (int y = 0; y < _rows; y++)
             for (int x = 0; x < _cols; x++)
             {
-                if (At(x, y) != '~' || Wet(x, y)) continue;
-                var c = Corner(x, y);
+                if (!_chasm[y * _cols + x]) continue;
+                var c = CellCorner(x, y);
                 var go = new GameObject($"chasm.{x}.{y}");
                 go.transform.SetParent(transform, false);
-                go.transform.position = new Vector3(c.x + cell.x * 0.5f, c.y, 0f);
-                go.transform.localScale = new Vector3(cell.x, cell.y, 1f);
+                go.transform.position = new Vector3(c.x + _cell.x * 0.5f, c.y, 0f);
+                go.transform.localScale = new Vector3(_cell.x, _cell.y, 1f);
                 var sr = go.AddComponent<SpriteRenderer>();
                 sr.sprite = Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.SkyRuin) ? Art.Biomes.SkyArt.ChasmCell(Neighbours(x, y, Void), x, y)
                                                  : ChasmArt.Cell(Neighbours(x, y, Void), (x * 5 + y * 3) & 3);
                 // The pit band: a chasm REPLACES the floor like a pit does, and everything that
                 // stands draws over it.
                 sr.sortingOrder = SortingOrders.PitBase;
+                _chasmCells.Add(go);
             }
+        }
 
-            // Published HERE, not only in OnEnable: AddComponent runs OnEnable before Build has
-            // filled the mask, so the first floor in a shape was placed as if it were open.
-            Arena.SetWalls(_wall, _chasm, _cols, _rows, _lake, _edge);
+        // ------------------------------------------------------------------ platforms
+
+        /// <summary>
+        /// THE BRIDGE RISES (the Bridge platform floor's second round): one row of its cells out of
+        /// the gap - <paramref name="row"/> counted north first within RoomShape's bridge rows, so
+        /// it is raised from the arrival's side. The cells become floor; the chasm is redrawn
+        /// round them; a slab is laid over each so the bridge reads as built, not filled.
+        /// </summary>
+        public static void RaiseBridgeRow(int row)
+        {
+            var w = _current;
+            if (w == null) return;
+            int gridRow = RoomShape.BridgeGapRow0 + row, y = w._rows - 1 - gridRow;
+            for (int x = RoomShape.BridgeCol0; x < RoomShape.BridgeCol0 + RoomShape.BridgeCols; x++)
+            {
+                w._chasm[y * w._cols + x] = false;
+                var c = w.CellCorner(x, y);
+                var go = new GameObject($"bridge.{x}.{y}");
+                go.transform.SetParent(w.transform, false);
+                go.transform.position = new Vector3(c.x, c.y, 0f);
+                var sr = go.AddComponent<SpriteRenderer>();
+                sr.sprite = w.BridgeSlab(x == RoomShape.BridgeCol0, x == RoomShape.BridgeCol0 + RoomShape.BridgeCols - 1, row == RoomShape.BridgeGapRows - 1);
+                sr.sortingOrder = Tuning.Ground.Order + 1;
+                Combat.TexelFx.Puff(c + w._cell * 0.5f, Combat.TexelFx.Stone, 10, 5f, 0.45f, Combat.TexelFx.Ground);
+            }
+            w.DrawChasms();
+            Arena.SetWalls(w._wall, w._chasm, w._cols, w._rows, w._lake, w._edge);
+            Enemies.NavField.MarkDirty();
+        }
+
+        /// <summary>One cell of the bridge: dressed slabs, a kerb along an outer side, the slab's
+        /// own thickness under its south end where it meets the platform.</summary>
+        Sprite BridgeSlab(bool west, bool east, bool south)
+        {
+            const float Ppu = Art.Scenery.Ppu;
+            int W = Mathf.RoundToInt(_cell.x * Ppu), H = Mathf.RoundToInt(_cell.y * Ppu);
+            var stone = Art.Scenery.WallStone;
+            var px = new Color32[W * H];
+            for (int j = 0; j < H; j++)
+            for (int i = 0; i < W; i++)
+            {
+                Color c = Color.Lerp(stone * 1.55f, stone * 1.3f, j / (float)H);
+                if (j % 8 == 0) c = stone * 0.95f;                                  // the slabs' joints
+                if ((west && i < 3) || (east && i >= W - 3)) c = stone * (i == 0 || i == W - 1 ? 0.7f : 1.9f);   // the kerbs
+                c.a = 1f;
+                px[j * W + i] = c;
+            }
+            var tex = new Texture2D(W, H, TextureFormat.RGBA32, false)
+            { filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp, hideFlags = HideFlags.HideAndDontSave };
+            tex.SetPixels32(px);
+            tex.Apply();
+            var spr = Sprite.Create(tex, new Rect(0, 0, W, H), Vector2.zero, Ppu, 0, SpriteMeshType.FullRect);
+            _made ??= new List<Object>();
+            _made.Add(tex); _made.Add(spr);
+            _ = south;
+            return spr;
         }
 
         /// <summary>
-        /// A raised DAIS across the door's approach (RoomShape.Dais; the user's call, 2026-11-01):
-        /// its top is floor, a low face below its front edge, steps cut in the face before the
-        /// door. A thin BARRIER along the face and down each side holds bodies - they climb by the
-        /// steps - and nothing else (shots and sight pass over, as over an open edge).
+        /// THE LIFT DOCKS (the Lift platform floor's second round): the void round it is ground
+        /// from here - the edge cells close, their barrier comes down, the ground is painted again
+        /// in the room's new shape (Art.Biomes.Ground). The lift's dressing stays: it is still the
+        /// lift, standing flush in the ledge.
         /// </summary>
-        void BuildDais(Vector2 cell, System.Func<int, int, Vector2> corner)
+        public static void DockLift()
         {
-            int c0 = RoomShape.DaisCol0, c1 = c0 + RoomShape.DaisCols;
-            int yLow = _rows - RoomShape.DaisRows;
-            var lo = corner(c0, yLow);
-            float x0 = lo.x, x1 = corner(c1, yLow).x, y0 = lo.y, y1 = Arena.HalfExtents.y;
-            _dais = new Rect(x0, y0, x1 - x0, y1 - y0);
-            float face = Tuning.Rooms.DaisFace, t = 0.16f;
-            float s0 = corner(RoomShape.DaisStepCol0, yLow).x, s1 = corner(RoomShape.DaisStepCol0 + RoomShape.DaisSteps, yLow).x;
+            var w = _current;
+            if (w == null) return;
+            for (int i = 0; i < w._edge.Length; i++)
+                if (w._edge[i]) { w._edge[i] = false; w._wall[i] = false; }
+            w.BuildEdgeBarrier();
+            Arena.SetWalls(w._wall, w._chasm, w._cols, w._rows, w._lake, w._edge);
+            Enemies.NavField.MarkDirty();
+            Art.Biomes.Parallax.Rise = 0f;
+            Art.Biomes.Ground.Build();
+        }
 
-            var barrier = new GameObject("dais");
-            barrier.transform.SetParent(transform, false);
-            barrier.AddComponent<Barrier>();
-            void Box(float ax, float ay, float bx, float by)
-            {
-                var box = barrier.AddComponent<BoxCollider2D>();
-                box.size = new Vector2(bx - ax, by - ay);
-                box.offset = new Vector2((ax + bx) * 0.5f, (ay + by) * 0.5f);
-            }
-            Box(x0 - t, y0 - face, s0, y0);            // the face, west of the steps
-            Box(s1, y0 - face, x1 + t, y0);            // and east of them
-            Box(x0 - t, y0, x0, y1);                   // the west side
-            Box(x1, y0, x1 + t, y1);                   // the east side
-
-            // The face: coursed stone, darker toward its foot, the steps cut into it.
+        /// <summary>The lift's frame: a bronze rim round its cells and chains up from its sides into
+        /// the dark above - drawn over the ground, under every body.</summary>
+        void LiftDressing()
+        {
             const float Ppu = Art.Scenery.Ppu;
-            int W = Mathf.RoundToInt((x1 - x0) * Ppu), H = Mathf.RoundToInt(face * Ppu);
-            int sa = Mathf.RoundToInt((s0 - x0) * Ppu), sb = Mathf.RoundToInt((s1 - x0) * Ppu);
-            var stone = Art.Scenery.WallStone;
+            var r = RoomShape.LiftRect;
+            int W = Mathf.RoundToInt(r.width * Ppu), H = Mathf.RoundToInt(r.height * Ppu);
+            var rim = Tuning.Platforms.LiftRim;
+            var dark = rim * 0.55f; dark.a = 1f;
             var px = new Color32[W * H];
-            for (int y = 0; y < H; y++)
-            for (int x = 0; x < W; x++)
+            for (int j = 0; j < H; j++)
+            for (int i = 0; i < W; i++)
             {
-                float k = 1f - y / (float)H;
-                Color c;
-                if (x >= sa && x < sb)
-                {
-                    // Three treads, each lit along its nose.
-                    int tread = y * 3 / H;
-                    bool nose = y % (H / 3) == H / 3 - 1;
-                    c = Color.Lerp(stone * 1.9f, stone * 1.3f, tread / 3f);
-                    if (nose) c = stone * 2.3f;
-                    if (x == sa || x == sb - 1) c = stone * 0.6f;
-                }
-                else
-                {
-                    c = Color.Lerp(stone * 1.45f, stone * 0.85f, k);
-                    if (y == H - 1) c = stone * 2.1f;                   // the lit arris
-                    if (y == H / 2 || (x + (y > H / 2 ? 9 : 0)) % 18 == 0) c = stone * 0.7f;
-                }
+                int d = Mathf.Min(Mathf.Min(i, W - 1 - i), Mathf.Min(j, H - 1 - j));
+                if (d >= 4) continue;
+                Color c = d == 3 ? dark : rim * (d == 0 ? 0.8f : 1.15f);
+                if (d < 3 && ((i + j) % 14 == 0)) c = Color.Lerp(rim, Color.white, 0.45f);   // rivets
                 c.a = 1f;
-                px[y * W + x] = c;
+                px[j * W + i] = c;
+            }
+            var tex = new Texture2D(W, H, TextureFormat.RGBA32, false)
+            { filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp, hideFlags = HideFlags.HideAndDontSave };
+            tex.SetPixels32(px);
+            tex.Apply();
+            var spr = Sprite.Create(tex, new Rect(0, 0, W, H), Vector2.zero, Ppu, 0, SpriteMeshType.FullRect);
+            _made ??= new List<Object>();
+            _made.Add(tex); _made.Add(spr);
+            _liftDressing = new GameObject("lift");
+            _liftDressing.transform.SetParent(transform, false);
+            var frame = new GameObject("lift.frame");
+            frame.transform.SetParent(_liftDressing.transform, false);
+            frame.transform.position = new Vector3(r.xMin, r.yMin, 0f);
+            var sr = frame.AddComponent<SpriteRenderer>();
+            sr.sprite = spr;
+            sr.sortingOrder = Tuning.Ground.Order + 1;
+
+            // Chains: a column of links up from each side's middle and each north corner.
+            int ch = Mathf.RoundToInt((Arena.HalfExtents.y + 4f - r.yMin) * Ppu);
+            var cpx = new Color32[3 * ch];
+            for (int j = 0; j < ch; j++)
+            {
+                bool link = (j / 3) % 2 == 0;
+                for (int i = 0; i < 3; i++)
+                {
+                    bool on = link ? (i == 1) : (j % 3 != 1 || i != 1);
+                    if (!on) continue;
+                    var c = (i == 1 ? rim * 0.9f : rim * 0.6f); c.a = 1f;
+                    cpx[j * 3 + i] = c;
+                }
+            }
+            var ctex = new Texture2D(3, ch, TextureFormat.RGBA32, false)
+            { filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp, hideFlags = HideFlags.HideAndDontSave };
+            ctex.SetPixels32(cpx);
+            ctex.Apply();
+            var cspr = Sprite.Create(ctex, new Rect(0, 0, 3, ch), new Vector2(0.5f, 0f), Ppu, 0, SpriteMeshType.FullRect);
+            _made.Add(ctex); _made.Add(cspr);
+            foreach (var at in new[] { new Vector2(r.xMin - 0.08f, r.center.y), new Vector2(r.xMax + 0.08f, r.center.y),
+                                       new Vector2(r.xMin + 0.3f, r.yMax), new Vector2(r.xMax - 0.3f, r.yMax) })
+            {
+                var c = new GameObject("lift.chain");
+                c.transform.SetParent(_liftDressing.transform, false);
+                c.transform.position = new Vector3(at.x, at.y, 0f);
+                var csr = c.AddComponent<SpriteRenderer>();
+                csr.sprite = cspr;
+                csr.sortingOrder = Tuning.Ground.Order + 2;
+            }
+        }
+
+        /// <summary>The floor's GATES open (the Gates platform floor's second round): the sealed
+        /// stairs become stairs. Rebuilds the tiers' barriers and faces.</summary>
+        public static void OpenGates()
+        {
+            if (_current == null || _current._tiers == null || _current._gatesOpen) return;
+            _current._gatesOpen = true;
+            _current.BuildTiers();
+            Enemies.NavField.MarkDirty();
+        }
+
+        /// <summary>True while the standing room has gates still sealed.</summary>
+        public static bool GatesSealed => _current != null && _current._tiers != null && !_current._gatesOpen
+                                          && System.Array.Exists(_current._tiers, r => r.IndexOf('g') >= 0);
+
+        /// <summary>
+        /// TIERS (Hazards.TierLayouts; the dais is the smallest). Height is drawn, never simulated:
+        /// every edge between two heights holds bodies with a BARRIER - the FACE under a raised
+        /// edge facing the camera (Tuning.Tiers.Face deep, drawn as coursed stone), a thin one
+        /// along a side or a north-facing edge - but for the STAIRS, which climb it. Nothing else
+        /// touches a barrier: shots and sight pass over (Barrier), and a leap goes over
+        /// (PlayerController.LeapStrike). Rebuilt whole when the gates open.
+        /// </summary>
+        void BuildTiers()
+        {
+            if (_tierRoot != null) { _tierRoot.SetActive(false); Destroy(_tierRoot); _tierRoot = null; }
+            _height = null; _tierBarriers = _tierStairs = null;
+            if (_tiers == null) { Arena.SetTiers(null, null, null); return; }
+
+            TierLayouts.Read(_tiers, _gatesOpen, out var h, out var stair, out var gate);
+            _height = h;
+            _tierSteps = new bool[h.Length];
+            for (int i = 0; i < h.Length; i++) _tierSteps[i] = stair[i] || gate[i];
+            var half = Arena.HalfExtents;
+            var cell = _cell;
+            Vector2 Corner(int x, int y) => new Vector2(x * cell.x, y * cell.y) - half;
+            bool Floor(int x, int y) => x >= 0 && y >= 0 && x < _cols && y < _rows
+                                     && !_wall[y * _cols + x] && !_chasm[y * _cols + x] && !_edge[y * _cols + x];
+            float face = Tuning.Tiers.Face, t = Tuning.Tiers.SideBarrier;
+
+            var bars = new List<Rect>();
+            var stairs = new List<Rect>();
+            // Sealed gates to mark: per boundary row, runs of gate cells under the tier they climb to.
+            var sealRuns = new List<(int y, int x0, int x1)>();
+            for (int y = 0; y < _rows; y++)
+            for (int x = 0; x < _cols; x++)
+            {
+                if (!Floor(x, y)) continue;
+                int k = y * _cols + x;
+                var lo = Corner(x, y);
+                if (y + 1 < _rows && Floor(x, y + 1) && h[k + _cols] != h[k])
+                {
+                    float b = lo.y + cell.y;
+                    if (h[k + _cols] > h[k])
+                    {
+                        var band = new Rect(lo.x, b - face, cell.x, face);
+                        if (stair[k]) stairs.Add(band); else bars.Add(band);
+                    }
+                    else bars.Add(new Rect(lo.x, b, cell.x, t));
+                }
+                if (x + 1 < _cols && Floor(x + 1, y) && h[k + 1] != h[k])
+                {
+                    float bx = lo.x + cell.x;
+                    bars.Add(h[k] < h[k + 1] ? new Rect(bx - t, lo.y, t, cell.y) : new Rect(bx, lo.y, t, cell.y));
+                }
+            }
+            for (int y = 0; y + 1 < _rows; y++)
+            {
+                int x = 0;
+                while (x < _cols)
+                {
+                    bool Sealed(int i) => !_gatesOpen && gate[y * _cols + i] && Floor(i, y);
+                    if (!Sealed(x)) { x++; continue; }
+                    int s0 = x;
+                    while (x < _cols && Sealed(x)) x++;
+                    sealRuns.Add((y, s0, x));
+                }
+            }
+
+            _tierBarriers = Merge(bars).ToArray();
+            _tierStairs = Merge(stairs).ToArray();
+
+            _tierRoot = new GameObject("tiers");
+            _tierRoot.transform.SetParent(transform, false);
+            _tierRoot.AddComponent<Barrier>().Tier = true;
+            foreach (var r in _tierBarriers)
+            {
+                var box = _tierRoot.AddComponent<BoxCollider2D>();
+                box.size = r.size;
+                box.offset = r.center;
+            }
+            foreach (var (y, x0, x1) in sealRuns) Seal(Corner(x0, y + 1), Corner(x1, y + 1).x - Corner(x0, y + 1).x, face);
+
+            Arena.SetTiers(_height, _tierBarriers, _tierStairs, _tierSteps);
+        }
+
+        /// <summary>Touching rects of one height merged along x, then of one width along y -
+        /// fewer bodies for physics, fewer bands for placement to test.</summary>
+        static List<Rect> Merge(List<Rect> rects)
+        {
+            const float E = 0.001f;
+            rects.Sort((a, b) => a.yMin != b.yMin ? a.yMin.CompareTo(b.yMin) : a.height != b.height ? a.height.CompareTo(b.height) : a.xMin.CompareTo(b.xMin));
+            var row = new List<Rect>();
+            foreach (var r in rects)
+            {
+                if (row.Count > 0)
+                {
+                    var l = row[^1];
+                    if (Mathf.Abs(l.yMin - r.yMin) < E && Mathf.Abs(l.height - r.height) < E && r.xMin <= l.xMax + E)
+                    { row[^1] = Rect.MinMaxRect(l.xMin, l.yMin, Mathf.Max(l.xMax, r.xMax), l.yMax); continue; }
+                }
+                row.Add(r);
+            }
+            row.Sort((a, b) => a.xMin != b.xMin ? a.xMin.CompareTo(b.xMin) : a.width != b.width ? a.width.CompareTo(b.width) : a.yMin.CompareTo(b.yMin));
+            var outp = new List<Rect>();
+            foreach (var r in row)
+            {
+                if (outp.Count > 0)
+                {
+                    var l = outp[^1];
+                    if (Mathf.Abs(l.xMin - r.xMin) < E && Mathf.Abs(l.width - r.width) < E && r.yMin <= l.yMax + E)
+                    { outp[^1] = Rect.MinMaxRect(l.xMin, l.yMin, l.xMax, Mathf.Max(l.yMax, r.yMax)); continue; }
+                }
+                outp.Add(r);
+            }
+            return outp;
+        }
+
+        /// <summary>
+        /// A SEALED GATE's mark (the Gates platform floor): a bar of the barrier's light across the
+        /// top of its stairs and a fainter one below. The stairs and faces themselves are the
+        /// ground's to draw (Art.Biomes.Ground), in the place's own stone.
+        /// </summary>
+        void Seal(Vector2 topLeft, float width, float face)
+        {
+            const float Ppu = Art.Scenery.Ppu;
+            int W = Mathf.Max(1, Mathf.RoundToInt(width * Ppu)), H = Mathf.RoundToInt(face * Ppu);
+            var seal = Tuning.Tiers.GateSeal;
+            var px = new Color32[W * H];
+            for (int j = 0; j < H; j++)
+            for (int i = 0; i < W; i++)
+            {
+                float a = j >= H - 3 ? 0.95f : j == H - 5 ? 0.45f : j == H - 4 ? 0.2f : 0f;
+                if (a <= 0f) continue;
+                var c = seal;
+                if (j >= H - 3 && (i % 6 == 0)) c = Color.Lerp(seal, Color.white, 0.5f);
+                c.a = a;
+                px[j * W + i] = c;
             }
             var tex = new Texture2D(W, H, TextureFormat.RGBA32, false)
             { filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp, hideFlags = HideFlags.HideAndDontSave };
             tex.SetPixels32(px);
             tex.Apply();
             var spr = Sprite.Create(tex, new Rect(0, 0, W, H), new Vector2(0f, 1f), Ppu, 0, SpriteMeshType.FullRect);
+            _made ??= new List<Object>();
             _made.Add(tex); _made.Add(spr);
-            var go = new GameObject("dais.face");
-            go.transform.SetParent(transform, false);
-            go.transform.position = new Vector3(x0, y0, 0f);
+            var go = new GameObject("gate.seal");
+            go.transform.SetParent(_tierRoot.transform, false);
+            go.transform.position = new Vector3(topLeft.x, topLeft.y, 0f);
             var sr = go.AddComponent<SpriteRenderer>();
             sr.sprite = spr;
             sr.sortingOrder = Tuning.Ground.Order + 1;

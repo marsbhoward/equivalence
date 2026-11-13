@@ -21,6 +21,11 @@ namespace Convergence.Core
         public static readonly bool Build = false;
 #endif
 
+        /// <summary>The accessory the perf-test character wears (2026-11-13): Penumbra's drift and echoes draw
+        /// uncached moving frames, the heaviest case for the pose cache. Held in this build only
+        /// (GearOwnership.Held), worn when the accessory slot is empty (GameBootstrap.EnsureStarterGear).</summary>
+        public const string Accessory = "penumbra_arm";
+
         [RuntimeInitializeOnLoadMethod(RuntimeInitializeLoadType.BeforeSceneLoad)]
         static void Arm()
         {

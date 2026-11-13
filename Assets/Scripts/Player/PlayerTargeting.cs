@@ -81,6 +81,9 @@ namespace Convergence.Player
         /// <summary>How far a lock can be made: the assist's reach plus Tuning.Targeting.LockExtra (half a dash).</summary>
         float LockReach => Acquire + Tuning.Targeting.LockExtra;
 
+        /// <summary>How far a lock can be made right now - the lock hint (GameBootstrap.TickHints) asks it.</summary>
+        public float LockRadius => LockReach;
+
         /// <summary>The run's ledger: Wandering Eye.</summary>
         public System.Func<Exchange.Mods> ModsSource;
         static readonly Exchange.Mods NoMods = new();
@@ -159,7 +162,9 @@ namespace Convergence.Player
             {
                 var hp = AtScreenPoint(tap);
                 if (hp == null) continue;
+                if (!InReach(hp)) { Refuse(hp); return; }
                 Locked = hp == Locked ? null : hp;   // tap it again to let go
+                Learned();
                 return;
             }
 
@@ -167,12 +172,14 @@ namespace Convergence.Player
             {
                 var point = Controls.LockPointScreen;
                 var under = point.HasValue ? AtScreenPoint(point.Value) : null;
+                if (under != null && !InReach(under)) { Refuse(under); return; }
                 if (Locked != null)
                     Locked = under != null && under != Locked ? under : null;   // the cursor on another enemy moves it
                 else
                     Locked = under != null ? under : InCone(origin, AimOrFacing(), LockReach,
                                                             Tuning.Targeting.LockConeDegrees, walls: false)
                                                      ?? Nearest(origin, LockReach, null);
+                Learned();
                 return;
             }
 
@@ -194,21 +201,34 @@ namespace Convergence.Player
             return Player != null ? Player.Facing : Vector2.right;
         }
 
+        /// <summary>An enemy picked out of range (a tap, or Tab on the cursor's enemy), and when - TargetHighlight
+        /// flashes its dashed rim, with the lock range ring while it teaches (the user's call, 2026-11-13).</summary>
+        public Health Refused { get; private set; }
+        public float RefusedAt { get; private set; } = float.NegativeInfinity;
+
+        void Refuse(Health hp) { Refused = hp; RefusedAt = Time.time; }
+
+        bool InReach(Health hp) => Vector2.Distance(transform.position, hp.transform.position) <= LockReach;
+
+        /// <summary>A lock made: the lock range ring's lesson is learned (UI/FirstRunHints "lock-made").</summary>
+        void Learned()
+        {
+            if (Locked != null) UI.FirstRunHints.Mark("lock-made");
+        }
+
         /// <summary>The live enemy nearest the world point under <paramref name="screen"/>, within
-        /// Tuning.Targeting.LockPickRadius of it and LockReach of the character.</summary>
+        /// Tuning.Targeting.LockPickRadius of it - in reach or not (<see cref="InReach"/>).</summary>
         Health AtScreenPoint(Vector2 screen)
         {
             var cam = Camera.main;
             if (cam == null) return null;
             Vector2 world = cam.ScreenToWorldPoint(new Vector3(screen.x, screen.y, -cam.transform.position.z));
-            var origin = (Vector2)transform.position;
             Health best = null;
             float bestD = Tuning.Targeting.LockPickRadius;
             foreach (var enemy in EnemyRegistry.All)
             {
                 var hp = Live(enemy);
                 if (hp == null) continue;
-                if (Vector2.Distance(origin, enemy.transform.position) > LockReach) continue;
                 float d = Vector2.Distance(world, enemy.transform.position);
                 if (d < bestD) { best = hp; bestD = d; }
             }

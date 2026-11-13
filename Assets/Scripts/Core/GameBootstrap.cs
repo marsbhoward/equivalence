@@ -23,7 +23,7 @@ namespace Convergence.Core
     /// deliberately not implemented here - the goal is proving the four elements feel distinct.
     /// The IProfileStore boundary is real though, and is written at run start and run end only.
     /// </summary>
-    public class GameBootstrap : MonoBehaviour
+    public partial class GameBootstrap : MonoBehaviour
     {
         enum State { Hub, Playing, RunOver }
 
@@ -806,12 +806,15 @@ namespace Convergence.Core
         /// </summary>
         static bool EnsureStarterGear(CharacterProfile profile)
         {
+            // The perf-test build (Core/PerfTest) wears its test accessory in an empty accessory slot.
+            bool perf = PerfTest.Build && string.IsNullOrEmpty(profile.Gear.Get(Art.Gear.GearSlot.Ring));
+            if (perf) profile.Gear.Set(Art.Gear.GearSlot.Ring, PerfTest.Accessory);
             // WORN slots, not every entry: a new character already carries its default relic
             // (CharacterProfile.NewDefault), and counting it skipped the starters - new players
             // arrived with a pouch and nothing else.
-            if (profile.Gear.WornCount() > 0) return false;
+            if (profile.Gear.WornCount() > (perf ? 1 : 0)) return perf;
             // The showcase holds no starters: its characters are given the kit (EnsureKit).
-            if (RunFormat.Showcase) return false;
+            if (RunFormat.Showcase) return perf;
             profile.Gear.Set(Art.Gear.GearSlot.Weapon, "silver_blade");
             profile.Gear.Set(Art.Gear.GearSlot.Torso, "silver_plate");
             return true;
@@ -1305,6 +1308,7 @@ namespace Convergence.Core
             foreach (var e in _alive) if (e) Destroy(e.gameObject);
             _alive.Clear();
             _spawnQueue.Clear();
+            DropRounds();
             Enemies.EnemyRegistry.Prune();
             if (_boss != null) { _boss.Cease(); Destroy(_boss.gameObject); _boss = null; }
             if (_activeDoor != null) { Destroy(_activeDoor.gameObject); _activeDoor = null; }
@@ -2467,6 +2471,12 @@ namespace Convergence.Core
                     && UI.FirstRunHints.Ready(-1, ignoreQuiet: true))
                     UI.FirstRunHints.Offer("showcase-forge", "FIRST, CHOOSE YOUR WEAPON AND DEFENSIVE AT THE FORGE",
                         UI.FirstRunHints.OnScreen(forge));
+                // The first level (granted at a run's end): the grid, once back in the room.
+                else if (!kitWaiting && !screenOpen && !UI.FirstRunHints.Seen("mastery") && _hub.TableAt is Vector3 table
+                         && _profile != null && _profile.Mastery.Elements.Exists(m => m.Level > m.Spent)
+                         && UI.FirstRunHints.Ready(-1, ignoreQuiet: true))
+                    UI.FirstRunHints.Offer("mastery", "YOU GAINED A LEVEL  -  SPEND IT AT THE GRID",
+                        UI.FirstRunHints.OnScreen(table));
                 _hub.HoldDoorOpen(_account != null && _account.RanToday);
                 _hub.SetSigilsStone(_account != null && _account.SigilsAsleep());
             }
@@ -2537,9 +2547,17 @@ namespace Convergence.Core
             // Everything below drives the game itself, and a modal is by definition covering it.
             // Without this, a click meant for the mastery grid fell through to the element cards
             // underneath and started a run, and Esc aimed at a confirm prompt re-opened it.
-            // The first deal of a character's first exchange gets its hint, over the deals.
-            if (_state == State.Playing && ExchangeScreen.IsOpen && UI.FirstRunHints.Ready(_floor, ignoreQuiet: true))
-                UI.FirstRunHints.Offer("exchange", "TAKE ONE. EVERY DEAL HAS A COST.", null);
+            // The first deal of a character's first exchange gets the DEAL OVERVIEW, over the deals.
+            if (_state == State.Playing && ExchangeScreen.IsOpen && !UI.FirstRunHints.Seen("deals")
+                && UI.FirstRunHints.Ready(_floor, ignoreQuiet: true))
+                OfferDealOverview();
+            // The stake's first hint, over the door - the second run, the first time it is asked.
+            if (_state == State.Hub && StakeScreen != null && StakeScreen.IsOpen && !UI.FirstRunHints.Seen("stake")
+                && UI.FirstRunHints.Ready(-1, ignoreQuiet: true))
+                UI.FirstRunHints.Offer("stake",
+                    "RISK A WORN PIECE: CLEAR ITS FLOOR AND ESCAPE TO WIN A MATCHING ONE\n" +
+                    (_profile != null && _profile.RiftBoxes > 0 ? "DIE AND IT IS LOST  -  A RIFT BOX INSURES IT" : "DIE AND IT IS LOST"),
+                    StakeScreen.HintAnchor);
 
             if (UI.FirstRunHints.Blocking) return;
             if (MasteryScreen.IsOpen || ConfirmDialog.IsOpen || FloorRewardScreen.IsOpen ||
@@ -2707,7 +2725,9 @@ namespace Convergence.Core
                     !FloorRewardScreen.IsOpen && !MasteryScreen.IsOpen && !TransmuteScreen.IsOpen &&
                     !ConfirmDialog.IsOpen && !(ExchangeScreen.IsOpen || ChoiceList.IsOpen))
                 {
-                    if (_floor > 0 && !_rewardTaken) OfferFloorReward();
+                    // A platform floor's round is cleared with another to come: its ground opens.
+                    if (TryNextRound()) { }
+                    else if (_floor > 0 && !_rewardTaken) OfferFloorReward();
                     else StartCoroutine(NextFloor());
                 }
 
@@ -3246,6 +3266,7 @@ namespace Convergence.Core
             _planner = new Rifts.FloorPlanner(Guid.NewGuid().GetHashCode());
             _alive.Clear();
             _spawnQueue.Clear();
+            ResetRounds();
             _loot.Clear();
 
             // Spending is tracked on the run and written back at the checkpoint, so a run abandoned
@@ -4130,15 +4151,21 @@ namespace Convergence.Core
             }
             if (ownRoom) _spire = null;
 
+            // The wave is decided BEFORE the room (its own seeded System.Random, so this is the
+            // same wave it always was): a floor that fields a Turret - or a Red Rift, whose guard
+            // may be one - is owed a column to hide behind; a floor whose pool needs ROUNDS may be
+            // a platform floor (GameBootstrap.Platforms), which brings its own room.
+            ResetRounds();
+            var wave = IsBossFloor(_floor) ? null : ComposeWave(_floor);
+            _platform = PlatformFor(_floor, wave);
+            var platformRoom = PlatformShape(_floor);
+            if (platformRoom == null) _platform = PlatformKind.None;
+
             // The room's SHAPE first: everything placed after this - pits, columns, the spire, the
             // wave's arrival points, a Rift - asks Arena.OnFloor, so the walls must already be in
             // the mask. Never on a boss floor: every boss is built round the open rectangle.
-            Hazards.RoomWalls.Apply(IsBossFloor(_floor) ? null : _planner?.ShapeFor(_floor), _hazardRoot);
+            Hazards.RoomWalls.Apply(IsBossFloor(_floor) ? null : platformRoom ?? _planner?.ShapeFor(_floor), _hazardRoot);
 
-            // The wave is decided BEFORE the room (its own seeded System.Random, so this is the
-            // same wave it always was): a floor that fields a Turret - or a Red Rift, whose guard
-            // may be one - is owed a column to hide behind.
-            var wave = IsBossFloor(_floor) ? null : ComposeWave(_floor);
             bool needsCover = wave != null && (_plan.Rift == Rifts.RiftKind.Red || wave.Fields(EnemyKind.Turret));
 
             if (_hazardRoot != null && !ownRoom)
@@ -4149,7 +4176,7 @@ namespace Convergence.Core
                 _spirePool = 0f;   // set once the wave is queued; 0 holds the spire down
                 bool circle = CircleDue();
                 _spire = HazardBuilder.Populate(_floor, Arena.HalfExtents, _player.transform, _hazardRoot,
-                                                spireAllowed: !IsBossFloor(_floor), hurt, worn,
+                                                spireAllowed: !IsBossFloor(_floor) && _platform == PlatformKind.None, hurt, worn,
                                                 stormAllowed: !IsBossFloor(_floor), circle: circle,
                                                 needsCover: needsCover);
                 _circle = HazardBuilder.LastRing;
@@ -4205,6 +4232,7 @@ namespace Convergence.Core
                 _spawnQueue.Enqueue(new PendingSpawn(s.Kind, s.Elite, place, s.Affix));
             }
             if (wave.Group != Enemies.WaveGroupId.None) Debug.Log($"[Floor] group: {wave.Group}");
+            SplitRounds();
 
             // The whole wave is decided: the spire rises against its cost (see TickSpire).
             _spirePool = wave.Spent;
@@ -4229,6 +4257,9 @@ namespace Convergence.Core
                 // here next had only that one been fixed.
                 yield return new WaitForSecondsRealtime(0.12f);
             }
+
+            // The Gates floor's next round, in view on the terraces from the start.
+            yield return PreviewGatedRound(token);
 
             // The first wave is in: the clear is timed from here (scaled time, so a pause or
             // the door's fade is not counted), and a Collapsing Rift's clock starts with it.
@@ -4374,11 +4405,12 @@ namespace Convergence.Core
 
         /// <summary>A group's member <paramref name="index"/> round its arrival point - the first on
         /// it, the rest on a turning spiral within Tuning.WaveGroups.Spread, on standing floor.</summary>
-        static Vector2 NearGroup(Vector2 anchor, int index)
+        Vector2 NearGroup(Vector2 anchor, int index)
         {
             if (index == 0) return anchor;
             float a = index * 2.4f, r = Tuning.WaveGroups.Spread * Mathf.Min(1f, 0.6f + 0.2f * index);
             var p = anchor + new Vector2(Mathf.Cos(a), Mathf.Sin(a)) * r;
+            if (HasRegion && !InRegion(p)) return anchor;
             return Arena.OnFloor(p, 0.6f) ? p : Arena.NearestFloor(p, 0.6f);
         }
 
@@ -4759,7 +4791,7 @@ namespace Convergence.Core
                       $"{Mathf.RoundToInt(Exchange.RunModifiers.ShareFor(forms.Count + 1) * 100f)}%";
                 answers.Add(($"{i + 1}.  {art}", held));   // numbered: one art can sit in two sockets
             }
-            Choices.Show(_canvas.transform, $"Inscribe {form.Name}", "Which art carries it? Its cost goes on the same art.",
+            Choices.Show(_canvas.transform, $"Inscribe {form.Name}", "Which art carries it? Its burden goes on the same art.",
                          answers, k => onPick(sockets[k]));
         }
 
@@ -6272,7 +6304,8 @@ namespace Convergence.Core
                 // nothing to gain by choosing which to kill first.
                 int roll = enemy.RollIndex >= 0 ? enemy.RollIndex : LooseRollBase + _floorKills++;
                 // The floor's last body - the showcase's owed Rift Box falls off it (RiftBoxOwed).
-                bool lastBody = !_spawning && _alive.Count <= 1 && _spawnQueue.Count == 0;
+                bool lastBody = !_spawning && _alive.Count <= 1 && _spawnQueue.Count == 0 && !HasLaterRound
+                                && (_gated == null || _gated.Count == 0);
                 TryDropRiftBox(h.transform.position, worth, roll, lastBody);
                 TryDropGear(h.transform.position, worth, roll);
                 _alive.Remove(enemy);
@@ -6449,6 +6482,8 @@ namespace Convergence.Core
 
         Vector2 RandomEdgePoint()
         {
+            // A platform floor's round arrives on its own ground.
+            if (HasRegion) return RegionPoint(Tuning.Enemy.SafeSpawnRadius);
             // THE SAFE ZONE (the user's report: a Brimstone Heart arrived beside the entry and its
             // fireballs swept the player before they could move). The edge ellipse runs straight
             // through the arrival point, so a spot within Tuning.Enemy.SafeSpawnRadius of the
@@ -6490,6 +6525,7 @@ namespace Convergence.Core
         Vector2 RandomFloorPoint(float minDistanceFromPlayer)
         {
             minDistanceFromPlayer = Mathf.Max(minDistanceFromPlayer, Tuning.Enemy.SafeSpawnRadius);   // the safe zone
+            if (HasRegion) return RegionPoint(minDistanceFromPlayer);
             for (int attempt = 0; attempt < 8; attempt++)
             {
                 var p = new Vector2(
@@ -6854,6 +6890,7 @@ namespace Convergence.Core
             foreach (var e in _alive) if (e) Destroy(e.gameObject);
             _alive.Clear();
             _spawnQueue.Clear();
+            DropRounds();
             Enemies.EnemyRegistry.Prune();
 
             // The boss owns a coroutine and a hazard layer, neither of which is a child of
@@ -7159,6 +7196,24 @@ namespace Convergence.Core
                 return;
             }
 
+            // LOCK-ON (the user's call, 2026-11-13: it replaced auto-target, and nothing else teaches it): the first
+            // time an enemy is close enough to lock and nothing is locked, the line points at that enemy.
+            var targeting = _player.Targeting;
+            if (!UI.FirstRunHints.Seen("lock") && targeting != null && !targeting.IsLocked && !_player.Ledger.NoLock)
+            {
+                foreach (var e in _alive)
+                {
+                    if (e == null) continue;
+                    if (Vector2.Distance(e.transform.position, _player.transform.position) > targeting.LockRadius) continue;
+                    UI.FirstRunHints.Offer("lock",
+                        touch ? "TAP AN ENEMY TO LOCK ON  -  TAP IT AGAIN TO LET GO"
+                        : pad ? "CLICK THE RIGHT STICK TO LOCK ON  -  FLICK IT TO SWITCH"
+                        : "TAB TO LOCK ON THE ENEMY UNDER THE CURSOR  -  TAB AGAIN TO LET GO",
+                        UI.FirstRunHints.OnScreen(e.transform.position), me);
+                    return;
+                }
+            }
+
             var bar = _player.StrikeBarFilling;
             if (bar != null)
             {
@@ -7193,9 +7248,43 @@ namespace Convergence.Core
                 }
             }
 
+            // The meter's first fill: what the release button does with it.
+            if (!UI.FirstRunHints.Seen("meter") && Controls.ReleaseProgress01 != null && Controls.ReleaseProgress01() >= 0.999f)
+            {
+                Vector2? at = _hud != null ? _hud.SealScreen : null;
+                if (touch && _touchControls != null && _touchControls.ButtonCentre("ABILITY", out var b)) at = b;
+                string fire = touch ? "TAP ABILITY TO RELEASE IT" : pad ? $"{GamepadGlyphs.Release} TO RELEASE IT" : "RIGHT-CLICK TO RELEASE IT";
+                UI.FirstRunHints.Offer("meter",
+                    "YOUR ELEMENT METER IS FULL\n" + fire +
+                    (_player.Resource != null && _player.Resource.HasHold ? "  -  HOLD FOR YOUR SECOND RELEASE" : ""), at, me);
+                return;
+            }
+
             if (_riftHintRun == _runToken && _rift != null)
                 UI.FirstRunHints.Offer("rift", "THE BLUE RIFT ENDS THE SHOWCASE  -  STEP THROUGH",
                     UI.FirstRunHints.OnScreen(_rift.transform.position), me);
+        }
+
+        /// <summary>
+        /// THE DEAL OVERVIEW (the user's call, 2026-11-13): the first deal walks through the whole exchange in
+        /// steps - the scale, stacks and the Rubedo, costs and the Nigredo, the circle and the Albedo,
+        /// combinations, and refusing. Replaces the one-line "exchange" hint.
+        /// </summary>
+        void OfferDealOverview()
+        {
+            Vector2? At(string part) => ExchangeScreen.HintAnchor(part, out var p) ? p : (Vector2?)null;
+            var steps = new List<(string, Vector2?)>
+            {
+                ("EVERY DEAL IS A BENEFIT AND A BURDEN\nTHE SCALE TIPS TO THE HEAVIER SIDE", At("scale")),
+                ("TAKE A BENEFIT AGAIN TO STACK IT\nAT FULL STACKS IT BECOMES A RUBEDO AND PLAYS DIFFERENTLY", At("boon")),
+                ("BURDENS STACK TOO\nA FULL BURDEN BECOMES A NIGREDO", At("cost")),
+                ("STAND IN A LIT CIRCLE TO TRANSMUTE A NIGREDO INTO AN ALBEDO\nTHE LONGER YOU CARRY IT, THE STRONGER IT COMES OUT", null),
+                ("HOLD THE RIGHT TWO AND A COMBINATION OPENS, MARKED NEW\nFEEDS COUNTS WHAT YOU HOLD THAT A BENEFIT WORKS WITH", At("boon")),
+            };
+            if (ExchangeScreen.CanDismiss)
+                steps.Add(($"REFUSE TO TAKE NOTHING\n{ExchangeScreen.RefusalsLeft} REFUSALS LEFT THIS RUN", At("refuse")));
+            UI.FirstRunHints.Mark("exchange");
+            UI.FirstRunHints.OfferSteps("deals", steps);
         }
 
         /// <summary>Health and armour since the last snapshot, sent while they move - polled from Update.</summary>
@@ -7575,6 +7664,7 @@ namespace Convergence.Core
             _planner = s.Planner?.Copy() ?? new Rifts.FloorPlanner(Guid.NewGuid().GetHashCode());
             _alive.Clear();
             _spawnQueue.Clear();
+            ResetRounds();
 
             // The loot's banked pools, rebased on the profile as it is now - and from here measured
             // from it, which is what the next snapshot records as the run's start.

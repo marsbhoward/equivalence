@@ -1204,7 +1204,7 @@ namespace Convergence.Enemies
         /// </summary>
         void ThrowIfChasm(DamageInfo info)
         {
-            if (_fellIn || !Arena.HasVoid || !info.Displaces || _health.Anchored || _health.IsDead) return;
+            if (_fellIn || _droppingTier || !(Arena.HasVoid || Arena.HasTiers) || !info.Displaces || _health.Anchored || _health.IsDead) return;
             float k = info.Knockback.magnitude;
             if (k < 0.001f) return;
 
@@ -1212,16 +1212,63 @@ namespace Convergence.Enemies
             float reach = Mathf.Clamp(k * Tuning.Chasm.ThrowReachPerKnockback,
                                       Tuning.Chasm.ThrowReachMin, Tuning.Chasm.ThrowReachMax);
             var from = _rb.position;
+            int tierFrom = Arena.TierAt(from);
+            bool overFace = false;   // the line crossed a barrier, not a flight of stairs
             for (float d = 0.1f; d <= reach; d += 0.1f)
             {
                 var p = from + dir * d;
                 // A wall on the line stops the throw: nothing is thrown THROUGH stone.
                 if (Arena.WallBetween(from, p)) return;
+                // OVER A FACE (Hazards.TierLayouts; the user's call, 2026-11-13): a hit carrying the
+                // body off a raised edge drops it to the tier below, staggered. Never up one.
+                if (Arena.HasTiers && Arena.InTierBarrier(p, 0f)) overFace = true;
+                if (overFace && Arena.TierAt(p) < tierFrom && !Arena.InTierBarrier(p, 0f)
+                    && !Arena.DeepInVoid(p, 0f))
+                {
+                    var land = Arena.OffTierEdge(p + dir * Tuning.Tiers.DropClear, BodyRadius);
+                    if (Arena.TierAt(land) >= tierFrom) return;
+                    StartCoroutine(DroppedOver(land, info.Source));
+                    return;
+                }
+                if (!Arena.HasVoid) continue;
                 // A chasm, or over an open edge - the room's lip is a chasm's to a thrown body.
                 if (!Arena.DeepInVoid(p, Tuning.Chasm.FallInset)) continue;
                 StartCoroutine(Thrown(p + dir * 0.25f));
                 return;
             }
+        }
+
+        bool _droppingTier;
+
+        /// <summary>Knocked over a tier's face: a short hop down to the tier below (the barrier
+        /// never sees it - the glide leaves physics), then a stagger, through the player who
+        /// struck it (statuses the player applies go through PlayerController.Stagger).</summary>
+        System.Collections.IEnumerator DroppedOver(Vector2 to, GameObject source)
+        {
+            _droppingTier = true;
+            _rb.linearVelocity = Vector2.zero;
+            _rb.simulated = false;
+            Vector3 from = transform.position;
+            var target = new Vector3(to.x, to.y, from.z);
+            for (float t = 0f; t < Tuning.Tiers.DropGlideSeconds; t += Time.deltaTime)
+            {
+                if (this == null || _health.IsDead) break;
+                float u = t / Tuning.Tiers.DropGlideSeconds;
+                var at = Vector3.Lerp(from, target, u);
+                at.y += Mathf.Sin(u * Mathf.PI) * 0.25f;   // a small hop over the arris
+                transform.position = at;
+                yield return null;
+            }
+            if (this == null) yield break;
+            transform.position = target;
+            _rb.position = to;
+            _rb.simulated = true;
+            _droppingTier = false;
+            if (_health.IsDead) yield break;
+            Combat.TexelFx.Puff(to, Combat.TexelFx.Stone, 8, 4f, 0.35f, Combat.TexelFx.Ground);
+            var pc = source != null ? source.GetComponentInParent<Player.PlayerController>() : _targetController;
+            if (pc != null) pc.Stagger(_health, Tuning.Tiers.DropStaggerSeconds);
+            else Combat.StatusEffects.Get(gameObject).ApplyStagger(Tuning.Tiers.DropStaggerSeconds);
         }
 
         /// <summary>The throw itself: a quick glide over the lip, then the fall.</summary>

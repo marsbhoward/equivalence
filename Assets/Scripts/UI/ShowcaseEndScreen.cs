@@ -128,8 +128,8 @@ namespace Convergence.UI
                 ((Count<Enemies.EliteAffix>() - 1).ToString(), "elite modifiers"),
                 (Count<Art.Biomes.BiomeKind>().ToString(), "biomes"),
                 (uniqueWeapons.ToString(), "unique weapons"),
-                (boons.ToString(), "boons in the exchange"),
-                (costs.ToString(), "costs to bargain with"),
+                (boons.ToString(), "benefits in the exchange"),
+                (costs.ToString(), "burdens to bargain with"),
                 (Count<Puzzles.PuzzleKind>().ToString(), "kinds of puzzle"),
                 (Progression.MasteryBoard.All.Count.ToString(), "nodes on the mastery grid"),
             };

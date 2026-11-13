@@ -4218,6 +4218,18 @@ namespace Convergence.Core
             /// many times <see cref="Thickness"/>, and never dimmer than <see cref="LockMinAlpha"/>.</summary>
             public const float LockThickness = 2f;
             public const float LockMinAlpha = 0.85f;
+
+            /// <summary>A pick out of lock range (the user's call, 2026-11-13: mock A): the enemy's rim flashes twice,
+            /// dashed, in this warm tint, over this many seconds.</summary>
+            public const float RefuseSeconds = 0.9f;
+            public static readonly UnityEngine.Color RefuseTint = new(1f, 0.54f, 0.42f, 1f);
+
+            /// <summary>The lock range ring with it (mock E, until the first lock or HudPrefs.LockRangeRing): seconds
+            /// shown and peak alpha.</summary>
+            public const float RingSeconds = 1.4f;
+            public const float RingAlpha = 0.9f;
+            /// <summary>The ring's thickness and dot length, in body pixels.</summary>
+            public const float RingTexels = 2f, RingDash = 5f;
         }
 
         /// <summary>
@@ -7322,6 +7334,89 @@ namespace Convergence.Core
             /// <summary>Chance a stamp is laid with its east-west twin - symmetry is most of what
             /// makes a composed room read as designed.</summary>
             public const float MirroredPairChance = 0.55f;
+        }
+
+        /// <summary>
+        /// TIERS (Hazards/TierLayouts, the user's calls 2026-11-13 on the floor-height mock): ground
+        /// at more than one height in one room - Terraces, a Sunken court, Overlook ledges, and
+        /// the dais as the smallest of them. One flat play plane, as the dais always was: a face is
+        /// drawn under each raised edge and a BARRIER holds bodies along it; shots and sight pass
+        /// over. Bodies climb by the stairs alone; a LEAP carries the player over a face.
+        /// </summary>
+        public static class Tiers
+        {
+            /// <summary>Of the SHAPED floors, the share that are tiered rooms (rolled before
+            /// composed/authored).</summary>
+            public const float TieredShare = 0.3f;
+
+            /// <summary>The face under a raised edge (units): its height, and the depth of the
+            /// barrier along it - the dais's own.</summary>
+            public const float Face = Rooms.DaisFace;
+            /// <summary>The barrier's depth along a side or a north-facing edge (no face drawn).</summary>
+            public const float SideBarrier = 0.16f;
+
+            /// <summary>How much lighter each tier above the ground draws, and how much darker a
+            /// sunken one does (the ground texture's tile, shaded).</summary>
+            public const float ShadeUp = 0.11f, ShadeDown = -0.2f;
+            /// <summary>The lit arris along a raised edge and the shade cast on the lower side.</summary>
+            public const float EdgeLight = 0.15f, EdgeShade = -0.13f;
+
+            /// <summary>A hit that would throw an enemy over a face drops it to the tier below
+            /// (the user's call): the glide's length, and the stagger it lands with.</summary>
+            public const float DropGlideSeconds = 0.22f, DropStaggerSeconds = 1.2f;
+            /// <summary>How far past the face the dropped body lands (keeps it off the barrier).</summary>
+            public const float DropClear = 0.35f;
+
+            /// <summary>The sword's jump art landing on a LOWER tier than it left (the user's call):
+            /// its landing's damage times this.</summary>
+            public const float LeapDropDamageMul = 1.3f;
+
+            /// <summary>The bar of light across a sealed gate's stairs (the barrier's violet).</summary>
+            public static readonly UnityEngine.Color GateSeal = new(0.78f, 0.66f, 1f);
+        }
+
+        /// <summary>
+        /// PLATFORM FLOORS (Core.GameBootstrap's rounds, Hazards.RoomShape.Platforms; the user's
+        /// calls 2026-11-13): a floor whose wave pool is more than <see cref="MinFills"/> fills of
+        /// the pressure cap may split it into ROUNDS, each fought on its own ground - a Bridge, a
+        /// Lift or Gates, drawn evenly. Never a boss, puzzle or Rift floor.
+        /// </summary>
+        public static class Platforms
+        {
+            /// <summary>The pool against the live pressure cap that makes a floor eligible.</summary>
+            public const float MinFills = 1.5f;
+            /// <summary>Of the eligible floors, the share that are platform floors.</summary>
+            public const float Chance = 0.35f;
+            /// <summary>Rounds a platform floor splits its wave into.</summary>
+            public const int Rounds = 2;
+
+            /// <summary>The bridge rising, a row at a time, and the beat before round two arrives.</summary>
+            public const float BridgeRowSeconds = 0.45f, BridgeSettleSeconds = 0.35f;
+            /// <summary>The lift's descent: how long, how far the world rises past it (units at
+            /// depth 1), and the dip to dark as it docks.</summary>
+            public const float LiftSeconds = 1.8f, LiftRise = 9f, LiftDipSeconds = 0.22f;
+            /// <summary>The lift's shudder as it goes (camera kick, units) and its frame's bronze.</summary>
+            public const float LiftShake = 0.06f;
+            public static readonly UnityEngine.Color LiftRim = new(0.55f, 0.44f, 0.27f);
+            /// <summary>The gates' seal fading as they open.</summary>
+            public const float GateOpenSeconds = 0.6f;
+        }
+
+        /// <summary>
+        /// RARE THINGS IN THE DISTANCE (Art.Biomes.FarSights; the user's calls 2026-11-13): set
+        /// pieces out in the void, rolled per floor from the place's pool.
+        /// </summary>
+        public static class FarSights
+        {
+            /// <summary>Floors with none, and with two (the rest have one).</summary>
+            public const double NoneShare = 0.3, TwoShare = 0.2;
+            /// <summary>The draw's weights by rarity, no repeats on a floor.</summary>
+            public const float WeightCommon = 6f, WeightRare = 3f, WeightVeryRare = 1f;
+            /// <summary>The far places' pieces (Tower, Sky) drift at this depth; the water places'
+            /// stand on the water's plane.</summary>
+            public const float Depth = 0.55f;
+            /// <summary>Texels per mock unit, and each piece's canvas (texels).</summary>
+            public const int Scale = 2, CanvasW = 200, CanvasH = 270;
         }
 
         /// <summary>Chasms (`~` in a room shape): void nothing stands on. See EnemyController.TickChasm

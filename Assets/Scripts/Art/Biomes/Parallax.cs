@@ -21,12 +21,20 @@ namespace Convergence.Art.Biomes
         /// <summary>When drifting, the span the anchor wraps within (0: never wraps).</summary>
         public float WrapSpan;
 
+        /// <summary>Units every layer's anchor has RISEN, each by its own depth - the world going
+        /// up past a lift that is going down (the Lift platform floor). Reset with the ground.</summary>
+        public static float Rise;
+
+        /// <summary>A shift on top of where the depth puts it (a far piece bobbing, FarSightMotion).</summary>
+        public Vector2 Shift;
+
         void LateUpdate()
         {
             var cam = Camera.main;
             if (cam == null) return;
             Vector2 c = cam.transform.position;
             var a = Anchor;
+            a.y += Rise;
             if (Drift != 0f)
             {
                 a.x += Drift * Time.time;
@@ -35,7 +43,7 @@ namespace Convergence.Art.Biomes
             var off = (a - c) * Depth;
             float ppu = Scenery.Ppu;
             off = new Vector2(Mathf.Round(off.x * ppu) / ppu, Mathf.Round(off.y * ppu) / ppu);
-            transform.position = new Vector3(c.x + off.x, c.y + off.y, transform.position.z);
+            transform.position = new Vector3(c.x + off.x + Shift.x, c.y + off.y + Shift.y, transform.position.z);
         }
     }
 }
