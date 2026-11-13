@@ -77,14 +77,24 @@ namespace Convergence.Audio
             return Normalise(s);
         }
 
-        /// <summary>Parry Stance: a blade turned to catch the light - a thin high shing.</summary>
+        /// <summary>Parry Stance (v2, 2026-11-13 redo): a blade drawn up against another - a short steel scrape
+        /// rising, settling on a low, firm ring rather than a thin high one.</summary>
         public static float[] ParryReady(int seed)
         {
             var n = new Noise(seed);
-            var s = Buffer(0.5f);
-            float b = n.Range(2300, 2600);
-            Ring(s, new[] { b, b * 1.41f, b * 2.13f }, new[] { 0.3f, 0.2f, 0.1f }, 0.003f, 0.4f);
-            Hiss(s, seed, 2, 5000, 7000, 0.8f, 0.004f, 0.06f, 0.2f);
+            var s = Buffer(0.55f);
+            var f = new Svf();
+            for (int i = 0; i < s.Length; i++)
+            {
+                float t = i / (float)Rate;
+                if (t > 0.16f) break;
+                float grain = n.Next() * (0.55f + 0.45f * Mathf.Abs(Mathf.Sin(t * 2f * Mathf.PI * 70f)));
+                f.Run(grain, Mathf.Lerp(1400f, 3600f, t / 0.16f), 3f);
+                s[i] = f.Band * Mathf.Sin(Mathf.PI * t / 0.16f) * 0.8f;
+            }
+            float b = n.Range(1050, 1150);
+            Ring(s, new[] { b, b * 2.76f, b * 5.4f }, new[] { 0.32f, 0.12f, 0.05f }, 0.003f, 0.35f, 0.14f);
+            Thump(s, 240f, 170f, 0.01f, 0.05f, 0.25f, 0.14f);
             return Normalise(s, 0.8f);
         }
 
@@ -126,13 +136,16 @@ namespace Convergence.Audio
             return Normalise(s, 0.8f);
         }
 
-        /// <summary>A level: four notes climbing, the last held.</summary>
+        /// <summary>A level (v2, 2026-11-13 redo): no chiptune climb - a low bell struck, its fifth and octave
+        /// blooming after it, and a shimmer rising out of the chord.</summary>
         public static float[] LevelUp()
         {
-            var s = Buffer(1.6f);
-            float[] notes = { 523.25f, 659.25f, 784f, 1046.5f };
-            for (int k = 0; k < notes.Length; k++)
-                Ring(s, new[] { notes[k], notes[k] * 2f }, new[] { 0.35f, 0.08f }, 0.004f, k == notes.Length - 1 ? 1.2f : 0.35f, k * 0.09f);
+            var s = Buffer(2.4f);
+            Thump(s, 160f, 73.4f, 0.04f, 0.5f, 0.35f);
+            Ring(s, new[] { 146.8f, 293.7f, 440f, 587.3f }, new[] { 0.4f, 0.3f, 0.18f, 0.1f }, 0.003f, 2.0f);
+            Ring(s, new[] { 147.6f }, new[] { 0.25f }, 0.003f, 2.0f);   // a beat against the root, as a real bell has
+            Ring(s, new[] { 880f, 1174.7f }, new[] { 0.18f, 0.12f }, 0.25f, 1.6f, 0.15f);
+            Hiss(s, 1313, 1, 1500, 6000, 3f, 0.6f, 0.9f, 0.08f, 0.2f);
             return Normalise(s, 0.85f);
         }
 
@@ -142,11 +155,24 @@ namespace Convergence.Audio
             var n = new Noise(seed);
             switch (kind)
             {
-                case 0:   // fire catching: a short flare of hiss
+                case 0:   // fire catching (v2): a small whump as it takes, then crackle
                 {
-                    var s = Buffer(0.35f);
-                    Hiss(s, seed, 1, 900, 3800, 0.9f, 0.02f, 0.25f, 0.8f);
-                    Thump(s, 140f, 70f, 0.03f, 0.1f, 0.3f);
+                    var s = Buffer(0.45f);
+                    var f = new Svf();
+                    for (int i = 0; i < s.Length; i++)
+                    {
+                        float t = i / (float)Rate;
+                        f.Run(n.Next(), Mathf.Lerp(250f, 1800f, Mathf.Clamp01(t / 0.12f)), 0.8f);
+                        s[i] = f.Low * Env(t, 0.03f, 0.22f) * 0.9f;
+                    }
+                    Thump(s, 110f, 60f, 0.03f, 0.12f, 0.5f);
+                    for (int k = 0; k < 7; k++)
+                    {
+                        float at = n.Range(0.06f, 0.4f);
+                        int i0 = (int)(at * Rate);
+                        float g = n.Range(0.25f, 0.6f);
+                        for (int i = i0; i < Mathf.Min(s.Length, i0 + 90); i++) s[i] += n.Next() * g * Mathf.Exp(-(i - i0) / 18f);
+                    }
                     return Normalise(s);
                 }
                 case 1:   // a soak: a splash and two bubbles
@@ -157,11 +183,19 @@ namespace Convergence.Audio
                     Bloop(s, 0.16f, n.Range(700, 900), 0.25f);
                     return Normalise(s);
                 }
-                case 2:   // a bleed: a wet cut and a drip
+                case 2:   // a bleed (v2): a quick slice, then a low pulse - the wound, not a drip
                 {
-                    var s = Buffer(0.35f);
-                    Hiss(s, seed, 2, 3000, 2000, 1.2f, 0.001f, 0.04f, 0.7f);
-                    Bloop(s, 0.12f, n.Range(300, 380), 0.45f);
+                    var s = Buffer(0.45f);
+                    var f = new Svf();
+                    for (int i = 0; i < s.Length; i++)
+                    {
+                        float t = i / (float)Rate;
+                        if (t > 0.07f) break;
+                        f.Run(n.Next(), Mathf.Lerp(6000f, 2200f, t / 0.07f), 2.5f);
+                        s[i] = f.Band * Mathf.Sin(Mathf.PI * t / 0.07f);
+                    }
+                    for (int beat = 0; beat < 2; beat++)
+                        Thump(s, 95f, 55f, 0.02f, 0.09f, beat == 0 ? 0.55f : 0.35f, 0.1f + beat * 0.16f);
                     return Normalise(s);
                 }
                 default:   // a stagger: a dull wobbling knock
@@ -195,13 +229,27 @@ namespace Convergence.Audio
             return Normalise(s, 0.8f);
         }
 
-        /// <summary>A Rift Box taken: a weighty thunk under the sparkle.</summary>
+        /// <summary>A Rift Box taken (v3, the user 2026-11-13: it should sound like the Rift - they are one
+        /// thing): the Rift's own tear (<see cref="RiftOpen"/>'s grain, swell and chord) small and quick, running
+        /// INWARD - the fragment sealing itself into the pack - with a soft weight as it lands.</summary>
         public static float[] BoxPickup(int seed)
         {
-            var s = Pickup(seed);
-            Thump(s, 130f, 70f, 0.03f, 0.2f, 0.9f);
-            Hiss(s, seed, 0, 900, 400, 0.8f, 0.002f, 0.08f, 0.3f);
-            return Normalise(s);
+            var n = new Noise(seed);
+            var s = Buffer(0.85f);
+            var f = new Svf();
+            for (int i = 0; i < s.Length; i++)
+            {
+                float t = i / (float)Rate;
+                // The Rift's grain (the same modulation as RiftOpen), its cutoff falling instead of rising.
+                float grain = n.Next() * (0.4f + 0.6f * Mathf.Abs(Mathf.Sin(t * 63f + Mathf.Sin(t * 7f))));
+                f.Run(grain, Mathf.Lerp(3400f, 300f, Mathf.Clamp01(t / 0.35f)), 1.4f);
+                s[i] = f.Band * Env(t, 0.06f, 0.4f);
+            }
+            Glide(s, 82f, 55f, 0.05f, 0.5f, 0.5f);   // the Rift's swell, falling
+            float k = n.Range(0.98f, 1.02f);
+            Ring(s, new[] { 1244f * k, 1864f * k }, new[] { 0.16f, 0.1f }, 0.01f, 0.45f, 0.28f);   // the Rift's chord
+            Thump(s, 120f, 70f, 0.02f, 0.15f, 0.4f, 0.3f);
+            return Normalise(s, 0.85f);
         }
 
         /// <summary>A Rift tearing open (or holding): noise ripping upward over a low swell.</summary>
