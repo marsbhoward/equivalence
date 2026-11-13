@@ -103,25 +103,25 @@ namespace Convergence.Exchange
 
             // ---- Impact: contact damage ----
             Form("ar_collide", "Collide", Ch, D1, 2, Art, Role,
-                 $"Bodies this art drags together strike each other for {U(T2.CollideHitUnits)} hit each.").Gate(Pull, "impact");
+                 $"Bodies dragged together by this art strike each other for {Hits(T2.CollideHitUnits)} each.").Gate(Pull, "impact");
             Form("ar_bowl", "Bowl", Me, D1, 2, Art, Role,
-                 $"A body this art pushes strikes every body it passes for {U(T2.BowlHitUnits)} hit.").Gate(Push, "impact");
+                 $"A body pushed by this art strikes every body it passes for {Hits(T2.BowlHitUnits)}.").Gate(Push, "impact");
             Form("ar_slipstream", "Slipstream", Sa, D1, 2, Art, Role,
-                 $"Enemies near the line you travelled are struck for {U(T2.SlipstreamHitUnits)} hit.").Gate(Repos, "impact");
+                 $"Enemies near the line you travelled are struck for {Hits(T2.SlipstreamHitUnits)}.").Gate(Repos, "impact");
             Form("ar_return", "Return", Me, D1, 2, Art, Role,
-                 $"What this art stops goes back: its attacker takes {U(T2.ReturnHitUnits)} hit and staggers.").Gate(Ward, "impact");
+                 $"A blow stopped by this art goes back: its attacker takes {Hits(T2.ReturnHitUnits)} and staggers.").Gate(Ward, "impact");
             Form("ar_carry", "Carry", Sa, D1, 2, Art, Role,
                  $"A kill with this art throws {P(T2.CarryShare)} of the hit to the nearest enemy.").Gate(Strike, "impact");
             Form("ar_link", "Link", Ph, D1, 2, Art, Role,
-                 $"Bodies this art strikes are linked for {S(T2.LinkSeconds)}: {P(T2.LinkShare)} of what one takes reaches the others.").Gate(Sweep, "impact");
+                 $"Bodies struck by this art are linked for {S(T2.LinkSeconds)}: {P(T2.LinkShare)} of what one takes reaches the others.").Gate(Sweep, "impact");
             Form("ar_spread", "Spread", Ch, D1, 2, Art, Role,
-                 $"Each body this art strikes passes {P(T2.SpreadShare)} of the hit to the nearest enemy.").Gate(Setup, "impact");
+                 $"Each body struck by this art passes {P(T2.SpreadShare)} of the hit to the nearest enemy.").Gate(Setup, "impact");
 
             // ---- Control: hold, slow, stagger ----
             Form("ar_held", "Held", Me, D2, 2, Art, Role,
-                 $"Bodies this art pulls arrive staggered for {S(T2.HeldStagger)}.").Gate(Pull, "control");
+                 $"Bodies pulled by this art arrive staggered for {S(T2.HeldStagger)}.").Gate(Pull, "control");
             Form("ar_slam", "Slam", Me, D2, 2, Art, Role,
-                 $"A body this art pushes into a wall or another body takes {U(T2.SlamHitUnits)} hits and staggers.").Gate(Push, "control");
+                 $"A body pushed by this art into a wall or another body takes {Hits(T2.SlamHitUnits)} and staggers.").Gate(Push, "control");
             Form("ar_decoy", "Decoy", Ph, D2, 2, Art, Role,
                  $"Where you left, an afterimage holds off the attacks of enemies near it for {S(T2.DecoySeconds)}.").Gate(Repos, "control");
             Form("ar_shockfront", "Shockfront", Me, D2, 2, Art, Role,
@@ -129,9 +129,9 @@ namespace Convergence.Exchange
             Form("ar_daze", "Daze", Me, D2, 2, Art, Role,
                  $"This art's main target staggers for {S(T2.DazeStagger)}.").Gate(Strike, "control");
             Form("ar_mire", "Mire", Ph, D2, 2, Art, Role,
-                 $"Bodies this art strikes are slowed {P(1f - T2.MireSlow)} for {S(T2.MireSeconds)}.").Gate(Sweep, "control");
+                 $"Bodies struck by this art are slowed {P(1f - T2.MireSlow)} for {S(T2.MireSeconds)}.").Gate(Sweep, "control");
             Form("ar_snare", "Snare", Me, D2, 2, Art, Role,
-                 $"Bodies this art strikes are rooted for {S(T2.SnareRoot)}.").Gate(Setup, "control");
+                 $"Bodies struck by this art are rooted for {S(T2.SnareRoot)}.").Gate(Setup, "control");
 
             // ---- Tempo: the chain and the rotation ----
             Form("ar_reel", "Reel", Ch, D3, 2, Art, Role,
@@ -141,7 +141,7 @@ namespace Convergence.Exchange
             Form("ar_arrival", "Arrival", Sa, D3, 2, Art, Role,
                  $"After this art moves you, your next basic has +{P(T2.ArrivalCrit)} crit chance.").Gate(Repos, "tempo");
             Form("ar_steady", "Steady", Ch, D3, 2, Art, Role,
-                 "Each hit this art stops brings your next art closer.").Gate(Ward, "tempo");
+                 "Each hit stopped by this art brings your next art closer.").Gate(Ward, "tempo");
             Form("ar_cull", "Cull", Sa, D3, 2, Art, Role,
                  "A kill with this art brings your next art sooner.").Gate(Strike, "tempo");
             Form("ar_harvest", "Harvest", Ch, D3, 2, Art, Role,
@@ -151,35 +151,35 @@ namespace Convergence.Exchange
 
             // ---- Payoff: primes the next art ----
             Form("ar_drawn_in", "Drawn In", Sa, Drop, 2, Art, Role,
-                 $"Bodies this art pulls take {P(T2.DrawnInShare)} more from your next art.").Gate(Pull, "payoff");
+                 $"Bodies pulled by this art take {P(T2.DrawnInShare)} more from your next art.").Gate(Pull, "payoff");
             Form("ar_flank", "Exposed Flank", Sa, Drop, 2, Art, Role,
-                 $"A body this art slams into a wall or a body takes {P(T2.FlankExposed)} more for {S(T2.FlankSeconds)}.").Gate(Push, "payoff");
+                 $"A body slammed by this art into a wall or a body takes {P(T2.FlankExposed)} more for {S(T2.FlankSeconds)}.").Gate(Push, "payoff");
             Form("ar_ambush", "Ambush", Sa, Drop, 2, Art, Role,
                  $"An art within {S(T2.AmbushWindow)} after this one deals {P(T2.AmbushShare)} more.").Gate(Repos, "payoff");
             Form("ar_charge", "Charge", Me, Drop, 2, Art, Role,
-                 $"Each hit this art stops adds {P(T2.ChargePerStop)} to its own strike.").Gate(Ward, "payoff");
+                 $"Each hit stopped by this art adds {P(T2.ChargePerStop)} to its own strike.").Gate(Ward, "payoff");
             Form("ar_expose", "Expose", Sa, Drop, 2, Art, Role,
                  $"This art's main target takes {P(T2.ExposeShare)} more from your next art.").Gate(Strike, "payoff");
             Form("ar_gather", "Gather", Ch, Drop, 2, Art, Role,
-                 $"Each body this art strikes past the second adds {P(T2.GatherPerBody)} to its hits.").Gate(Sweep, "payoff");
+                 $"Each body struck by this art past the second adds {P(T2.GatherPerBody)} to its hits.").Gate(Sweep, "payoff");
             Form("ar_deepen", "Deepen", Sa, Drop, 2, Art, Role,
-                 $"Bodies this art strikes take {P(T2.DeepenShare)} more from your next art.").Gate(Setup, "payoff");
+                 $"Bodies struck by this art take {P(T2.DeepenShare)} more from your next art.").Gate(Setup, "payoff");
 
             // ---- Contagion: spreads your coat ----
             Form("ar_undertow", "Undertow", Ph, Cross, 2, Art, Role,
-                 "Bodies this art pulls take your coat, and so does the nearest body to each.").Gate(Pull, "contagion").Coat();
+                 "Bodies pulled by this art take your coat, and so does the nearest body to each.").Gate(Pull, "contagion").Coat();
             Form("ar_wake", "Wake", Ph, Cross, 2, Art, Role,
-                 "Bodies this art pushes leave your coat where they land.").Gate(Push, "contagion").Coat();
+                 "Bodies pushed by this art leave your coat where they land.").Gate(Push, "contagion").Coat();
             Form("ar_slipcoat", "Slipcoat", Ph, Cross, 2, Art, Role,
                  "Enemies near the line this art carried you along take your coat.").Gate(Repos, "contagion").Coat();
             Form("ar_taint", "Taint", Ph, Cross, 2, Art, Role,
-                 "Every attacker this art stops takes your coat.").Gate(Ward, "contagion").Coat();
+                 "Every attacker stopped by this art takes your coat.").Gate(Ward, "contagion").Coat();
             Form("ar_transfuse", "Transfuse", Sa, Cross, 2, Art, Role,
                  "This art's main target passes its burn, soak and bleed to the nearest enemy.").Gate(Strike, "contagion");
             Form("ar_wash", "Wash", Ph, Cross, 2, Art, Role,
-                 "Each body this art strikes coats its nearest neighbour.").Gate(Sweep, "contagion").Coat();
+                 "Each body struck by this art coats its nearest neighbour.").Gate(Sweep, "contagion").Coat();
             Form("ar_prime", "Prime", Ph, Cross, 2, Art, Role,
-                 "Bodies this art strikes take your coat.").Gate(Setup, "contagion").Coat();
+                 "Bodies struck by this art take your coat.").Gate(Setup, "contagion").Coat();
 
             // ============================================================ ART CRAFT
             // ---- weight trios: Movement, Tempo, Force (translate between weights on a swap) ----
@@ -205,7 +205,7 @@ namespace Convergence.Exchange
             Form("ac_spark", "Spark", Ch, Cross, 2, Art, Craft,
                  $"A Light art's first hit jumps to a second enemy for {P(T2.SparkShare)}.").Weighs(FinisherWeight.Light, "crowd");
             Form("ac_fan", "Fan", Ch, Cross, 2, Art, Craft,
-                 $"Each body a Medium art strikes throws a shard at its neighbour for {P(T2.FanShare)}.").Weighs(FinisherWeight.Medium, "crowd");
+                 $"Each body struck by a Medium art throws a shard at its neighbour for {P(T2.FanShare)}.").Weighs(FinisherWeight.Medium, "crowd");
             Form("ac_debris", "Debris", Me, Cross, 2, Art, Craft,
                  $"A Heavy art's landing throws back everything within {U(T2.DebrisRadius)}.").Weighs(FinisherWeight.Heavy, "crowd");
 
@@ -215,7 +215,7 @@ namespace Convergence.Exchange
             Form("ac_steady_hand", "Steady Hand", Ph, Bar, 2, Art, Craft,
                  $"At a perfect streak of {T2.SteadyHandStreak}+, a PERFECT on this art coats every body it strikes.").Coat();
             Form("ac_flare", "Flare", Ch, Bar, 2, Art, Craft,
-                 $"A PERFECT on this art throws a wave along your aim for {U(T2.FlareHitUnits)} hit.");
+                 $"A PERFECT on this art throws a wave along your aim for {Hits(T2.FlareHitUnits)}.");
 
             // ---- the rotation ----
             Form("ac_primer", "Primer", Sa, Drop, 2, Art, Craft,
@@ -226,11 +226,11 @@ namespace Convergence.Exchange
                  "This art reads the one before it: after a pull it hits near bodies harder, after a push far ones, " +
                  "after a reposition it can crit more, after a ward it grows with each hit stopped.");
             Form("ac_full_turn", "Full Turn", Ph, Drop, 2, Art, Craft,
-                 $"If the whole wheel turned within {S(T2.FullTurnSeconds)}, this art coats what it strikes and deals {P(T2.FullTurnShare)} more.").Coat();
+                 $"If every art in the rotation fired within {S(T2.FullTurnSeconds)}, this art coats what it strikes and deals {P(T2.FullTurnShare)} more.").Coat();
 
             // ---- the classes ----
             Form("ac_seam", "Seam", Me, D1, 2, Art, Craft,
-                 $"A ground-striking art splits the floor along your aim; the crack strikes for {U(T2.SeamHitUnits)} hits {S(T2.SeamDelay)} later.")
+                 $"A ground-striking art splits the floor along your aim; the crack strikes {S(T2.SeamDelay)} later for {Hits(T2.SeamHitUnits)}.")
                 .ForClasses(WeaponClass.Greatsword).Fits(ArtRoles.StrikesGround);
             Form("ac_skewer", "Skewer", Me, D2, 2, Art, Craft,
                  "A body this art runs through is thrown into the nearest other enemy.")
@@ -248,7 +248,7 @@ namespace Convergence.Exchange
                  $"This art's arrows bleed what they strike: {P(T2.BarbedBleedShare)} of the hit a second for {S(T2.BarbedBleedSeconds)}.")
                 .ForClasses(WeaponClass.Bow);
             Form("ac_kneeling_shot", "Kneeling Shot", Ch, D3, 2, Art, Craft,
-                 $"A kneeling art sends one more arrow at the nearest other enemy for {U(T2.KneelingHitUnits)} hit.")
+                 $"A kneeling art sends one more arrow at the nearest other enemy for {Hits(T2.KneelingHitUnits)}.")
                 .ForClasses(WeaponClass.Bow).Fits(ArtRoles.Kneels);
 
             // ---- class x element: one behaviour, the element's coat ----
@@ -262,7 +262,7 @@ namespace Convergence.Exchange
 
             // ============================================================ CHAIN (the basics)
             Form("ch_connector", "Connector", Ph, Bar, 1, FormSlot.Basics, DealKind.Chain,
-                 "The last basic before an art coats what it strikes.").Coat().Need(Verb.Connector);
+                 "The basic that leads into an art coats what it strikes.").Coat().Need(Verb.Connector);
             Form("ch_lunge_step", "Lunge Step", Ch, Bar, 1, FormSlot.Basics, DealKind.Chain,
                  $"The first basic after an art steps you {U(T2.LungeStepDistance)} in (bows: out).").Need(Verb.MoveWhileSwinging);
             Form("ch_follow_through", "Follow-Through", Sa, Stroke, 1, FormSlot.Basics, DealKind.Chain,
@@ -276,7 +276,7 @@ namespace Convergence.Exchange
             Form("ch_pinning_shot", "Pinning Shot", Me, Stroke, 1, FormSlot.Basics, DealKind.Chain,
                  $"An arrow that strikes a body near a wall roots it for {S(T2.PinningRoot)}.").ForClasses(WeaponClass.Bow);
             Form("ch_backstep", "Backstep", Ph, Cross, 1, FormSlot.Basics, DealKind.Chain,
-                 $"A basic loosed with an enemy within {U(T2.BackstepRadius)} steps you back.").ForClasses(WeaponClass.Bow).Need(Verb.MoveWhileSwinging);
+                 $"If an enemy is within {U(T2.BackstepRadius)}, a basic loosed also steps you back.").ForClasses(WeaponClass.Bow).Need(Verb.MoveWhileSwinging);
             Form("ch_carried_tip", "Carried Tip", Sa, Drop, 1, FormSlot.Basics, DealKind.Chain,
                  "A basic arrow coats the first body it strikes.").ForClasses(WeaponClass.Bow).Coat();
 
@@ -343,20 +343,20 @@ namespace Convergence.Exchange
             var Bulwark = DefensiveAbility.Bulwark; var Parry = DefensiveAbility.ParryStance;
             const FormSlot Def = FormSlot.Defence; const DealKind G = DealKind.Guard;
 
-            Form("gd_cutting_dash", "Cutting Dash", Sa, D1, 2, Def, G, $"Bodies you dash past are struck for {U(T2.CuttingDashHitUnits)} hit.").ForDefences(Dash);
+            Form("gd_cutting_dash", "Cutting Dash", Sa, D1, 2, Def, G, $"Bodies you dash past are struck for {Hits(T2.CuttingDashHitUnits)}.").ForDefences(Dash);
             Form("gd_afterimage", "Afterimage", Ph, D2, 2, Def, G, "Where a dash starts, an afterimage holds off the attacks of enemies near it.").ForDefences(Dash);
             Form("gd_landing", "Landing", Sa, D3, 2, Def, G, $"The first basic after a dash has +{P(T2.LandingCrit)} crit chance.").ForDefences(Dash);
             Form("gd_wake_dash", "Wake", Ph, Bar, 2, Def, G, $"Bodies you dash past are slowed {P(1f - T2.WakeDashSlow)} for {S(T2.WakeDashSeconds)}.").ForDefences(Dash);
 
-            Form("gd_rebuke", "Rebuke", Ch, D1, 2, Def, G, $"A shot the dome blocks strikes its shooter for {U(T2.RebukeHitUnits)} hit.").ForDefences(Barrier);
-            Form("gd_plant", "Plant", Me, D2, 2, Def, G, $"A blow the dome blocks staggers its attacker for {S(T2.PlantStagger)}.").ForDefences(Barrier);
-            Form("gd_sap", "Sap", Ph, D3, 2, Def, G, $"Each hit the dome blocks refunds {P(T2.SapRefund)} of your meter.").ForDefences(Barrier);
+            Form("gd_rebuke", "Rebuke", Ch, D1, 2, Def, G, $"A shot blocked by the dome strikes its shooter for {Hits(T2.RebukeHitUnits)}.").ForDefences(Barrier);
+            Form("gd_plant", "Plant", Me, D2, 2, Def, G, $"A blow blocked by the dome staggers its attacker for {S(T2.PlantStagger)}.").ForDefences(Barrier);
+            Form("gd_sap", "Sap", Ph, D3, 2, Def, G, $"Each hit blocked by the dome refunds {P(T2.SapRefund)} of your meter.").ForDefences(Barrier);
             Form("gd_bulldoze", "Bulldoze", Me, Bar, 2, Def, G, "As the dome drops, it pushes what is in front of it.").ForDefences(Barrier);
 
-            Form("gd_backlash", "Backlash", Ch, D1, 2, Def, G, $"Blows taken during it are banked; when it ends, {P(T2.BacklashShare)} of them bursts around you.").ForDefences(Bulwark);
-            Form("gd_mire_aura", "Mire Aura", Ph, D2, 2, Def, G, $"Enemies within {U(T2.AuraRadius)} are slowed while it is up.").ForDefences(Bulwark);
-            Form("gd_hold", "Hold", Me, D3, 2, Def, G, "An enemy that strikes you during it is pushed back a step.").ForDefences(Bulwark);
-            Form("gd_taunt", "Taunt", Me, Bar, 2, Def, G, $"While it is up, enemies within {U(T2.TauntRadius)} are drawn toward you.").ForDefences(Bulwark);
+            Form("gd_backlash", "Backlash", Ch, D1, 2, Def, G, $"Blows taken during your Bulwark are banked; when it ends, {P(T2.BacklashShare)} of them bursts around you.").ForDefences(Bulwark);
+            Form("gd_mire_aura", "Mire Aura", Ph, D2, 2, Def, G, $"Enemies within {U(T2.AuraRadius)} are slowed while your Bulwark is up.").ForDefences(Bulwark);
+            Form("gd_hold", "Hold", Me, D3, 2, Def, G, "An enemy that strikes you during your Bulwark is pushed back a step.").ForDefences(Bulwark);
+            Form("gd_taunt", "Taunt", Me, Bar, 2, Def, G, $"While your Bulwark is up, enemies within {U(T2.TauntRadius)} are drawn toward you.").ForDefences(Bulwark);
 
             Form("gd_counterweight", "Counterweight", Me, D1, 2, Def, G, $"A parry staggers its attacker for {S(T2.CounterweightStagger)}.").ForDefences(Parry);
             Form("gd_disarm", "Disarm", Me, D2, 2, Def, G, $"A parried enemy holds off its attacks for {S(T2.DisarmSeconds)}.").ForDefences(Parry);
@@ -365,33 +365,33 @@ namespace Convergence.Exchange
 
             // ---- defence x element: the coat ----
             Form("gd_coat_trail", "Trail", Ch, Ring, 2, Def, G, "A dash coats what it passes.").ForDefences(Dash).Coat();
-            Form("gd_coat_dome", "Coated Dome", Ph, Ring, 2, Def, G, "A hit the dome blocks coats its attacker.").ForDefences(Barrier).Coat();
-            Form("gd_coat_aura", "Coated Aura", Me, Ring, 2, Def, G, $"While it is up, it coats the enemies within {U(T2.AuraRadius)} every {S(T2.AuraTick)}.").ForDefences(Bulwark).Coat();
+            Form("gd_coat_dome", "Coated Dome", Ph, Ring, 2, Def, G, "A hit blocked by the dome coats its attacker.").ForDefences(Barrier).Coat();
+            Form("gd_coat_aura", "Coated Aura", Me, Ring, 2, Def, G, $"While your Bulwark is up, it coats the enemies within {U(T2.AuraRadius)} every {S(T2.AuraTick)}.").ForDefences(Bulwark).Coat();
             Form("gd_coat_burst", "Coat Burst", Sa, Ring, 2, Def, G, $"A parry coats every enemy within {U(T2.CoatBurstRadius)}.").ForDefences(Parry).Coat();
 
             // ============================================================ CONCORDS: weapon + defence, the element's coat
             Concord("cc_gs_dash_a", "Trailing Blade", WeaponClass.Greatsword, Dash, "The blade trails your dash, cutting what it passes.");
             Concord("cc_gs_dash_b", "Left Arc", WeaponClass.Greatsword, Dash, "A dash leaves the blade's arc behind; it cuts a moment later.");
-            Concord("cc_gs_barrier_a", "Wound Blade", WeaponClass.Greatsword, Barrier, "Blows the dome blocks wind the blade: your next basic sweeps a full circle.");
+            Concord("cc_gs_barrier_a", "Wound Blade", WeaponClass.Greatsword, Barrier, "Blows blocked by the dome wind up the blade: your next basic sweeps a full circle.");
             Concord("cc_gs_barrier_b", "Edged Dome", WeaponClass.Greatsword, Barrier, "The dome's rim cuts the enemies that touch it.");
             Concord("cc_gs_bulwark_a", "Planted Blade", WeaponClass.Greatsword, Bulwark, "The planted blade cuts each enemy that strikes you.");
-            Concord("cc_gs_bulwark_b", "Driven Blade", WeaponClass.Greatsword, Bulwark, "When it ends, the blade drives down: a heavy blow around you.");
+            Concord("cc_gs_bulwark_b", "Driven Blade", WeaponClass.Greatsword, Bulwark, "When your Bulwark ends, the blade drives down: a heavy blow around you.");
             Concord("cc_gs_parry_a", "Answer", WeaponClass.Greatsword, Parry, "A parry answers at once with a cut toward the attacker.");
             Concord("cc_gs_parry_b", "Crown of Blades", WeaponClass.Greatsword, Parry, "Every third parry on a floor rings you with blades.");
-            Concord("cc_disc_dash_a", "Left Behind", WeaponClass.Disc, Dash, "Discs left where a dash starts hold a second, then fly back through you.");
+            Concord("cc_disc_dash_a", "Left Behind", WeaponClass.Disc, Dash, "Discs left where a dash begins hold for a second, then fly back through you.");
             Concord("cc_disc_dash_b", "Thrown Ahead", WeaponClass.Disc, Dash, "A dash throws both discs ahead; they cut the line you land on.");
             Concord("cc_disc_barrier_a", "Rim Throw", WeaponClass.Disc, Barrier, "The dome's rim throws a disc at each attacker it blocks.");
             Concord("cc_disc_barrier_b", "Face Orbit", WeaponClass.Disc, Barrier, "Discs turn on the dome's face while it is up, cutting what nears it.");
-            Concord("cc_disc_bulwark_a", "Close Orbit", WeaponClass.Disc, Bulwark, "Discs circle close while it is up, cutting what comes near.");
-            Concord("cc_disc_bulwark_b", "Return Fire", WeaponClass.Disc, Bulwark, "Each blow it takes sends a disc at its attacker.");
+            Concord("cc_disc_bulwark_a", "Close Orbit", WeaponClass.Disc, Bulwark, "Discs circle close while your Bulwark is up, cutting what comes near.");
+            Concord("cc_disc_bulwark_b", "Return Fire", WeaponClass.Disc, Bulwark, "Each blow your Bulwark takes sends a disc at its attacker.");
             Concord("cc_disc_parry_a", "Parry Orbit", WeaponClass.Disc, Parry, $"Discs circle you for {S(T2.ConcordOrbitSeconds)} after a parry, striking what is close.");
             Concord("cc_disc_parry_b", "Caught Shot", WeaponClass.Disc, Parry, "A parried blow is caught on a disc and thrown back at its attacker.");
             Concord("cc_bow_dash_a", "Parting Shot", WeaponClass.Bow, Dash, "A dash looses an arrow back at the nearest enemy.");
             Concord("cc_bow_dash_b", "Staked Trap", WeaponClass.Bow, Dash, "A dash leaves an arrow staked where it started; it bursts when an enemy reaches it.");
-            Concord("cc_bow_barrier_a", "Turned Shot", WeaponClass.Bow, Barrier, "A shot the dome blocks is loosed back at its shooter as your arrow.");
+            Concord("cc_bow_barrier_a", "Turned Shot", WeaponClass.Bow, Barrier, "A shot blocked by the dome is loosed back at its shooter as your arrow.");
             Concord("cc_bow_barrier_b", "Embrasure", WeaponClass.Bow, Barrier, "While the dome is up, an arrow flies from it at the nearest enemy in front.");
-            Concord("cc_bow_bulwark_a", "Ring of Stakes", WeaponClass.Bow, Bulwark, "Arrows stake round you as it rises; enemies crossing them are struck.");
-            Concord("cc_bow_bulwark_b", "Closing Rain", WeaponClass.Bow, Bulwark, "When it ends, arrows rain around you.");
+            Concord("cc_bow_bulwark_a", "Ring of Stakes", WeaponClass.Bow, Bulwark, "Arrows stake round you as your Bulwark rises; enemies crossing them are struck.");
+            Concord("cc_bow_bulwark_b", "Closing Rain", WeaponClass.Bow, Bulwark, "When your Bulwark ends, arrows rain around you.");
             Concord("cc_bow_parry_a", "Pinned", WeaponClass.Bow, Parry, "A parry pins its attacker to the ground.");
             Concord("cc_bow_parry_b", "Free Arrow", WeaponClass.Bow, Parry, "A parry nocks a free arrow: your next basic shot strikes for double.");
 
@@ -429,13 +429,13 @@ namespace Convergence.Exchange
                   $"A basic shot loosed while moving deals {P(T2.UnsteadyDamage)} less.",
                   capName: "Shaking Hands", capText: "A planted shot deals less too.").ForClasses(WeaponClass.Bow).Block(Verb.MoveWhileShooting);
             Price("co_skid", "Skid", Ch, D1, 1, 3, DealKind.Rule,
-                  $"A dash slides on {U(T2.SkidDistance)} past its end.",
+                  $"A dash slides {U(T2.SkidDistance)} past its end.",
                   capName: "Runaway", capText: "The slide is twice as long.").ForDefences(Dash);
             Price("co_narrow", "Narrow", Me, D2, 1, 3, DealKind.Rule,
                   "The dome covers a narrower arc.", (m, n) => m.BarrierDotAdd += T2.NarrowDotAdd * n,
                   capName: "Slit", capText: "Narrower still.").ForDefences(Barrier);
             Price("co_heavy_bulwark", "Heavy Bulwark", Me, D3, 1, 3, DealKind.Rule,
-                  $"You move -{U(T2.HeavyBulwarkMove)} Move Speed while it is up.",
+                  $"-{U(T2.HeavyBulwarkMove)} Move Speed while your Bulwark is up.",
                   capName: "Leaden Guard", capText: "Twice as heavy.").ForDefences(Bulwark);
             Price("co_off_balance", "Off Balance", Sa, Bar, 1, 3, DealKind.Rule,
                   $"A parry pressed with nothing to parry staggers you for {S(T2.OffBalanceStun)}.",
@@ -447,27 +447,27 @@ namespace Convergence.Exchange
 
             // ---- Host: the enemies ----
             Price("co_affixed", "Affixed", Me, D1, 2, 3, DealKind.Host,
-                  $"Elites roll their modifier {P(T2.AffixedChanceAdd)} more often a stack.",
+                  $"Elites get a modifier {P(T2.AffixedChanceAdd)} more often per stack.",
                   (m, n) => { m.AffixChanceAdd += T2.AffixedChanceAdd * n; if (n >= 3) m.AffixFromBandOne = true; },
                   capName: "Marked Host", capText: "Elites roll them from the first band.");
             Price("co_crowded", "Crowded", Ch, D2, 2, 3, DealKind.Host,
-                  "One more body may be on screen at once, a stack.",
+                  "One more enemy may be on screen at once per stack.",
                   (m, n) => m.PressureAdd += T2.CrowdedPressure * n + (n >= 3 ? 2f * T2.CrowdedPressure : 0f),
                   capName: "Throng", capText: "Two more on top.");
             Price("co_vigilant", "Vigilant", Me, D3, 2, 1, DealKind.Host,
                   "The first wave sees you as you arrive.", (m, n) => m.NoUnaware = true).Block(Verb.Unaware);
             Price("co_eager", "Eager", Ch, Bar, 3, 2, DealKind.Host,
-                  "One more enemy may attack at once, a stack.",
+                  "One more enemy may attack at once per stack.",
                   (m, n) => m.ExtraTurns += T2.EagerTurns * n,
                   capName: "Frenzy", capText: "Enemies take their turns sooner after one another.");
             Price("co_swift", "Swift", Ch, Ring, 2, 3, DealKind.Host,
-                  $"Enemies move {P(T2.SwiftMove)} faster a stack. Their attacks don't change.",
+                  $"Enemies move {P(T2.SwiftMove)} faster per stack. Their attacks don't change.",
                   (m, n) => m.EnemyMoveMul *= 1f + T2.SwiftMove * n,
                   capName: "Swift III", capText: "Elites another 10% on top.");
             Price("co_wrath", "Wrath", Ch, Cross, 2, 3, DealKind.Host,
-                  $"Elites under {P(T2.WrathBelow)} health attack more often.",
+                  $"Elites below {P(T2.WrathBelow)} health wait {P((1f - T2.WrathCooldownMul) / 3f)} less between attacks per stack.",
                   (m, n) => m.WrathCooldownMul = Mathf.Min(m.WrathCooldownMul, Mathf.Lerp(1f, T2.WrathCooldownMul, n / 3f)),
-                  capName: "Wrath III", capText: "Every enemy under 30% too.");
+                  capName: "Wrath III", capText: $"Every enemy below {P(T2.WrathBelow)} health does too.");
             Price("co_martyrs", "Martyrs", Sa, Drop, 2, 3, DealKind.Host,
                   $"Enemies burst at their feet {S(T2.MartyrDelay)} after dying.",
                   capName: "Martyrs III", capText: "The burst is wider.");
@@ -480,18 +480,18 @@ namespace Convergence.Exchange
                   $"Every {S(T2.GaleEvery)}, a wind crosses the floor, pushing everything.",
                   capName: "Gale III", capText: "Stronger, and more often.");
             Price("co_sinking", "Sinking", Me, D3, 2, 3, DealKind.Ground,
-                  $"After {S(T2.SinkingAfter)} standing still, your first second moving is slower.",
+                  $"After standing still for {S(T2.SinkingAfter)}, you move slower for your first second.",
                   capName: "Mire Floor", capText: "Twice as slow.").Block(Verb.StandStill);
             Price("co_slick", "Slick", Ph, Bar, 1, 1, DealKind.Ground,
-                  "Your stops slide on a little.", (m, n) => m.ExtraSlide += T2.SlickSlide);
+                  "You slide a little when you stop.", (m, n) => m.ExtraSlide += T2.SlickSlide);
 
             // ---- the world costs, second batch (2026-11-04, the user's "finish what was left out") ----
             Price("co_plated", "Plated", Me, Stroke, 2, 3, DealKind.Host,
-                  $"Unarmored enemies arrive with armor worth {P(T2.PlatedShare)} of their health, a stack.",
+                  $"Unarmored enemies arrive with armor worth {P(T2.PlatedShare)} of their health per stack.",
                   (m, n) => m.PlatedShare += T2.PlatedShare * n,
                   capName: "Plated III", capText: "Elites too.");
             Price("co_reinforced", "Reinforced", Me, Drop, 2, 3, DealKind.Host,
-                  "An elite's death calls one more enemy, a stack.",
+                  "An elite's death calls one more enemy per stack.",
                   capName: "Reinforced III", capText: "One more on top.");
             Price("co_volley", "Volley", Ph, Cross, 2, 1, DealKind.Host,
                   "Ranged enemies fire one more bolt with every shot.", (m, n) => m.ExtraBolts += T2.VolleyExtraBolts);
@@ -501,7 +501,7 @@ namespace Convergence.Exchange
                   $"Every {S(T2.EncroachEvery)} on a floor, a spike pit opens near you after a warning.",
                   capName: "Encroach III", capText: "Twice as often.");
             Price("co_bloom", "Hazard Bloom", Ch, D2, 2, 3, DealKind.Ground,
-                  $"Pits hurt you {P(T2.BloomTaken)} more, a stack.",
+                  $"Pits hurt you {P(T2.BloomTaken)} more per stack.",
                   capName: "Bloom III", capText: "Sand slows you twice as much too.");
             Price("co_narrowing", "Narrowing", Me, D3, 2, 3, DealKind.Ground,
                   $"After {S(T2.NarrowingAfter)} on a floor, the edges of the room burn you; each stack widens them.",
@@ -510,23 +510,23 @@ namespace Convergence.Exchange
                   $"Every {S(T2.CrumbleEvery)} on a floor, a column falls.",
                   capName: "Crumble III", capText: "Twice as often.");
             Price("co_dim", "Dim", Ph, Ring, 1, 3, DealKind.Ground,
-                  $"The room's lights are {P(T2.DimShare)} smaller, a stack. A pit's own glow stays.",
+                  $"The room's lights are {P(T2.DimShare)} smaller per stack. A pit's own glow stays.",
                   capName: "Dim III", capText: "Darker still.");
             Price("co_tide", "Tide", Ph, Cross, 1, 1, DealKind.Ground,
                   "Each floor starts with shallow water near the middle.");
             Price("co_spite", "Spite Spires", School.Ledger, Stroke, 1, 3, DealKind.Ground,
-                  $"Taking a spire's boon costs {P(T2.SpiteHealth)} max health, a stack.",
+                  $"Taking a spire's boon costs {P(T2.SpiteHealth)} max health per stack.",
                   capName: "Spite III", capText: "The deal after a spire's boon can't be refused.");
             Price("co_dead_ground", "Dead Ground", Me, Drop, 2, 1, DealKind.Ground,
                   "Pits hurt you twice as much until you clear a floor without touching one.").Sworn();
 
             // ---- Socket: paid on the slot a form is inscribed on; stacks as forms join it ----
             Price("co_slow_link", "Slow Link", Me, D1, 1, 3, DealKind.Socket,
-                  "The last basic before an art is slower.", capName: "Cursed Chain", capText: "Each art also costs 2% max health.").PaysOn(FormSlot.Basics);
+                  "The basic that leads into an art is slower.", capName: "Cursed Chain", capText: "Each art also costs 2% max health.").PaysOn(FormSlot.Basics);
             Price("co_planted_link", "Planted Link", Me, D2, 1, 3, DealKind.Socket,
-                  "You can't move during the last basic before an art.", capName: "Cursed Chain", capText: "Each art also costs 2% max health.").PaysOn(FormSlot.Basics);
+                  "You can't move during the basic that leads into an art.", capName: "Cursed Chain", capText: "Each art also costs 2% max health.").PaysOn(FormSlot.Basics);
             Price("co_dull_link", "Dull Link", Ph, D3, 1, 3, DealKind.Socket,
-                  "The last basic before an art can't burn, soak, bleed or stagger.", capName: "Cursed Chain", capText: "Each art also costs 2% max health.").PaysOn(FormSlot.Basics).Block(Verb.Connector);
+                  "The basic that leads into an art can't burn, soak, bleed or stagger.", capName: "Cursed Chain", capText: "Each art also costs 2% max health.").PaysOn(FormSlot.Basics).Block(Verb.Connector);
             Price("co_spill", "Spill", Ph, D3, 1, 3, DealKind.Socket,
                   $"A release spills another {P(T2.SpillShare)} of your meter.", capName: "Cursed Release", capText: "Each release also costs 2% max health.").PaysOn(FormSlot.Release);
             Price("co_damp", "Damp", Ph, D1, 1, 3, DealKind.Socket,
@@ -552,17 +552,17 @@ namespace Convergence.Exchange
                    $"After {S(T2.FatigueAfter)} on a floor, +{U(T2.SecondWindDamage)} Damage every {S(T2.FatigueEvery)}, to +{U(T2.SecondWindDamageCap)}.");
             Albedo("al_overswing", "Follow Swing", "co_overswing", Me, D1, $"A basic that hits nothing throws a crescent for {P(T2.OverswingCrescentShare)} of a hit.");
             Albedo("al_unsteady", "Running Shot", "co_unsteady", Sa, D2, "A basic shot loosed while moving pierces one more body.");
-            Albedo("al_skid", "Carving Slide", "co_skid", Ch, D1, $"A dash's end cuts the bodies around you for {U(T2.SkidCutHitUnits)} hit.");
+            Albedo("al_skid", "Carving Slide", "co_skid", Ch, D1, $"A dash's end cuts the bodies around you for {Hits(T2.SkidCutHitUnits)}.");
             Albedo("al_narrow", "Keen Dome", "co_narrow", Me, D2, $"The dome's edge staggers what touches it for {S(T2.NarrowEdgeStagger)}.");
-            Albedo("al_heavy_bulwark", "Rooted Guard", "co_heavy_bulwark", Me, D3, "Standing still while it is up, enemies that strike you are slowed.");
+            Albedo("al_heavy_bulwark", "Rooted Guard", "co_heavy_bulwark", Me, D3, "If you stand still while your Bulwark is up, enemies that strike you are slowed.");
             Albedo("al_off_balance", "Feint", "co_off_balance", Sa, Bar, "A parry pressed with nothing to parry pushes the enemies around you back.");
             Albedo("al_affixed", "Spoils", "co_affixed", Me, D1, $"An elite with a modifier heals you {P(T2.AffixedHeal)} when it dies.");
             Albedo("al_crowded", "Press", "co_crowded", Ch, D2, $"+{P(T2.CrowdedPerBody)} damage for each body on screen past {U(T2.CrowdedFrom)}, to +{P(T2.CrowdedCap)}.");
             Albedo("al_eager", "Overeager", "co_eager", Ch, Bar, $"An enemy whose attack misses you takes {P(T2.EagerExposed)} more for {S(T2.EagerExposedSeconds)}.");
             Albedo("al_swift", "Momentum", "co_swift", Ch, Ring, $"Bodies you push travel {P(T2.SwiftPushMul - 1f)} farther.");
             Albedo("al_wrath", "Quarry", "co_wrath", Ch, Cross, "Killing an elite under 30% health brings your next art sooner.");
-            Albedo("al_martyrs", "Pyres", "co_martyrs", Sa, Drop, $"Enemies burst at their feet when they die, striking other enemies for {U(T2.MartyrEnemyHitUnits)} hits.");
-            Albedo("al_storm", "Called Storm", "co_storm", Sa, D1, $"Every {S(T2.StormEvery)}, a strike lands where the nearest enemy stood for {U(T2.StormEnemyHitUnits)} hits.");
+            Albedo("al_martyrs", "Pyres", "co_martyrs", Sa, Drop, $"Enemies burst at their feet when they die, striking other enemies for {Hits(T2.MartyrEnemyHitUnits)}.");
+            Albedo("al_storm", "Called Storm", "co_storm", Sa, D1, $"Every {S(T2.StormEvery)}, a strike lands where the nearest enemy stood for {Hits(T2.StormEnemyHitUnits)}.");
             Albedo("al_gale_floor", "Following Wind", "co_gale_floor", Ph, D2, "The wind pushes only enemies.");
             Albedo("al_sinking", "Bedrock Floor", "co_sinking", Me, D3, $"After {S(T2.SinkingAfter)} standing still, enemies that strike you are rooted for {S(T2.SinkingRoot)}.");
             Albedo("al_plated", "Cracked Plate", "co_plated", Me, Stroke, $"Armor you break leaves its enemy taking {P(T2.PlatedExposed)} more for {S(T2.PlatedExposedSeconds)}.");
@@ -570,21 +570,21 @@ namespace Convergence.Exchange
             Albedo("al_encroach", "Pit Trap", "co_encroach", Me, D1, "Enemies pushed or caught in pits take three times as much from them.");
             Albedo("al_bloom", "Pit Dancer", "co_bloom", Ch, D2, $"While you stand in a pit, +{U(T2.BloomDamage)} Damage.");
             Albedo("al_narrowing", "Closing Ring", "co_narrowing", Me, D3, "Enemies near the edges of the room are slowed.");
-            Albedo("al_crumble", "Landslip", "co_crumble", Me, Bar, $"A column that breaks strikes the enemies within {U(T2.CrumbleRadius)} for {U(T2.CrumbleHitUnits)} hits.");
+            Albedo("al_crumble", "Landslip", "co_crumble", Me, Bar, $"A column that breaks strikes the enemies within {U(T2.CrumbleRadius)} for {Hits(T2.CrumbleHitUnits)}.");
             Albedo("al_dim", "Lantern", "co_dim", Ph, Ring, $"Enemies standing in a light take {P(T2.LanternTaken)} more.");
             A("al_spite", "Kept Spire", "co_spite", ExchangeFamily.Ledger, Stroke, "Spire boons last one more floor.",
               (m, n) => m.SpireExtraFloors += 1).Deal = DealKind.SetPiece;
-            Albedo("al_loose_catch", "Edge Catch", "co_loose_catch", Ph, Stroke, $"A fumbled catch bursts round you for {U(T2.LooseCatchBurstHitUnits)} hit.");
-            Albedo("al_dull_link", "Deep Link", "co_dull_link", Ph, D3, "The last basic before an art renews the burn and the soak on its target.");
+            Albedo("al_loose_catch", "Edge Catch", "co_loose_catch", Ph, Stroke, $"A fumbled catch bursts round you for {Hits(T2.LooseCatchBurstHitUnits)}.");
+            Albedo("al_dull_link", "Deep Link", "co_dull_link", Ph, D3, "The basic that leads into an art renews the burn and the soak on its target.");
             Albedo("al_spill", "Spillway", "co_spill", Ph, D3, $"A release coats every enemy within {U(T2.SpillCoatRadius)}.");
-            Albedo("al_slow_link", "Weighted Link", "co_slow_link", Me, D1, $"The last basic before an art deals {P(T2.SlowLinkArt)} more.");
-            Albedo("al_planted_link", "Anchored Link", "co_planted_link", Me, D2, $"The last basic before an art staggers what it strikes for {S(T2.PlantedLinkStagger)}.");
+            Albedo("al_slow_link", "Weighted Link", "co_slow_link", Me, D1, $"The basic that leads into an art deals {P(T2.SlowLinkArt)} more.");
+            Albedo("al_planted_link", "Anchored Link", "co_planted_link", Me, D2, $"The basic that leads into an art staggers what it strikes for {S(T2.PlantedLinkStagger)}.");
             Albedo("al_damp", "Pressed Release", "co_damp", Ph, D1, $"Your release deals {P(T2.DampCentreBonus)} more.");
-            Albedo("al_kick", "Recoil Cut", "co_kick", Ch, D2, $"A release's kick cuts the bodies you pass for {U(T2.KickCutHitUnits)} hit.");
+            Albedo("al_kick", "Recoil Cut", "co_kick", Ch, D2, $"A release's kick cuts the bodies you pass for {Hits(T2.KickCutHitUnits)}.");
             Albedo("al_strain", "Coiled Guard", "co_strain", Me, D1, $"Each use of your defensive ability adds {P(T2.StrainBank)} to your next art.");
             Albedo("al_brittle_guard", "Glass Guard", "co_brittle_guard", Sa, D2, $"A parry staggers every enemy within {U(T2.BrittleGuardRadius)} for {S(T2.BrittleGuardStagger)}.");
             Albedo("al_exertion", "Breath Held", "co_exertion", Sa, D3, $"Using your defensive ability heals {P(T2.ExertionHeal)}.");
-            Albedo("al_heavy_hand", "Bulwark Art", "heavy_hand", Me, Ring, $"While this art locks you, blows taken are {P(1f - T2.HeavyHandBlowMul)} smaller.");
+            Albedo("al_heavy_hand", "Bulwark Art", "heavy_hand", Me, Ring, $"While this art locks you, you take {P(1f - T2.HeavyHandBlowMul)} less from blows.");
             Albedo("al_dulled_script", "Shared Script", "dulled_script", Ph, D3, $"This art throws {P(T2.DulledScriptSpread)} of each hit at the nearest other enemy.");
             Albedo("al_brittle_script", "Stunning Script", "brittle_script", Ch, D2, $"This art staggers what it strikes for {S(T2.BrittleScriptStagger)}.");
         }

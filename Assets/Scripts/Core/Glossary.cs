@@ -45,7 +45,7 @@ namespace Convergence.Core
             StatKind.ElementalEffectiveness => "Your [[release|releases]] hit harder.",
             StatKind.ComboTime => "How long you can pause between hits before your [[chain]] starts over.",
             StatKind.AoeRadius => "Your [[release|releases]] and [[area weapon arts]] cover more ground.",
-            StatKind.HealReceived => "Strengthens the floor reward's Heal ring. It does not affect any other healing.",
+            StatKind.HealReceived => "Each drink from your phial heals more. It does not affect any other healing.",
             StatKind.RepairReceived => "Strengthens the floor reward's Repair ring. It does not affect any other repair.",
             StatKind.Mend => "Worn gear knits a little back together at every floor's clear.",
             StatKind.Splash => "A share of each hit also strikes every other enemy near the one you aimed at.",

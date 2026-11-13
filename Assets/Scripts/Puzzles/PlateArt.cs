@@ -42,6 +42,61 @@ namespace Convergence.Puzzles
             return _cache[key] = ToSprite(px);
         }
 
+        /// <summary>The Echo's twist marks on its pale stone (the user's picks, 2026-11-12): 1 the
+        /// SWAP's crossed arrows, 2 REVERSE's turning arrow, 3 both side by side. White texels,
+        /// tinted by the caller; centred on the stone.</summary>
+        public static Sprite EchoMark(int kind)
+        {
+            int key = 10 << 24 | kind;
+            if (_cache.TryGetValue(key, out var s) && s != null) return s;
+            var px = new Dictionary<Vector2Int, Color>();
+            if (kind == 3) { SwapMark(px, -6, 0); TurnMark(px, 7, 0); }
+            else if (kind == 1) SwapMark(px, 0, 0);
+            else TurnMark(px, 0, 0);
+            return _cache[key] = ToSprite(px);
+        }
+
+        static void Fill(Dictionary<Vector2Int, Color> px, int x0, int y0, int w, int h)
+        {
+            for (int x = x0; x < x0 + w; x++)
+            for (int y = y0; y < y0 + h; y++) px[new Vector2Int(x, y)] = Color.white;
+        }
+
+        /// <summary>Two arrows passing: east along the top, west along the bottom.</summary>
+        static void SwapMark(Dictionary<Vector2Int, Color> px, int ox, int oy)
+        {
+            Fill(px, ox - 5, oy + 2, 9, 2); Fill(px, ox + 3, oy + 1, 1, 4); Fill(px, ox + 4, oy + 2, 1, 2);
+            Fill(px, ox - 4, oy - 4, 9, 2); Fill(px, ox - 4, oy - 5, 1, 4); Fill(px, ox - 5, oy - 4, 1, 2);
+        }
+
+        /// <summary>An arrow turning back on itself: an arc over the top, its head pointing down.</summary>
+        static void TurnMark(Dictionary<Vector2Int, Color> px, int ox, int oy)
+        {
+            for (int x = -6; x <= 6; x++)
+            for (int y = -6; y <= 6; y++)
+            {
+                float d = Mathf.Sqrt((x + 0.5f) * (x + 0.5f) + (y + 0.5f) * (y + 0.5f));
+                float a = Mathf.Atan2(y + 0.5f, x + 0.5f) * Mathf.Rad2Deg;
+                if (d >= 3.2f && d < 5.2f && a >= -60f && y >= 0 || d >= 3.2f && d < 5.2f && a >= -60f && x >= 0)
+                    px[new Vector2Int(ox + x, oy + y)] = Color.white;
+            }
+            // the head, at the arc's west end, pointing down
+            Fill(px, ox - 7, oy - 1, 6, 1); Fill(px, ox - 6, oy - 2, 4, 1); Fill(px, ox - 5, oy - 3, 2, 1);
+        }
+
+        /// <summary>REVERSE's arrow under the Echo's line: a dashed line <paramref name="length"/>
+        /// world long, its head at the WEST end.</summary>
+        public static Sprite WestArrow(float length)
+        {
+            int n = Mathf.RoundToInt(length * Ppu);
+            int key = 11 << 24 | n;
+            if (_cache.TryGetValue(key, out var s) && s != null) return s;
+            var px = new Dictionary<Vector2Int, Color>();
+            for (int x = 0; x < n; x++) if ((x / 4) % 2 == 0 || x < 8) px[new Vector2Int(x, 0)] = Color.white;
+            for (int k = 1; k <= 4; k++) { px[new Vector2Int(k, k)] = Color.white; px[new Vector2Int(k, -k)] = Color.white; }
+            return _cache[key] = ToSprite(px);
+        }
+
         static Sprite Get(BiomeKind place, float radius, int layer)
         {
             float r = radius * Ppu;

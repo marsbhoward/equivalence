@@ -202,9 +202,8 @@ namespace Convergence.Hazards
     /// NOT readonly and self-healing, for the documented reason: a static collection is not
     /// restored across a domain reload while every pit GameObject survives it, so a script edit
     /// mid-run would empty this list and sand would silently stop slowing the player with nothing
-    /// on screen saying so. <see cref="All"/> rebuilds from the scene when it finds itself empty -
-    /// the same shape <c>EnsureLayers</c> uses, and equally cheap, since it can only ever happen
-    /// on the one frame after a reload.
+    /// on screen saying so. <see cref="All"/> rebuilds from the scene when it finds itself empty on
+    /// its first query after a reload (once: a floor with no pits stays empty).
     /// </summary>
     public static class FloorPits
     {
@@ -244,13 +243,18 @@ namespace Convergence.Hazards
         static List<FloorPit> All()
         {
             _pits ??= new List<FloorPit>();
-            if (_pits.Count == 0)
+            // once only: a floor with no pits is empty every frame, and the scene search was paid on every query
+            if (!_scanned && _pits.Count == 0)
             {
-                var found = Object.FindObjectsByType<FloorPit>(FindObjectsSortMode.None);
+                var found = Object.FindObjectsByType<FloorPit>();
                 if (found.Length > 0) _pits.AddRange(found);
             }
+            _scanned = true;
             return _pits;
         }
+
+        /// <summary>Whether the scene has been searched since the last domain reload (pits built after it register).</summary>
+        static bool _scanned;
 
         /// <summary>Every live pit - for the enemy nav grid, which lays each footprint onto its
         /// cells rather than asking point by point.</summary>

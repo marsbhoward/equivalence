@@ -49,6 +49,8 @@ namespace Convergence.Exchange
         static string N(float v) => v.ToString("0.#");
         static string Pct(float f) => $"{Mathf.RoundToInt(f * 100f)}%";
         static string Sec(float s) => $"{s:0.#} s";
+        /// <summary>A count of hits, singular at one ("1 hit", "2.5 hits").</summary>
+        static string Hits(float v) { string s = N(v); return s == "1" ? "1 hit" : s + " hits"; }
 
         // ---------------------------------------------------------------- building
 
@@ -171,7 +173,7 @@ namespace Convergence.Exchange
               .Cap("Fulminate", $"A crit bursts onto nearby enemies for {Pct(T.FulminateFraction)} of the hit.");
             B("executioner", "Executioner", Edge, Drop, 2, 2,
               $"+{N(T.ExecutionerDamage)} Damage to enemies under {Pct(T.ExecutionerBelow)} health.", conditional: true)
-              .Cap("Coup de Grace", $"A non-elite you hit under {Pct(T.CoupDeGraceBelow)} health dies.");
+              .Cap("Coup de Grace", $"A non-elite under {Pct(T.CoupDeGraceBelow)} health dies when you hit it.");
             B("first_blood", "First Blood", Edge, Dot1, 2, 1,
               $"Your first hit on an unhurt enemy takes {Pct(T.FirstBloodShare)} of its health. Not bosses.",
               conditional: true);
@@ -210,7 +212,7 @@ namespace Convergence.Exchange
             // a gear-tuned limit no boon may raise, and a strong character's damage fills it with the
             // first stack - stacks two and three added nothing. Transfusion is folded in.
             B("bloodletters_pact", "Bloodletter's Pact", Hide, Drop, 3, 1,
-              $"+{Pct(T.BloodletterLifesteal)} lifesteal, from releases, burns and bleeds too.",
+              $"+{Pct(T.BloodletterLifesteal)} lifesteal, including releases, burns and bleeds.",
               (m, n) => m.BonusLifesteal += T.BloodletterLifesteal * n, conditional: true);
             B("stonestance", "Stonestance", Hide, Dot1, 2, 3, $"+{N(T.StonestanceBrace)} Brace.",
               (m, n) => m.Add(StatKind.Brace, T.StonestanceBrace * n), conditional: true)
@@ -254,7 +256,7 @@ namespace Convergence.Exchange
               }, conditional: true)
               .Cap("Poise", $"Changing pace halves your next hit taken.");
             B("ghostwalk", "Ghostwalk", Quick, Ring, 3, 1,
-              $"When hit, {Sec(T.GhostwalkSeconds)} untouchable. Once every {Sec(T.GhostwalkCooldown)}. " +
+              $"When hit, you're untouchable for {Sec(T.GhostwalkSeconds)}. Once every {Sec(T.GhostwalkCooldown)}. " +
               $"{Sec(T.NegationGapSeconds)} between cancels.",
               conditional: true);
 
@@ -376,7 +378,7 @@ namespace Convergence.Exchange
             C("souring", "Souring", Tithe, Stroke, 2, 3,
               $"-{N(T.SouringDamage)} Damage every {Sec(T.SouringEverySeconds)} on a floor.",
               conditional: true)
-              .Cap("Acetum", $"Enemies hit {Pct(T.AcetumTaken)} harder every {Sec(T.SouringEverySeconds)} too.");
+              .Cap("Acetum", $"Enemies deal {Pct(T.AcetumTaken)} more damage every {Sec(T.SouringEverySeconds)} too.");
             C("backfire", "Backfire", Tithe, Cross, 2, 3, $"Each release costs {Pct(T.BackfireFraction)} max health.",
               conditional: true)
               .Cap("Recoil", $"A release stuns you for {Sec(T.RecoilSeconds)}.");
@@ -397,7 +399,7 @@ namespace Convergence.Exchange
                   m.Add(StatKind.MoveSpeed, -T.AnchoredMove * n);
                   if (n >= 3) m.ExtraSlide += T.MiredSlide;
               }, conditional: true)
-              .Cap("Mired", "Sand and mire slow you double. You slide like on water.");
+              .Cap("Mired", "Sand and mire slow you double. You slide as if on water.");
             C("encumbered", "Encumbered", Leaden, Dot3, 2, 3, $"+{Pct(T.EncumberedCooldown)} defensive ability cooldown.",
               (m, n) => m.DefenseCooldownMul *= 1f + T.EncumberedCooldown * n, conditional: true)
               .Cap("Shackled", $"No defensive ability for {Sec(T.ShackledSeconds)} after each art.");
@@ -434,16 +436,20 @@ namespace Convergence.Exchange
                   }
               })
               .Cap("Murk", "Enemy telegraphs are faint.");
-            C("wandering_eye", "Wandering Eye", Blind, Dot2, 1, 3, "Auto-target switches targets more.",
+            // Rewritten 2026-11-12 with lock-on (the user's call): it was auto-target switching more,
+            // Blind Rage picking at random. The id stays - Basilisk and Sol Niger are made from it.
+            C("wandering_eye", "Wandering Eye", Blind, Dot2, 1, 3,
+              "I: your lock breaks when you're hit. II: and when you use your defensive ability.",
               (m, n) =>
               {
-                  m.SwitchAdvantageDelta += T.WanderingEyeSwitch * n;
-                  if (n >= 3) m.Targeting = TargetMode.Random;
+                  m.LockBreaksOnHit = true;
+                  if (n >= 2) m.LockBreaksOnDefense = true;
+                  if (n >= 3) m.NoLock = true;
               })
-              .Cap("Blind Rage", "Auto-target picks at random.");
+              .Cap("Blind Rage", "You can't lock on.");
             C("dead_weight", "Dead Weight", Blind, Cross, 1, 3,
               $"Your kills leave corpses that block you for {Sec(T.DeadWeightSeconds + 1f)} " +
-              $"(+{Sec(1f)} a stack).", conditional: true)
+              $"(+{Sec(1f)} per stack).", conditional: true)
               .Cap("Charnel", "Corpses stop your throws and arrows too.");
             C("retrograde", "Retrograde", Blind, Stroke, 3, 2,
               $"Every {Sec(T.RetrogradeEvery)} ({Sec(T.RetrogradeEveryII)} at II) your movement inverts for {Sec(T.RetrogradeSeconds)}. " +
@@ -494,7 +500,7 @@ namespace Convergence.Exchange
               .ForElement(ElementType.Fire);
             C("low_water", "Low Water", Leaking, Dot2, 2, 3, $"Surge gives {N(T.LowWaterSurge)} less Attack Speed.",
               conditional: true)
-              .Cap("Ebb", "Soaked enemies stop filling double. A hit ends your surge.")
+              .Cap("Ebb", "Hits on soaked enemies stop filling your meter double. A hit taken ends your surge.")
               .ForElement(ElementType.Water);
             C("restless", "Restless", Leaking, Dot3, 2, 3,
               $"After {Sec(T.RestlessStillSeconds)} still, take +{Pct(T.RestlessTaken)} damage.",
@@ -525,13 +531,13 @@ namespace Convergence.Exchange
               $"Your first basic bleeds: {Pct(T.SerratedBleedShare)} of the hit a second for {Sec(T.SerratedSeconds)}.",
               conditional: true);
             B("lancet", "Lancet", San, Ring, 1, 1,
-              $"Arts end bleeds, dealing {Pct(T.LancetShare)} of what was left at once.",
+              $"Arts end bleeds early, dealing {Pct(T.LancetShare)} of the rest at once.",
               conditional: true);
             B("knell", "Knell", Mel, Dot1, 1, 1,
               $"A PERFECT art staggers enemies within {N(T.KnellRadius)} for {Sec(T.KnellStagger)}.",
               conditional: true);
             B("pin_down", "Pin Down", Mel, Ring, 1, 1,
-              $"Basics hold a stagger for at least {Sec(T.PinDownSeconds)}.",
+              $"Basics keep a staggered enemy staggered for at least {Sec(T.PinDownSeconds)}.",
               conditional: true);
 
             // ============================================================ FORMS (Phase 2)
@@ -543,13 +549,13 @@ namespace Convergence.Exchange
               $"Struck ground slows enemies for {Sec(T.AftershockSeconds)}.",
               conditional: true).Inscribed(FormSlot.Art);
             B("shockwave", "Shockwave", Cho, Bar, 2, 1,
-              $"A ring around you: {N(T.ShockwaveHitUnits)} hits within {N(T.ShockwaveRadius)}. Burns.",
+              $"A ring strikes within {N(T.ShockwaveRadius)} of you for {Hits(T.ShockwaveHitUnits)}. Burns.",
               conditional: true).Inscribed(FormSlot.Art);
             B("riptide", "Riptide", Phl, Bar, 2, 1,
               $"A wave {N(T.RiptideLength)} long along your aim. Soaks.",
               conditional: true).Inscribed(FormSlot.Art);
             B("fault_line", "Fault Line", Mel, Stroke, 2, 1,
-              $"Basics: hitting {T.FaultLineBodies}+ enemies cracks the floor ahead. It strikes for {N(T.FaultLineHitUnits)} hit {Sec(T.FaultLineDelay)} later.",
+              $"Basics that hit {T.FaultLineBodies}+ enemies crack the floor ahead. The crack strikes {Sec(T.FaultLineDelay)} later for {Hits(T.FaultLineHitUnits)}.",
               conditional: true).Inscribed(FormSlot.Basics).ForClasses(WeaponClass.Greatsword);
             B("splinter", "Splinter", San, Drop, 2, 1,
               $"Basics: a bounce throws a splinter for {Pct(T.SplinterShare)} of the hit. Bleeds.",
@@ -565,7 +571,7 @@ namespace Convergence.Exchange
               $"Basics: spray soaks enemies up to {N(T.SpindriftBeyond)} past your reach.",
               conditional: true).Inscribed(FormSlot.Basics).ForClasses(WeaponClass.Greatsword);
             B("lone_cut", "Lone Cut", San, Stroke, 1, 1,
-              $"Basics: hitting a lone enemy bleeds it {Pct(T.LoneCutBleedShare)} of the hit a second for {Sec(T.LoneCutBleedSeconds)}.",
+              $"Basics that hit a lone enemy bleed it: {Pct(T.LoneCutBleedShare)} of the hit a second for {Sec(T.LoneCutBleedSeconds)}.",
               conditional: true).Inscribed(FormSlot.Basics).ForClasses(WeaponClass.Greatsword);
             B("drawdown", "Drawdown", Phl, Dot2, 1, 1,
               $"Kills pull enemies within {N(T.DrawdownRadius)} a step closer.",
@@ -597,9 +603,9 @@ namespace Convergence.Exchange
             // An EVOLUTION is a form grown: the form held with its humour's catalyst, it may evolve
             // at a circle or after a boss (Vampire Survivors' kind). Never drawn on a deal.
             Evolution("nova", "Nova", "shockwave", "tinder", Cho, Ring,
-                      $"A ring around you: {N(T.NovaHitUnits)} hits within {N(T.NovaRadius)}. Burns longer.");
+                      $"A ring strikes within {N(T.NovaRadius)} of you for {Hits(T.NovaHitUnits)}. Burns longer.");
             Evolution("maelstrom", "Maelstrom", "riptide", "tidewater", Phl, Drop,
-                      "A soaking wave that leaves a pool.");
+                      "The wave soaks and leaves a pool.");
             Evolution("hemorrhage", "Hemorrhage", "lacerate", "serrated", San, Ring,
                       $"Your defensive ability bleeds deep and staggers within {N(T.HemorrhageRadius)}.");
             Evolution("earthquake", "Earthquake", "aftershock", "knell", Mel, Drop,
@@ -651,7 +657,7 @@ namespace Convergence.Exchange
               $"Arts gild what they strike. Until your next art, your basics on a gilded enemy have +{Pct(T.GildingCrit)} crit chance.",
               conditional: true);
             A("mollification", "Mollification", "induration", Edge, Drop,
-              "Breaking an enemy's armor shatters it: the shards hit those near for one hit.", conditional: true);
+              "Breaking an enemy's armor shatters it: the shards strike nearby enemies for 1 hit.", conditional: true);
             A("honed", "Honed", "dulled", Edge, Bar,
               $"+{Pct(T.HonedCrit)} crit chance on enemies above {Pct(T.HonedAbove)} health.", conditional: true);
             A("deliberate", "Deliberate", "heavy_arms", Edge, Dot2,
@@ -687,7 +693,7 @@ namespace Convergence.Exchange
             A("viriditas", "Viriditas", "withering", Hide, Dot3,
               $"Each floor starts you with a shield of {Pct(T.ViriditasShield)} health.", conditional: true);
             // Reworked 2026-10-20: it was a heal at the clear - Toll read backwards. Now the deal.
-            A("tribute", "Tribute", "toll", Ledger, Dot2, $"A refusal back every {T.TributeFloorsPerRefusal} floors.",
+            A("tribute", "Tribute", "toll", Ledger, Dot2, $"Gain a refusal every {T.TributeFloorsPerRefusal} floors.",
               conditional: true);
             A("maturation", "Maturation", "souring", Edge, Stroke,
               $"Every {Sec(T.SouringEverySeconds)} on a floor, your next art strips the armor of all it hits.",
@@ -714,7 +720,7 @@ namespace Convergence.Exchange
               $"Wind-ups on you are outlined. Dodge one and its enemy takes {Pct(T.LucidExposed)} more for {Sec(T.LucidExposedSeconds)}.",
               conditional: true);
             A("basilisk", "Basilisk", "wandering_eye", Ledger, Dot2,
-              $"Hold one target for {Sec(T.BasiliskHoldSeconds)} and your gaze stones it: slowed {Pct(1f - T.BasiliskSlowMul)}, takes {Pct(T.BasiliskVulnerability)} more.",
+              $"Lock one enemy for {Sec(T.BasiliskHoldSeconds)} and your gaze stones it: slowed {Pct(1f - T.BasiliskSlowMul)}, takes {Pct(T.BasiliskVulnerability)} more.",
               conditional: true);
             A("ossuary", "Ossuary", "dead_weight", Hide, Cross,
               "Your kills leave corpses that burst when an enemy walks into them.", conditional: true);
@@ -736,7 +742,7 @@ namespace Convergence.Exchange
             // Granted, never drawn: two opposite humours each held three boons deep, level within
             // one (RunModifiers.CheckUnions). Kept for the run once formed.
             Union("steam", "Steam", ExchangeFamily.Choler, Drop,
-                  $"Burn meets soak: a burst of {N(T.SteamHitUnits)} hits within {N(T.SteamRadius)}.");
+                  $"A burn meeting a soak bursts within {N(T.SteamRadius)} for {Hits(T.SteamHitUnits)}.");
             Union("clot", "Clot", ExchangeFamily.Sanguine, Bar,
                   $"Staggering a bleeding enemy deals {Sec(T.ClotSeconds)} of its bleed at once.");
 
@@ -775,7 +781,7 @@ namespace Convergence.Exchange
                   $"Hits taken also bleed you {Pct(T.HaemophiliaFraction)} of the hit over {Sec(T.HaemophiliaSeconds)}.",
                   conditional: true);
             Combo(EntryOrigin.Putrefaction, "senescence", "Senescence", "souring", "withering", Tithe, Stroke,
-                  $"Enemies hit {Pct(T.SenescenceTaken * PerFloor)} harder each floor cleared.",
+                  $"Enemies deal {Pct(T.SenescenceTaken * PerFloor)} more damage each floor cleared.",
                   conditional: true);
 
             // Citrinitas: boon + cost - a boon that feeds on the cost, and fades if it is transmuted away.

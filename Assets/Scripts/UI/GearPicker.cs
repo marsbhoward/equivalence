@@ -29,7 +29,8 @@ namespace Convergence.UI
     /// play with a handful of options each. Showing all of them at once said the opposite. The tab
     /// opens on the class already being held, because that is the one the player is asking about.
     ///
-    /// THE EMPTY CELL IS FIRST AND ALWAYS PRESENT, on every tab. Unequipping was the wrap-around
+    /// THE EMPTY CELL IS FIRST AND PRESENT on every tab, unless the caller says the slot may not be emptied
+    /// (allowEmpty: a worn slot is swapped, never taken off - the user's call, 2026-11-12). Unequipping was the wrap-around
     /// step of the old cycle - you got there by passing every item - so it has to be somewhere
     /// explicit now. First rather than last because it is the one entry whose position never
     /// changes as the catalogue grows.
@@ -120,6 +121,8 @@ namespace Convergence.UI
         int _selected = -1;
         RectTransform _detail, _actionRect;
         readonly List<GearItem> _cellItems = new();
+        /// <summary>1 with the empty cell first, 0 without (allowEmpty).</summary>
+        int _emptyCells = 1;
 
         /// <summary>
         /// One card: a single item, or several that are identical in every attribute.
@@ -141,6 +144,13 @@ namespace Convergence.UI
         readonly List<(RectTransform Rect, string ItemId)> _cells = new();
         readonly List<(RectTransform Rect, WeaponClass Class)> _tabs = new();
         readonly List<RectTransform> _focusRects = new();
+
+        // ---- pages. Every card is built; only the current page's are active. A grid hung from the
+        // header ran off the foot of the screen once a slot held more than three rows (2026-11-12).
+        readonly List<int> _cardPage = new();
+        int _pageIndex, _pageCount = 1;
+        RectTransform _prevRect, _nextRect;
+        Text _pageText;
 
         /// <summary>
         /// The frame this opened on. A modal opened by a press must ignore that press: Tapped
@@ -170,9 +180,10 @@ namespace Convergence.UI
                          StackBy stackBy = StackBy.Attributes, List<GearItem> options = null,
                          string emptyLabel = "empty", string titleSuffix = null,
                          string wornLabel = "worn", GearItem emptyItem = null,
-                         Func<GearItem, string> describe = null, string pickLabel = "EQUIP")
+                         Func<GearItem, string> describe = null, string pickLabel = "EQUIP", bool allowEmpty = true)
         {
             if (IsOpen) return;
+            _emptyCells = allowEmpty ? 1 : 0;
             IsOpen = true;
             _openedFrame = Time.frameCount;
             _onPick = onPick;
@@ -365,7 +376,10 @@ namespace Convergence.UI
             if (_gridRoot) Destroy(_gridRoot);
             _cells.Clear();
             _cellItems.Clear();
+            _cardPage.Clear();
             _wornRect = null;
+            _prevRect = _nextRect = null;
+            _pageText = null;
 
             _gridRoot = new GameObject("grid", typeof(RectTransform));
             _gridRoot.transform.SetParent(_full, false);
@@ -382,7 +396,7 @@ namespace Convergence.UI
                     ? shown.Count + " to choose from"
                     : $"{shown.Count} to choose from   -   {pieces} pieces";
 
-            int count = shown.Count + 1;                    // cell 0 is EMPTY
+            int count = shown.Count + _emptyCells;          // cell 0 is EMPTY, when there is one
 
             // Centre on the cells that actually exist, not on the full eight columns. The whole
             // point of the class split is that BOW is one item - measured against a fixed
@@ -395,7 +409,19 @@ namespace Convergence.UI
             // Hung from below the header (and the tabs, when there are any) rather than centred on
             // the screen: with a filter in place the row count changes as tabs are switched, and a
             // grid that re-centres itself on every tab press makes the cards jump under the cursor.
-            float top = _activeClass != null ? 118f : 292f;
+            float top = _activeClass != null ? 190f : 292f;
+
+            // As many rows as fit above the foot of the screen; the rest go to further pages, with
+            // the page bar taking the foot when there is more than one.
+            float half = _full.rect.height > 1f ? _full.rect.height * 0.5f : 540f;
+            float floor = -half + PageMargin;
+            float barTop = floor + PageBarH;
+            int RowsAbove(float bottom) =>
+                Mathf.Max(1, Mathf.FloorToInt((top - bottom - (Cell + LabelH)) / pitch) + 1);
+            int totalRows = (count + Cols - 1) / Cols;
+            int rowsPerPage = totalRows <= RowsAbove(floor) ? totalRows : RowsAbove(barTop + PageGap);
+            int perPage = rowsPerPage * Cols;
+            _pageCount = Mathf.Max(1, (count + perPage - 1) / perPage);
 
             // The grid stands left of centre so the grid and the details panel are centred as one.
             float shift = -(DetailW + DetailGap) * 0.5f;
@@ -405,13 +431,14 @@ namespace Convergence.UI
 
             for (int i = 0; i < count; i++)
             {
-                var stack = i == 0 ? null : shown[i - 1];
+                var stack = i < _emptyCells ? null : shown[i - _emptyCells];
                 var item = stack?.Item;
                 bool isEmpty = item == null;
                 bool worn = stack != null && stack.Worn;
                 bool nothingWorn = string.IsNullOrEmpty(_equippedId);
 
-                int col = i % Cols, row = i / Cols;
+                int page = i / perPage, onPage = i % perPage;
+                int col = onPage % Cols, row = onPage / Cols;
                 float x = shift - gridW * 0.5f + col * (Cell + Gap);
                 float y = top - row * pitch;
 
@@ -527,17 +554,71 @@ namespace Convergence.UI
 
                 _cells.Add((card, stack?.PickId));
                 _cellItems.Add(isEmpty ? null : item);
+                _cardPage.Add(page);
                 if (worn || (isEmpty && nothingWorn)) { _wornRect = card; select = i; }
             }
 
-            // Opens reading what is worn - the piece every other card is being compared with.
-            Select(Mathf.Clamp(_selected >= 0 && _selected < count ? _selected : select, 0, count - 1));
+            if (_pageCount > 1) BuildPageBar(gr, shift, barTop);
+
+            // Opens reading what is worn - the piece every other card is being compared with -
+            // on the page that card is on.
+            int open = Mathf.Clamp(_selected >= 0 && _selected < count ? _selected : select, 0, count - 1);
+            ShowPage(_cardPage[open]);
+            Select(open);
         }
+
+        const float PageMargin = 16f, PageGap = 12f, PageBarH = 128f, PageButtonW = 220f;
+
+        /// <summary>PREV, "page n / m", NEXT - centred under the grid, at the foot of the screen.</summary>
+        void BuildPageBar(RectTransform gr, float centre, float barTop)
+        {
+            var centreAnchor = new Vector2(0.5f, 0.5f);
+            float bottom = barTop - PageBarH;
+            float span = 2f * PageButtonW + 240f;
+            float left = centre - span * 0.5f, right = centre + span * 0.5f;
+
+            _prevRect = UiKit.Panel(gr, centreAnchor, centreAnchor,
+                new Vector2(left, bottom), new Vector2(left + PageButtonW, barTop),
+                new Color(0.11f, 0.12f, 0.16f));
+            UiKit.Label(_prevRect, "<   PREV", 22, new Color(0.8f, 0.83f, 0.9f), TextAnchor.MiddleCenter);
+
+            _nextRect = UiKit.Panel(gr, centreAnchor, centreAnchor,
+                new Vector2(right - PageButtonW, bottom), new Vector2(right, barTop),
+                new Color(0.11f, 0.12f, 0.16f));
+            UiKit.Label(_nextRect, "NEXT   >", 22, new Color(0.8f, 0.83f, 0.9f), TextAnchor.MiddleCenter);
+
+            _pageText = UiKit.Label(UiKit.Rect(gr, "page", centreAnchor, centreAnchor,
+                new Vector2(left + PageButtonW, bottom), new Vector2(right - PageButtonW, barTop)),
+                "", 20, new Color(0.62f, 0.66f, 0.74f), TextAnchor.MiddleCenter);
+        }
+
+        /// <summary>Show one page of cards. Wraps, so NEXT on the last page goes back to the first.</summary>
+        void ShowPage(int page)
+        {
+            _pageIndex = ((page % _pageCount) + _pageCount) % _pageCount;
+            for (int c = 0; c < _cells.Count; c++)
+                _cells[c].Rect.gameObject.SetActive(_cardPage[c] == _pageIndex);
+            if (_pageText != null)
+                _pageText.text = $"page {_pageIndex + 1} / {_pageCount}";
+        }
+
+        /// <summary>Turn the page. The pad's focus moves to the new page's first card, since the
+        /// card it was on is no longer there to be on.</summary>
+        void TurnPage(int step)
+        {
+            if (_pageCount <= 1) return;
+            ShowPage(_pageIndex + step);
+            if (Core.Controls.GamepadMode)
+                for (int c = 0; c < _cells.Count; c++)
+                    if (_cardPage[c] == _pageIndex) { Core.Controls.Focus(_cells[c].Rect); break; }
+        }
+
+        bool OnPage(int i) => i >= 0 && i < _cardPage.Count && _cardPage[i] == _pageIndex;
 
         float _gridRight, _gridTop;
 
         /// <summary>Whether cell <paramref name="i"/> is what the slot holds now.</summary>
-        bool IsCurrent(int i) => i == 0 ? string.IsNullOrEmpty(_equippedId)
+        bool IsCurrent(int i) => i < _emptyCells ? string.IsNullOrEmpty(_equippedId)
                                         : _cells[i].ItemId == _equippedId ||
                                           (_wornRect != null && _cells[i].Rect == _wornRect);
 
@@ -641,6 +722,11 @@ namespace Convergence.UI
             _countText = null;
             _cells.Clear();
             _cellItems.Clear();
+            _cardPage.Clear();
+            _prevRect = _nextRect = null;
+            _pageText = null;
+            _pageIndex = 0;
+            _pageCount = 1;
             _tabs.Clear();
             _detail = _actionRect = null;
             _selected = -1;
@@ -662,9 +748,12 @@ namespace Convergence.UI
             // The worn card first, so a gamepad opens on what is equipped; then the rest of the
             // grid, then the tabs above it.
             _focusRects.Clear();
-            if (_wornRect != null) _focusRects.Add(_wornRect);
-            foreach (var (rect, _) in _cells) _focusRects.Add(rect);
+            if (_wornRect != null && _wornRect.gameObject.activeSelf) _focusRects.Add(_wornRect);
+            for (int c = 0; c < _cells.Count; c++)
+                if (OnPage(c)) _focusRects.Add(_cells[c].Rect);
             if (_actionRect != null) _focusRects.Add(_actionRect);
+            if (_prevRect != null) _focusRects.Add(_prevRect);
+            if (_nextRect != null) _focusRects.Add(_nextRect);
             foreach (var (rect, _) in _tabs) _focusRects.Add(rect);
             Core.Controls.SetFocusCandidates(_focusRects);
 
@@ -673,6 +762,11 @@ namespace Convergence.UI
             if (Core.Controls.CancelTapped) { Core.Controls.ConsumeCancel(); Close(); return; }
 
             if (Time.frameCount == _openedFrame) return;   // the press that opened this
+
+            // The bumpers turn the grid's page; the circle behind stands down while this is open.
+            if (Core.Controls.PagePrevTapped) { TurnPage(-1); return; }
+            if (Core.Controls.PageNextTapped) { TurnPage(1); return; }
+
             if (!Core.Controls.Tapped(out var at)) return;
 
             // Tabs first: they sit above the grid and a press on one must never fall through to
@@ -694,8 +788,21 @@ namespace Convergence.UI
                 return;
             }
 
+            if (_prevRect != null && RectTransformUtility.RectangleContainsScreenPoint(_prevRect, at, null))
+            {
+                TurnPage(-1);
+                return;
+            }
+            if (_nextRect != null && RectTransformUtility.RectangleContainsScreenPoint(_nextRect, at, null))
+            {
+                TurnPage(1);
+                return;
+            }
+
+            // Only this page's cards: a hidden card still has its rect, and would take the press.
             for (int i = 0; i < _cells.Count; i++)
             {
+                if (!OnPage(i)) continue;
                 if (!RectTransformUtility.RectangleContainsScreenPoint(_cells[i].Rect, at, null)) continue;
                 if (i != _selected) Select(i);
                 return;

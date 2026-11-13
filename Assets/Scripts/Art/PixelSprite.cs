@@ -208,15 +208,20 @@ namespace Convergence.Art
                 wrapMode = TextureWrapMode.Clamp,
                 hideFlags = HideFlags.HideAndDontSave,
             };
-            var o = new Color[cw * ch];
+            // the copy's buffer is kept between calls (Body8 makes one a frame while a swing plays)
+            if (_fromPx == null || _fromPx.Length < cw * ch) _fromPx = new Color[cw * ch];
+            var o = _fromPx;
             for (int y = 0; y < ch; y++)
             for (int x = 0; x < cw; x++)
                 o[(ch - 1 - y) * cw + x] = px[(y0 + y) * w + (x0 + x)];
-            tex.SetPixels(o);
+            tex.SetPixels(0, 0, cw, ch, o);
             tex.Apply();
             var pivot = new Vector2((pivotTexel.x - x0 + 0.5f) / cw, (ch - 1 - (pivotTexel.y - y0) + 0.5f) / ch);
-            return Sprite.Create(tex, new Rect(0, 0, cw, ch), pivot, pixelsPerUnit);
+            // a plain quad: the clear texels draw nothing, and tracing a tight mesh round the art each time costs more
+            return Sprite.Create(tex, new Rect(0, 0, cw, ch), pivot, pixelsPerUnit, 0, SpriteMeshType.FullRect);
         }
+
+        static Color[] _fromPx;
 
         static readonly Dictionary<Sprite, Sprite> _silhouettes = new();
 

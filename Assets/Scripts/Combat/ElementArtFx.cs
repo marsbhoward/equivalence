@@ -46,6 +46,8 @@ namespace Convergence.Combat
             public Vector2 LastTip, Velocity;
             public bool HasLast;
             public Overlay Overlay;
+            /// <summary>The held weapon's rig, when its eight-direction body may draw the weapon in place of this sprite.</summary>
+            public PrimitiveCharacterRig Rig8;
         }
 
         /// <summary>The weapon's own texels, recoloured, on a sprite laid exactly over it.</summary>
@@ -272,11 +274,12 @@ namespace Convergence.Combat
             }
             if (held == null) return;
             foreach (var s in _sources) if (s.Sr == held) return;
-            _sources.Add(new Source { Sr = held, Shape = shape });
+            _sources.Add(new Source { Sr = held, Shape = shape, Rig8 = _rig as PrimitiveCharacterRig });
         }
 
         static bool Visible(Source s) =>
-            s.Sr != null && s.Sr.sprite != null && s.Sr.enabled && !s.Sr.forceRenderingOff && s.Sr.gameObject.activeInHierarchy;
+            s.Sr != null && s.Sr.sprite != null && (s.Sr.enabled && !s.Sr.forceRenderingOff || s.Rig8 != null && s.Rig8.Redrawn8(s.Sr))
+            && s.Sr.gameObject.activeInHierarchy;
 
         Source MainSource()
         {
@@ -317,7 +320,9 @@ namespace Convergence.Combat
                     local = new Vector2(b.center.x + s * b.extents.x * 0.45f, Mathf.Lerp(b.max.y * 0.2f, b.max.y, u));
                     break;
             }
-            return src.Sr.transform.TransformPoint(local);
+            Vector3 world = src.Sr.transform.TransformPoint(local);
+            // the eight-direction body draws the held weapon itself: the point where IT is drawn
+            return src.Rig8 != null && src.Rig8.Redrawn8(src.Sr, world, out var drawn) ? drawn : world;
         }
 
         /// <summary>Which way the source is moving, else the facing.</summary>
@@ -767,7 +772,7 @@ namespace Convergence.Combat
             }
             o.Tex.SetPixels32(o.Px);
             o.Tex.Apply();
-            o.Sr.enabled = any;
+            o.Sr.enabled = any && s.Sr.enabled;   // a weapon the eight-direction body draws: it lays this over its own card
             o.Sr.flipX = s.Sr.flipX; o.Sr.flipY = s.Sr.flipY;
             o.Sr.sortingLayerID = s.Sr.sortingLayerID;
             o.Sr.sortingOrder = s.Sr.sortingOrder + 1;

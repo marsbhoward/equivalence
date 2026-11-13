@@ -36,6 +36,8 @@ namespace Convergence.Art.Gear
             else if (v.sqrMagnitude > TravelFacingSpeed * TravelFacingSpeed) _travelDir = v.normalized;
             if (HeldBow) return aim;
             if (_attackTimer > 0f && _attackHold <= 0f) return aim;
+            // A held LOCK keeps the body on its target (the user's call, 2026-11-12), moving or not.
+            if (Player != null && Player.Targeting != null && Player.Targeting.IsLocked) return aim;
             return _travelDir;
         }
 
@@ -178,7 +180,7 @@ namespace Convergence.Art.Gear
         {
             if (!Body8On)
             {
-                if (_legs8 != null && _legs8.enabled) { _legs8.enabled = false; if (_helm8) _helm8.enabled = false; Unhide8(); }
+                if (_legs8 != null && _legs8.enabled) { _legs8.enabled = false; if (_helm8) _helm8.enabled = false; HideExtras8(); Unhide8(); }
                 return;
             }
             // The legs face the travel for a bow (the torso aims), the body's turn for everything else.
@@ -199,7 +201,8 @@ namespace Convergence.Art.Gear
             int frame = size > 0f ? Mathf.FloorToInt(_legs8Phase * gait.Frames) % gait.Frames : 0;
             if (size <= 0f) gait = Locomotion8.Walk;
             float phase = frame / (float)gait.Frames;
-            var pose = Locomotion8.PoseAt(dir * 45f, gait, phase, size);
+            var stance = SwingStance8(dir, flip);
+            var pose = Locomotion8.PoseAt(dir * 45f, gait, phase, size, stance);
 
             Worn8();
             bool fighting8 = _inCombat || Swinging8 || _sinceSwing < CarryReturnDelay;
@@ -207,8 +210,13 @@ namespace Convergence.Art.Gear
             _b8Pose = pose; _b8Gait = gait; _b8Phase = phase; _b8Size = size; _b8View = view; _b8Mirrored = mirrored;
             _b8Flip = flip; _b8Dir = dir; _b8Sole = HipsRest.y - LegLength;
             var held = Held8();
-            string key = $"b8.{_worn8Key}.{gait.Name}.{dir}.{(mirrored ? "m" : "r")}.{frame}.{size:0.00}{(held != null ? "." + held.Key : "")}";
-            var sprite = Body8.Draw(key, pose, gait, phase, size, view, mirrored, _worn8, _worn8Strips, Palette.Of(Palette.Undersuit), bodyPpu, held);
+            string key = $"b8.{_worn8Key}.{gait.Name}.{dir}.{(mirrored ? "m" : "r")}.{frame}.{size:0.00}{(held != null ? "." + held.Key : "")}{StanceKey8(stance)}{ExtrasFrame8(dt, size, phase)}";
+            // Penumbra's echoes trailing a moving arm: a picture for this frame alone (its history is not the pose's)
+            bool once = _extras8?.Echoes != null;
+            var sprite = Body8.Draw(once ? null : key, pose, gait, phase, size, view, mirrored, _worn8, _worn8Strips, Palette.Of(Palette.Undersuit), bodyPpu, held, _extras8);
+            var restOver = Body8.LastOver;
+            DropRest8();
+            if (once) { _rest8Sprite = sprite; _rest8Over = restOver; }
 
             if (_legs8 == null)
             {
@@ -237,7 +245,39 @@ namespace Convergence.Art.Gear
             if (flip) lean.x = -lean.x;
             if (_head) _head.localPosition = new Vector3(HeadRest.x + Units(lean.x), HeadRest.y + Units(lean.y), 0f);
             PlaceHelm8(view, mirrored, flip);
+            ShowRestOver8(restOver);
+            PlaceStones8(dt, pose, mirrored, flip, sole);
         }
+
+        /// <summary>The swing's body (PlaceBody's channels) on the drawn legs, in whole texels so pictures repeat: the
+        /// crouch, the split stance, the lean, and the back foot held where it stood while the figure steps - the rig
+        /// moves the whole picture for the step and the reach (drawing only), so the foot goes back by that much.</summary>
+        Locomotion8.Stance SwingStance8(int dir, bool flip)
+        {
+            float legs = 1f - BodyStanceWalkGive * _gaitWeight;
+            var st = new Locomotion8.Stance
+            {
+                Crouch = Mathf.Round(_poseBody.Crouch * bodyPpu),
+                Front = Mathf.Round(_poseBody.Stance * legs * bodyPpu),
+                Lean = Mathf.Round(-_poseBody.Lean),
+            };
+            float drawnStep = BodyStepNow + _reach * legs;
+            if (Mathf.Abs(drawnStep) > 1e-5f)
+            {
+                // the picture moves by the step on the screen (LateUpdate's drawn step); the held foot moves back by it,
+                // on the ground: x across, and up the screen is away from the camera (z = -up / DepthY)
+                var along = StepDirection * drawnStep;
+                var world = transform.parent != null ? transform.parent.TransformVector(new Vector3(Mathf.Sign(transform.localScale.x) * along.x * _visualScale, along.y * _visualScale, 0f))
+                                                     : new Vector3(along.x, along.y, 0f);
+                var l = transform.InverseTransformVector(world);
+                float x = (flip ? -1f : 1f) * l.x * bodyPpu, up = l.y * bodyPpu;
+                st.Hold = new Vector3(-Mathf.Round(x), 0f, Mathf.Round(up / Locomotion8.DepthY));
+            }
+            return st;
+        }
+
+        static string StanceKey8(Locomotion8.Stance st) =>
+            st.Crouch == 0f && st.Front == 0f && st.Lean == 0f && st.Hold == Vector3.zero ? "" : $".w{st.Crouch},{st.Front},{st.Lean},{st.Hold.x},{st.Hold.z}";
 
         /// <summary>What is worn that has eight-direction pictures: the bare suit's torso, then each Bronze piece.</summary>
         void Worn8()
@@ -247,11 +287,13 @@ namespace Convergence.Art.Gear
             if (lo != null)
                 foreach (var slot in new[] { GearSlot.Head, GearSlot.Torso, GearSlot.Shoulders, GearSlot.Belt, GearSlot.Legs, GearSlot.Back, GearSlot.Gloves, GearSlot.Boots })
                     ids += Body8Art.SetOf(lo.Get(slot)) + DyeTag8(lo.Get(slot)) + ",";
+            ids += ExtrasKey8(lo);
             if (_worn8 != null && lo == _worn8Loadout && ids == _worn8Ids) return;
             _worn8Loadout = lo; _worn8Ids = ids; _worn8Key = ids.Replace(",", "-");
             _worn8 = new System.Collections.Generic.List<Body8Art.Piece>(Body8Art.Of("bare", GearSlot.Torso));
             _worn8Strips = new System.Collections.Generic.List<Body8Art.Strip>();
             _helm8Piece = null;
+            _extras8 = null;
             if (lo == null) return;
             foreach (var slot in new[] { GearSlot.Legs, GearSlot.Boots, GearSlot.Gloves })
             {
@@ -271,6 +313,7 @@ namespace Convergence.Art.Gear
             if (helmSet != null)
                 foreach (var p in Body8Art.Of(helmSet, GearSlot.Head))
                     _helm8Piece = Dyed8(helmId, p.Palette) is { } pal ? p.Recoloured(pal) : p;
+            WornExtras8(lo);
         }
 
         /// <summary>A worn piece's dye, for the cache keys: what follows the '@' of a dyed copy's id.</summary>
@@ -302,8 +345,11 @@ namespace Convergence.Art.Gear
         const float BowReadySeconds = 0.45f;
 
         /// <summary>The bow's quiver and arrow art as cards (at the size the rig draws them), or null.</summary>
-        Weapon8.Art QuiverArt8() => _quiver != null && _quiver.sprite != null ? Weapon8.ArtOf(_quiver.sprite, bodyPpu / _quiver.sprite.pixelsPerUnit) : null;
-        Weapon8.Art ArrowArt8() => _arrowSprite != null ? Weapon8.ArtOf(_arrowSprite, bodyPpu / _arrowSprite.pixelsPerUnit) : null;
+        Weapon8.Art QuiverArt8() => Rounded8(_quiver != null && _quiver.sprite != null ? Weapon8.ArtOf(_quiver.sprite, bodyPpu / _quiver.sprite.pixelsPerUnit) : null);
+        Weapon8.Art ArrowArt8() => Rounded8(_arrowSprite != null ? Weapon8.ArtOf(_arrowSprite, bodyPpu / _arrowSprite.pixelsPerUnit) : null);
+        static Weapon8.Art Rounded8(Weapon8.Art a) { if (a != null) a.Shape = Weapon8.Form.Round; return a; }
+        /// <summary>How a weapon class's card takes its thickness (Weapon8.Depth).</summary>
+        static Weapon8.Form FormOf8(WeaponClass c) => c == WeaponClass.Disc ? Weapon8.Form.Disc : c == WeaponClass.Bow ? Weapon8.Form.Bow : Weapon8.Form.Sword;
         Sprite _held8Sprite;
         Weapon8.Kind _held8Kind;
 
@@ -318,9 +364,10 @@ namespace Convergence.Art.Gear
             if (ls == null) return null;
             bool bow = item.Class == WeaponClass.Bow;
             var kind = bow ? Weapon8.Kind.Bow
-                     : item.Class == WeaponClass.Disc ? (_discDraw < 0.5f ? Weapon8.Kind.DiscStowed : Weapon8.Kind.DiscWings)
+                     : item.Class == WeaponClass.Disc ? (_discDraw <= 0f ? Weapon8.Kind.DiscStowed : _discDraw >= 1f ? Weapon8.Kind.DiscWings : Weapon8.Kind.DiscDraw)
                      : Weapon8.Kind.Sword;
-            float ready = bow ? Mathf.Round(_bowReady8 * 8f) / 8f : 0f;   // eighths: each a cached picture
+            // eighths of the bow's ease, sixteenths of the discs' draw: each a cached picture
+            float ready = bow ? Mathf.Round(_bowReady8 * 8f) / 8f : kind == Weapon8.Kind.DiscDraw ? Mathf.Round(_discDraw * 16f) / 16f : 0f;
             float stowZ = Weapon8.StowDepthFor(Body8Art.SetOf(_lastLoadout.Get(GearSlot.Back)));
             if (_held8 != null && _held8Sprite == ls.Sprite && _held8Kind == kind && _held8.StowZ == stowZ && _held8.Ready == ready
                 && (_held8.Quiver != null) == (QuiverArt8() != null) && (_held8.Arrow != null) == (_arrowSprite != null)) return _held8;
@@ -328,6 +375,7 @@ namespace Convergence.Art.Gear
             float scale = ls.Size.x / Mathf.Max(1f, ls.Sprite.rect.width) * bodyPpu;
             var art = Weapon8.ArtOf(ls.Sprite, Mathf.Round(scale * 4f) / 4f);
             if (art == null) return null;
+            art.Shape = FormOf8(item.Class);
             _held8Sprite = ls.Sprite; _held8Kind = kind;
             _held8 = new Weapon8.Held { Art = art, Kind = kind, StowZ = stowZ, Ready = ready, Key = $"{item.ItemId}.{kind}.{stowZ:0.0}.{ready:0.000}" };
             if (bow)
@@ -385,6 +433,8 @@ namespace Convergence.Art.Gear
                 if (_layers.TryGetValue(l, out var hs) && hs != null) headTop = Mathf.Max(headTop, hs.sortingOrder);
             if (_helm8 != null) _helm8.sortingOrder = headTop + 1;
             if (_over8 != null) _over8.sortingOrder = headTop + 2;
+            PlaceGlows8(headTop + 3);
+            RecordArm8();
             _hidden8 ??= new System.Collections.Generic.HashSet<SpriteRenderer>();
             _srScratch ??= new System.Collections.Generic.List<SpriteRenderer>();
             bool swinging = Swinging8 && !_swing8Drawn;   // a swing drawn into the figure (phase 4) hides today's weapon too
@@ -401,7 +451,7 @@ namespace Convergence.Art.Gear
             GetComponentsInChildren(true, _srScratch);
             foreach (var sr in _srScratch)
             {
-                if (sr == _legs8 || sr == _helm8 || sr == _over8 || sr == _shadow || !sr.enabled) continue;
+                if (sr == _legs8 || sr == _helm8 || sr == _over8 || sr == _shadow || !sr.enabled || IsStone8(sr)) continue;
                 if (_layers.TryGetValue(RigLayer.Head, out var h) && sr == h) continue;
                 if (_layers.TryGetValue(RigLayer.HeadBack, out var hb) && sr == hb) continue;
                 if (_layers.TryGetValue(RigLayer.HairBack, out var hr) && sr == hr) continue;
@@ -445,6 +495,8 @@ namespace Convergence.Art.Gear
         void DrawSwing8()
         {
             _swing8Drawn = false;
+            _redraw8 ??= new System.Collections.Generic.List<Redraw8>();
+            _redraw8.Clear();
             if (!Body8On || _legs8 == null || !_legs8.enabled || !Swinging8 || _b8Gait == null) { DropSwing8(); return; }
             if (!_layers.TryGetValue(RigLayer.Weapon, out var weapon) || weapon == null) { DropSwing8(); return; }
 
@@ -457,7 +509,8 @@ namespace Convergence.Art.Gear
             // rig swings it from the shoulder, which facing the camera ran the blade across the neck (the user's report).
             // Drawing only - the hit is untouched. Overhead cuts and the bow keep the rig's height.
             float drop = Overhead8(_motion) || IsBowDraw(_motion) ? 0f : LevelSwingDrop;
-            Vector2 Tex(Vector3 world) { var l = transform.InverseTransformPoint(world); return new Vector2(sx * l.x * bodyPpu, (l.y - _b8Sole) * bodyPpu - drop); }
+            _r8Drop = drop; _r8Sx = sx;
+            Vector2 Tex(Vector3 world) => Tex8(world);
             Vector2 TexV(Vector3 worldV) { var l = transform.InverseTransformVector(worldV); return new Vector2(sx * l.x * bodyPpu, l.y * bodyPpu); }
             Vector3 At(Vector2 s, float z) => new Vector3(s.x, s.y + z * Locomotion8.DepthY, z);
 
@@ -479,6 +532,8 @@ namespace Convergence.Art.Gear
                 if (sr == null || sr.sprite == null || !shown) continue;
                 var art = Weapon8.ArtOf(sr.sprite, 1f);
                 if (art == null) { DropSwing8(); return; }     // unreadable art: today's flat weapon instead
+                art.Shape = role == 0 ? FormOf8(GearCatalog.Get(_lastLoadout?.Get(GearSlot.Weapon))?.Class ?? (bow ? WeaponClass.Bow : WeaponClass.Greatsword))
+                          : role == 1 ? Weapon8.Form.Disc : Weapon8.Form.Round;
                 float ppu = sr.sprite.pixelsPerUnit;
                 var S = Tex(sr.transform.position);
                 var U = TexV(sr.transform.TransformVector(Vector3.right / ppu)) * (sr.flipX ? -1f : 1f);
@@ -515,12 +570,25 @@ namespace Convergence.Art.Gear
                 // an arrow lies along the bow, so it goes with the bow hand
                 int follows = role == 1 ? 1 - mainHand : mainHand;
                 cards.Add(new Weapon8.Card { Art = art, O = At(S, z), U = U3, V = V3, FollowsHand = follows + 1 });
+                _redraw8.Add(new Redraw8 { Sr = sr, Card = cards.Count - 1, S0 = S, U2 = U, V2 = V });
                 if (role == 0) { hands[mainHand] = At(S, z); grip = S; gripZ = z; }
                 else if (role == 1) hands[1 - mainHand] = At(S, z);
                 else if (float.IsNaN(arrowZ)) arrowZ = z;
             }
             if (cards.Count == 0) { DropSwing8(); return; }
             if (!bow && !_split && _motion == Combat.AttackMotion.Sweep) DiagonalSweep8(cards, hands, f, r);
+            // where each held sprite is now drawn (the element pictures follow it, Redrawn8), and its element overlay
+            // laid over its card
+            for (int i = 0; i < _redraw8.Count; i++)
+            {
+                var m = _redraw8[i]; var cd = cards[m.Card];
+                m.O = cd.O; m.U3 = cd.U; m.V3 = cd.V; _redraw8[i] = m;
+                var ovT = m.Sr.transform.Find("element-overlay");
+                var ov = ovT != null ? ovT.GetComponent<SpriteRenderer>() : null;
+                if (ov == null || ov.sprite == null || ov.sprite.texture == null) continue;
+                var ovArt = Weapon8.ArtOf(ov.sprite, 1f, fresh: true);
+                if (ovArt != null) cards.Add(new Weapon8.Card { Art = ovArt, O = cd.O, U = cd.U, V = cd.V, FollowsHand = cd.FollowsHand, Blend = true });
+            }
             // the other hand where the rig has it: on the grip (a two-handed hold), on the arrow's nock (the draw), or
             // at its own shoulder's depth
             int other = 1 - mainHand;
@@ -535,7 +603,7 @@ namespace Convergence.Art.Gear
             var held = new Weapon8.Held { Art = cards[0].Art, Kind = Weapon8.Kind.Sword, Live = new Weapon8.Grip { Hand = hands, Cards = cards },
                                           Quiver = bow ? QuiverArt8() : null };
             var sprite = Body8.Draw(null, _b8Pose, _b8Gait, _b8Phase, _b8Size, _b8View, _b8Mirrored, _worn8, _worn8Strips,
-                                    Palette.Of(Palette.Undersuit), bodyPpu, held);
+                                    Palette.Of(Palette.Undersuit), bodyPpu, held, _extras8);
             DropSwing8();
             _swing8Sprite = sprite;
             _legs8.sprite = sprite;
@@ -601,12 +669,54 @@ namespace Convergence.Art.Gear
             hands[0] = grip; hands[1] = grip - dir * 6f;
         }
 
+        // ---- where a held sprite is drawn (the element pictures, Combat.ElementArtFx, ride the drawn weapon)
+
+        struct Redraw8 { public SpriteRenderer Sr; public int Card; public Vector2 S0, U2, V2; public Vector3 O, U3, V3; }
+        System.Collections.Generic.List<Redraw8> _redraw8;
+        float _r8Drop, _r8Sx = 1f;
+
+        /// <summary>A world point to the drawn frame's screen texels (x right, y up from the soles), as the swing reads it.</summary>
+        Vector2 Tex8(Vector3 world)
+        {
+            var l = transform.InverseTransformPoint(world);
+            return new Vector2(_r8Sx * l.x * bodyPpu, (l.y - _b8Sole) * bodyPpu - _r8Drop);
+        }
+
+        /// <summary>Is <paramref name="sr"/> (today's weapon, hidden) drawn into the eight-direction body this frame?</summary>
+        public bool Redrawn8(SpriteRenderer sr)
+        {
+            if (!_swing8Drawn || _redraw8 == null || sr == null) return false;
+            foreach (var m in _redraw8) if (m.Sr == sr) return true;
+            return false;
+        }
+
+        /// <summary>Where a point of <paramref name="sr"/> (today's world space) is drawn on the eight-direction body:
+        /// its place on the sprite found from today's picture, then that place on the card.</summary>
+        public bool Redrawn8(SpriteRenderer sr, Vector3 world, out Vector3 drawn)
+        {
+            drawn = world;
+            if (!_swing8Drawn || _redraw8 == null || sr == null || _legs8 == null) return false;
+            foreach (var m in _redraw8)
+            {
+                if (m.Sr != sr) continue;
+                var d = Tex8(world) - m.S0;
+                float det = m.U2.x * m.V2.y - m.U2.y * m.V2.x;
+                float a, b;
+                if (Mathf.Abs(det) > 1e-6f) { a = (d.x * m.V2.y - d.y * m.V2.x) / det; b = (m.U2.x * d.y - m.U2.y * d.x) / det; }
+                else { a = 0f; b = Vector2.Dot(d, m.V2) / Mathf.Max(1e-6f, m.V2.sqrMagnitude); }
+                var p = m.O + m.U3 * a + m.V3 * b;
+                drawn = transform.TransformPoint(new Vector3(_r8Sx * p.x / bodyPpu, _b8Sole + (p.y - p.z * Locomotion8.DepthY) / bodyPpu, 0f));
+                return true;
+            }
+            return false;
+        }
+
         /// <summary>The last swing frame's picture, destroyed (each is drawn once).</summary>
         void DropSwing8()
         {
             if (_swing8Over != null)
             {
-                if (_over8 != null) { _over8.sprite = null; _over8.enabled = false; }
+                if (_over8 != null && _over8.sprite == _swing8Over) { _over8.sprite = null; _over8.enabled = false; }
                 Destroy(_swing8Over.texture); Destroy(_swing8Over);
                 _swing8Over = null;
             }
@@ -614,6 +724,21 @@ namespace Convergence.Art.Gear
             if (_legs8 != null && _legs8.sprite == _swing8Sprite) _legs8.sprite = null;
             Destroy(_swing8Sprite.texture); Destroy(_swing8Sprite);
             _swing8Sprite = null;
+        }
+
+        Sprite _rest8Sprite, _rest8Over;
+
+        /// <summary>The last frame-only rest picture (Penumbra's echoes), destroyed once replaced.</summary>
+        void DropRest8()
+        {
+            if (_rest8Over != null)
+            {
+                if (_over8 != null && _over8.sprite == _rest8Over) _over8.sprite = null;
+                Destroy(_rest8Over.texture); Destroy(_rest8Over); _rest8Over = null;
+            }
+            if (_rest8Sprite == null) return;
+            if (_legs8 != null && _legs8.sprite == _rest8Sprite) _legs8.sprite = null;
+            Destroy(_rest8Sprite.texture); Destroy(_rest8Sprite); _rest8Sprite = null;
         }
 
         void Unhide8()

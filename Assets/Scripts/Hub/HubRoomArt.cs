@@ -116,15 +116,26 @@ namespace Convergence.Hub
                 }
                 default:
                 {
-                    int row = y / 7, off = (row % 2) * 6, col = (x + off) / 12;
-                    bool seam = y % 7 == 6 || (x + off) % 12 == 11;
-                    return seam ? Stone[5] : Mix(Stone[3], Stone[2], Hash(col, row) * 0.7f);
+                    // The Cloister, CALM (the user's pick, 2026-11-12): big flags in running bond, seams barely
+                    // darker than the stone, and a darker band round the walls (w > 0) framing the room.
+                    int row = y / 14, off = (row % 2) * 13, col = (x + off) / 26;
+                    bool seam = y % 14 == 13 || (x + off) % 26 == 25;
+                    var c = Mix(Mix(Stone[3], Stone[4], 0.30f), Mix(Stone[3], Stone[2], 0.2f), Hash(col, row, 1) * 0.55f);
+                    if (seam) c = Mix(c, Stone[5], 0.45f);
+                    else if (Hash(x, y, 7) > 0.97f) c = Mix(c, Stone[4], 0.5f);
+                    if (w > 0)
+                    {
+                        int edge = Mathf.Min(Mathf.Min(x, w - 1 - x), Mathf.Min(y, h - 1 - y));
+                        if (edge < 8) c = Mix(c, Stone[5], edge == 7 ? 0.55f : 0.32f);
+                    }
+                    return c;
                 }
             }
         }
 
-        /// <summary>The north wall's face at (x, y) - y counted DOWN from its top row, h its height.</summary>
-        public static Color32 Wall(HubTheme d, int x, int y, int h)
+        /// <summary>The north wall's face at (x, y) - y counted DOWN from its top row, h its height, w its width
+        /// (the Cloister's pilasters stand from its middle).</summary>
+        public static Color32 Wall(HubTheme d, int x, int y, int h, int w = 0)
         {
             if (y < 2) return Stone[4];   // the coping
             switch (d)
@@ -230,12 +241,15 @@ namespace Convergence.Hub
                 }
                 default:
                 {
-                    int ax = ((x % 32) + 32) % 32 - 16;
-                    bool arch = Mathf.Abs(ax) < 7 && y > 6 + Mathf.Max(0, Mathf.Abs(ax) - 3) * 0.8f && y < h - 1;
-                    if (arch) return y > h - 4 ? Stone[4] : C("#151318");
-                    if (Mathf.Abs(Mathf.Abs(ax) - 8) < 1) return Stone[1];
-                    int row = y / 4, off = (row % 2) * 5;
-                    return y % 4 == 3 || (x + off) % 10 == 9 ? Stone[5] : Mix(Stone[3], Stone[2], Hash((x + off) >> 3, row) * 0.6f);
+                    // The Cloister, CALM (the user's pick, 2026-11-12): plain dressed stone in long low courses, a
+                    // pilaster every four units from the room's middle (w), a dark plinth - a quiet wall to hang on.
+                    if (y == 2) return Stone[5];
+                    if (y >= h - 7) return y == h - 7 ? Stone[2] : Mix(Stone[4], Stone[5], 0.4f + (x % 18 == 0 ? 0.3f : 0f));
+                    int px = ((x - w / 2) % 112 + 112) % 112;
+                    if (px < 7) return px == 0 || px == 6 ? Stone[5] : px == 1 ? Stone[1] : Stone[2];
+                    int row = (y - 3) / 6, off = (row % 2) * 11;
+                    var c = Mix(Stone[3], Stone[2], 0.15f + Hash((x + off) / 22, row, 4) * 0.30f);
+                    return (y - 3) % 6 == 5 || (x + off) % 22 == 21 ? Mix(c, Stone[5], 0.40f) : c;
                 }
             }
         }
@@ -265,7 +279,7 @@ namespace Convergence.Hub
             return Build($"wall.{d}.{w}.{h}", w, h, new Vector2(0.5f, 0f), (x, y) =>
             {
                 if (y == 0) return K;
-                var c = Wall(d, x, h - 1 - y, h);
+                var c = Wall(d, x, h - 1 - y, h, w);
                 c.a = 255;
                 return c;
             });
@@ -275,8 +289,11 @@ namespace Convergence.Hub
         public static Sprite LoftTop(HubTheme d, float width, float height)
         {
             int w = Mathf.CeilToInt(width * HubArt.Ppu), h = Mathf.CeilToInt(height * HubArt.Ppu);
+            // The calm Cloister's flags are big: offset further and lit less, or the loft reads as more floor.
+            bool calm = d == HubTheme.Cloister;
             return Build($"lofttop.{d}.{w}.{h}", w, h, new Vector2(0.5f, 0.5f), (x, y) =>
-                x == 0 ? K : Mix(Floor(d, x + 7, y + 3), new Color32(255, 255, 255, 255), 0.14f));
+                x == 0 ? K : calm ? Mix(Floor(d, x + 13, y + 7), new Color32(255, 255, 255, 255), 0.10f)
+                               : Mix(Floor(d, x + 7, y + 3), new Color32(255, 255, 255, 255), 0.14f));
         }
 
         /// <summary>The loft's FRONT face (its riser), <paramref name="faceHeight"/> world units, in the
@@ -286,8 +303,10 @@ namespace Convergence.Hub
             int w = Mathf.CeilToInt(width * HubArt.Ppu), h = Mathf.Max(3, Mathf.CeilToInt(faceHeight * HubArt.Ppu));
             return Build($"loftface.{d}.{w}.{h}", w, h, new Vector2(0.5f, 1f), (x, y) =>
             {
-                if (y == h - 1) return Stone[0];
+                if (y == h - 1) return d == HubTheme.Cloister ? Stone[1] : Stone[0];
                 if (y == 0 || x == 0) return K;
+                // The calm Cloister's riser is plain dark stone with its joints.
+                if (d == HubTheme.Cloister) return Mix(Stone[4], Stone[5], 0.3f + (x % 22 == 21 ? 0.3f : 0f));
                 return Mix(Wall(d, x, 4 + (h - 1 - y) * 2, 40), new Color32(0, 0, 0, 255), 0.25f);
             });
         }

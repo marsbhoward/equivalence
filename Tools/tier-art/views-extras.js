@@ -238,6 +238,7 @@ function bandolier3d(w, st = ACC_ST) {
     const px = 31 + (10 - 31) * s, py = 31 + 32 * s, cx = Math.round(px), top = Math.round(py) - 4;
     const x = cx - 19, yb = Y(top + 9) - 0.5, zs = frontZ(shell, x, yb + 5) ?? 9;
     out.push(...phial3d(x, yb, zs + 1.9 + 1.6, st, i));
+    if (globalThis.LIVE8) LIVE8.phials[i] = [x, yb, zs + 1.9 + 1.6];   // bake8x: drawn live in the game (they empty)
   });
   const bx = BX(26.5), by = Y(61.5), bz = backZ(shell, bx, by) ?? -9;
   out.push({ piece: 'buckle', outR: 4, sdf: p => sdRoundBox(p, v3(bx, by, bz - 1.6), v3(2, 2, 0.8), 0.3), color: (p, n) => tone(M.bronze, p.y > by + 1.2 ? 5 : shadeBy(n, 3)) });
@@ -251,6 +252,7 @@ function harness3d(w, st = ACC_ST) {
   const shell = wearerShell(w, false), liq = liquid(st);
   const out = [-1, 1].map(s => strapOn(shell, [s * 10.5, Y(31)], [-s * 11.5, Y(62)], 3, M.leather, p => 60 - p.y, 'harness' + (s > 0 ? 'L' : 'R')));
   const cx = 0.5, cy = Y(47), R = 5, zf = (frontZ(shell, cx, cy) ?? 9) + 1.8 + R - 1.2;
+  if (globalThis.LIVE8) LIVE8.flask = [cx, cy, zf, R];
   const bulb = p => sdEllipsoid(p, v3(cx, cy, zf), v3(R, R, R));
   const neck = p => sdTube(p, cx, zf, cy + R - 1, cy + R + 2.5, 1.05, 1.05, 0.4), collarS = p => sdTube(p, cx, zf, cy + R + 0.6, cy + R + 1.6, 2.05, 2.05, 0.4);
   const cork = p => sdTube(p, cx, zf, cy + R + 2.5, cy + R + 4.5, 1.05, 1.05, 0.5);
@@ -386,6 +388,7 @@ function banner3d(w, st = ACC_ST) {
 function hourglass3d(w, st = ACC_ST) {
   const shellC = wearerShell(w, true), shell = wearerShell(w, false), f = st.run;
   const zb = Math.min(backZ(shellC, 0, Y(48)) ?? -9, backZ(shellC, 0, Y(36)) ?? -9), cz = zb - 7.6;
+  if (globalThis.LIVE8) LIVE8.hourglass = cz;
   const top = 32, H = 34, yT = Y(top) , yB = Y(top + H) ;     // the frame from y 103 to 69
   const out = [];
   const frame = p => Math.min(sdRoundBox(p, v3(0, yT - 1.5, cz), v3(10, 1.5, 7), 0.5), sdRoundBox(p, v3(0, yB + 1.5, cz), v3(10, 1.5, 7), 0.5),

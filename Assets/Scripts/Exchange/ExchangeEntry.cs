@@ -47,9 +47,6 @@ namespace Convergence.Exchange
     /// </summary>
     public enum EntryOrigin { Base, Albedo, Conjunction, Putrefaction, Citrinitas, Union, Evolution }
 
-    /// <summary>How auto-target chooses, when a cost or an Albedo overrides it.</summary>
-    public enum TargetMode { Normal, Random, Weakest }
-
     /// <summary>
     /// Everything the run's ledger does to the player, accumulated across every stack of every
     /// entry held - recomputed when the ledger changes, read every frame.
@@ -203,9 +200,9 @@ namespace Convergence.Exchange
 
         public float DefenseCooldownMul = 1f;
 
-        /// <summary>How eagerly auto-target leaves its target for a better one.</summary>
-        public float SwitchAdvantageDelta;
-        public TargetMode Targeting = TargetMode.Normal;
+        /// <summary>Wandering Eye: the lock breaks when you are hit (I), and when you use your
+        /// defensive ability (II); Blind Rage (III) - no lock at all (PlayerTargeting).</summary>
+        public bool LockBreaksOnHit, LockBreaksOnDefense, NoLock;
 
         /// <summary>Strength enemy attack telegraphs are drawn at (Murk).</summary>
         public float TelegraphStrength = 1f;

@@ -67,16 +67,21 @@ namespace Convergence.Art.Gear
         public struct Leg { public Vector3 Hip, Knee, AnkleJoint, Heel, Toe; public int Side; }
         public struct Pose { public Leg A, B; public float HipY, Lean; public Vector3 Forward, Right; }
 
+        /// <summary>A swing's body on the legs (PrimitiveCharacterRig.Body's SwingBody, in texels): the hips dropped,
+        /// the left foot forward and the right back along the facing (the split stance), the right foot also held where it
+        /// stood while the figure steps (<see cref="Hold"/>, on the ground), and the torso's extra lean (forward +).</summary>
+        public struct Stance { public float Crouch, Front, Lean; public Vector3 Hold; }
+
         /// <summary>The legs at <paramref name="phase"/> (0..1) of <paramref name="g"/>, facing <paramref name="facingDeg"/>;
         /// <paramref name="size"/> 0..1 scales the stride (0 = standing).</summary>
-        public static Pose PoseAt(float facingDeg, Gait g, float phase, float size)
+        public static Pose PoseAt(float facingDeg, Gait g, float phase, float size, Stance st = default)
         {
             float a = facingDeg * Mathf.Deg2Rad;
             var f = new Vector3(Mathf.Cos(a), 0f, -Mathf.Sin(a));          // up the screen = away from the camera = -z
             var r = new Vector3(-f.z, 0f, f.x);                              // the body's right (the mock's convention)
             float stand = Thigh + Shin;
-            float hipY = Ankle + Mathf.Lerp(stand, g.Base + g.Height(phase), size);
-            var pose = new Pose { HipY = hipY, Lean = g.Lean * size, Forward = f, Right = r };
+            float hipY = Ankle + Mathf.Lerp(stand, g.Base + g.Height(phase), size) - st.Crouch;
+            var pose = new Pose { HipY = hipY, Lean = g.Lean * size + st.Lean, Forward = f, Right = r };
             for (int n = 0; n < 2; n++)
             {
                 int side = n == 0 ? 1 : -1;
@@ -86,6 +91,8 @@ namespace Convergence.Art.Gear
                 float drop = g.HipDrop * size * Mathf.Max(0f, Mathf.Sin(2f * Mathf.PI * (p - 0.6f)));
                 var hip = new Vector3(0f, hipY - drop, 0f) + r * (side * HipWidth);
                 var ankle = new Vector3(hip.x, Ankle + lift * stand, hip.z) + f * (fw * stand);
+                // the swing's stance: the left foot forward, the right back and held where it stood
+                ankle += side < 0 ? f * st.Front : -f * st.Front + st.Hold;
                 var v = ankle - hip; float d = v.magnitude;
                 if (d > Thigh + Shin - 0.01f) { v *= (Thigh + Shin - 0.01f) / d; ankle = hip + v; d = Thigh + Shin - 0.01f; }
                 float vf = Vector3.Dot(v, f), vu = v.y;

@@ -174,6 +174,13 @@ namespace Convergence.Core
         public static readonly System.Collections.Generic.List<Vector2> FreeTaps = new();
 
         /// <summary>
+        /// Screen points TAPPED on the world this frame: a free finger landing, or a quick still tap where
+        /// the stick would start (TouchControls) - so an enemy anywhere on the screen can be tapped to lock.
+        /// Cleared each frame with <see cref="FreeTaps"/>.
+        /// </summary>
+        public static readonly System.Collections.Generic.List<Vector2> WorldTaps = new();
+
+        /// <summary>
         /// Where an unclaimed finger currently IS, or null when none is down.
         ///
         /// Separate from <see cref="FreeTaps"/>, which only ever holds fingers that went down
@@ -321,6 +328,8 @@ namespace Convergence.Core
         static bool _phial, _phialPrev;
         static bool _pagePrev, _pagePrevPrev, _pageNext, _pageNextPrev;
         static bool _menu, _menuPrev;
+        static bool _lock, _lockPrev, _flickArmed = true;
+        static Vector2? _lockPoint, _flick;
         static bool _inventory, _inventoryPrev;
         static bool _settingsMenu, _settingsMenuPrev;
         static Vector2 _move;
@@ -563,7 +572,7 @@ namespace Convergence.Core
                 || pad.buttonEast.isPressed || pad.buttonWest.isPressed
                 || pad.leftShoulder.isPressed || pad.rightShoulder.isPressed
                 || pad.leftTrigger.isPressed || pad.rightTrigger.isPressed
-                || pad.startButton.isPressed || pad.selectButton.isPressed
+                || pad.startButton.isPressed || pad.selectButton.isPressed || pad.rightStickButton.isPressed
                 || pad.dpad.up.isPressed || pad.dpad.down.isPressed
                 || pad.dpad.left.isPressed || pad.dpad.right.isPressed;
         }
@@ -688,8 +697,9 @@ namespace Convergence.Core
 
             // Start is fixed, like Select below: the loadout in the hub, and (through MenuTapped)
             // the pause menu in a run.
+            // Not Tab since 2026-11-12: Tab is the lock (below).
             Edge(ref _loadout, ref _loadoutPrev,
-                 (kb != null && (kb.cKey.isPressed || kb.tabKey.isPressed))
+                 (kb != null && kb.cKey.isPressed)
                  || (pad != null && pad.startButton.isPressed)
                  || VirtualLoadout);
 
@@ -697,9 +707,27 @@ namespace Convergence.Core
             // Not the pad's Cancel - B is the defensive ability in a fight, and backing out of a
             // menu must not be the same button that opens one.
             Edge(ref _menu, ref _menuPrev,
-                 (kb != null && (kb.escapeKey.isPressed || kb.cKey.isPressed || kb.tabKey.isPressed))
+                 (kb != null && (kb.escapeKey.isPressed || kb.cKey.isPressed))
                  || (pad != null && pad.startButton.isPressed)
                  || VirtualCancel || VirtualLoadout);
+
+            // THE LOCK (the user's call, 2026-11-12): Tab, or R3 - fixed, like Start. The cursor names
+            // the enemy (LockPointScreen); with none, PlayerTargeting takes the one nearest the aim.
+            Edge(ref _lock, ref _lockPrev,
+                 (kb != null && kb.tabKey.isPressed) || (pad != null && pad.rightStickButton.isPressed));
+            _lockPoint = !_touchMode && !_gamepadMode && mouse != null && !ghost
+                ? mouse.position.ReadValue() : (Vector2?)null;
+
+            // A FLICK of the right stick: it passes FlickThreshold from below FlickRearm. Moves a held lock.
+            _flick = null;
+            if (pad != null)
+            {
+                var rs = pad.rightStick.ReadValue();
+                float m = rs.magnitude;
+                if (m < Tuning.Targeting.FlickRearm) _flickArmed = true;
+                else if (_flickArmed && m > Tuning.Targeting.FlickThreshold) { _flick = rs / m; _flickArmed = false; }
+                if (Time.frameCount - _artHeldFrame <= 1) _flick = null;   // the stick is aiming a held art
+            }
 
             // Keyboard only. A gamepad's A used to be Confirm too, and that is what made two-answer
             // dialogs unanswerable on a pad: A confirmed the destructive answer whichever button
@@ -988,6 +1016,16 @@ namespace Convergence.Core
         public static bool InteractTapped { get { Sync(); return _interact && !_interactPrev; } }
         public static bool CancelTapped { get { Sync(); return _cancel && !_cancelPrev; } }
         public static bool LoadoutTapped { get { Sync(); return _loadout && !_loadoutPrev; } }
+
+        /// <summary>Make, move or let go of the lock: Tab, or R3 (PlayerTargeting).</summary>
+        public static bool LockTapped { get { Sync(); return _lock && !_lockPrev; } }
+
+        /// <summary>The mouse's screen point when a mouse is the device - the enemy under it is the one Tab
+        /// locks. Null on a pad or touch.</summary>
+        public static Vector2? LockPointScreen { get { Sync(); return _lockPoint; } }
+
+        /// <summary>The right stick's flick direction, the frame it is flicked, else null.</summary>
+        public static Vector2? LockFlick { get { Sync(); return _flick; } }
         public static bool ConfirmTapped { get { Sync(); return _confirm && !_confirmPrev; } }
         public static bool MasteryTapped { get { Sync(); return _mastery && !_masteryPrev; } }
 
@@ -1030,7 +1068,7 @@ namespace Convergence.Core
         /// <summary>Drink from the phial: F, the pad's D-pad down (fixed, like the hub's turns), touch PHIAL.</summary>
         public static bool PhialTapped { get { Sync(); return _phial && !_phialPrev; } }
 
-        /// <summary>Opens the run's pause menu - Escape, C/Tab, Start, or the overlay's MENU/GEAR.
+        /// <summary>Opens the run's pause menu - Escape, C, Start, or the overlay's MENU/GEAR.
         /// Deliberately not the pad's Cancel; see the field.</summary>
         public static bool MenuTapped { get { Sync(); return _menu && !_menuPrev; } }
 

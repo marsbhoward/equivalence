@@ -134,6 +134,8 @@ namespace Convergence.Enemies
         SpriteRenderer _telegraphSr;
         /// <summary>A shot's aim tell, texel-drawn (Combat.TellLine) - the Stinger's line, the Brute's rubble.</summary>
         TellLine _tellLine;
+        /// <summary>A Heart's blast or a Salamander's flame, drawn on the floor through its wind-up.</summary>
+        BlastTell _groundTell;
 
         /// <summary>
         /// How strongly every enemy's attack telegraph is drawn - 1, or less under the run's Murk
@@ -1687,6 +1689,8 @@ namespace Convergence.Enemies
         {
             _telegraphTimer = 0f;
             _rubbleTell = false;
+            if (_groundTell != null) Destroy(_groundTell.gameObject);
+            _groundTell = null;
             if (_telegraphVisual != null) Destroy(_telegraphVisual);
             _telegraphVisual = null;
             _telegraphSr = null;
@@ -1887,17 +1891,25 @@ namespace Convergence.Enemies
             // THE BODY IS THE TELL (the user's sign-off): the Salamander rears to lob and crouches
             // to breathe fire. The flame's wind-up also shows a few licks of fire along its aim, so
             // the way it is about to burn reads from above.
+            // The cone it will burn is drawn on the floor through the wind-up, filling out from the
+            // body to its dotted edge (the user's call, 2026-11-12) - the way out is to its side.
             if (action == MortarAction.Flame)
             {
                 if (_flame == null) _flame = MortarFlame.Create(FlameReach);
                 _flame.Tell = true;
+                _groundTell = BlastTell.Cone(transform, Vector2.zero, FlameReach, Tuning.Enemy.MortarFlameHalfAngle, MortarArt.Accent[2]);
+                _groundTell.Aim(_flameDir);
             }
             UpdateMortarTelegraphVisual();
         }
 
         void UpdateMortarTelegraphVisual()
         {
-            if (_mortarAction == MortarAction.Flame) PlaceFlame();
+            if (_mortarAction != MortarAction.Flame) return;
+            float k = 1f - Mathf.Clamp01(_telegraphTimer / Tuning.Enemy.MortarFlameWindup);
+            if (_flame != null) _flame.Progress = k;
+            if (_groundTell != null) _groundTell.Progress = k;
+            PlaceFlame();
         }
 
         void ResolveMortarWindup()
@@ -2089,6 +2101,7 @@ namespace Convergence.Enemies
                 if (_targetHealth == null || _targetHealth.IsDead) { CancelTelegraph(); return; }
 
                 _telegraphTimer -= dt;
+                if (_groundTell != null) _groundTell.Progress = TelegraphProgress01;
                 if (_telegraphTimer <= 0f)
                 {
                     if (_bombArming) Explode();
@@ -2130,6 +2143,8 @@ namespace Convergence.Enemies
             Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Hissing, transform.position);
             _bombArming = true;
             _telegraphTimer = TelegraphDuration;
+            // The blast on the floor: a point under the heart filling out to its dotted edge.
+            _groundTell = BlastTell.Circle(transform, Vector2.zero, AttackRange, BombFuse.BombTellColour);
         }
 
         void BeginBombSweep()
@@ -2203,56 +2218,95 @@ namespace Convergence.Enemies
         /// </summary>
         void Explode()
         {
-            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Explosion, transform.position);
+            _bombBlowing = true;
             CancelTelegraph();
             _health.Kill();
         }
 
+        /// <summary>Set by <see cref="Explode"/>: this death is the arming running out, already
+        /// told on the floor, so it goes off at once. Any other death lights a fuse.</summary>
+        bool _bombBlowing;
+
         /// <summary>
-        /// The actual blast: damage if the target is still standing in it, a visual regardless.
-        /// Reached from BOTH triggers - the timer (via Explode -> Health.Kill -> Died) and being
-        /// killed by the player's own hit (Died firing directly) - so this is the one place either
-        /// path ends up.
+        /// The Heart died. Its own arming running out goes off at once - the floor already showed
+        /// it. Any other death (the player's hit, a burn) LIGHTS A FUSE (the user's call,
+        /// 2026-11-12): it used to go off on the frame it died, with no tell at all. The body is
+        /// gone this frame, so the fuse is its own object (<see cref="BombFuse"/>) - the heart
+        /// white-hot where it died and the blast's ring filling - and the blast comes from it.
+        /// An arming cut short carries on from where its ring had got to.
         /// </summary>
         void DoExplosion()
         {
-            if (_targetHealth != null && !_targetHealth.IsDead)
+            var blast = new BombBlast
             {
-                float dist = Vector2.Distance(transform.position, _target.position);
-                if (dist <= AttackRange &&
-                    !Spire.BubbleSeparates(transform.position, _target.position) &&
-                    (_targetController == null || !_targetController.TryParry(transform.position)))
+                At = transform.position, Parent = transform.parent, Target = _target, TargetHealth = _targetHealth,
+                TargetController = _targetController, Damage = Damage, Range = AttackRange, Knockback = AttackKnockback,
+                Cluster = ElitePattern == ElitePattern.Cluster, Kind = Kind, Source = gameObject,
+            };
+            if (_bombBlowing) { Blast(blast); return; }
+
+            bool arming = BombArming;
+            float from = arming ? TelegraphProgress01 : 0f;
+            float seconds = arming ? TelegraphRemaining : Tuning.Enemy.BombDeathFuseSeconds;
+            var visual = GetComponentInChildren<BombVisual>();
+            BombFuse.Light(blast, visual, from, seconds);
+        }
+
+        /// <summary>A Brimstone Heart's blast, taken down from its body so a fuse can set it off
+        /// after the body is gone.</summary>
+        internal struct BombBlast
+        {
+            public Vector2 At;
+            public Transform Parent, Target;
+            public Health TargetHealth;
+            public Player.PlayerController TargetController;
+            public float Damage, Range, Knockback;
+            public bool Cluster;
+            public EnemyKind Kind;
+            public GameObject Source;
+        }
+
+        /// <summary>
+        /// The actual blast: damage if the target is still standing in it, a visual regardless.
+        /// The one place the Heart's explosion happens, from the arming or from a death's fuse.
+        /// </summary>
+        internal static void Blast(in BombBlast b)
+        {
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Explosion, b.At);
+            if (b.TargetHealth != null && !b.TargetHealth.IsDead && b.Target != null)
+            {
+                float dist = Vector2.Distance(b.At, b.Target.position);
+                if (dist <= b.Range &&
+                    !Spire.BubbleSeparates(b.At, b.Target.position) &&
+                    (b.TargetController == null || !b.TargetController.TryParry(b.At)))
                 {
-                    var dir = ((Vector2)_target.position - (Vector2)transform.position).normalized;
-                    _targetHealth.Take(new DamageInfo(Damage, ElementType.Fire, gameObject)
+                    var dir = ((Vector2)b.Target.position - b.At).normalized;
+                    b.TargetHealth.Take(new DamageInfo(b.Damage, ElementType.Fire, b.Source)
                     {
-                        Knockback = dir * AttackKnockback,
+                        Knockback = dir * b.Knockback,
                     });
                 }
             }
 
             // A hard ring of fire out to the blast's edge, grit thrown up behind it (the user's pick).
-            TexelFx.Shock(transform.position, TexelFx.Fire, TexelFx.Grey, AttackRange);
-            FightMarks.Scorch(transform.position, AttackRange);
+            TexelFx.Shock(b.At, TexelFx.Fire, TexelFx.Grey, b.Range);
+            FightMarks.Scorch(b.At, b.Range);
             // The shell comes apart (the user's call): its plates fly loose.
-            ShellBurst.Spawn(transform.position, BombArt.Plate(EnemyLooks.Of(Kind)), transform.parent);
+            ShellBurst.Spawn(b.At, BombArt.Plate(EnemyLooks.Of(b.Kind)), b.Parent);
 
             // ELITE - Cluster: the blast leaves delayed shards where it stood, so the space it
-            // denied stays denied for a moment after the body is gone.
-            //
-            // SPAWNED AS THEIR OWN OBJECTS, not scheduled on this one: the bomb is mid-Died and is
-            // about to be destroyed, so an Invoke here would be cancelled before it ever fired.
-            if (ElitePattern == ElitePattern.Cluster && _target != null)
+            // denied stays denied for a moment after the body is gone. Their own objects - the
+            // body is gone, or about to be.
+            if (b.Cluster && b.Target != null)
                 for (int i = 0; i < Tuning.Enemy.ClusterShards; i++)
                 {
                     float ang = (i / (float)Tuning.Enemy.ClusterShards) * Mathf.PI * 2f
                               + Random.value * 0.6f;
-                    var at = (Vector2)transform.position
-                           + new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * Tuning.Enemy.ClusterScatter;
+                    var at = b.At + new Vector2(Mathf.Cos(ang), Mathf.Sin(ang)) * Tuning.Enemy.ClusterScatter;
                     // Each shard is one of the elite's orbiting motes, flung out from the heart.
-                    ClusterShard.Spawn(Core.Arena.NearestFloor(at, 0.4f), transform.parent, _target,
-                                       Damage * Tuning.Enemy.ClusterDamageFraction,
-                                       transform.position, BombArt.Mote(EnemyLooks.Of(Kind)));
+                    ClusterShard.Spawn(Core.Arena.NearestFloor(at, 0.4f), b.Parent, b.Target,
+                                       b.Damage * Tuning.Enemy.ClusterDamageFraction,
+                                       b.At, BombArt.Mote(EnemyLooks.Of(b.Kind)));
                 }
         }
 

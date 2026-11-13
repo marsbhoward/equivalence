@@ -33,9 +33,38 @@ namespace Convergence.Art.Gear
             public bool Suit;                       // drawn in the undersuit's ramp ('k'..'h'), not its own colours
             public Dictionary<char, Color> Palette;
             public View[] Views, Mirror;            // Mirror: the piece's mirror image, what it shows facing left (null = the same)
+            /// <summary>An extra (Body8Art.Extras.cs): sorts this much nearer than its mean depth (the mock's depthBias).</summary>
+            public float DepthBias;
+            /// <summary>An accessory: what of it lies in front of the head goes on the overlay above the head sprite.</summary>
+            public bool OverHead;
+            /// <summary>Drawn this far further back (texels, along the facing): the hourglass hung on a pack's back face
+            /// rather than the cape it was baked against.</summary>
+            public float PushBack;
+            /// <summary>Palette chars that are a ROLE's tone (the item's own colours), resolved per worn item
+            /// (<see cref="Resolved"/>); null when every colour is fixed.</summary>
+            public Dictionary<char, (string role, int tone)> Roles;
+
+            /// <summary>This piece with its roles' colours filled in from <paramref name="ramp"/> (role -> six tones,
+            /// line .. glow), or itself when it has none.</summary>
+            public Piece Resolved(System.Func<string, Color[]> ramp)
+            {
+                if (Roles == null) return this;
+                var pal = new Dictionary<char, Color>(Palette);
+                foreach (var kv in Roles) { var t = ramp(kv.Value.role); if (t != null) pal[kv.Key] = t[Mathf.Clamp(kv.Value.tone, 0, 5)]; }
+                return Recoloured(pal);
+            }
 
             /// <summary>A cape: trails behind the stride (Body8). The bedroll and the pack hang still, as today's do.</summary>
             public bool Trails => Slot == GearSlot.Back && Name == "cape";
+
+            /// <summary>This piece drawn <paramref name="back"/> texels further back (<see cref="PushBack"/>).</summary>
+            public Piece Pushed(float back)
+            {
+                if (back == 0f) return this;
+                var p = (Piece)MemberwiseClone();
+                p.PushBack = back;
+                return p;
+            }
 
             /// <summary>This piece in other colours (a dye): the same pictures, <paramref name="palette"/>.</summary>
             public Piece Recoloured(Dictionary<char, Color> palette)
@@ -63,6 +92,15 @@ namespace Convergence.Art.Gear
             public int OutR;
             public Dictionary<char, Color> Palette;
             public StripView[] Views;
+            public Dictionary<char, (string role, int tone)> Roles;
+
+            public Strip Resolved(System.Func<string, Color[]> ramp)
+            {
+                if (Roles == null) return this;
+                var pal = new Dictionary<char, Color>(Palette);
+                foreach (var kv in Roles) { var t = ramp(kv.Value.role); if (t != null) pal[kv.Key] = t[Mathf.Clamp(kv.Value.tone, 0, 5)]; }
+                return Recoloured(pal);
+            }
 
             public Strip Recoloured(Dictionary<char, Color> palette)
             {
@@ -109,7 +147,7 @@ namespace Convergence.Art.Gear
         {
             get
             {
-                if (_all == null) { _all = new List<Piece>(); _strips = new List<Strip>(); Bake(); }
+                if (_all == null) { _all = new List<Piece>(); _strips = new List<Strip>(); Bake(); BakeExtras(); }
                 return _all;
             }
         }
@@ -121,12 +159,15 @@ namespace Convergence.Art.Gear
                 if (p.Set == set && p.Slot == slot) yield return p;
         }
 
-        /// <summary>The set a worn look belongs to ("tier_hoplite_torso@dye..." -> "hoplite"), or null.</summary>
+        /// <summary>The set a worn look belongs to ("tier_hoplite_torso@dye..." -> "hoplite"), or null. A rolled
+        /// copy ("KIT-Head-...") wears its design's look, so it is followed to that design.</summary>
         public static string SetOf(string itemId)
         {
-            if (string.IsNullOrEmpty(itemId) || !itemId.StartsWith("tier_")) return null;
+            if (string.IsNullOrEmpty(itemId)) return null;
             int at = itemId.IndexOf('@');
             string id = at >= 0 ? itemId.Substring(0, at) : itemId;
+            if (!id.StartsWith("tier_")) id = GearCatalog.Get(id)?.DesignId;
+            if (id == null || !id.StartsWith("tier_")) return null;
             int end = id.IndexOf('_', 5);
             return end > 5 ? id.Substring(5, end - 5) : null;
         }
@@ -152,6 +193,42 @@ namespace Convergence.Art.Gear
             foreach (var entry in pal.Split(' '))
                 if (entry.Length == 7 && ColorUtility.TryParseHtmlString("#" + entry.Substring(1), out var c))
                     strip.Palette[entry[0]] = c;
+            _strips.Add(strip);
+        }
+
+        /// <summary>A palette string's entries: "aB17C53" a colour, "a@scarf3" a role's tone.</summary>
+        static Dictionary<char, (string, int)> ParsePalette(string pal, Dictionary<char, Color> colours)
+        {
+            Dictionary<char, (string, int)> roles = null;
+            foreach (var entry in pal.Split(' '))
+            {
+                if (entry.Length >= 4 && entry[1] == '@')
+                {
+                    roles ??= new Dictionary<char, (string, int)>();
+                    roles[entry[0]] = (entry.Substring(2, entry.Length - 3), entry[entry.Length - 1] - '0');
+                    colours[entry[0]] = Color.magenta;   // until resolved
+                }
+                else if (entry.Length == 7 && ColorUtility.TryParseHtmlString("#" + entry.Substring(1), out var c))
+                    colours[entry[0]] = c;
+            }
+            return roles;
+        }
+
+        /// <summary>An extra (bake8x.js): a piece with a depth bias, the over-the-head rule and role colours.</summary>
+        static void AddX(string set, GearSlot slot, string name, int outR, float depthBias, bool overHead, string pal, View[] views, View[] mirror)
+        {
+            var piece = new Piece { Set = set, Slot = slot, Name = name, OutR = outR, Views = views, Mirror = mirror,
+                                    DepthBias = depthBias, OverHead = overHead, Palette = new Dictionary<char, Color>() };
+            piece.Roles = ParsePalette(pal, piece.Palette);
+            _all.Add(piece);
+        }
+
+        static void AddStripX(string set, GearSlot slot, string name, Limb8 limb, float t0, float t1, int outR, string pal,
+                              StripView front, StripView side, StripView back)
+        {
+            var strip = new Strip { Set = set, Slot = slot, Name = name, Limb = limb, T0 = t0, T1 = t1, OutR = outR,
+                                    Views = new[] { front, side, back }, Palette = new Dictionary<char, Color>() };
+            strip.Roles = ParsePalette(pal, strip.Palette);
             _strips.Add(strip);
         }
 

@@ -7,13 +7,21 @@ using Convergence.Enemies;
 namespace Convergence.Player
 {
     /// <summary>
-    /// Picks the enemy the character faces and attacks.
+    /// The enemy the character's attacks go at: the LOCK when one is held, else the SOFT ASSIST
+    /// (the user's calls, 2026-11-12 - lock-on replaces auto-target).
     ///
-    /// Targeting is STICKY rather than strictly nearest-every-frame. Two enemies at almost the
-    /// same distance would otherwise make the character flip back and forth every frame, which
-    /// looks broken and makes the attack arc miss both. So the current target is kept until it
-    /// dies, leaves <see cref="DropRange"/>, or another enemy becomes decisively closer
-    /// (<see cref="SwitchAdvantage"/>).
+    /// THE LOCK is the player's: Tab (the enemy under the cursor), R3 (the one nearest the aim or the
+    /// facing), or a tap on an enemy makes it; the same again lets it go; a flick of the right stick
+    /// moves it to the next enemy that way. It holds the character's facing (PlayerController) and
+    /// survives walls; a kill moves it to the nearest enemy in range, and it drops past <see cref="Drop"/>.
+    /// Its ranges are auto-target's, per weapon (the user's call, 2026-11-12): made within the weapon's
+    /// engagement reach plus AcquireMargin, plus LockExtra (half a dash, 2026-11-12), dropped DropMargin past that. Wandering Eye breaks it on a hit (I) and a defensive ability
+    /// (II); Blind Rage (III) allows none.
+    ///
+    /// THE ASSIST, with no lock: the enemy in reach within AssistConeDegrees of the aim (or the facing),
+    /// not behind a wall. Nothing holds it between swings - a swing turns to it as it starts
+    /// (PlayerController.DoAttack), and everything that reads <see cref="Target"/> (throws, arts, the rim)
+    /// goes at it.
     /// </summary>
     public class PlayerTargeting : MonoBehaviour
     {
@@ -30,14 +38,6 @@ namespace Convergence.Player
 
         [Tooltip("Fallback acquire distance when AcquireWithinReach is off.")]
         public float AcquireRange = Tuning.Targeting.AcquireRange;
-
-        [Tooltip("How far past the acquire distance a held target may drift before it is " +
-                 "dropped, in world units. Above zero, or a target sitting exactly on the " +
-                 "boundary flickers in and out every frame.")]
-        public float DropMargin = Tuning.Targeting.DropMargin;
-
-        [Tooltip("Unused while AcquireWithinReach is on - kept for the fixed-range fallback.")]
-        public float DropRange = Tuning.Targeting.DropRange;
 
         /// <summary>
         /// Resolved lazily: the factory adds this component before the controller, so capturing
@@ -67,9 +67,6 @@ namespace Convergence.Player
             ? Player.AcquireReach + Mathf.Max(0f, AcquireMargin)
             : AcquireRange;
 
-        /// <summary>Hysteresis band: always wider than <see cref="Acquire"/>, never equal to it.</summary>
-        float Drop => AcquireWithinReach ? Acquire + Mathf.Max(0.05f, DropMargin) : DropRange;
-
         /// <summary>
         /// The distance a lock can actually be made at right now, for anything drawing it.
         /// Published because <c>AcquireRange</c> is only the fallback and reading that field
@@ -77,168 +74,207 @@ namespace Convergence.Player
         /// </summary>
         public float AcquireRadius => Acquire;
 
-        [Tooltip("A rival must be this fraction of the current target's distance to steal focus. " +
-                 "1 = switch to any closer enemy (jittery); lower = stickier.")]
-        [Range(0.1f, 1f)] public float SwitchAdvantage = Tuning.Targeting.SwitchAdvantage;
+        /// <summary>A held lock drops past this: always wider than <see cref="Acquire"/>, or a target sitting
+        /// on the edge flickers in and out.</summary>
+        float Drop => LockReach + Mathf.Max(0.05f, Tuning.Targeting.DropMargin);
 
-        /// <summary>The run's ledger. Wandering Eye loosens the stickiness below.</summary>
+        /// <summary>How far a lock can be made: the assist's reach plus Tuning.Targeting.LockExtra (half a dash).</summary>
+        float LockReach => Acquire + Tuning.Targeting.LockExtra;
+
+        /// <summary>The run's ledger: Wandering Eye.</summary>
         public System.Func<Exchange.Mods> ModsSource;
         static readonly Exchange.Mods NoMods = new();
         Exchange.Mods Mods => ModsSource?.Invoke() ?? NoMods;
 
-        /// <summary>
-        /// Stickiness in play. Higher means a rival steals focus more easily, so Wandering Eye
-        /// ADDS to it. Clamped below 1: at 1 every closer enemy takes the lock and the character
-        /// flickers between two equidistant bodies every frame, which is the exact failure this
-        /// whole mechanism exists to prevent.
-        /// </summary>
-        float CurrentSwitchAdvantage
-            => Mathf.Clamp(SwitchAdvantage + Mods.SwitchAdvantageDelta, 0.1f, 0.98f);
+        /// <summary>The lock (the player's choice), or null.</summary>
+        public Health Locked { get; private set; }
 
-        public Health Target { get; private set; }
+        /// <summary>With no lock: the soft assist's pick this frame, or null.</summary>
+        public Health Assist { get; private set; }
+
+        /// <summary>What attacks go at: the lock, else the assist.</summary>
+        public Health Target => Locked != null ? Locked : Assist;
         public bool HasTarget => Target != null && !Target.IsDead;
+        public bool IsLocked => Locked != null && !Locked.IsDead;
+
+        /// <summary>Let go of the lock (Wandering Eye; PlayerController on a defensive ability).</summary>
+        public void BreakLock() => Locked = null;
 
         /// <summary>A body going into a chasm is out of the fight before it is dead: its rim is
         /// not masked with it, and would be left falling outside the hole.</summary>
         static bool Gone(Health h) => h.TryGetComponent<EnemyController>(out var e) && e.FellIn;
 
+        // Re-hooked lazily: a domain reload empties the event's delegate list.
+        [System.NonSerialized] Health _hookedHealth;
+
         void Update()
         {
             EnemyRegistry.Prune();
-            Retarget();
+            HookHits();
+            Relock();
+            AssistPick();
         }
 
-        void Retarget()
+        void HookHits()
+        {
+            var own = GetComponent<Health>();
+            if (own == _hookedHealth) return;
+            if (_hookedHealth != null) _hookedHealth.Damaged -= OnHit;
+            _hookedHealth = own;
+            if (own != null) own.Damaged += OnHit;
+        }
+
+        void OnDestroy()
+        {
+            if (_hookedHealth != null) _hookedHealth.Damaged -= OnHit;
+        }
+
+        /// <summary>Wandering Eye I: a hit taken lets go of the lock - not a burn's tick, nor a price paid.</summary>
+        void OnHit(DamageInfo info)
+        {
+            if (info.Tick || info.Price || info.Amount <= 0f) return;
+            if (Mods.LockBreaksOnHit) BreakLock();
+        }
+
+        // ---------------------------------------------------------------- the lock
+
+        void Relock()
         {
             var origin = (Vector2)transform.position;
+            if (Mods.NoLock) { Locked = null; return; }
 
-            // Drop a target that died or wandered off.
-            if (Target != null)
+            // A kill moves the lock on to the nearest enemy in range; drifting out of range drops it.
+            if (Locked != null)
             {
-                if (Target.IsDead || Gone(Target) || Vector2.Distance(origin, Target.transform.position) > Drop)
-                    Target = null;
+                if (Locked.IsDead || Gone(Locked))
+                    Locked = Nearest(origin, LockReach, null);
+                else if (Vector2.Distance(origin, Locked.transform.position) > Drop)
+                    Locked = null;
             }
 
-            float currentDist = Target != null
-                ? Vector2.Distance(origin, Target.transform.position)
-                : float.MaxValue;
+            // Nothing in the world takes input under a screen.
+            if (GamePause.IsPaused) return;
 
-            // A room's interior wall between the player and the lock: any enemy in the open is
-            // the better target - the shot would die on the wall, the swing could not reach.
-            // Kept when nothing else is in view, so the rim still says where the pack is.
-            bool walled = Target != null && Core.Arena.WallBetween(origin, Target.transform.position);
+            foreach (var tap in Controls.WorldTaps)
+            {
+                var hp = AtScreenPoint(tap);
+                if (hp == null) continue;
+                Locked = hp == Locked ? null : hp;   // tap it again to let go
+                return;
+            }
 
+            if (Controls.LockTapped)
+            {
+                var point = Controls.LockPointScreen;
+                var under = point.HasValue ? AtScreenPoint(point.Value) : null;
+                if (Locked != null)
+                    Locked = under != null && under != Locked ? under : null;   // the cursor on another enemy moves it
+                else
+                    Locked = under != null ? under : InCone(origin, AimOrFacing(), LockReach,
+                                                            Tuning.Targeting.LockConeDegrees, walls: false)
+                                                     ?? Nearest(origin, LockReach, null);
+                return;
+            }
+
+            var flick = Controls.LockFlick;
+            if (Locked != null && flick.HasValue)
+            {
+                var from = (Vector2)Locked.transform.position;
+                var next = InCone(from, flick.Value, LockReach,
+                                  Tuning.Targeting.FlickConeDegrees, walls: false, skip: Locked, rangeFrom: origin);
+                if (next != null) Locked = next;
+            }
+        }
+
+        /// <summary>The aim when there is one, else the character's facing.</summary>
+        Vector2 AimOrFacing()
+        {
+            var aim = Controls.Aim;
+            if (aim.HasValue && aim.Value.sqrMagnitude > 0.0001f) return aim.Value.normalized;
+            return Player != null ? Player.Facing : Vector2.right;
+        }
+
+        /// <summary>The live enemy nearest the world point under <paramref name="screen"/>, within
+        /// Tuning.Targeting.LockPickRadius of it and LockReach of the character.</summary>
+        Health AtScreenPoint(Vector2 screen)
+        {
+            var cam = Camera.main;
+            if (cam == null) return null;
+            Vector2 world = cam.ScreenToWorldPoint(new Vector3(screen.x, screen.y, -cam.transform.position.z));
+            var origin = (Vector2)transform.position;
             Health best = null;
-            float bestDist = float.MaxValue;
-
+            float bestD = Tuning.Targeting.LockPickRadius;
             foreach (var enemy in EnemyRegistry.All)
             {
-                if (enemy == null || enemy.FellIn) continue;
-                var hp = enemy.GetComponent<Health>();
-                if (hp == null || hp.IsDead) continue;
+                var hp = Live(enemy);
+                if (hp == null) continue;
+                if (Vector2.Distance(origin, enemy.transform.position) > LockReach) continue;
+                float d = Vector2.Distance(world, enemy.transform.position);
+                if (d < bestD) { best = hp; bestD = d; }
+            }
+            return best;
+        }
 
+        static Health Live(EnemyController enemy)
+        {
+            if (enemy == null || enemy.FellIn) return null;
+            var hp = enemy.GetComponent<Health>();
+            return hp == null || hp.IsDead ? null : hp;
+        }
+
+        Health Nearest(Vector2 origin, float range, Health skip)
+        {
+            Health best = null;
+            float bestD = range;
+            foreach (var enemy in EnemyRegistry.All)
+            {
+                var hp = Live(enemy);
+                if (hp == null || hp == skip) continue;
                 float d = Vector2.Distance(origin, enemy.transform.position);
-                if (d > Acquire || d >= bestDist) continue;
+                if (d > bestD) continue;
                 if (Core.Arena.WallBetween(origin, enemy.transform.position)) continue;
-
-                best = hp;
-                bestDist = d;
+                best = hp; bestD = d;
             }
-
-            if (best == null) return;
-
-            // The run's ledger may take the choice over: Blind Rage picks at random within reach,
-            // Basilisk the weakest.
-            var mode = Mods.Targeting;
-            if (mode != Exchange.TargetMode.Normal)
-            {
-                PickByMode(mode, origin);
-                return;
-            }
-
-            // A RANGED weapon swaps its lock with the aim (the right stick, a touch drag, the
-            // mouse): the enemy in reach nearest the aim's direction.
-            if (AimPick(origin)) return;
-
-            // Take the new target only if there is nothing held, or the rival is decisively closer.
-            // The ledger's Wandering Eye makes "decisively" easier to meet.
-            if (Target == null || walled || (best != Target && bestDist < currentDist * CurrentSwitchAdvantage))
-                Target = best;
+            return best;
         }
 
         /// <summary>
-        /// Discs and bows: while there is an aim (Controls.Aim), the lock goes to the enemy in
-        /// reach (not behind a wall) whose direction is nearest the aim, inside
-        /// Tuning.Targeting.AimSwapConeDegrees - held until a rival lines up better by
-        /// AimSwapHysteresisDegrees. False (the nearest rule applies) with no aim, a melee weapon,
-        /// or nothing in the cone.
+        /// The enemy within <paramref name="cone"/> degrees of <paramref name="dir"/> from
+        /// <paramref name="from"/>, scored by distance stretched by its angle off the line - so one
+        /// straight ahead beats a nearer one at the cone's edge. Range is measured from
+        /// <paramref name="rangeFrom"/> (the character) when given.
         /// </summary>
-        bool AimPick(Vector2 origin)
+        Health InCone(Vector2 from, Vector2 dir, float range, float cone, bool walls,
+                      Health skip = null, Vector2? rangeFrom = null)
         {
-            var weapon = Player != null ? Player.Weapon : Art.Gear.WeaponClass.Greatsword;
-            if (weapon != Art.Gear.WeaponClass.Disc && weapon != Art.Gear.WeaponClass.Bow) return false;
-            var aim = Core.Controls.Aim;
-            if (!aim.HasValue || aim.Value.sqrMagnitude < 0.0001f) return false;
-            var dir = aim.Value.normalized;
-
+            var origin = rangeFrom ?? from;
             Health best = null;
-            float bestAngle = Tuning.Targeting.AimSwapConeDegrees;
-            float heldAngle = float.MaxValue;
+            float bestScore = float.MaxValue;
             foreach (var enemy in EnemyRegistry.All)
             {
-                if (enemy == null || enemy.FellIn) continue;
-                var hp = enemy.GetComponent<Health>();
-                if (hp == null || hp.IsDead) continue;
-                Vector2 to = (Vector2)enemy.transform.position - origin;
+                var hp = Live(enemy);
+                if (hp == null || hp == skip) continue;
+                Vector2 pos = enemy.transform.position;
+                if (Vector2.Distance(origin, pos) > range) continue;
+                Vector2 to = pos - from;
                 float d = to.magnitude;
-                if (d > Acquire || d < 0.0001f) continue;
-                if (Core.Arena.WallBetween(origin, enemy.transform.position)) continue;
+                if (d < 0.0001f) continue;
                 float angle = Vector2.Angle(dir, to);
-                if (hp == Target) heldAngle = angle;
-                if (angle < bestAngle) { best = hp; bestAngle = angle; }
+                if (angle > cone) continue;
+                if (walls && Core.Arena.WallBetween(origin, pos)) continue;
+                float score = d * (1f + angle / cone);
+                if (score < bestScore) { best = hp; bestScore = score; }
             }
-            if (best == null) return false;
-            if (best != Target && heldAngle <= Tuning.Targeting.AimSwapConeDegrees
-                && bestAngle > heldAngle - Tuning.Targeting.AimSwapHysteresisDegrees)
-                return true;   // the held lock is still lined up nearly as well - keep it
-            Target = best;
-            return true;
+            return best;
         }
 
-        float _repickIn;
+        // ---------------------------------------------------------------- the soft assist
 
-        /// <summary>
-        /// BLIND RAGE: a target drawn at random from everything in reach, kept until it dies or
-        /// leaves - or for a moment and a half, whichever is first. BASILISK: always the enemy in
-        /// reach with the least health left.
-        /// </summary>
-        void PickByMode(Exchange.TargetMode mode, Vector2 origin)
+        void AssistPick()
         {
-            var near = new List<Health>();
-            foreach (var enemy in EnemyRegistry.All)
-            {
-                if (enemy == null || enemy.FellIn) continue;
-                var hp = enemy.GetComponent<Health>();
-                if (hp == null || hp.IsDead) continue;
-                if (Vector2.Distance(origin, enemy.transform.position) > Acquire) continue;
-                if (Core.Arena.WallBetween(origin, enemy.transform.position)) continue;
-                near.Add(hp);
-            }
-            if (near.Count == 0) return;
-
-            if (mode == Exchange.TargetMode.Weakest)
-            {
-                Health weakest = null;
-                foreach (var hp in near)
-                    if (weakest == null || hp.Current < weakest.Current - 0.01f) weakest = hp;
-                Target = weakest;
-                return;
-            }
-
-            _repickIn -= Time.deltaTime;
-            if (Target != null && !Target.IsDead && near.Contains(Target) && _repickIn > 0f) return;
-            Target = near[Random.Range(0, near.Count)];
-            _repickIn = 1.5f;
+            if (Locked != null) { Assist = null; return; }
+            var origin = (Vector2)transform.position;
+            Assist = InCone(origin, AimOrFacing(), Acquire, Tuning.Targeting.AssistConeDegrees, walls: true);
         }
     }
 }

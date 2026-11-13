@@ -175,7 +175,7 @@ namespace Convergence.Exchange
         void TickBasilisk(float dt)
         {
             if (!Has("basilisk") || _pc == null || _pc.Targeting == null) { _gazeTarget = null; _gazeSeconds = 0f; return; }
-            var t = _pc.Targeting.Target;
+            var t = _pc.Targeting.Locked;   // the player's lock, not the soft assist
             if (t == null || t.IsDead || t != _gazeTarget) { _gazeTarget = t; _gazeSeconds = 0f; return; }
             float was = _gazeSeconds;
             _gazeSeconds += dt;

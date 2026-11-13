@@ -198,13 +198,15 @@ namespace Convergence.UI
             float pulse = 0.55f + 0.45f * Mathf.Sin(now * PulseSpeed);
             var inner = full ? Color32.Lerp(Inner, ramp.Md, 0.18f) : Inner;
 
+            var polar = PolarTable.Of(Size);
             for (int y = 0; y < Size; y++)
             for (int x = 0; x < Size; x++)
             {
                 float dx = x + 0.5f - Centre - _sx, dy = y + 0.5f - Centre - _sy;
-                float d = Mathf.Sqrt(dx * dx + dy * dy);
+                int pk = polar.At(x - _sx, y - _sy);   // shaken: the texel its picture came from
+                float d = polar.D[pk];
                 if (d >= HaloR) continue;
-                float a = Mathf.Atan2(dx, dy) * Mathf.Rad2Deg;   // 0 at the top, clockwise
+                float a = polar.A[pk];   // 0 at the top, clockwise
                 if (a < 0f) a += 360f;
 
                 if (d < InnerR)
@@ -279,14 +281,16 @@ namespace Convergence.UI
             int count = stacks switch { 3 => 5, 4 => 9, _ => 14 };
             float baseLen = stacks switch { 3 => 5f, 4 => 7f, _ => 10f };
             float step = 360f / count;
+            var polar = PolarTable.Of(Size);
             for (int y = 0; y < Size; y++)
             for (int x = 0; x < Size; x++)
             {
                 float dx = x + 0.5f - Centre, dy = y + 0.5f - Centre;
-                float d = Mathf.Sqrt(dx * dx + dy * dy);
+                int pk = polar.At(x, y);
+                float d = polar.D[pk];
                 float along = d - (RimR - 1f);
                 if (along < 0f || along > baseLen * 1.4f) continue;
-                float a = Mathf.Atan2(dx, dy) * Mathf.Rad2Deg;
+                float a = polar.A[pk];
                 int k = Mathf.RoundToInt(Mathf.Repeat(a, 360f) / step) % count;
                 float off = Mathf.Abs(Mathf.DeltaAngle(a, k * step)) * Mathf.Deg2Rad * d;
                 float len = baseLen * (Mathf.Repeat(now * 4f + k * 0.37f, 1f) < 0.5f ? 1.35f : 1f);
@@ -302,12 +306,14 @@ namespace Convergence.UI
         {
             int tier = r.PipsFilled;
             float dur = tier switch { 1 => 2.6f, 2 => 2.0f, _ => 1.4f };
+            var polar = PolarTable.Of(Size);
             if (tier > 0)
                 for (int y = 0; y < Size; y++)
                 for (int x = 0; x < Size; x++)
                 {
                     float dx = x + 0.5f - Centre, dy = y + 0.5f - Centre;
-                    float d = Mathf.Sqrt(dx * dx + dy * dy);
+                    int pk = polar.At(x, y);
+                    float d = polar.D[pk];
                     for (int j = 0; j < tier; j++)
                     {
                         float p = Mathf.Repeat(now / dur + (float)j / tier, 1f);
@@ -386,13 +392,15 @@ namespace Convergence.UI
             float ringAlpha = 0.25f + 0.45f * fill;
             float width = full ? 0.9f : 0.55f;
 
+            var polar = PolarTable.Of(Size);
             for (int y = 0; y < Size; y++)
             for (int x = 0; x < Size; x++)
             {
                 float dx = x + 0.5f - Centre, dy = y + 0.5f - Centre;
-                float d = Mathf.Sqrt(dx * dx + dy * dy);
+                int pk = polar.At(x, y);
+                float d = polar.D[pk];
                 if (d < RimR || d > 64f) continue;
-                float a = Mathf.Atan2(dx, dy) * Mathf.Rad2Deg;
+                float a = polar.A[pk];
 
                 if (Mathf.Abs(d - 47f) < 0.55f && Mathf.Repeat(a + ringRot, 20f) < 6f)
                     Blend(x, y, WithAlpha(ramp.Lt, ringAlpha));

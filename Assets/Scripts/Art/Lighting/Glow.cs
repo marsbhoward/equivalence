@@ -37,6 +37,7 @@ namespace Convergence.Art.Lighting
         float _phase;
 
         static List<Glow> _all = new();
+        static bool _scanned;
 
         /// <summary>Every live glow. Rebuilt from the scene if a domain reload emptied it.</summary>
         public static List<Glow> All
@@ -44,8 +45,10 @@ namespace Convergence.Art.Lighting
             get
             {
                 _all ??= new List<Glow>();
-                if (_all.Count == 0)
+                // once only: a place with no glows is empty every frame (glows enabled after it register themselves)
+                if (!_scanned && _all.Count == 0)
                     foreach (var g in FindObjectsByType<Glow>(FindObjectsInactive.Exclude)) _all.Add(g);
+                _scanned = true;
                 return _all;
             }
         }

@@ -69,6 +69,13 @@ namespace Convergence.Player
             }
 
             Read(t, out bool solid, out float wantAlpha);
+            // A LOCK reads strongest (the user's call, 2026-11-12): thicker, and never dimmer than LockMinAlpha -
+            // solid against dashed still says whether a swing reaches. The soft assist's pick is thin and faint:
+            // it says where a swing would go, nothing more.
+            bool locked = _targeting.IsLocked;
+            wantAlpha = locked ? Mathf.Max(wantAlpha, Tuning.Highlight.LockMinAlpha)
+                               : wantAlpha * Tuning.Targeting.AssistRimAlpha;
+            float thickness = Tuning.Highlight.Thickness * (locked ? Tuning.Highlight.LockThickness : 1f);
 
             // A new target starts at its own answer rather than easing in from the last one's.
             if (t != _last) _alpha = wantAlpha;
@@ -88,7 +95,7 @@ namespace Convergence.Player
                 var st = src.transform;
                 var scale = st.lossyScale;
                 float texelWorld = Mathf.Abs(scale.y) / Mathf.Max(1f, src.sprite.pixelsPerUnit);
-                int pad = Mathf.Max(1, Mathf.RoundToInt(Tuning.Highlight.Thickness / Mathf.Max(1e-5f, texelWorld)));
+                int pad = Mathf.Max(1, Mathf.RoundToInt(thickness / Mathf.Max(1e-5f, texelWorld)));
                 var rimSprite = PixelSprite.Rim(src.sprite, pad, dashed: !solid);
                 if (rimSprite == null) continue;
 

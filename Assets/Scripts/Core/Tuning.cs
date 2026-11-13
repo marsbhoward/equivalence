@@ -96,6 +96,14 @@ namespace Convergence.Core
             public static readonly bool FormatToggle = true;
 
             /// <summary>
+            /// The eight-direction figure's pose cache, measured (2026-11-12, for the phone test): a line at the top of
+            /// the screen with poses drawn fresh a second, how many were reused, how full the cache is and its memory,
+            /// and a log line every 10 s. Shown while eight directions is on, in the Editor and development builds only.
+            /// It answers whether the 192-pose cache churns when a player keeps turning (RIG.md, "A swing frame").
+            /// </summary>
+            public static readonly bool PoseCacheStats = true;
+
+            /// <summary>
             /// Read a real wallet's holdings straight from the equivalence-service REST API on
             /// startup, bypassing WebChainBridge entirely - that bridge only exists inside a
             /// browser build, so this is the one way to see the showcase/crate wired to real chain
@@ -1599,7 +1607,6 @@ namespace Convergence.Core
 
             // ---------------------------------------------------------------- Blindfold
             public const float MurkStrength = 0.5f;
-            public const float WanderingEyeSwitch = 0.12f;
             public const float DeadWeightSeconds = 1f;   // + one per stack: 2, 3, 4
             public const float RetrogradeEvery = 10f;
             public const float RetrogradeEveryII = 6f;
@@ -2934,15 +2941,31 @@ namespace Convergence.Core
             /// <summary>The side door's distance in from the east/west wall, on the door line.</summary>
             public const float SideDoorInset = 2.4f;
 
-            /// <summary>ECHO - watch and repeat. Stones light in a phrase; step them in order.
-            /// Longer every EchoLengthEvery floors. No immediate repeats, like the Wreathe's.</summary>
+            /// <summary>ECHO - watch and repeat (reworked 2026-11-12, the user's picks: it was too
+            /// easy). Six stones in a line to the NORTH, the pale start stone where it was. Played in
+            /// ROUNDS, each call the last one plus a note; a stone may sound twice running.
+            /// By EnemyBand (RunFormat.EnemyBand - structure, the floor).</summary>
             public const int EchoStones = 6;
-            public const float EchoRingRadius = 3.0f;
-            public const int EchoLengthBase = 4;
-            public const int EchoLengthEvery = 25;
-            public const int EchoLengthMax = 7;
+            public const float EchoLineRise = 2.8f;      // the line's height over the pale stone
+            public const float EchoLineSpacing = 1.8f;   // wide enough to walk round a stone below the line
+            public static readonly int[] EchoRounds = { 2, 2, 3, 3, 3 };
+            /// <summary>The first round's call; each round after adds one note.</summary>
+            public static readonly int[] EchoFirstLength = { 4, 4, 4, 5, 5 };
+            /// <summary>From this band the stones SWAP places after every call from round 2 on.</summary>
+            public const int EchoSwapFromBand = 2;
+            /// <summary>From this band every call is answered BACKWARDS (stacked on the swap).</summary>
+            public const int EchoReverseFromBand = 3;
+            /// <summary>Replays of a call (stepping back on the pale stone before answering): this
+            /// many for the whole puzzle, each costing this much of the Short's clock. The first
+            /// hearing of each call is free.</summary>
+            public const int EchoReplays = 3;
+            public const float EchoReplaySeconds = 8f;
             public const float EchoNoteSeconds = 0.55f;
             public const float EchoGapSeconds = 0.25f;
+            /// <summary>The breath between a round answered and the next call.</summary>
+            public const float EchoNextRoundSeconds = 0.9f;
+            public const float EchoSwapShakeSeconds = 0.35f;
+            public const float EchoSwapSlideSeconds = 0.9f;
 
             /// <summary>ELEMENTS - four stones, an order deduced from clues. From this floor the
             /// clues stop naming a first or last stone outright.</summary>
@@ -2985,6 +3008,8 @@ namespace Convergence.Core
             /// every puzzle floor has a set timer) - room to read and answer, not to wander. The
             /// Labyrinth keeps MazeSeconds. A first pass, to tune in play.</summary>
             public const float ShortEchoSeconds = 45f;
+            /// <summary>The Echo's clock from EchoSwapFromBand - three rounds need it.</summary>
+            public const float ShortEchoSecondsDeep = 60f;
             public const float ShortElementsSeconds = 60f;
             public const float ShortLightsSeconds = 60f;
             public const float MazeUrgentSeconds = 15f;
@@ -4108,48 +4133,55 @@ namespace Convergence.Core
             public const float MaxMoveSeconds = 0.8f;
         }
 
-        /// <summary>Sticky auto-target acquisition. Keeps the character from flip-flopping between enemies.</summary>
+        /// <summary>The lock and the soft assist (PlayerTargeting).</summary>
         public static class Targeting
         {
             /// <summary>
-            /// RANGED weapons (discs, bows) take their lock from the AIM when there is one (the
-            /// user's call, 2026-10-15; PlayerTargeting.AimPick): the enemy in reach nearest the
-            /// aim's direction, within this many degrees either side of it.
-            /// </summary>
-            public const float AimSwapConeDegrees = 50f;
-
-            /// <summary>Degrees a rival must line up BETTER than the held lock to take it - so
-            /// two enemies either side of the aim don't trade the lock every frame.</summary>
-            public const float AimSwapHysteresisDegrees = 10f;
-
-            /// <summary>
-            /// World units of lock-on reach BEYOND the pending swing's own range.
-            ///
-            /// Locking exactly at reach was correct but read as late: the character only turned
-            /// once an enemy was already close enough to hit, so there was no anticipation in the
-            /// turn at all. This buys a step of warning without going back to locking on things
-            /// across the arena, which is what broke aiming the blade throw and the air cone.
+            /// World units of ASSIST reach beyond the pending swing's own range - a swing turns to an enemy
+            /// a step short of reach, so the turn reads as anticipation rather than arriving late.
             /// </summary>
             public const float AcquireMargin = 0.85f;
 
-            /// <summary>
-            /// Extra distance a HELD target may drift past the acquire radius before it is
-            /// dropped. Above zero, or a target sitting exactly on the boundary flickers in and
-            /// out every frame.
-            /// </summary>
-            public const float DropMargin = 0.9f;
-
-            /// <summary>Fallback acquire distance when lock-on is not bounded by reach.</summary>
+            /// <summary>Fallback assist reach when it is not bounded by the swing's (PlayerTargeting).</summary>
             public const float AcquireRange = 14f;
 
-            /// <summary>Fallback drop distance. Must exceed AcquireRange.</summary>
-            public const float DropRange = 16f;
+            // ---- the LOCK (the user's call, 2026-11-12: lock-on replaces auto-target) ----
 
-            /// <summary>
-            /// A rival must be within this fraction of the current target's distance to steal
-            /// focus. 1 = switch to any closer enemy (jittery); lower = stickier.
-            /// </summary>
-            public const float SwitchAdvantage = 0.7f;
+            /// <summary>A held lock drops this far past where it can be made (the weapon's reach plus
+            /// AcquireMargin - auto-target's ranges, per weapon, the user's call 2026-11-12). Above zero, or a
+            /// target sitting exactly on the edge flickers in and out.</summary>
+            public const float DropMargin = 0.9f;
+
+            /// <summary>A lock reaches this much past the assist (the user's call, 2026-11-12: about half a dash
+            /// length, 1.8 today) - so a target can be held a step before a swing would reach it.</summary>
+            public const float LockExtra = Defense.DashSpeed * Defense.DashSeconds * 0.5f;
+
+            /// <summary>A tap or the cursor picks the enemy within this many world units of the point.</summary>
+            public const float LockPickRadius = 1.4f;
+
+            /// <summary>Making a lock with no point (R3, or Tab with no cursor): the enemy nearest the aim or
+            /// the facing within this many degrees either side, else the nearest in range.</summary>
+            public const float LockConeDegrees = 60f;
+
+            /// <summary>A flick of the right stick moves the lock to the next enemy that way, within this many
+            /// degrees of the flick, measured from the held target.</summary>
+            public const float FlickConeDegrees = 60f;
+
+            /// <summary>The right stick counts as flicked when it passes this from below <see cref="FlickRearm"/>.</summary>
+            public const float FlickThreshold = 0.8f;
+            public const float FlickRearm = 0.3f;
+
+            /// <summary>SOFT ASSIST, with no lock: a swing turns to the enemy in reach within this many degrees
+            /// of the aim or the facing - nothing held between swings.</summary>
+            public const float AssistConeDegrees = 45f;
+
+            /// <summary>The target rim on the assist's pick, as a share of a lock's (TargetHighlight).</summary>
+            public const float AssistRimAlpha = 0.45f;
+
+            /// <summary>A touch on the stick's side counts as a tap (a lock) when it lifts within this many
+            /// seconds and travelled less than <see cref="StickTapPixels"/>.</summary>
+            public const float StickTapSeconds = 0.25f;
+            public const float StickTapPixels = 24f;
         }
 
         /// <summary>
@@ -4181,6 +4213,11 @@ namespace Convergence.Core
 
             /// <summary>How quickly the alpha follows a change (per second, exponential).</summary>
             public const float Ease = 14f;
+
+            /// <summary>A LOCK's rim (the user's call, 2026-11-12: it must read stronger than the assist's): this
+            /// many times <see cref="Thickness"/>, and never dimmer than <see cref="LockMinAlpha"/>.</summary>
+            public const float LockThickness = 2f;
+            public const float LockMinAlpha = 0.85f;
         }
 
         /// <summary>
@@ -5808,6 +5845,11 @@ namespace Convergence.Core
             /// </summary>
             public const float BombTelegraphDuration = 0.8f;
 
+            /// <summary>A Heart KILLED (not run out of arming) goes off this long after, its ring
+            /// filling on the floor (the user's call, 2026-11-12 - it used to go off on the frame it
+            /// died). An arming cut short keeps its own remaining time instead.</summary>
+            public const float BombDeathFuseSeconds = 0.5f;
+
             /// <summary>
             /// How long a DENIED bomb backs off before it may arm again, and how fast.
             ///
@@ -6093,7 +6135,7 @@ namespace Convergence.Core
             /// </summary>
             public const float MortarFlameTriggerRange = 2.4f;
             public const float MortarFlameCooldown = 15f;
-            public const float MortarFlameWindup = 0.4f;
+            public const float MortarFlameWindup = 0.7f;   // was 0.4 - the cone on the floor needs time to read (2026-11-12)
             public const float MortarFlameSeconds = 2f;
             public const float MortarFlameRange = 3f;
             public const float MortarFlameHalfAngle = 28f;

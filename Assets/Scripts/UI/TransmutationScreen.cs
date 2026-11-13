@@ -418,7 +418,7 @@ namespace Convergence.UI
             {
                 var p = _profile();
                 var real = GearCatalog.Get(p.Gear.Get(slot));
-                var over = perception && !locked ? GearCatalog.Get(p.Look.Transmog.Get(slot)) : null;
+                var over = perception && !locked ? Appearance.LookItem(p.Look.Transmog.Get(slot), slot) : null;
                 if (Appearance.SameLook(over, real)) over = null;   // perceived as itself is no perception
                 var item = perception ? (over ?? real) : real;
 
@@ -549,8 +549,8 @@ namespace Convergence.UI
             var lines = ItemLines(item, p);
             if (p.Look.IsTransmogged(slot, p.Gear))
             {
-                var over = GearCatalog.Get(p.Look.Transmog.Get(slot));
-                if (over != null) lines += $"\n<color=#{Hex(MercuryInk)}>perceived as {over.DisplayName}</color>";
+                var over = Appearance.LookItem(p.Look.Transmog.Get(slot), slot);
+                if (over != null) lines += $"\n<color=#{Hex(MercuryInk)}>perceived as {over.DisplayName.ToLowerInvariant()}</color>";
             }
             return lines;
         }
@@ -607,6 +607,9 @@ namespace Convergence.UI
         /// <summary>A look offered as a perception: what it is, and that it grants nothing.</summary>
         internal static string LookLines(GearItem item)
         {
+            if (item.ItemId == Appearance.Nothing)
+                return $"<size=21>Nothing</size>\n<color=#{Hex(Dim)}>the {item.Slot.Label().ToLowerInvariant()} shows bare</color>" +
+                       $"\n<color=#{Hex(Dim)}>a perception grants nothing</color>";
             string tier = item.Tier == LootTier.BlackDiamond ? "Black Diamond" : item.Tier.ToString();
             string kind = item.Slot == GearSlot.Weapon ? WeaponClasses.Name(item.Class) : item.Slot.Label();
             return $"<size=21><color=#{Hex(CharacterScreen.TierColor(item.Tier))}>{item.DisplayName}</color></size>" +
@@ -623,7 +626,7 @@ namespace Convergence.UI
                 return $"<color=#{Hex(Dim)}>RELIC</color>\na relic has no perception -\nits roll is its weapon art";
 
             var real = GearCatalog.Get(p.Gear.Get(cell.Slot));
-            var over = GearCatalog.Get(p.Look.Transmog.Get(cell.Slot));
+            var over = Appearance.LookItem(p.Look.Transmog.Get(cell.Slot), cell.Slot);
             string realName = real != null ? real.DisplayName : "nothing";
             if (over == null || Appearance.SameLook(over, real))
                 return $"<color=#{Hex(Dim)}>{cell.Slot.Label().ToUpper()}</color>\nas equipped  ({realName})";
@@ -916,10 +919,12 @@ namespace Convergence.UI
 
             if (!perception)
             {
+                // a worn slot is swapped, never emptied (the user's call, 2026-11-12): no empty cell once it holds something
                 _picker.Open(_root.transform, slot, held, _profile().Gear.Get(slot),
                              id => { _equip(slot, id); Refresh(); },
                              id => _profile().Wear.Get(id),
-                             describe: i => ItemLines(i, _profile()));
+                             describe: i => ItemLines(i, _profile()),
+                             allowEmpty: string.IsNullOrEmpty(_profile().Gear.Get(slot)));
                 return;
             }
 
@@ -934,6 +939,8 @@ namespace Convergence.UI
             // looks the player holds (GearOwnership) - the gear made in development is not a skin.
             var options = SameClassOnly(slot, GearOwnership.Owned(slot))
                 .FindAll(o => !Appearance.SameLook(o, worn) && o.Layers != null && o.Layers.Length > 0);
+            // A worn slot can't be emptied, so a bare look is a perception (Appearance.Nothing) - not the weapon or head.
+            if (Appearance.TakesNothing(slot) && worn != null) options.Insert(0, Appearance.LookItem(Appearance.Nothing, slot));
 
             _picker.Open(_root.transform, slot, held, _profile().Look.Transmog.Get(slot),
                          id => { _profile().Look.Transmog.Set(slot, id); Commit(); },

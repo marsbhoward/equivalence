@@ -9,8 +9,12 @@ using Convergence.Core;
 namespace Convergence.UI
 {
     /// <summary>
-    /// The loadout screen. Opens with C or Tab, pauses the game, and shows the character large
+    /// The loadout screen. Opens with C, pauses the game, and shows the character large
     /// alongside all twelve slots.
+    ///
+    /// INSPECT ONLY, in the hub and mid-run alike (2026-11-12): the stats panel reads the
+    /// CHARACTER by default; pressing a slot reads that piece instead, and pressing it again goes
+    /// back. Nothing here equips - gear changes at the transmutation circle (TransmutationScreen). Gear changes at the transmutation circle (TransmutationScreen).
     ///
     /// This exists because the arena camera can never show gear properly - even tightened, a
     /// character is ~12% of screen height, which is fine for combat readability but nowhere near
@@ -25,11 +29,9 @@ namespace Convergence.UI
         public bool IsOpen { get; private set; }
 
         /// <summary>
-        /// True while a run is live - every piece of gear is locked for its duration, so this
-        /// screen becomes inspection only. Decided once in Open() rather than read live: a run
-        /// cannot start or end while this screen is open, so it cannot change mid-view, and
-        /// deciding it once means the hint text and the cards' own dimming can be built without
-        /// re-deriving it everywhere they are touched.
+        /// True while a run is live. The sheet is inspect-only everywhere now; this only decides
+        /// the hint's wording, the ledger and whether the reorder crack can exist. Decided once in
+        /// Open(): a run cannot start or end while this screen is open.
         /// </summary>
         bool Locked;
 
@@ -65,11 +67,14 @@ namespace Convergence.UI
         /// as mid-run, and between runs there is genuinely nothing to show.
         /// </summary>
         System.Func<Exchange.RunModifiers> _mods;
-        System.Action<GearSlot, string> _equip;
         System.Action _toggleHelm;
         System.Func<Player.PlayerController> _player;
         System.Func<bool> _reorderOpen;
+        System.Func<(StatPercents Stats, float MaxHp)> _character;
         ElementType _element;
+
+        /// <summary>The slot the stats panel is reading, or null for the character.</summary>
+        GearSlot? _inspected;
 
         /// <summary>Fired once when this screen closes, or null. Mid-run the pause menu opens this
         /// screen with a callback that reopens the menu, so backing out lands there rather than
@@ -87,7 +92,7 @@ namespace Convergence.UI
 
         // The button on the ordinary sheet that opens the reorder window, and the window's own
         // panel. Built once (only when ReorderAvailable), toggled by SetActive rather than
-        // rebuilt - the same lazy-but-kept shape _picker uses.
+        // rebuilt.
         RectTransform _reorderButtonRect;
         Text _reorderButtonText;
         RectTransform _reorderPanel;
@@ -101,13 +106,13 @@ namespace Convergence.UI
             public RectTransform Stars;
         }
 
-        public void Init(System.Func<CharacterProfile> profile, System.Action<GearSlot, string> equip,
-                         System.Action toggleHelm, System.Func<Exchange.RunModifiers> mods = null,
+        public void Init(System.Func<CharacterProfile> profile, System.Action toggleHelm, System.Func<Exchange.RunModifiers> mods = null,
                          System.Func<Player.PlayerController> player = null,
-                         System.Func<bool> reorderOpen = null)
+                         System.Func<bool> reorderOpen = null,
+                         System.Func<(StatPercents Stats, float MaxHp)> character = null)
         {
+            _character = character;
             _profile = profile;
-            _equip = equip;
             _toggleHelm = toggleHelm;
             _mods = mods;
             _player = player;
@@ -133,6 +138,8 @@ namespace Convergence.UI
             ReorderPanelOpen = false;
             _reorderOnly = false;
             _picked = -1;
+            _inspected = null;
+            _noteStat = null;
 
             // Never capture a paused scale: if Open() is reached while time is already stopped,
             // saving 0 means Close() restores the freeze and the game soft-locks with no UI up.
@@ -161,9 +168,6 @@ namespace Convergence.UI
         {
             if (!IsOpen) return;
             IsOpen = false;
-            // The grid is a child of this screen, not a peer: closing the loadout while it is up
-            // would otherwise leave it orphaned over the game with nothing owning its input.
-            if (_picker != null) _picker.Close();
             Core.GamePause.Release(this);
 
             if (_root) Destroy(_root);
@@ -171,6 +175,8 @@ namespace Convergence.UI
             _rows.Clear();
             _helmToggleRect = null;
             _helmToggleText = null;
+            _statsPanel = null;
+            _statTiles.Clear();
             _swap.Clear();
             _origin.Clear();
             _swapCards = _undoRect = _doneRect = null;
@@ -210,23 +216,14 @@ namespace Convergence.UI
 
             var sub = UiKit.Rect(full, "sub", new Vector2(0, 1), new Vector2(1, 1),
                 new Vector2(0, -146), new Vector2(0, -110));
-            if (Locked)
-            {
-                UiKit.Hint(sub,
-                    "loadout locked for this run - inspect only    -    [C] or [TAB] to close",
-                    "loadout locked for this run - inspect only    -    BACK to close",
-                    18, new Color(0.6f, 0.55f, 0.4f), TextAnchor.MiddleCenter,
-                    "loadout locked for this run - inspect only    -    " + UI.GamepadGlyphs.Loadout + " to close");
-            }
-            else
-            {
-                UiKit.Hint(sub,
-                    "click a slot to choose    -    [C] or [TAB] to close    -    game is paused",
-                    "tap a slot to choose    -    BACK to close    -    game is paused",
-                    18, new Color(0.5f, 0.53f, 0.6f), TextAnchor.MiddleCenter,
-                    UI.GamepadGlyphs.Navigate + " to a slot, " + UI.GamepadGlyphs.Confirm + " to choose    -    "
-                    + UI.GamepadGlyphs.Loadout + " to close    -    game is paused");
-            }
+            // Says where gear DOES change, so inspect-only reads as a rule rather than a fault.
+            string why = Locked ? "loadout locked for this run" : "change gear at the circle";
+            UiKit.Hint(sub,
+                "click a slot for its stats, again for yours    -    " + why + "    -    [C] to close",
+                "tap a slot for its stats, again for yours    -    " + why + "    -    BACK to close",
+                18, new Color(0.5f, 0.53f, 0.6f), TextAnchor.MiddleCenter,
+                UI.GamepadGlyphs.Navigate + " to a slot, " + UI.GamepadGlyphs.Confirm + " for its stats    -    "
+                + why + "    -    " + UI.GamepadGlyphs.Loadout + " to close");
 
             // Character preview, left.
             var frame = UiKit.Panel(full, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
@@ -235,7 +232,7 @@ namespace Convergence.UI
                 // vertical space the cards do not need. It had been cut to 390 to make room for a
                 // finger-sized helm toggle beneath it; the toggle kept its size and this took the
                 // rest of the column instead.
-                new Vector2(-620, -170), new Vector2(-260, 340), new Color(0.07f, 0.08f, 0.11f, 1f));
+                new Vector2(-900, -170), new Vector2(-540, 340), new Color(0.07f, 0.08f, 0.11f, 1f));
             var imgGo = new GameObject("preview", typeof(RawImage));
             imgGo.transform.SetParent(frame, false);
             var irt = (RectTransform)imgGo.transform;
@@ -262,12 +259,10 @@ namespace Convergence.UI
             for (int i = 0; i < slots.Length; i++)
             {
                 int col = i / perCol, row = i % perCol;
-                float x = -230 + col * 300;
+                float x = -510 + col * 300;
                 float y = top - row * stepY;
 
-                // Flattened toward the panel's own background when locked, so a card that no
-                // longer responds to a tap does not still look like a button inviting one.
-                var cardColor = Locked ? new Color(0.055f, 0.06f, 0.08f, 1f) : new Color(0.09f, 0.10f, 0.14f, 1f);
+                var cardColor = new Color(0.09f, 0.10f, 0.14f, 1f);
                 var card = UiKit.Panel(full, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
                     new Vector2(x, y - cardH), new Vector2(x + cardW, y), cardColor);
 
@@ -294,13 +289,13 @@ namespace Convergence.UI
 
             // Above the grid now - the bottom row of cards took the space it used to sit in.
             var power = UiKit.Rect(full, "power", new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-                new Vector2(-230, 342), new Vector2(358, 392));
+                new Vector2(-510, 342), new Vector2(378, 392));
             _powerText = UiKit.Label(power, "", 24, new Color(0.85f, 0.87f, 0.92f), TextAnchor.MiddleLeft);
 
             // A preference, not a slot, so it sits under the preview rather than in the grid -
             // the twelve cards are things you EQUIP, this is something you just LOOK AT.
             _helmToggleRect = UiKit.Panel(full, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-                new Vector2(-620, -310), new Vector2(-260, -310 + UiKit.TouchTarget),
+                new Vector2(-900, -310), new Vector2(-540, -310 + UiKit.TouchTarget),
                 new Color(0.09f, 0.10f, 0.14f, 1f));
             _helmToggleText = UiKit.Label(_helmToggleRect, "", 18,
                 new Color(0.85f, 0.87f, 0.92f), TextAnchor.MiddleCenter);
@@ -331,11 +326,16 @@ namespace Convergence.UI
                     new Color(0.42f, 0.44f, 0.5f), TextAnchor.MiddleCenter);
             }
 
+            // The stats panel, right of the slots: the character by default, a pressed slot's piece
+            // while one is pressed (the user's call, 2026-11-12). Down to the helmet toggle's foot.
+            // Filled by BuildStats (CharacterScreen.Stats.cs) on every Refresh.
+            _statsPanel = UiKit.Panel(full, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
+                new Vector2(408, -310), new Vector2(900, 330), new Color(0.07f, 0.075f, 0.1f, 1f));
+
             BuildLedger(full);
 
             // The reorder window (CharacterScreen.Reorder.cs) takes the whole screen over the sheet.
-            // Built now but INACTIVE - toggled by the button above rather than rebuilt each time,
-            // the same lazy-but-kept shape _picker uses for the gear grid.
+            // Built now but INACTIVE - toggled by the button above rather than rebuilt each time.
             if (ReorderAvailable)
             {
                 BuildReorderOverlay(full);
@@ -383,6 +383,10 @@ namespace Convergence.UI
                     : new Color(0.35f, 0.37f, 0.43f);
                 row.Swatch.color = item != null ? TierColor(item.Tier) : new Color(0.18f, 0.19f, 0.24f);
 
+                // The pressed slot reads as pressed: the panel beside it is about this card.
+                row.Rect.GetComponent<Image>().color = _inspected == row.Slot
+                    ? new Color(0.16f, 0.15f, 0.10f, 1f) : new Color(0.09f, 0.10f, 0.14f, 1f);
+
                 if (row.Stars != null)
                 {
                     foreach (Transform child in row.Stars) Destroy(child.gameObject);
@@ -401,6 +405,7 @@ namespace Convergence.UI
                 _helmToggleText.text = helmHidden ? "HELMET: HIDDEN (click to show)" : "HELMET: SHOWN (click to hide)";
 
             if (_reorderButtonText) _reorderButtonText.text = "REORDER WEAPON ARTS";
+            BuildStats();
         }
 
         public static Color TierColor(LootTier tier) => tier switch
@@ -474,11 +479,6 @@ namespace Convergence.UI
         {
             if (!IsOpen) return;
 
-            // The slot grid covers this screen and handles its own taps. Nothing in this project
-            // consumes input - every screen hit-tests the pointer itself - so without standing
-            // down here a tap on a picker card would ALSO hit the slot row behind it.
-            if (PickerOpen) return;
-
             // The reorder window covers the whole sheet and owns all input while it is up
             // (CharacterScreen.Reorder.cs) - BACK included, which the bootstrap leaves to it.
             _focusRects.Clear();
@@ -492,10 +492,14 @@ namespace Convergence.UI
 
             // D-pad navigation - registered BEFORE the preview's gesture, which returns early.
             // Slots first: they are what a gamepad lands on as the screen opens.
-            if (!Locked) foreach (var r in _rows) _focusRects.Add(r.Rect);
+            foreach (var r in _rows) _focusRects.Add(r.Rect);
+            foreach (var t in _statTiles) _focusRects.Add(t.Rect);
             if (_helmToggleRect != null) _focusRects.Add(_helmToggleRect);
             if (_reorderButtonRect != null) _focusRects.Add(_reorderButtonRect);
             Core.Controls.SetFocusCandidates(_focusRects);
+
+            // The footnote follows the pointer or the pad across the tiles.
+            UpdateFootnote();
 
             // The preview swallows its own gestures, so a drag across it never also cycles a slot.
             if (PreviewGesture()) return;
@@ -516,54 +520,16 @@ namespace Convergence.UI
                 return;
             }
 
-            // Every other tap target above this stays live (the helmet preference is not gear -
-            // it changes nothing about how the character performs, only whether the sprite
-            // renders) - only the slots themselves stop responding.
-            if (Locked) return;
+            if (TapStats(p)) return;
 
             foreach (var row in _rows)
             {
                 if (!RectTransformUtility.RectangleContainsScreenPoint(row.Rect, p, null)) continue;
-                OpenPicker(row.Slot);
+                _inspected = _inspected == row.Slot ? null : row.Slot;
+                _noteStat = null;   // the footnote opens on the new read's own first stat
+                Refresh();
                 return;
             }
-        }
-
-        /// <summary>Step through everything that fits this slot, plus an empty state.</summary>
-        /// <summary>The per-slot grid. Created on demand and kept, so reopening a slot does not
-        /// churn a component every press.</summary>
-        GearPicker _picker;
-
-        /// <summary>True while the slot grid is up. CharacterScreen stands down entirely then -
-        /// nothing in this project consumes input, so without this a tap on a picker card would
-        /// also land on the slot row underneath it.</summary>
-        public bool PickerOpen => _picker != null && _picker.IsOpen;
-
-        /// <summary>
-        /// Open the grid for one slot.
-        ///
-        /// This replaced a cycle - press the card, advance to the next valid item, wrap round to
-        /// nothing - which was fine at three weapons and unusable past thirty pieces: no way to
-        /// see what was coming, no way to step back, and one press per item to reach the last.
-        /// See GearPicker.
-        /// </summary>
-        void OpenPicker(GearSlot slot)
-        {
-            if (_canvas == null || PickerOpen) return;
-
-            // The relic socket lists by what is HELD, not by slot: a signature relic only fits
-            // beside a weapon of its own class. GearPicker owns that split.
-            var held = GearCatalog.Get(_profile().Gear.Get(GearSlot.Weapon));
-
-            _picker ??= gameObject.AddComponent<GearPicker>();
-
-            // The wear lookup is only ever used to choose WITHIN a stack of identical pieces -
-            // the freshest copy, rather than whichever the catalogue listed first. It is not part
-            // of what makes two pieces stack; see GearPicker's own note.
-            _picker.Open(_canvas.transform, slot, held, _profile().Gear.Get(slot),
-                         id => _equip(slot, id),
-                         id => _profile().Wear.Get(id),
-                         describe: i => TransmutationScreen.ItemLines(i, _profile()));
         }
     }
 }

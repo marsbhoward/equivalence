@@ -78,14 +78,6 @@ namespace Convergence.Art.Lighting
 
         public static void ClearEdge() => _edge = null;
 
-        static float EdgeAt(float wx, float wy)
-        {
-            if (_edge == null) return 0f;
-            int x = Mathf.FloorToInt((wx - _edgeOrigin.x) / _edgeCell), y = Mathf.FloorToInt((wy - _edgeOrigin.y) / _edgeCell);
-            if (x < 0 || y < 0 || x >= _edgeW || y >= _edgeH) return 1f;
-            return _edge[y * _edgeW + x];
-        }
-
         /// <summary>The place's shade colour, as last set - so a fight can lift the dark without changing its colour.</summary>
         public static Color Shade => _field != null ? _field._shade : Color.black;
 
@@ -136,16 +128,24 @@ namespace Convergence.Art.Lighting
 
             float dark = _darkness, warm = Tuning.Lighting.LitTintAlpha;
             int bands = Tuning.Lighting.Bands;
+            // Most of the view is unlit (q 0): such a texel is the shade, darkened toward the edge by
+            // one of bands + 1 steps, so those are worked out once here and looked up below. The
+            // edge cell under each column and row is found once too. Lit texels are worked out as before.
+            int wx0 = Mathf.FloorToInt(x0 * Ppu), wy0 = Mathf.FloorToInt(y0 * Ppu);
+            EnsureEdgeCells(wx0, wy0, bands);
+            if (_unlit == null || _unlit.Length != bands + 1) _unlit = new Color32[bands + 1];
+            for (int L = 0; L <= bands; L++) _unlit[L] = Shaded(_shade, dark, L <= 0 ? 0f : L / (float)bands, 0f);
             for (int y = 0; y < _h; y++)
             for (int x = 0; x < _w; x++)
             {
                 int i = y * _w + x;
                 // the world's own texel index, so the dither stays put as the view moves
-                int wx = Mathf.FloorToInt(x0 * Ppu) + x, wy = Mathf.FloorToInt(y0 * Ppu) + y;
+                int wx = wx0 + x, wy = wy0 + y;
                 // Hard steps, NOT dithered between: a dither's checkerboard lands on the bodies
                 // too, and a character under it reads as see-through (the user's report).
                 float d = Tuning.Lighting.Dither ? (Bayer[((wy & 3) << 2) | (wx & 3)] + 0.5f) / 16f : 0.5f;
                 float q = Mathf.Clamp01(Mathf.Floor(_light[i] * bands + d) / bands);
+                if (q <= 0f) { _px[i] = _unlit[EdgeLevel(x, y)]; continue; }
                 // The light's own colour only near the core of the pool: blended in sooner, the
                 // half-lit rings were a coloured haze over the walls rather than light on them.
                 float k = q * q * q * q;
@@ -154,22 +154,69 @@ namespace Convergence.Art.Lighting
                 float wash = _wash[i];
                 Color col = wash > 0f ? Color.Lerp(_shade, _tint[i], q) : k > 0f ? Color.Lerp(_shade, _tint[i], k) : _shade;
                 float a = Mathf.Lerp(dark, Mathf.Max(warm, wash), q);
-                if (_edge != null)
-                {
-                    // Stepped like the light, so the fade is bands rather than a smooth haze; a
-                    // light still cuts into it (a torch at the lip lights the drop below it).
-                    float e = Mathf.Floor(EdgeAt((wx + 0.5f) / Ppu, (wy + 0.5f) / Ppu) * bands + 0.5f) / bands;
-                    if (e > 0f)
-                    {
-                        float lit = 1f - q;
-                        col = Color.Lerp(col, _edgeShade, e * lit);
-                        a = Mathf.Lerp(a, Mathf.Max(a, _edgeAlpha), e * lit);
-                    }
-                }
-                _px[i] = new Color32((byte)(col.r * 255f), (byte)(col.g * 255f), (byte)(col.b * 255f), (byte)(a * 255f));
+                int lv = EdgeLevel(x, y);
+                _px[i] = Shaded(col, a, lv <= 0 ? 0f : lv / (float)bands, q);
             }
             _tex.SetPixels32(_px);
             _tex.Apply(false);
+        }
+
+        Color32[] _unlit;
+        int[] _edgeCol, _edgeRow;
+        int[] _edgeLv;
+        float[] _edgeLvOf;
+
+        /// <summary>A texel of colour <paramref name="col"/> at alpha <paramref name="a"/>, lit <paramref name="q"/>, faded
+        /// toward the edge by <paramref name="e"/> (already stepped, like the light, so the fade is bands rather than a
+        /// smooth haze; a light still cuts into it - a torch at the lip lights the drop below it).</summary>
+        static Color32 Shaded(Color col, float a, float e, float q)
+        {
+            if (_edge != null && e > 0f)
+            {
+                float lit = 1f - q;
+                col = Color.Lerp(col, _edgeShade, e * lit);
+                a = Mathf.Lerp(a, Mathf.Max(a, _edgeAlpha), e * lit);
+            }
+            return new Color32((byte)(col.r * 255f), (byte)(col.g * 255f), (byte)(col.b * 255f), (byte)(a * 255f));
+        }
+
+        /// <summary>The edge map's cell under each light column and row (-1 off the map), and each cell's step.</summary>
+        void EnsureEdgeCells(int wx0, int wy0, int bands)
+        {
+            if (_edgeCol == null || _edgeCol.Length != _w) _edgeCol = new int[_w];
+            if (_edgeRow == null || _edgeRow.Length != _h) _edgeRow = new int[_h];
+            if (_edge == null) return;
+            for (int x = 0; x < _w; x++)
+            {
+                int cx = EdgeCell((wx0 + x + 0.5f) / Ppu, _edgeOrigin.x);
+                _edgeCol[x] = cx < 0 || cx >= _edgeW ? -1 : cx;
+            }
+            for (int y = 0; y < _h; y++)
+            {
+                int cy = EdgeCell((wy0 + y + 0.5f) / Ppu, _edgeOrigin.y);
+                _edgeRow[y] = cy < 0 || cy >= _edgeH ? -1 : cy;
+            }
+            // the map is laid once a floor: its steps are worked out again only when it changes
+            if (_edgeLvOf != _edge || _edgeLv == null || _edgeLv.Length != _edge.Length)
+            {
+                _edgeLv = new int[_edge.Length];
+                for (int k = 0; k < _edge.Length; k++) _edgeLv[k] = Mathf.FloorToInt(_edge[k] * bands + 0.5f);
+                _edgeLvOf = _edge;
+            }
+        }
+
+        // A texel centre can land exactly on a cell's side: the float rounding there is the old per-texel EdgeAt's,
+        // so the same call shape (a float argument, then the cell).
+        [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+        static int EdgeCell(float w, float origin) => Mathf.FloorToInt((w - origin) / _edgeCell);
+
+        /// <summary>The edge's step at light texel (x, y): 0 none .. bands full (off the map is 1, full).</summary>
+        int EdgeLevel(int x, int y)
+        {
+            if (_edge == null) return 0;
+            int cx = _edgeCol[x], cy = _edgeRow[y];
+            if (cx < 0 || cy < 0) return Tuning.Lighting.Bands;
+            return _edgeLv[cy * _edgeW + cx];
         }
 
         /// <summary>One light's pool, in view-local world units. The strongest light at a texel
@@ -181,17 +228,22 @@ namespace Convergence.Art.Lighting
             int rr = Mathf.CeilToInt(radius * Ppu);
             int xa = Mathf.Max(0, cx - rr), xb = Mathf.Min(_w - 1, cx + rr);
             int ya = Mathf.Max(0, cy - rr), yb = Mathf.Min(_h - 1, cy + rr);
-            float inv = 1f / (radius * Ppu);
+            float inv = 1f / (radius * Ppu), ax = at.x * Ppu, ay = at.y * Ppu;
             for (int y = ya; y <= yb; y++)
-            for (int x = xa; x <= xb; x++)
             {
-                float dx = (x + 0.5f - at.x * Ppu) * inv, dy = (y + 0.5f - at.y * Ppu) * inv;
-                float dd = Mathf.Sqrt(dx * dx + dy * dy);
-                if (dd >= 1f) continue;
-                float f = dd <= core ? 1f : 1f - Mathf.SmoothStep(0f, 1f, (dd - core) / (1f - core));
-                float v = f * strength;
-                int i = y * _w + x;
-                if (v > _light[i]) { _light[i] = v; _tint[i] = col; _wash[i] = wash; }
+                float dy = (y + 0.5f - ay) * inv, dy2 = dy * dy;
+                if (dy2 > 1f) continue;
+                for (int x = xa; x <= xb; x++)
+                {
+                    float dx = (x + 0.5f - ax) * inv, d2 = dx * dx + dy2;
+                    if (d2 > 1f) continue;
+                    float dd = Mathf.Sqrt(d2);
+                    if (dd >= 1f) continue;
+                    float f = dd <= core ? 1f : 1f - Mathf.SmoothStep(0f, 1f, (dd - core) / (1f - core));
+                    float v = f * strength;
+                    int i = y * _w + x;
+                    if (v > _light[i]) { _light[i] = v; _tint[i] = col; _wash[i] = wash; }
+                }
             }
         }
 

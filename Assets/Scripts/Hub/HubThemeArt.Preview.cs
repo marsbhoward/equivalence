@@ -13,7 +13,7 @@ namespace Convergence.Hub
                 int w = 60, wallH = 18, floorH = 30;
                 var c = new TexelCanvas(w, wallH + floorH);
                 for (int y = 0; y < floorH; y++) for (int x = 0; x < w; x++) c.Px[y * w + x] = HubRoomArt.Floor(theme, x, y, w, floorH);
-                for (int y = 0; y < wallH; y++) for (int x = 0; x < w; x++) { var col = HubRoomArt.Wall(theme, x, wallH - 1 - y, wallH); col.a = 255; c.Px[(floorH + y) * w + x] = col; }
+                for (int y = 0; y < wallH; y++) for (int x = 0; x < w; x++) { var col = HubRoomArt.Wall(theme, x, wallH - 1 - y, wallH, w); col.a = 255; c.Px[(floorH + y) * w + x] = col; }
                 return c.ToSprite("preview.room", w / 2, 0, HubArt.Ppu);
             }),
             HubItem.Forge => Forge(theme, 3, true),

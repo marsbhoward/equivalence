@@ -455,6 +455,7 @@ namespace Convergence.Player
             float window = Board != null ? Board.DefenseWindowMul : 1f;
             _parryWindowRemaining = Tuning.Defense.ParryWindowSeconds * window * Mods.DefenseWindowMul;   // Brittle Guard
             Effects?.OnDefenceUsed();   // Lacerate, a Defence form
+            if (Mods.LockBreaksOnDefense) Targeting?.BreakLock();   // Wandering Eye II
 
             switch (EquippedDefensiveAbility)
             {
@@ -1924,7 +1925,12 @@ namespace Convergence.Player
             Core.Controls.AimOriginScreen = cam != null ? (Vector2?)(Vector2)cam.WorldToScreenPoint(transform.position) : null;
             UpdateArtAim();
             if (_aimIndicator == null) _aimIndicator = AimIndicator.Attach(this);
-            var target = Targeting != null ? Targeting.Target : null;
+            // Only the LOCK holds the facing between swings (the user's call, 2026-11-12: lock-on replaces
+            // auto-target). With none, a swing turns to the soft assist as it starts (DoAttack) and keeps it
+            // until its strike is drawn; otherwise the character faces its travel.
+            var target = Targeting != null ? Targeting.Locked : null;
+            if (target == null && _swingAt != null && !_swingAt.IsDead && Rig != null && !Rig.PastStrike)
+                target = _swingAt;
             bool facingHeld = AttackLocked && !(_lockFreesAfterStrike && Rig != null && Rig.PastStrike);
             if (facingHeld)
             {
@@ -2749,8 +2755,31 @@ namespace Convergence.Player
             }
         }
 
+        /// <summary>The soft assist's pick a swing turned to (DoAttack), held until its strike is drawn.</summary>
+        Health _swingAt;
+
+        /// <summary>
+        /// With no lock and no art aimed by hand, a swing turns to the soft assist's pick
+        /// (PlayerTargeting.Assist) - else to the aim, when there is one - before anything reads Facing.
+        /// </summary>
+        void TurnToAssist()
+        {
+            _swingAt = null;
+            if (Targeting == null || Targeting.IsLocked || AimingArt) return;
+            var at = Targeting.Assist;
+            if (at != null && !at.IsDead)
+            {
+                var d = (Vector2)at.transform.position - (Vector2)transform.position;
+                if (d.sqrMagnitude > 0.0001f) { Facing = d.normalized; _swingAt = at; }
+                return;
+            }
+            var aim = Core.Controls.Aim;
+            if (aim.HasValue && aim.Value.sqrMagnitude > 0.0001f) Facing = aim.Value.normalized;
+        }
+
         void DoAttack()
         {
+            TurnToAssist();
             var step = NextStep;          // captured before the chain advances
             bool isFinisher = FinisherNext;
             AttackStarted?.Invoke(isFinisher);

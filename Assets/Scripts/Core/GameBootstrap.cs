@@ -99,6 +99,9 @@ namespace Convergence.Core
         public int EliteEveryNFloors = 3;
 
         State _state = State.Hub;
+        /// <summary>DEV (the perf-test build's report, Core/PerfTest): the floor and whether a run is on.</summary>
+        public int DevFloor => _floor;
+        public string DevState => _state.ToString();
 
         /// <summary>
         /// The stores are INTERFACE-typed, which Unity cannot serialize - so a domain reload
@@ -168,9 +171,6 @@ namespace Convergence.Core
         int _riftHintRun = -1;
         Camera _cam;
         UI.ScreenFade _fade;
-
-        GameObject _overScreen;
-        int _overScreenFrame = -1;
 
         /// <summary>
         /// The main menu, as a walkable room. Null while a run is live - it is torn down on
@@ -312,6 +312,10 @@ namespace Convergence.Core
         /// another attempt to go deeper is the whole point of that mechanic.
         /// </summary>
         int _pendingMastery;
+
+        /// <summary>The part of <see cref="_pendingMastery"/> from XP reward cards - the run-end
+        /// screen's breakdown only (RunSnapshot.CardMastery).</summary>
+        int _cardMastery;
 
         /// <summary>
         /// Calx taken from floor reward cards this run - CARRIED, like unsecured loot: banked by
@@ -470,9 +474,9 @@ namespace Convergence.Core
 
             _stuckWatch = gameObject.AddComponent<StuckWatch>();
             CharacterScreen = gameObject.AddComponent<UI.CharacterScreen>();
-            CharacterScreen.Init(() => _profile, Equip, ToggleHelmHidden,
+            CharacterScreen.Init(() => _profile, ToggleHelmHidden,
                                  () => _state == State.Playing ? Modifiers : null,
-                                 () => _player, () => ReorderOpen);
+                                 () => _player, () => ReorderOpen, ScreenCharacter);
             FloorRewardScreen = gameObject.AddComponent<UI.FloorRewardScreen>();
             MasteryScreen = gameObject.AddComponent<UI.MasteryScreen>();
             TransmutationScreen = gameObject.AddComponent<UI.TransmutationScreen>();
@@ -616,7 +620,7 @@ namespace Convergence.Core
             if (staleNodes > 0)
                 Debug.Log($"[ProfileStore] dropped {staleNodes} mastery entries the board no longer has.");
             MasteryScreen.Init(() => _profile);
-            bool seeded = EnsureShowcaseKit(_profile);
+            bool seeded = EnsureKit(_profile);
             if (EnsureStarterGear(_profile) || seeded)
                 await _store.UnlockAsync(_profile);
             await MigrateLegacyRoom();
@@ -806,7 +810,7 @@ namespace Convergence.Core
             // (CharacterProfile.NewDefault), and counting it skipped the starters - new players
             // arrived with a pouch and nothing else.
             if (profile.Gear.WornCount() > 0) return false;
-            // The showcase holds no starters: its characters are given the kit (EnsureShowcaseKit).
+            // The showcase holds no starters: its characters are given the kit (EnsureKit).
             if (RunFormat.Showcase) return false;
             profile.Gear.Set(Art.Gear.GearSlot.Weapon, "silver_blade");
             profile.Gear.Set(Art.Gear.GearSlot.Torso, "silver_plate");
@@ -825,6 +829,13 @@ namespace Convergence.Core
             if (_state == State.Hub && _waiting != null)
             {
                 Debug.LogWarning($"[Run] {slot} not changed - a run is waiting for this character");
+                return;
+            }
+            // A worn slot is swapped, never emptied (the user's call, 2026-11-12): a bare look is a perception
+            // (Appearance.Nothing). The pickers offer no empty cell on a worn slot; this is the backstop.
+            if (string.IsNullOrEmpty(itemId) && !string.IsNullOrEmpty(_profile.Gear.Get(slot)))
+            {
+                Debug.LogWarning($"[Gear] {slot} not taken off - a worn slot can only be swapped");
                 return;
             }
             _profile.Gear.Set(slot, itemId);
@@ -1936,7 +1947,7 @@ namespace Convergence.Core
                        _account.Room,
                        () => TxScreen.Open(_canvas.transform),
                        TakePortrait,
-                       OpenForge,
+                       () => OpenForge(),
                        OpenManual,
                        DressArmoury,
                        SaveLook);
@@ -1961,19 +1972,22 @@ namespace Convergence.Core
         }
 
         /// <summary>Opens the Forge, through the fixture's own interact key - always, since the DYE tab
-        /// previews colours whatever is held.</summary>
-        void OpenForge()
+        /// previews colours whatever is held. A new character's kit waits on its STARTING KIT tab;
+        /// <paramref name="afterKit"/> (a run waiting on that choice) closes the Forge and goes on.</summary>
+        void OpenForge(Action afterKit = null)
         {
             if (_profile == null) return;
-            // The showcase's new character chooses its weapon and defensive here (AskShowcaseKit).
-            if (RunFormat.Showcase && !ShowcaseKitChosen())
-            {
-                if (EnsureShowcaseKit(_profile)) _ = _store.UnlockAsync(_profile);
-                AskShowcaseKit(null);
-                return;
-            }
+            if (KitWaiting() && EnsureKit(_profile)) _ = _store.UnlockAsync(_profile);
             ForgeScreen.Open(_canvas.transform, new UI.ForgeScreen.Context
             {
+                KitWaiting = KitWaiting,
+                OnChooseKit = (cls, ability) =>
+                {
+                    ChooseShowcaseKit(cls, ability);
+                    if (afterKit == null) return;
+                    ForgeScreen.Close();
+                    afterKit();
+                },
                 Boxes = _profile.Boxes,
                 RiftBoxes = () => _profile.RiftBoxes,
                 MintedGear = _profile.MintedGear,
@@ -2235,7 +2249,7 @@ namespace Convergence.Core
                 await LookUpWaitingRunAsync();
                 await ForfeitStaleStake();
                 Mastery = new Progression.BoardState(_profile.Mastery);
-                bool seeded = EnsureShowcaseKit(_profile);
+                bool seeded = EnsureKit(_profile);
                 if (EnsureStarterGear(_profile) || seeded) await _store.UnlockAsync(_profile);
                 await SettleEndedWaitingAsync();
 
@@ -2271,7 +2285,7 @@ namespace Convergence.Core
             {
                 var created = await _store.LoadAsync(id);   // absent id yields a fresh profile
                 created.Name = $"Character {_roster.Count + 2}";
-                EnsureShowcaseKit(created);
+                EnsureKit(created);
                 EnsureStarterGear(created);
                 await _store.UnlockAsync(created);
                 if (_state != State.Hub) return;
@@ -2436,7 +2450,7 @@ namespace Convergence.Core
                       || BoothScreen.IsOpen
                       || PauseScreen.IsOpen || SettingsScreen.IsOpen || ControlsScreen.IsOpen
                       || HudSettingsScreen.IsOpen
-                      || InventoryScreen.IsOpen || UI.EndingScreen.IsOpen || UI.ShowcaseEndScreen.IsOpen
+                      || InventoryScreen.IsOpen || UI.EndingScreen.IsOpen || UI.ShowcaseEndScreen.IsOpen || UI.RunEndScreen.IsOpen
                       || UI.FirstRunHints.IsOpen || UI.TitleScreen.IsOpen || UI.SupportCard.IsOpen;
             bool modal = screenOpen || (_hub != null && _hub.Blocking);
 
@@ -2445,9 +2459,9 @@ namespace Convergence.Core
             // Likewise the week: its reset turns the sigils to stone until the selector wakes them.
             if (_state == State.Hub && _hub != null)
             {
-                // The showcase's new character: its weapon and defensive wait at the forge, which
-                // beckons until they are chosen.
-                bool kitWaiting = RunFormat.Showcase && !ShowcaseKitChosen();
+                // A new character's kit (every format): its weapon and defensive wait at the forge,
+                // which beckons until they are chosen.
+                bool kitWaiting = KitWaiting();
                 _hub.KitWaiting = kitWaiting;
                 if (kitWaiting && !screenOpen && _hub.ForgeAt is Vector3 forge
                     && UI.FirstRunHints.Ready(-1, ignoreQuiet: true))
@@ -2541,13 +2555,12 @@ namespace Convergence.Core
             // it - and closing it hands back to that menu via CharacterScreen's onClosed.
             if (_state == State.Hub)
             {
-                // Cancel is the gear grid's while it is up - it backs out of the grid only.
                 bool toggle = Controls.LoadoutTapped
-                           || (CharacterScreen.IsOpen && !CharacterScreen.PickerOpen && Controls.CancelTapped);
+                           || (CharacterScreen.IsOpen && Controls.CancelTapped);
                 if (toggle) { CharacterScreen.Toggle(_canvas.transform, ScreenElement()); return; }
             }
             else if (_state == State.Playing && CharacterScreen.IsOpen
-                     && (Controls.LoadoutTapped || (!CharacterScreen.PickerOpen && !CharacterScreen.ReorderPanelUp
+                     && (Controls.LoadoutTapped || (!CharacterScreen.ReorderPanelUp
                                                     && Controls.CancelTapped)))
             {
                 CharacterScreen.Close();
@@ -2699,15 +2712,8 @@ namespace Convergence.Core
                 }
 
             }
-            else if (_state == State.RunOver)
-            {
-                // Only once the screen is UP. EndRun sets RunOver and then awaits two writes before
-                // building it, and a press in that gap (the ABANDON click itself, a swing) went
-                // to the hub early - the screen then landed over the hub, where nothing dismisses
-                // it. Not on the frame it is built either, or the press that built it closes it.
-                if (_overScreen && Time.frameCount != _overScreenFrame && Controls.AnyDismiss)
-                    ReturnToHub();
-            }
+            // State.RunOver: UI/RunEndScreen takes its own input once it is up - EndRun awaits two
+            // writes before building it, and nothing here may read a press in that gap.
         }
 
         /// <summary>
@@ -2895,12 +2901,12 @@ namespace Convergence.Core
                     ConfirmDialog?.ShowNotice(_canvas.transform, "RUNS PAUSED", Chain.Service.ServiceStatus.Runs, "OK");
                     return;
                 }
-                // The showcase: a character that has not chosen at the forge chooses here, before
-                // the run - nobody goes down unarmed.
-                if (RunFormat.Showcase && !ShowcaseKitChosen())
+                // A kit not yet chosen at the forge is chosen here, before the run - nobody goes
+                // down unarmed.
+                if (KitWaiting())
                 {
-                    EnsureShowcaseKit(_profile);
-                    AskShowcaseKit(() => StartRun(element, stake, insured));
+                    EnsureKit(_profile);
+                    AskKit(() => StartRun(element, stake, insured));
                     return;
                 }
                 await StartRunAsync(element, stake, insured);
@@ -2911,8 +2917,8 @@ namespace Convergence.Core
         // ---- the showcase's kit (SHOWCASE.md, the user's call 2026-10-31) ----
 
         /// <summary>
-        /// THE SHOWCASE's KIT (the user's call, 2026-11-01; SHOWCASE.md): a new character is given the
-        /// whole kit AT CREATION - Bronze head, legs, boots and gloves, worn; a Bronze weapon of each
+        /// THE KIT (the user's call, 2026-11-01; SHOWCASE.md - every format since 2026-11-12, the showcase's numbers in
+        /// Tuning.Showcase): a new character is given the whole kit AT CREATION - Bronze head, legs, boots and gloves, worn; a Bronze weapon of each
         /// class, a Bronze chest for each defensive, and a relic for each class (its mobility art),
         /// held in the inventory. The player is sent to the FORGE to choose a weapon and a defensive:
         /// those are equipped, with the relic of the weapon's class, and the rest stay in the
@@ -2920,18 +2926,30 @@ namespace Convergence.Core
         /// KIT- pieces already and is left alone. Statted, never minted - the showcase writes
         /// nothing to the chain. True when it gave the kit (the caller saves).
         /// </summary>
-        bool EnsureShowcaseKit(CharacterProfile profile)
+        bool EnsureKit(CharacterProfile profile)
         {
-            if (!RunFormat.Showcase || profile == null) return false;
-            if (profile.MintedGear.Exists(r => r.InstanceId.StartsWith("KIT-"))) return TopUpShowcaseKit(profile);
+            if (profile == null) return false;
+            if (HasKit(profile)) return TopUpKit(profile);
+            // Every format gives it to a NEW character (the user's call, 2026-11-12); the Short Descent never to one
+            // that has played, which has its own gear - the showcase to anyone without it, as it always has.
+            // The perf-test build (PerfTest) gives it to any character without it, so a test character made before
+            // the kit reached every format is dressed too.
+            if (!RunFormat.Showcase && !Unplayed(profile) && !PerfTest.Build) return false;
 
             void Give(Art.Gear.GearSlot slot, Art.Gear.WeaponClass cls, Art.Gear.DefensiveAbility? ability, bool wear)
                 => GiveKitPiece(profile, slot, cls, ability, wear);
 
             foreach (var slot in Tuning.Showcase.KitArmour)
-                if (slot != Art.Gear.GearSlot.Torso) Give(slot, Art.Gear.WeaponClass.Greatsword, null, wear: true);
+                if (slot != Art.Gear.GearSlot.Torso)
+                    Give(slot, Art.Gear.WeaponClass.Greatsword, null, wear: string.IsNullOrEmpty(profile.Gear.Get(slot)));
+            // a character with a weapon already is never asked at the forge: it wears the first chest (Dash)
+            bool wearChest = !string.IsNullOrEmpty(profile.Gear.Get(Art.Gear.GearSlot.Weapon))
+                             && string.IsNullOrEmpty(profile.Gear.Get(Art.Gear.GearSlot.Torso));
             foreach (Art.Gear.DefensiveAbility a in Enum.GetValues(typeof(Art.Gear.DefensiveAbility)))
-                Give(Art.Gear.GearSlot.Torso, Art.Gear.WeaponClass.Greatsword, a, wear: false);
+            {
+                Give(Art.Gear.GearSlot.Torso, Art.Gear.WeaponClass.Greatsword, a, wear: wearChest);
+                wearChest = false;
+            }
             foreach (var cls in ShowcaseClasses)
             {
                 Give(Art.Gear.GearSlot.Weapon, cls, null, wear: false);
@@ -2950,7 +2968,7 @@ namespace Convergence.Core
                 Art.Gear.GearCatalog.Register(relic.ToGearItem());
             }
             profile.Gear.DropStale();
-            Debug.Log($"[Showcase] kit given at creation to {profile.DisplayName}: armor worn, weapons, chests and relics held");
+            Debug.Log($"[Kit] given at creation to {profile.DisplayName}: armor worn, weapons, chests and relics held");
             return true;
         }
 
@@ -2959,7 +2977,7 @@ namespace Convergence.Core
         /// back, belt and a scarf) is given the missing pieces - worn where the slot is empty, held
         /// otherwise. True when it gave any (the caller saves).
         /// </summary>
-        static bool TopUpShowcaseKit(CharacterProfile profile)
+        static bool TopUpKit(CharacterProfile profile)
         {
             bool gave = false;
             foreach (var slot in Tuning.Showcase.KitArmour)
@@ -2970,10 +2988,22 @@ namespace Convergence.Core
                              wear: string.IsNullOrEmpty(profile.Gear.Get(slot)));
                 gave = true;
             }
+            // A kit relic carries its class's kit art as it is now: one given before the greatsword's became
+            // Impale (2026-11-08) still held the Grappling Hook.
+            foreach (var relic in profile.MintedGear)
+            {
+                if (!relic.InstanceId.StartsWith("KIT-Relic-")) continue;
+                string art = Tuning.Showcase.KitRelicArt(relic.Class);
+                if (relic.Finisher == art) continue;
+                Debug.Log($"[Kit] {profile.DisplayName}'s {relic.Class} relic: {relic.Finisher} -> {art}");
+                relic.Finisher = art;
+                Art.Gear.GearCatalog.Register(relic.ToGearItem());
+                gave = true;
+            }
             if (gave)
             {
                 profile.Gear.DropStale();
-                Debug.Log($"[Showcase] kit topped up for {profile.DisplayName}: the slots added since it was given");
+                Debug.Log($"[Kit] topped up for {profile.DisplayName}: the slots added since it was given");
             }
             return gave;
         }
@@ -3051,42 +3081,22 @@ namespace Convergence.Core
 
         /// <summary>The showcase character has a weapon in hand - chosen at the forge (or, for a
         /// character from before, at its first run).</summary>
-        bool ShowcaseKitChosen()
+        bool KitChosen()
             => _profile != null && !string.IsNullOrEmpty(_profile.Gear.Get(Art.Gear.GearSlot.Weapon));
 
-        /// <summary>The forge's choice: a weapon, then a defensive - then <paramref name="then"/>.</summary>
-        void AskShowcaseKit(Action then)
-        {
-            Choices.Show(_canvas.transform, "CHOOSE YOUR WEAPON",
-                "Bronze, and yours to keep. The other two stay in your inventory - change at any time.",
-                new List<(string, string)>
-                {
-                    ("GREATSWORD", "Two hands, slow and wide - every swing a commitment."),
-                    ("DISCS", "Heavy blows up close, ricocheting throws at range."),
-                    ("BOW", "Pure range: make space, then loose."),
-                },
-                w =>
-                {
-                    var cls = ShowcaseClasses[w];
-                    var abilities = (Art.Gear.DefensiveAbility[])Enum.GetValues(typeof(Art.Gear.DefensiveAbility));
-                    Choices.Show(_canvas.transform, "CHOOSE YOUR DEFENSIVE",
-                        "Your chest carries it. The others stay in your inventory - change at any time.",
-                        new List<(string, string)>
-                        {
-                            ("DASH", "A quick dash, untouchable while it lasts."),
-                            ("BARRIER", "A dome that stops every hit from in front."),
-                            ("BULWARK", "Take less damage for a few seconds."),
-                            ("PARRY STANCE", "Meet a blow on time and turn it."),
-                        },
-                        d =>
-                        {
-                            ChooseShowcaseKit(cls, abilities[Mathf.Clamp(d, 0, abilities.Length - 1)]);
-                            then?.Invoke();
-                        },
-                        "BACK");
-                },
-                "BACK");
-        }
+        /// <summary>A weapon and defensive wait at the forge: the showcase's character without a weapon, or one given the
+        /// kit in any format that has not chosen yet. The forge beckons, the hint points at it, and a run asks first.</summary>
+        bool KitWaiting() => _profile != null && (RunFormat.Showcase || HasKit(_profile)) && !KitChosen();
+
+        static bool HasKit(CharacterProfile profile) => profile.MintedGear.Exists(r => r.InstanceId.StartsWith("KIT-"));
+
+        /// <summary>A character that has never played: nothing worn but the default relic, no gear, no runs, no levels.</summary>
+        static bool Unplayed(CharacterProfile profile)
+            => profile.Gear.WornCount() == 0 && profile.MintedGear.Count == 0 && profile.RecentRuns.Count == 0
+               && profile.Level <= 1 && profile.Xp == 0;
+
+        /// <summary>The forge's choice - its STARTING KIT tab: a weapon, then a defensive - then <paramref name="then"/>.</summary>
+        void AskKit(Action then) => OpenForge(then);
 
         /// <summary>Equip the kit's weapon of <paramref name="cls"/>, its chest with
         /// <paramref name="ability"/> and the relic of the class; everything else stays held.</summary>
@@ -3199,7 +3209,7 @@ namespace Convergence.Core
             if (InventoryScreen.IsOpen) InventoryScreen.Close();
             HideHub();
             if (_arenaRoot) _arenaRoot.gameObject.SetActive(true);
-            if (_overScreen) Destroy(_overScreen);   // starting again from the run-over screen
+            GetComponent<UI.RunEndScreen>()?.Close();   // starting again from the run-over screen
         }
 
         async System.Threading.Tasks.Task StartRunAsync(ElementType element, MintedGearRecord stake, bool insured)
@@ -3214,6 +3224,7 @@ namespace Convergence.Core
             _milestoneAsks?.Clear();
             _runGuaranteeWeek = 0;
             _pendingMastery = 0;
+            _cardMastery = 0;
             _runCalx = 0;
             _runCalxTaken = 0;
             _lastRiftBoxFloor = 0;
@@ -3303,6 +3314,31 @@ namespace Convergence.Core
             // last run's room showed until NextFloor dressed this one.
             _state = State.Playing;
             StartCoroutine(BuildUnderBlack(NextFloor()));
+        }
+
+        static float BaseHp(ElementType element)
+            => element == ElementType.Air ? Tuning.Player.HpAir
+             : element == ElementType.Earth ? Tuning.Player.HpEarth
+             : Tuning.Player.HpFireWater;
+
+        /// <summary>Gear and the board summed into points, before the character curves bend them.
+        /// The board speaks gear's language since the 2026-10-05 rebuild: its points join the
+        /// loadout's here and are bent with them. Range's secondary reads as Pierce on a bow.</summary>
+        Art.Gear.StatPercents RawCharacterStats(ElementType element)
+        {
+            var stats = _profile.Gear.TotalStats();
+            stats.Add(Mastery.Points(element, WeaponClassOf(_profile)));
+            return stats;
+        }
+
+        /// <summary>The loadout sheet's default read: the live player's block mid-run, or in the
+        /// hub the block BuildPlayer would make for the screen's element.</summary>
+        (Art.Gear.StatPercents Stats, float MaxHp) ScreenCharacter()
+        {
+            if (_player != null) return (_player.Stats, _player.Health != null ? _player.Health.Max : 0f);
+            var e = ScreenElement();
+            var s = Art.Gear.StatCurves.Character(RawCharacterStats(e));
+            return (s, Art.Gear.StatPercents.Apply(BaseHp(e), s.MaxHp));
         }
 
         /// <summary>The run's telemetry begins (Chain/Service/Telemetry.cs) - started or resumed.</summary>
@@ -3480,9 +3516,7 @@ namespace Convergence.Core
             // Physics2D.SyncTransforms note in CLAUDE.md).
             rb.interpolation = RigidbodyInterpolation2D.Interpolate;
 
-            float baseHp = element == ElementType.Air ? Tuning.Player.HpAir
-                         : element == ElementType.Earth ? Tuning.Player.HpEarth
-                         : Tuning.Player.HpFireWater;
+            float baseHp = BaseHp(element);
             var hp = go.AddComponent<Health>();
             Convergence.Audio.CombatSounds.AttachPlayer(hp);
             Hitstop.AttachPlayer(hp, info => Exchange.RunEffects.FromEnemy(info, go));   // a big blow freezes
@@ -3492,10 +3526,7 @@ namespace Convergence.Core
             // controller does not exist yet. Gear and the grid, summed into percentage points over
             // the Tuning.Player baselines; mastery is authored in fractions (0.05 = +5%) so it is
             // converted at this single boundary rather than by re-authoring every node.
-            var stats = _profile.Gear.TotalStats();
-            // The board speaks gear's language since the 2026-10-05 rebuild: its points join the
-            // loadout's here and are bent with them. Range's secondary reads as Pierce on a bow.
-            stats.Add(Mastery.Points(element, WeaponClassOf(_profile)));
+            var stats = RawCharacterStats(element);
 
             // The CHARACTER layer bent through its diminishing returns, once, here - so every
             // reader of the stat block gets the effective value (Art.Gear.StatCurves). The meter's
@@ -5058,6 +5089,7 @@ namespace Convergence.Core
                 case UI.FloorOutcome.Xp:
                     // Element mastery, banked with the floors' own at the run-end checkpoint.
                     _pendingMastery += xpAmount;
+                    _cardMastery += xpAmount;
                     Debug.Log($"[Mastery] reward card +{xpAmount} xp (run total {_pendingMastery})");
                     break;
 
@@ -6475,6 +6507,9 @@ namespace Convergence.Core
         /// Plain ints: they survive a domain reload.</summary>
         int _runStartDiamondBoxes, _runStartBlackDiamondBoxes;
 
+        /// <summary>The run-end screen's figures, filled by SettleRunAsync for EndRun to show.</summary>
+        UI.RunEndScreen.Report _runReport;
+
         async void EndRun(bool survived)
         {
             if (_state != State.Playing) return;
@@ -6503,13 +6538,16 @@ namespace Convergence.Core
                 Floors = _floor,
                 Seconds = Time.time - _runStartTime,
                 PendingMastery = _pendingMastery,
+                CardMastery = _cardMastery,
                 RunCalx = _runCalx,
                 StakeGateCleared = _stakeGateCleared,
                 RunStartDiamondBoxes = _runStartDiamondBoxes,
                 RunStartBlackDiamondBoxes = _runStartBlackDiamondBoxes,
             };
             _pendingMastery = 0;
+            _cardMastery = 0;
             _runCalx = 0;
+            var weapon = _player ? _player.Weapon : Art.Gear.WeaponClass.Greatsword;
             if (survived) NoteEscape();
 
             // An avatar's boxes still outstanding, then floor 100's box, so they are secured and
@@ -6526,7 +6564,12 @@ namespace Convergence.Core
             _keeper.End(_runId);
             _waiting = null;
 
-            ShowRunOver(summary);
+            var report = _runReport ?? new UI.RunEndScreen.Report();
+            _runReport = null;
+            report.How = survived ? UI.RunEndScreen.Outcome.Escaped
+                       : died ? UI.RunEndScreen.Outcome.Fallen : UI.RunEndScreen.Outcome.Abandoned;
+            report.Weapon = weapon;
+            ShowRunOver(report);
         }
 
         /// <summary>What a run comes to, for <see cref="SettleRunAsync"/> - read off the live run, or
@@ -6535,7 +6578,7 @@ namespace Convergence.Core
         {
             public string RunId;
             public ElementType Element;
-            public int Kills, Floors, PendingMastery, RunCalx, GuaranteeWeek;
+            public int Kills, Floors, PendingMastery, CardMastery, RunCalx, GuaranteeWeek;
             public float Seconds;
             public bool StakeGateCleared;
             public int RunStartDiamondBoxes, RunStartBlackDiamondBoxes;
@@ -6562,6 +6605,21 @@ namespace Convergence.Core
                 GuaranteeWeek = t.GuaranteeWeek,
             };
 
+            // What the run-end screen shows (UI/RunEndScreen), read as each part settles.
+            var report = new UI.RunEndScreen.Report
+            {
+                Floor = t.Floors,
+                Element = t.Element,
+                Kills = t.Kills,
+                Seconds = t.Seconds,
+                NewBest = t.Floors > _profile.BestFloor && _profile.TotalRuns > 0,
+                Gained = Mathf.Max(0, t.PendingMastery),
+                FromCards = Mathf.Clamp(t.CardMastery, 0, Mathf.Max(0, t.PendingMastery)),
+                StartLevel = _profile.Mastery.For(t.Element).Level,
+                StartXp = _profile.Mastery.For(t.Element).Xp,
+            };
+            _runReport = report;
+
             if (t.PendingMastery > 0)
             {
                 var em = _profile.Mastery.For(t.Element);
@@ -6581,9 +6639,22 @@ namespace Convergence.Core
             // is that death costs the tradeable stake and never the progression, so a bad
             // extraction is a bad payday rather than a wasted hour.
             int lost = loot.CarriedCount;
+            report.Lost.AddRange(loot.Carried);
+            report.Home.AddRange(loot.Secured);
+            foreach (Art.Gear.LootTier tier in UI.RunEndScreen.BoxTiers)
+                if (loot.FoundTieredBoxes(tier) > 0) report.LostBoxes.Add((tier, loot.FoundTieredBoxes(tier)));
+            report.LostRiftBoxes = loot.FoundBoxes;
+            var boxesBefore = new int[UI.RunEndScreen.BoxTiers.Length];
+            for (int i = 0; i < boxesBefore.Length; i++) boxesBefore[i] = _profile.Boxes.Get(UI.RunEndScreen.BoxTiers[i]);
+            int riftBefore = _profile.RiftBoxes;
             loot.ForfeitCarried();
+            int banked = loot.Bank(_profile);
+            if (banked > 0 || lost > 0)
+                Debug.Log($"[Rift] banked {banked} piece(s), lost {lost} carried");
             // The reward card's calx rides with the carried loot: home on an extraction, gone on a
-            // death. Added before the checkpoint so both stores serialise the same profile.
+            // death. Added before the checkpoint so both stores serialise the same profile - and
+            // AFTER Bank, which writes the tiered box counts over the profile's: a box the calx
+            // made before it was overwritten away.
             if (t.RunCalx > 0)
             {
                 if (survived)
@@ -6594,9 +6665,13 @@ namespace Convergence.Core
                 }
                 else Debug.Log($"[Rift] lost {t.RunCalx} carried calx");
             }
-            int banked = loot.Bank(_profile);
-            if (banked > 0 || lost > 0)
-                Debug.Log($"[Rift] banked {banked} piece(s), lost {lost} carried");
+            if (t.RunCalx > 0) { if (survived) report.HomeCalx = t.RunCalx; else report.LostCalx = t.RunCalx; }
+            for (int i = 0; i < boxesBefore.Length; i++)
+            {
+                int gain = _profile.Boxes.Get(UI.RunEndScreen.BoxTiers[i]) - boxesBefore[i];
+                if (gain > 0) report.HomeBoxes.Add((UI.RunEndScreen.BoxTiers[i], gain));
+            }
+            report.HomeRiftBoxes = Mathf.Max(0, _profile.RiftBoxes - riftBefore);
             // What the server's box ledger is credited from - the gain, not the absolute count.
             // Design boxes are never spent mid-run, so the difference is exactly what was secured.
             summary.SecuredDiamondBoxes = Mathf.Max(0, _profile.Boxes.Diamond - t.RunStartDiamondBoxes);
@@ -6617,6 +6692,15 @@ namespace Convergence.Core
                 GearStake.Outcome.Saved    => $"stake        {stakeItem.DisplayName} came home (insured)",
                 _ => null,
             };
+            report.Stake = stakeOutcome switch
+            {
+                GearStake.Outcome.Paid     => $"{stakeItem.DisplayName} kept, matching piece claimed",
+                GearStake.Outcome.Returned => $"{stakeItem.DisplayName} came home - gate not cleared",
+                GearStake.Outcome.Lost     => $"{stakeItem.DisplayName} destroyed",
+                GearStake.Outcome.Saved    => $"{stakeItem.DisplayName} came home - insured",
+                _ => null,
+            };
+            report.StakeLost = stakeOutcome == GearStake.Outcome.Lost;
             if (_stakeLine != null) Debug.Log($"[Stake] {stakeOutcome}: {stakeItem.InstanceId}" +
                                               (payout != null ? $" -> {payout.InstanceId}" : ""));
 
@@ -6929,6 +7013,7 @@ namespace Convergence.Core
                 RunClock = Clock.Seconds,
                 Format = Core.RunFormat.WireName,
                 PendingMastery = _pendingMastery,
+                CardMastery = _cardMastery,
                 RunCalx = _runCalx,
                 RunCalxTaken = _runCalxTaken,
                 StakeGateCleared = _stakeGateCleared,
@@ -7329,6 +7414,7 @@ namespace Convergence.Core
                     Floors = s.Floor,
                     Seconds = s.RunSeconds,
                     PendingMastery = s.PendingMastery,
+                    CardMastery = s.CardMastery,
                     RunCalx = s.RunCalx,
                     StakeGateCleared = s.StakeGateCleared,
                     GuaranteeWeek = s.GuaranteeWeek,
@@ -7482,6 +7568,7 @@ namespace Convergence.Core
             _milestoneAsks?.Clear();
             _runGuaranteeWeek = s.GuaranteeWeek;
             _pendingMastery = s.PendingMastery;
+            _cardMastery = s.CardMastery;
             _runCalx = s.RunCalx;
             _runCalxTaken = s.RunCalxTaken;
             _runStartTime = Time.time - s.RunSeconds;
@@ -7711,47 +7798,19 @@ namespace Convergence.Core
             catch (Exception e) { Debug.LogWarning($"[Run] could not refresh the waiting run: {e.Message}"); }
         }
 
-        void ShowRunOver(RunSummary s)
+        void ShowRunOver(UI.RunEndScreen.Report report)
         {
             TeardownRun();
-
-            _overScreen = new GameObject("RunOver", typeof(RectTransform));
-            _overScreenFrame = Time.frameCount;
-            _overScreen.transform.SetParent(_canvas.transform, false);
-            var full = (RectTransform)_overScreen.transform;
-            full.anchorMin = Vector2.zero; full.anchorMax = Vector2.one;
-            full.offsetMin = Vector2.zero; full.offsetMax = Vector2.zero;
-
-            UiKit.Panel(full, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero,
-                new Color(0.04f, 0.045f, 0.06f, 0.93f));
-
-            var box = UiKit.Panel(full, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-                new Vector2(-330, -190), new Vector2(330, 190), new Color(0.09f, 0.10f, 0.13f, 0.98f));
-
-            var t = UiKit.Rect(box, "t", new Vector2(0, 1), new Vector2(1, 1), new Vector2(0, -96), new Vector2(0, -34));
-            UiKit.Label(t, "RUN OVER", 44, new Color(0.93f, 0.94f, 0.97f), TextAnchor.MiddleCenter);
-
-            var body = UiKit.Rect(box, "body", new Vector2(0, 0), new Vector2(1, 1), new Vector2(40, 92), new Vector2(-40, -110));
-            UiKit.Label(body,
-                $"element      {s.Element.ToString().ToUpper()}\n" +
-                $"floors       {s.Floors}\n" +
-                $"kills        {s.Kills}\n" +
-                $"duration     {s.DurationSeconds:0}s\n" +
-                (_stakeLine != null ? _stakeLine + "\n" : "") +
-                (_themesWon.Count > 0 ? $"hub theme    {string.Join(", ", _themesWon)}  -  a parcel waits on the crate\n" : "") + "\n" +
-                $"profile      lvl {_profile.Level}   {_profile.TotalRuns} runs   best {_profile.BestKills}\n" +
-                $"checkpoint   committed to IProfileStore",
-                21, new Color(0.78f, 0.80f, 0.86f), TextAnchor.UpperLeft);
-
+            report.Themes.AddRange(_themesWon);
             _themesWon.Clear();
-            var foot = UiKit.Rect(box, "foot", new Vector2(0, 0), new Vector2(1, 0), new Vector2(0, 30), new Vector2(0, 70));
-            UiKit.Label(foot, "[ R ] return to the hub", 22,
-                new Color(0.55f, 0.58f, 0.66f), TextAnchor.MiddleCenter);
+            var end = GetComponent<UI.RunEndScreen>();
+            if (end == null) end = gameObject.AddComponent<UI.RunEndScreen>();
+            end.Show(_canvas.transform, report, ReturnToHub);
         }
 
         void ReturnToHub()
         {
-            if (_overScreen) Destroy(_overScreen);
+            GetComponent<UI.RunEndScreen>()?.Close();
             if (_enemyRoot) Destroy(_enemyRoot.gameObject);
             if (_hazardRoot) Destroy(_hazardRoot.gameObject);
             ShowHub();

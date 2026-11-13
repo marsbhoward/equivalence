@@ -196,12 +196,14 @@ namespace Convergence.UI
             float shatter = Mathf.Clamp01(1f - (now - _shatterAt) / ShatterSeconds);
             var hpFrame = Color32.Lerp(Frame, Throb, throb);
 
+            var polar = PolarTable.Of(Size);
             for (int y = 0; y < Size; y++)
             for (int x = 0; x < Size; x++)
             {
                 float dx = x + 0.5f - Centre, dy = y + 0.5f - Centre;
-                float d = Mathf.Sqrt(dx * dx + dy * dy);
-                float a = Mathf.Atan2(dx, dy) * Mathf.Rad2Deg;
+                int pk = polar.At(x, y);
+                float d = polar.D[pk];
+                float a = polar.A[pk];
                 if (a < 0f) a += 360f;
 
                 Color32 c = Clear;

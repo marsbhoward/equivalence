@@ -189,6 +189,25 @@ namespace Convergence.Art.Gear
             _         => (Crow, false, null),
         };
 
+        /// <summary>EIGHT DIRECTIONS (Body8Art.Extras.cs): a baked accessory's ROLE colours for the worn item -
+        /// "pal" the collar's bird or the banner's / wraps' cloth, "tip" the Phoenix's tips, "liq" the phials' liquid
+        /// (the wearer's element) - as six tones, line .. glow; null for a role the piece has none of.</summary>
+        public static Color[] Ramp8(AccessoryKind kind, string role, string look, Core.ElementType e)
+        {
+            Tones t = role switch
+            {
+                "pal" => kind == AccessoryKind.FeatherCollar ? Bird(look).r : Cloth(look, e),
+                "tip" => Bird(look).tip,
+                "liq" => Liquid(e),
+                "stone" => Stone,
+                _ => null,
+            };
+            if (t == null) return null;
+            var o = new Color[6];
+            for (int i = 0; i < 6; i++) o[i] = t[i];
+            return o;
+        }
+
         /// <summary>The banner's and the wraps' cloth; Element is the wearer's own colour.</summary>
         static Tones Cloth(string look, Core.ElementType e)
         {
@@ -767,7 +786,7 @@ namespace Convergence.Art.Gear
 
         /// <summary>Three red stones circling the waist, spinning as they go: over everything on the near
         /// half of the orbit, under everything on the far half.</summary>
-        static readonly Color32 StoneLight = new(0xff, 0x3a, 0x3a, 0xff);
+        public static readonly Color32 StoneLight = new(0xff, 0x3a, 0x3a, 0xff);
 
         static (Layer front, Layer behind) StonesLayers(AccessoryState st, bool away)
         {

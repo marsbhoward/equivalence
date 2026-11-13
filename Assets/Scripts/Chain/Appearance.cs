@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Convergence.Art.Gear;
 
 namespace Convergence.Chain
@@ -74,6 +75,32 @@ namespace Convergence.Chain
         /// those must keep reading the equipped loadout. Keeping the two apart at the type level
         /// is what stops a transmog from ever being worth power.
         /// </summary>
+        /// <summary>
+        /// THE "NOTHING" PERCEPTION (the user's call, 2026-11-12): a worn slot can no longer be emptied, so a bare look
+        /// is chosen here instead - the slot draws nothing while what is worn keeps working (<see cref="TakesNothing"/>). A reserved id, never a catalogue item, so no equip
+        /// list can offer it.
+        /// </summary>
+        public const string Nothing = "nothing";
+
+        static Dictionary<GearSlot, GearItem> _nothing;
+
+        /// <summary>Whether a slot offers the bare look: not the weapon (held and swung), not the head (it has its own
+        /// hide-helmet switch), not the relic (no perception at all).</summary>
+        public static bool TakesNothing(GearSlot slot) => slot is not (GearSlot.Weapon or GearSlot.Head or GearSlot.Relic);
+
+        /// <summary>The item a perception id names: the catalogue's, or for <see cref="Nothing"/> a blank one of the slot.</summary>
+        public static GearItem LookItem(string id, GearSlot slot)
+        {
+            if (id != Nothing) return GearCatalog.Get(id);
+            _nothing ??= new Dictionary<GearSlot, GearItem>();
+            if (_nothing.TryGetValue(slot, out var item) && item != null) return item;
+            item = UnityEngine.ScriptableObject.CreateInstance<GearItem>();
+            item.ItemId = Nothing; item.DisplayName = "Nothing"; item.Slot = slot; item.Tier = LootTier.Bronze;
+            item.Layers = new LayerSprite[0];
+            item.hideFlags = UnityEngine.HideFlags.HideAndDontSave;
+            return _nothing[slot] = item;
+        }
+
         public Loadout Resolve(Loadout equipped)
         {
             var visual = new Loadout();
@@ -85,6 +112,7 @@ namespace Convergence.Chain
             {
                 var over = Transmog.Get(slot);
                 bool use = !string.IsNullOrEmpty(over) && Allowed(slot, over, equipped);
+                if (use && over == Nothing) continue;   // perceived as bare: the slot draws nothing
                 visual.Set(slot, use ? over : equipped.Get(slot));
             }
             return visual;
@@ -118,6 +146,7 @@ namespace Convergence.Chain
         static bool Allowed(GearSlot slot, string overrideId, Loadout equipped)
         {
             if (slot == GearSlot.Relic) return false;
+            if (overrideId == Nothing) return TakesNothing(slot);
             var skin = GearCatalog.Get(overrideId);
             // A piece that has since moved slot (the Wraith's Eye, Head to Ring) no longer
             // disguises the old one.
@@ -142,7 +171,7 @@ namespace Convergence.Chain
         {
             var over = Transmog.Get(slot);
             return !string.IsNullOrEmpty(over) && Allowed(slot, over, equipped) &&
-                   !SameLook(GearCatalog.Get(over), GearCatalog.Get(equipped.Get(slot)));
+                   !SameLook(LookItem(over, slot), GearCatalog.Get(equipped.Get(slot)));
         }
 
         /// <summary>

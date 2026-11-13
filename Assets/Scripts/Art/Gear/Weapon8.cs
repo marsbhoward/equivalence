@@ -14,9 +14,9 @@ namespace Convergence.Art.Gear
     /// diagonally down behind the back, the disc pair's wings (a disc behind each side, facing out, fists before the
     /// chest) or both stowed on the back out of combat, the bow in the hand at the side, turned 25 degrees out.
     /// </summary>
-    public static class Weapon8
+    public static partial class Weapon8
     {
-        public enum Kind { Sword, DiscWings, DiscStowed, Bow, BowReady }
+        public enum Kind { Sword, DiscWings, DiscStowed, Bow, BowReady, DiscDraw }
 
         /// <summary>A weapon's picture: its texels (row 0 the TOP) and the grip, in texels from the top-left.</summary>
         public sealed class Art
@@ -24,6 +24,8 @@ namespace Convergence.Art.Gear
             public Color32[] Px; public int W, H; public Vector2 Pivot; public float Scale;
             /// <summary>The middle of the drawn columns: an edge-on card shows the column nearest it.</summary>
             public int Mid;
+            /// <summary>What it is read as for its thickness (Weapon8.Depth), and the slab built for it.</summary>
+            public Form Shape; public Slab Thick;
             public Color32 At(int x, int y) => x < 0 || y < 0 || x >= W || y >= H ? default : Px[y * W + x];
         }
 
@@ -35,22 +37,26 @@ namespace Convergence.Art.Gear
             public Grip? Live;
             /// <summary>A bow's quiver (worn on the back, rest and swing) and arrow (nocked at the ready), or null.</summary>
             public Art Quiver, Arrow;
-            /// <summary>A bow: 0 out of combat (O1) .. 1 at the ready (C1), eased by the rig.</summary>
+            /// <summary>A bow: 0 out of combat (O1) .. 1 at the ready (C1), eased by the rig. The disc pair's draw
+            /// (<see cref="Kind.DiscDraw"/>): 0 stowed .. 1 in the wings, the rig's _discDraw clock.</summary>
             public float Ready;
         }
 
         /// <summary>How far behind the body stowed discs ride (the mock's z, texels) for what is worn on the back: a pack
         /// stands out past the shoulder blades (Athanor's, views.js: its back face 23.5 behind).</summary>
         public static float StowDepthFor(string backSet) => backSet == "athanor" ? -25.5f : StowZ0;
+        /// <summary>How much further back than a cape a pack's back face is (texels): what is hung on the back goes there.</summary>
+        public static float PackDepth(string backSet) => StowZ0 - StowDepthFor(backSet);
 
         static Dictionary<Sprite, Art> _arts;
 
-        /// <summary>The card for a weapon sprite drawn <paramref name="texelsPerPixel"/> body texels a texture texel.</summary>
-        public static Art ArtOf(Sprite s, float texelsPerPixel)
+        /// <summary>The card for a weapon sprite drawn <paramref name="texelsPerPixel"/> body texels a texture texel.
+        /// <paramref name="fresh"/>: read now and not cached (a picture repainted every frame, the element overlay).</summary>
+        public static Art ArtOf(Sprite s, float texelsPerPixel, bool fresh = false)
         {
             if (s == null || s.texture == null || !s.texture.isReadable) return null;
             _arts ??= new Dictionary<Sprite, Art>();
-            if (_arts.TryGetValue(s, out var hit) && hit != null) return hit;
+            if (!fresh && _arts.TryGetValue(s, out var hit) && hit != null) return hit;
             var r = s.rect;
             int w = Mathf.RoundToInt(r.width), h = Mathf.RoundToInt(r.height);
             var src = s.texture.GetPixels32();
@@ -65,7 +71,7 @@ namespace Convergence.Art.Gear
                 if (c.a > 127) { x0 = Mathf.Min(x0, x); x1 = Mathf.Max(x1, x); }
             }
             var art = new Art { Px = px, W = w, H = h, Pivot = new Vector2(s.pivot.x, h - s.pivot.y), Scale = texelsPerPixel, Mid = (x0 + x1) / 2 };
-            _arts[s] = art;
+            if (!fresh) _arts[s] = art;
             return art;
         }
 
@@ -73,6 +79,8 @@ namespace Convergence.Art.Gear
         /// and V (down the grid).</summary>
         public struct Card
         {
+            /// <summary>Laid OVER the card drawn just before it where that card shows, by its alpha (the element overlay).</summary>
+            public bool Blend;
             public Art Art; public Vector3 O, U, V;
             /// <summary>A swing's card follows this hand (Body8's arm index) where the drawn arm cannot reach as far as
             /// today's rig holds it; 0 = none (rest cards are placed for the drawn arm already).</summary>
@@ -116,6 +124,28 @@ namespace Convergence.Art.Gear
                         g.Cards.Add(new Card { Art = art, O = body(new Vector3(s * 29f, 84f, -7f)), U = vec(Vector3.right) * k, V = vec(Vector3.down) * k });
                     }
                     break;
+                case Kind.DiscDraw:
+                {
+                    // between the two, on the flat rig's clock (PrimitiveCharacterRig.DiscStance): the arms go up over the
+                    // shoulders across the first half, the discs come off the back into the fists across its middle
+                    // (DiscGrab), the arms come down into the wings across the second half; stowing runs it backwards
+                    float d = Mathf.Clamp01(held.Ready);
+                    float up = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0f, 0.5f, d)), down = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(0.5f, 1f, d));
+                    float grab = Mathf.SmoothStep(0f, 1f, Mathf.InverseLerp(DiscGrabFrom, DiscGrabTo, d));
+                    foreach (int s in new[] { 1, -1 })
+                    {
+                        Vector3 hang = new Vector3(s * 18f, 66f, 1f), over = new Vector3(s * 12f, 114f, -5f), fist = new Vector3(s * 8.5f, 95f, 10f);
+                        var hand = d <= 0.5f ? Vector3.Lerp(hang, over, up) : Vector3.Lerp(over, fist, down);
+                        if (d > 0.04f) g.Hand[s > 0 ? leftArm : 1 - leftArm] = body(hand);
+                        var stow = new Vector3(s * StowX, StowY, s > 0 ? held.StowZ : held.StowZ - 1.5f);
+                        var carried = Vector3.Lerp(over + new Vector3(0f, 0f, -4f), new Vector3(s * 29f, 84f, -7f), down);
+                        // face out behind on the back, turning through edge-on to face out at the side
+                        float a = grab * Mathf.PI;
+                        var u = new Vector3(-Mathf.Cos(a), 0f, -s * Mathf.Sin(a));
+                        g.Cards.Add(new Card { Art = art, O = body(Vector3.Lerp(stow, carried, grab)), U = vec(u) * k, V = vec(Vector3.down) * k });
+                    }
+                    break;
+                }
                 case Kind.DiscStowed:
                     // out of combat: both on the back, face out behind, overlapping near the spine, the hands free (the approved
                     // stowed stance, https://claude.ai/artifact/DNXik8ZUaP3z1Kad2Wac32)
@@ -130,8 +160,10 @@ namespace Convergence.Art.Gear
                     // turned a little out; C1 in combat - low ready ahead at the hip, angled down and forward, the right
                     // hand on the string (the art's string side is behind its belly, against U), an arrow nocked
                     float t = Mathf.SmoothStep(0f, 1f, held.Kind == Kind.BowReady ? 1f : held.Ready);
-                    var restHand = new Vector3(18f, 70f, 3f) + new Vector3(1.5f, 0f, 0f);
-                    var restDown = -Norm(new Vector3(0f, 1f, 0.5f));
+                    // raised 4 and tipped further than the mock (the user, 2026-11-11): the lower limb clears the ground
+                    // by about 4 texels instead of reaching below the soles, the bow kept at its size
+                    var restHand = new Vector3(18f, 74f, 3f) + new Vector3(1.5f, 0f, 0f);
+                    var restDown = -Norm(new Vector3(0f, 1f, 0.65f));
                     float o = 25f * Mathf.Deg2Rad;
                     var restU = new Vector3(Mathf.Sin(o), 0f, Mathf.Cos(o)); restU = Norm(restU - restDown * Vector3.Dot(restU, restDown));
                     var readyGrip = new Vector3(4f, 72f, 15f);
@@ -177,6 +209,8 @@ namespace Convergence.Art.Gear
 
         /// <summary>Stowed discs: each centre this far out, up from the soles, and behind (texels, the mock's frame).</summary>
         public static float StowX = 5f, StowY = 92f;
+        /// <summary>Where on the draw clock the discs leave the back and reach the fists (the flat rig's DiscGrabFrom / To).</summary>
+        const float DiscGrabFrom = 0.35f, DiscGrabTo = 0.6f;
         /// <summary>How far behind the bow's grip its string runs (texels), where the right hand holds it at the ready.</summary>
         public static float BowStringOff = 13f;
         const float StowZ0 = -13f;

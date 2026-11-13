@@ -27,7 +27,7 @@ namespace Convergence.Art.Gear
         int _armFrame = -1;
         bool _armAway;
         List<TexelKit.Layer> _armLayers;
-        List<AccessoryGlow> _armGlows;
+        List<AccessoryGlow> _armGlows, _armGlows8;
         AccessoryCanvas _armUpper, _armLower, _armHand, _armShoulder, _armTorso, _armRise;
         /// <summary>The body's own near-arm sprites, put back when the piece comes off. Non-readonly, rebuilt
         /// lazily (domain reload).</summary>
@@ -152,6 +152,9 @@ namespace Convergence.Art.Gear
             Paint(RigLayer.Shoulders, ref _armShoulder, TexelKit.Compose(shoulder), ArmPieces.Cap);
             Paint(RigLayer.Accessory, ref _armTorso, TexelKit.Compose(torso), Accessories.TorsoPivot);
             Paint(RigLayer.Accessory2, ref _armRise, TexelKit.Compose(rise), ArmPieces.Cap);
+            // the eight-direction body places every light on its own drawn arm (Dir8Extras, PlaceGlows8)
+            _armGlows8 ??= new List<AccessoryGlow>();
+            _armGlows8.Clear(); _armGlows8.AddRange(_armGlows);
             // turned away the arm is under the cape: only a light above the shoulders still shows
             if (_facingAway) _armGlows.RemoveAll(g => g.Joint != 1 || g.At.y >= 29f);
             ShowAccessoryGlows(_armGlows);

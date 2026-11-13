@@ -659,6 +659,9 @@ namespace Convergence.UI
         // ---------------------------------------------------------------- tick
 
         int _stickFinger = -1;
+        // A finger on the stick's side that lifts quickly and still is a TAP on the world (a lock), not a step.
+        Vector2 _stickFrom;
+        float _stickSince, _stickTravel;
         int _freeFinger = -1;
         bool _lastOverlay, _lastDevice, _lastUse;
         int _lastPrefs = -1;
@@ -679,6 +682,7 @@ namespace Convergence.UI
             }
 
             Controls.FreeTaps.Clear();
+            Controls.WorldTaps.Clear();
             Controls.FreePointer = null;
             Controls.ClaimedPrimary = false;
             UpdateTags();
@@ -742,6 +746,7 @@ namespace Convergence.UI
                 // ---- the stick keeps the finger it started with, wherever it goes ----
                 if (id == _stickFinger)
                 {
+                    _stickTravel = Mathf.Max(_stickTravel, Vector2.Distance(pos, _stickFrom));
                     DriveStick(pos);
                     stickStillDown = true;
                     if (t == screen.primaryTouch) Controls.ClaimedPrimary = true;
@@ -778,6 +783,7 @@ namespace Convergence.UI
                 if (_stickFinger < 0 && _mode != Controls.Context.Modal && Inside(_stickZone, pos))
                 {
                     _stickFinger = id;
+                    _stickFrom = pos; _stickSince = Time.unscaledTime; _stickTravel = 0f;
                     SummonStick(pos);
                     DriveStick(pos);
                     stickStillDown = true;
@@ -789,9 +795,16 @@ namespace Convergence.UI
                 _freeFinger = id;
                 Controls.FreePointer = pos;
                 Controls.FreeTaps.Add(pos);
+                Controls.WorldTaps.Add(pos);
             }
 
-            if (!stickStillDown) DropStick();
+            if (!stickStillDown)
+            {
+                if (_stickFinger >= 0 && _stickTravel < Tuning.Targeting.StickTapPixels
+                    && Time.unscaledTime - _stickSince < Tuning.Targeting.StickTapSeconds)
+                    Controls.WorldTaps.Add(_stickFrom);
+                DropStick();
+            }
             (_seen, _seenNow) = (_seenNow, _seen);
 
             foreach (var b in _buttons)
@@ -892,7 +905,7 @@ namespace Convergence.UI
             var pos = t.position.ReadValue();
             var b = ButtonAt(pos);
             if (b != null) { b.Pulse = true; b.DownAt = b.At = pos; b.Aiming = false; }
-            else Controls.FreeTaps.Add(pos);
+            else { Controls.FreeTaps.Add(pos); Controls.WorldTaps.Add(pos); }
         }
 
         /// <summary>

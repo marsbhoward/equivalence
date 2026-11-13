@@ -113,6 +113,12 @@ namespace Convergence.Enemies
         /// <summary>Holds a facing the controller decided (an aimed shot's side).</summary>
         protected void FaceLeft(bool left) => _faceLeft = left;
 
+        /// <summary>Frame <paramref name="i"/> of this look - a picture that outlives the body (BombFuse).</summary>
+        public Sprite Frame(int i) { var f = Frames; return i >= 0 && i < f.Length ? f[i] : null; }
+
+        /// <summary>Which way it is drawn facing.</summary>
+        public bool FacingLeft => _faceLeft;
+
         protected void Show(int i)
         {
             var frames = Frames;

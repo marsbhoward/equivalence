@@ -70,6 +70,17 @@ namespace Convergence.Puzzles
         /// when it runs out, so nothing else needs to.</summary>
         protected bool HasClock => _shortLeft >= 0f;
 
+        /// <summary>Takes <paramref name="seconds"/> off the clock for something the player chose
+        /// (an Echo replay). False, and nothing taken, when that would leave under a second.
+        /// With no clock (Classic) it costs nothing and is always allowed.</summary>
+        protected bool SpendClock(float seconds)
+        {
+            if (!HasClock) return true;
+            if (_shortLeft <= seconds + 1f) return false;
+            _shortLeft -= seconds;
+            return true;
+        }
+
         /// <summary>The puzzle failed because its clock ran out, not on a wrong answer.</summary>
         protected bool TimedOut { get; private set; }
 

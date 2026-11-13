@@ -312,12 +312,14 @@ namespace Convergence.UI
             // The body and its teeth. The teeth turn with the sockets - it is one wheel - and only
             // the half facing the seal has them: a tooth is drawn whole while its middle is on
             // that side, so one crossing the top or bottom pops rather than being cut.
+            var polar = PolarTable.Of(Size);
             for (int y = 0; y < Size; y++)
             for (int x = 0; x < Size; x++)
             {
                 float dx = x + 0.5f - Centre, dy = y + 0.5f - Centre;
-                float d = Mathf.Sqrt(dx * dx + dy * dy);
-                float a = Mathf.Atan2(dx, dy) * Mathf.Rad2Deg;
+                int pk = polar.At(x, y);
+                float d = polar.D[pk];
+                float a = polar.A[pk];
                 Color32 c = Clear;
                 if (d < BodyR)
                 {
@@ -399,11 +401,13 @@ namespace Convergence.UI
 
         void DrawHub(PlayerController p)
         {
+            var polar = PolarTable.Of(Size);
             for (int y = 0; y < Size; y++)
             for (int x = 0; x < Size; x++)
             {
                 float dx = x + 0.5f - Centre, dy = y + 0.5f - Centre;
-                float d = Mathf.Sqrt(dx * dx + dy * dy);
+                int pk = polar.At(x, y);
+                float d = polar.D[pk];
                 if (d < HubR) _px[y * Size + x] = d >= HubR - 1f ? BronzeMd : BronzeSh;
             }
 

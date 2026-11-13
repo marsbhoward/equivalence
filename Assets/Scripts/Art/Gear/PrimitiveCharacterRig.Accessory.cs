@@ -170,7 +170,7 @@ namespace Convergence.Art.Gear
             st.Walk = speed > AccessoryWalkSpeed;
             st.Element = _element;
             var pc = Player;
-            st.Dash = Mathf.MoveTowards(st.Dash, pc != null && pc.Dashing ? 1f : 0f, dt * AccessoryDashRate);
+            st.Dash = Mathf.MoveTowards(st.Dash, DashingNow ? 1f : 0f, dt * AccessoryDashRate);
 
             // the phial: its charges, the drink in progress, a spill (the charge was taken as the drink began)
             var phial = pc != null ? pc.Phial : null;

@@ -156,7 +156,7 @@ namespace Convergence.UI
             var controls = UiKit.Rect(canvas, "controls", new Vector2(0.5f, 0), new Vector2(0.5f, 0),
                 new Vector2(-420, 10), new Vector2(420, 36));
             _hint = UiKit.Legible(UiKit.Hint(controls,
-                "WASD move    -    LMB / SPACE attack    -    RMB / E element ability    -    [Q] guard    -    [F] phial    -    [C] loadout    -    ESC pause / leave",
+                "WASD move    -    LMB / SPACE attack    -    RMB / E element ability    -    [Q] guard    -    [F] phial    -    [TAB] lock on    -    [C] loadout    -    ESC pause / leave",
                 "stick to move    -    ATTACK    -    ABILITY    -    GUARD    -    GEAR for your loadout    -    MENU to leave the run",
                 15, new Color(0.45f, 0.48f, 0.56f), TextAnchor.LowerCenter,
                 UI.GamepadGlyphs.Move + " move    -    " + UI.GamepadGlyphs.Attack + " attack    -    "

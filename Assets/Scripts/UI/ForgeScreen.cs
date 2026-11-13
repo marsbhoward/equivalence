@@ -10,20 +10,27 @@ using Convergence.Chain;
 namespace Convergence.UI
 {
     /// <summary>
-    /// The Forge, in full: box-fuelled random and targeted redemption, COMBINING two matching
-    /// pieces (the next star, or from three stars the next tier), RE-ROLLING one sub-stat for
-    /// boxes, SALVAGING unwanted pieces into calx, and FUSING a complete Diamond set.
+    /// The Forge, in full: the STARTING KIT a new character chooses, OPENING boxes (a random slot,
+    /// or the chosen one for more), COMBINING two matching pieces (the next star, or from three stars
+    /// the next tier), RE-ROLLING one sub-stat for boxes, SALVAGING unwanted pieces into calx, FUSING
+    /// a complete Diamond set, DYEING Diamond armour and forging a better PHIAL.
     ///
-    /// Combining never commits from a single tap. It walks group -> the two pieces -> a PREVIEW
-    /// that states what carries over, what powers up, and how many slots will be randomized
-    /// (those show only as "??? (?-?)" - nothing random is rolled until CONFIRM, or reopening the
-    /// menu would be a free re-roll) -> the RESULT, so the player sees what actually rolled.
+    /// Laid out for a phone in landscape (the user's approved mock, 2026-11-12 - the old fixed-pixel
+    /// grid put 18-unit text, about 1.3 mm, on an iPhone): what is held along the top, the tabs down a
+    /// left rail, a scrolling LIST on the left and the chosen thing's DETAIL on the right, its main
+    /// button always at the detail's bottom right. Sizes are canvas units (1920x1080 at match 0.5; a
+    /// phone in landscape is about 2120x980) and stretch with the screen rather than sit at fixed
+    /// offsets.
+    ///
+    /// Combining never commits from a single tap: the detail states what carries over, what powers
+    /// up, and how many slots will be randomized (those show only as "???" - nothing random is rolled
+    /// until COMBINE, or reopening the menu would be a free re-roll), then shows what actually rolled.
     /// </summary>
     public partial class ForgeScreen : MonoBehaviour
     {
         public bool IsOpen { get; private set; }
 
-        enum Mode { Redeem, Targeted, Combine, Reroll, Salvage, Fuse, Dye, Phial }
+        enum Mode { Kit, Open, Combine, Reroll, Salvage, Fuse, Dye, Phial }
 
         /// <summary>Every slot the Forge can roll into. Relic is excluded - GearRoller has no
         /// pool for it (cosmetic only, same rule a weapon transmog already follows), so redeeming
@@ -44,11 +51,9 @@ namespace Convergence.UI
             LootTier.Bronze, LootTier.Silver, LootTier.Gold, LootTier.Diamond, LootTier.BlackDiamond,
         };
 
-        static readonly WeaponClass[] Classes = (WeaponClass[])Enum.GetValues(typeof(WeaponClass));
-
         /// <summary>Everything the screen needs to know about the player's current Forge
         /// standing, and every action it can trigger. Bundled rather than a long parameter list,
-        /// since five tabs each need a different slice of it.</summary>
+        /// since every tab needs a different slice of it.</summary>
         public struct Context
         {
             public LootBoxes Boxes;
@@ -88,75 +93,75 @@ namespace Convergence.UI
             /// <summary>Withdraws dyes to the wallet as tokens (a PFP holder only) - null when the
             /// player cannot, else returns null on success or why not.</summary>
             public Func<string, int, System.Threading.Tasks.Task<string>> OnWithdraw;
+            /// <summary>A new character's kit waits to be chosen: the screen opens on STARTING KIT
+            /// and every other tab waits for it. Read live.</summary>
+            public Func<bool> KitWaiting;
+            /// <summary>Wears the kit's weapon of a class and its chest of an ability.</summary>
+            public Action<WeaponClass, DefensiveAbility> OnChooseKit;
         }
 
         Context _ctx;
         GameObject _root;
-        Transform _content;
-        Mode _mode = Mode.Redeem;
+        RectTransform _frame, _body, _detail, _pane, _listContent, _listHead;
+        Mode _mode = Mode.Open;
+        int _openedFrame;
 
-        // Multi-step picks within Redeem/Targeted, reset whenever the tab or a step changes.
-        LootTier? _pickedTier;
-        GearSlot? _pickedSlot;
+        // ------------------------------------------------------------------ layout (canvas units)
 
-        // Combine / Re-roll steps - see ResetSteps.
-        string _groupKey;
-        MintedGearRecord _pickA;
-        GearForge.CombinePlan _plan;
-        MintedGearRecord _result;
-        int _resultNewFrom;
-        MintedGearRecord _rerollItem;
-        string _rerollNote;
-        int _page;
-        GearForge.Fusion _fusion;
-        MintedGearRecord _fused;
-        // Not readonly, and rebuilt if null - see the domain reload rules.
-        HashSet<string> _salvagePick = new();
-        bool _salvageConfirm;
-        string _salvageNote;
+        const float HeaderH = 104f, RailW = 300f, ListW = 660f, Pad = 28f, RowH = 112f, RowGap = 10f;
+        const float ButtonH = 92f, Gap = 16f;
+        const int TitleSize = 36, HeadSize = 40, BodySize = 30, SmallSize = 27, ButtonSize = 30, RailSize = 28;
 
-        void ResetSteps()
+        static Color Hex(uint rgb) => new(((rgb >> 16) & 255) / 255f, ((rgb >> 8) & 255) / 255f, (rgb & 255) / 255f);
+
+        static readonly Color Bg = Hex(0x08080b), Rule = Hex(0x221b15), ChipBg = Hex(0x17130f);
+        static readonly Color RowBg = Hex(0x1c1510), OnBg = Hex(0x47331f), OnEdge = Hex(0xc9a46a), CardBg = Hex(0x14100c);
+        static readonly Color Primary = Hex(0xc9a46a), PrimaryInk = Hex(0x1a120a), QuietBg = Hex(0x211c1a);
+        static readonly Color Ink = Hex(0xf5debd), TitleInk = Hex(0xf2dbb8), OnInk = Hex(0xf7e0b3), SubInk = Hex(0xc9b597);
+        static readonly Color Dim = Hex(0xa3a8b2), Off = Hex(0x7d7770);
+        static readonly Color Good = Hex(0x8ce699), Bad = Hex(0xf2a08f), Rolled = Hex(0xc7adf5), Powered = Hex(0xf7cc66);
+        static readonly Color StarOn = Hex(0xffd14d), StarOff = Hex(0x3a332c);
+
+        internal static Color TierColor(LootTier tier) => tier switch
         {
-            _pickedTier = null; _pickedSlot = null;
-            _groupKey = null; _pickA = null; _plan = null; _result = null;
-            _rerollItem = null; _rerollNote = null; _page = 0;
-            _fusion = null; _fused = null;
-            (_salvagePick ??= new HashSet<string>()).Clear();
-            _salvageConfirm = false; _salvageNote = null;
-            ResetDye();
-        }
+            LootTier.Bronze => Hex(0xc08a63),
+            LootTier.Silver => Hex(0xbfc4cc),
+            LootTier.Gold => Hex(0xdbb852),
+            LootTier.Diamond => Hex(0xa6d9f2),
+            LootTier.BlackDiamond => Hex(0xb48ae8),
+            _ => Color.white,
+        };
 
-        readonly List<RectTransform> _focusRects = new();
-        readonly List<(RectTransform Rect, Action OnTap)> _actions = new();
+        /// <summary>Bronze, Silver, Gold, Diamond, Black Diamond - LootTier's own order starts at Silver.</summary>
+        static int Rank(LootTier tier) => Array.IndexOf(BoxTiers, tier);
+
+        static string Html(Color c) => "#" + ColorUtility.ToHtmlStringRGB(c);
+        static string Tint(string text, Color c) => $"<color={Html(c)}>{text}</color>";
+
+        internal static string Label(LootTier tier) => tier == LootTier.BlackDiamond ? "Black Diamond" : tier.ToString();
+        static string Plural(int n, string one, string many = null) => n == 1 ? $"{n} {one}" : $"{n} {many ?? one + "es"}";
+
+        // ------------------------------------------------------------------ open / close
 
         public void Open(Transform canvas, Context ctx)
         {
             if (IsOpen) return;
             IsOpen = true;
             _ctx = ctx;
-            _mode = Mode.Redeem;
+            _mode = KitWaiting ? Mode.Kit : Mode.Open;
             ResetSteps();
+            _scroll = 0f;
             GamePause.Hold(this);
+            _openedFrame = Time.frameCount;
+            _pressed = false;
 
             _root = new GameObject("ForgeScreen", typeof(RectTransform));
             _root.transform.SetParent(canvas, false);
             var full = (RectTransform)_root.transform;
             full.anchorMin = Vector2.zero; full.anchorMax = Vector2.one;
             full.offsetMin = Vector2.zero; full.offsetMax = Vector2.zero;
-
-            UiKit.Panel(full, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero,
-                new Color(0.03f, 0.032f, 0.045f, 0.97f));
-
-            UiKit.Label(UiKit.Rect(full, "t", new Vector2(0, 1), new Vector2(1, 1),
-                new Vector2(0, -108), new Vector2(0, -48)),
-                "THE FORGE", 40, new Color(0.95f, 0.86f, 0.72f), TextAnchor.MiddleCenter);
-
-            _full = full;
-            _tabs = null;
-            BuildTabs(full);
-
-            _content = UiKit.Rect(full, "content", new Vector2(0, 0), new Vector2(1, 1),
-                new Vector2(0, 60), new Vector2(0, -236));
+            // Solid: at 0.98 the hub still read through it.
+            UiKit.Panel(full, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero, Bg);
 
             Rebuild();
         }
@@ -168,15 +173,131 @@ namespace Convergence.UI
             GamePause.Release(this);
             if (_root) Destroy(_root);
             _root = null;
+            _frame = null;
         }
 
-        // ------------------------------------------------------------------ tabs
+        bool KitWaiting => _ctx.KitWaiting?.Invoke() ?? false;
+
+        void Show(Mode mode)
+        {
+            if (_mode == mode) return;
+            _mode = mode;
+            ResetSteps();
+            _scroll = 0f;
+            Rebuild();
+        }
+
+        // ------------------------------------------------------------------ steps within the tabs
+
+        // Open a box.
+        bool _targeted;
+        LootTier? _boxTier;
+        GearSlot? _boxSlot;
+        WeaponClass _boxClass;
+
+        void ResetSteps()
+        {
+            _targeted = false; _boxTier = null; _boxSlot = null; _boxClass = WeaponClass.Greatsword;
+            ResetGear();
+            ResetDye();
+            ResetKit();
+        }
+
+        // ------------------------------------------------------------------ the frame
+
+        /// <summary>The whole frame is rebuilt on any change - a menu, not a HUD, and a box count or
+        /// a calx tally in the top bar can move with any action. The list keeps its scroll, and the
+        /// D-pad its place, across a rebuild.</summary>
+        void Rebuild()
+        {
+            if (_root == null) return;
+            int focusedAt = FocusedIndex();
+            if (_frame != null) Destroy(_frame.gameObject);
+            _actions.Clear();
+            _detail = _pane = _listContent = _listHead = null;
+            _listH = 0f;
+            _dy = 0f;
+
+            _frame = UiKit.Rect(_root.transform, "frame", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+            if (_mode == Mode.Kit && !KitWaiting) _mode = Mode.Open;
+            if (_mode == Mode.Fuse && !AnyFusionHeld() && _fused == null) _mode = Mode.Open;
+            BuildHeader();
+            BuildRail();
+            _body = UiKit.Rect(_frame, "body", Vector2.zero, Vector2.one, new Vector2(RailW + 2f, 0f), new Vector2(0f, -HeaderH - 2f));
+
+            switch (_mode)
+            {
+                case Mode.Kit: BuildKit(); break;
+                case Mode.Open: BuildOpen(); break;
+                case Mode.Combine: BuildCombine(); break;
+                case Mode.Reroll: BuildReroll(); break;
+                case Mode.Salvage: BuildSalvage(); break;
+                case Mode.Fuse: BuildFuse(); break;
+                case Mode.Dye: BuildDye(); break;
+                case Mode.Phial: BuildPhial(); break;
+            }
+
+            if (_listContent != null)
+            {
+                _listContent.sizeDelta = new Vector2(0f, _listH);
+                ApplyScroll();
+            }
+            RestoreFocus(focusedAt);
+        }
+
+        void BuildHeader()
+        {
+            var bar = UiKit.Rect(_frame, "header", new Vector2(0f, 1f), Vector2.one, new Vector2(0f, -HeaderH), Vector2.zero);
+            UiKit.Panel(_frame, new Vector2(0f, 1f), Vector2.one, new Vector2(0f, -HeaderH - 2f), new Vector2(0f, -HeaderH), Rule);
+            Txt(UiKit.Rect(bar, "t", Vector2.zero, new Vector2(0f, 1f), new Vector2(40f, 0f), new Vector2(520f, 0f)),
+                "THE FORGE", TitleSize, TitleInk, TextAnchor.MiddleLeft);
+
+            const float h = 64f;
+            float x = -Pad;
+            var close = UiKit.Panel(bar, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(x - 72f, -36f), new Vector2(x, 36f), ChipBg);
+            Txt(close, "X", BodySize, Ink, TextAnchor.MiddleCenter);
+            Act(close, Close);
+            x -= 72f + Gap;
+
+            void Chip(string text, int plainLength, Color dot, bool diamond = false)
+            {
+                float w = 70f + plainLength * 15f;
+                var chip = UiKit.Panel(bar, new Vector2(1f, 0.5f), new Vector2(1f, 0.5f), new Vector2(x - w, -h * 0.5f), new Vector2(x, h * 0.5f), ChipBg);
+                if (dot.a > 0f)
+                {
+                    var d = UiKit.Panel(chip, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(20f, -10f), new Vector2(40f, 10f), dot);
+                    if (diamond) d.localRotation = Quaternion.Euler(0f, 0f, 45f);
+                }
+                Txt(UiKit.Rect(chip, "n", Vector2.zero, Vector2.one, new Vector2(dot.a > 0f ? 52f : 20f, 0f), new Vector2(-14f, 0f)),
+                    text, SmallSize, Ink, TextAnchor.MiddleLeft);
+                x -= w + 10f;
+            }
+
+            int per = Tuning.GearRoll.CalxPerBox;
+            if (_ctx.Calx != null)
+            {
+                string calx = $"Calx  {Tint($"{_ctx.Calx.Bronze}/{per}", TierColor(LootTier.Bronze))} " +
+                              $"{Tint($"{_ctx.Calx.Silver}/{per}", TierColor(LootTier.Silver))} " +
+                              $"{Tint($"{_ctx.Calx.Gold}/{per}", TierColor(LootTier.Gold))}";
+                Chip(calx, 17, Color.clear);
+            }
+            Chip($"Rift {RiftHeld}", 7, Hex(0xe06b5a), diamond: true);
+            for (int i = BoxTiers.Length - 1; i >= 0; i--)
+            {
+                var tier = BoxTiers[i];
+                int n = _ctx.Boxes?.Get(tier) ?? 0;
+                // Diamond and Black Diamond only when held: most characters never see either.
+                if (n == 0 && DesignDrops.IsDesignTier(tier)) continue;
+                string text = $"{Label(tier)} {n}";
+                Chip(text, text.Length, TierColor(tier));
+            }
+        }
 
         static readonly (Mode Mode, string Label)[] AllTabs =
         {
-            (Mode.Redeem, "REDEEM"), (Mode.Targeted, "TARGETED"),
-            (Mode.Combine, "COMBINE"), (Mode.Reroll, "RE-ROLL"), (Mode.Salvage, "SALVAGE"),
-            (Mode.Fuse, "FUSE"), (Mode.Dye, "DYE"), (Mode.Phial, "PHIAL"),
+            (Mode.Kit, "STARTING KIT"), (Mode.Open, "OPEN A BOX"), (Mode.Combine, "COMBINE"),
+            (Mode.Reroll, "RE-ROLL"), (Mode.Salvage, "SALVAGE"), (Mode.Fuse, "FUSE"),
+            (Mode.Dye, "DYE"), (Mode.Phial, "PHIAL"),
         };
 
         /// <summary>
@@ -188,251 +309,224 @@ namespace Convergence.UI
         bool AnyFusionHeld()
             => GearForge.Fusions.Any(f => GearForge.FusionInputs(f, _ctx.MintedGear, null).All(r => r != null));
 
-        List<(Mode Mode, string Label)> Tabs()
-            => AllTabs.Where(t => t.Mode != Mode.Fuse || AnyFusionHeld() || _fused != null).ToList();
-
-        RectTransform _tabs;
-
-        /// <summary>Built into their own container so they can be rebuilt when FUSE appears or
-        /// goes (a fusion burns the set it was shown for).</summary>
-        void BuildTabs(RectTransform full)
+        /// <summary>The tabs down the left. While the kit waits, STARTING KIT is the only one open.</summary>
+        void BuildRail()
         {
-            if (_tabs != null)
+            var rail = UiKit.Rect(_frame, "rail", Vector2.zero, new Vector2(0f, 1f), Vector2.zero, new Vector2(RailW, -HeaderH - 2f));
+            UiKit.Panel(_frame, Vector2.zero, new Vector2(0f, 1f), new Vector2(RailW, 0f), new Vector2(RailW + 2f, -HeaderH - 2f), Rule);
+
+            bool kit = KitWaiting;
+            bool fuse = AnyFusionHeld() || _fused != null;
+            float y = -20f;
+            foreach (var (mode, label) in AllTabs)
             {
-                _actions.RemoveAll(a => a.Rect == null || a.Rect.IsChildOf(_tabs));
-                Destroy(_tabs.gameObject);
-            }
-            _tabs = UiKit.Rect(full, "tabs", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
-            full = _tabs;
-
-            var tabs = Tabs();
-            const float tabW = 200f, tabH = 56f, gap = 12f;
-            float gridW = tabs.Count * tabW + (tabs.Count - 1) * gap;
-
-            for (int i = 0; i < tabs.Count; i++)
-            {
-                var (mode, label) = tabs[i];
-                float x = -gridW * 0.5f + i * (tabW + gap);
-
-                bool active = _mode == mode;
-                var card = UiKit.Panel(full, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
-                    new Vector2(x, -168 - tabH), new Vector2(x + tabW, -168),
-                    active ? new Color(0.28f, 0.2f, 0.12f) : new Color(0.13f, 0.11f, 0.1f));
-
-                UiKit.Label(UiKit.Rect(card, "n", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero),
-                    label, 20, active ? new Color(0.97f, 0.88f, 0.7f) : new Color(0.55f, 0.55f, 0.58f),
-                    TextAnchor.MiddleCenter);
-
+                if (mode == Mode.Kit && !kit) continue;
+                if (mode == Mode.Fuse && !fuse) continue;
+                bool on = _mode == mode, open = !kit || mode == Mode.Kit;
+                var tab = UiKit.Panel(rail, new Vector2(0f, 1f), Vector2.one, new Vector2(16f, y - 84f), new Vector2(-16f, y),
+                    on ? OnBg : Color.clear);
+                Txt(UiKit.Rect(tab, "n", Vector2.zero, Vector2.one, new Vector2(24f, 0f), new Vector2(-8f, 0f)),
+                    label, RailSize, on ? OnInk : open ? Dim : Off, TextAnchor.MiddleLeft);
                 var chosen = mode;
-                _actions.Add((card, () => { _mode = chosen; ResetSteps(); BuildTabs(_full); Rebuild(); }));
+                if (open) Act(tab, () => Show(chosen));
+                y -= 84f + 8f;
             }
         }
 
-        RectTransform _full;
+        // ------------------------------------------------------------------ building blocks
 
-        // ------------------------------------------------------------------ content
-
-        void Rebuild()
+        static Text Txt(Transform parent, string text, int size, Color color,
+                        TextAnchor anchor = TextAnchor.MiddleLeft, bool wrap = false)
         {
-            foreach (Transform child in _content) Destroy(child.gameObject);
-            // Tabs live outside _content and are built once at Open - only drop content-owned
-            // actions (and any already-destroyed rect) here, so re-tapping a tab doesn't need
-            // the whole screen torn down.
-            _actions.RemoveAll(a => a.Rect == null || a.Rect.IsChildOf(_content));
+            var t = UiKit.Label(parent, text, size, color, anchor);
+            if (wrap) t.horizontalOverflow = HorizontalWrapMode.Wrap;
+            return t;
+        }
 
-            switch (_mode)
+        /// <summary>A panel; with <paramref name="edge"/> it is ringed in gold (the chosen one).</summary>
+        static RectTransform Framed(Transform parent, Vector2 aMin, Vector2 aMax, Vector2 oMin, Vector2 oMax,
+                                    bool edge, Color fill)
+        {
+            if (!edge) return UiKit.Panel(parent, aMin, aMax, oMin, oMax, fill);
+            var outer = UiKit.Panel(parent, aMin, aMax, oMin, oMax, OnEdge);
+            UiKit.Panel(outer, Vector2.zero, Vector2.one, new Vector2(3f, 3f), new Vector2(-3f, -3f), fill);
+            return outer;
+        }
+
+        /// <summary>The whole body is the detail - a tab with no list (the kit, opening a box, the phial).</summary>
+        void Whole()
+        {
+            _detail = UiKit.Rect(_body, "detail", Vector2.zero, Vector2.one, new Vector2(Pad * 1.4f, Pad), new Vector2(-Pad * 1.4f, -Pad));
+        }
+
+        /// <summary>A scrolling list <paramref name="listW"/> wide on the left (under an optional
+        /// fixed head <paramref name="headH"/> tall) and the detail filling the rest.</summary>
+        void Columns(float listW, float headH = 0f)
+        {
+            var col = UiKit.Rect(_body, "list", Vector2.zero, new Vector2(0f, 1f), Vector2.zero, new Vector2(listW, 0f));
+            UiKit.Panel(_body, Vector2.zero, new Vector2(0f, 1f), new Vector2(listW, 0f), new Vector2(listW + 2f, 0f), Rule);
+            float top = 20f;
+            if (headH > 0f)
             {
-                case Mode.Redeem: BuildRedeem(); break;
-                case Mode.Targeted: BuildTargeted(); break;
-                case Mode.Combine: BuildCombine(); break;
-                case Mode.Reroll: BuildReroll(); break;
-                case Mode.Salvage: BuildSalvage(); break;
-                case Mode.Fuse: BuildFuse(); break;
-                case Mode.Dye: BuildDye(); break;
-                case Mode.Phial: BuildPhial(); break;
+                _listHead = UiKit.Rect(col, "head", new Vector2(0f, 1f), Vector2.one, new Vector2(20f, -top - headH), new Vector2(-20f, -top));
+                top += headH + 12f;
+            }
+            _pane = UiKit.Rect(col, "pane", Vector2.zero, Vector2.one, new Vector2(20f, 20f), new Vector2(-20f, -top));
+            // RectMask2D rather than Mask - a rectangle clip with no stencil buffer.
+            _pane.gameObject.AddComponent<RectMask2D>();
+            _listContent = UiKit.Rect(_pane, "rows", new Vector2(0f, 1f), Vector2.one, Vector2.zero, Vector2.zero);
+            _listContent.pivot = new Vector2(0.5f, 1f);
+            _detail = UiKit.Rect(_body, "detail", Vector2.zero, Vector2.one, new Vector2(listW + 2f + Pad, Pad), new Vector2(-Pad * 1.4f, -Pad));
+        }
+
+        /// <summary>One line of grey guidance across the list's head.</summary>
+        void ListNote(string text)
+        {
+            if (_listHead == null) return;
+            Txt(_listHead, text, SmallSize, Dim, TextAnchor.MiddleLeft, wrap: true);
+        }
+
+        float _listH;
+
+        /// <summary>The next row of the list, <paramref name="h"/> tall.</summary>
+        RectTransform ListItem(float h, bool on, float indent = 0f)
+        {
+            var r = Framed(_listContent, new Vector2(0f, 1f), Vector2.one, new Vector2(indent, -_listH - h), new Vector2(0f, -_listH),
+                on, on ? OnBg : RowBg);
+            _listH += h + RowGap;
+            return r;
+        }
+
+        /// <summary>A list row for a piece: its tier's bar, name and a line under it, its stars and a
+        /// tag on the right - and a tick box when <paramref name="ticked"/> is given.</summary>
+        RectTransform PieceRow(MintedGearRecord r, bool on, string sub, string tag = null, Color? tagInk = null,
+                               bool? ticked = null, float indent = 0f)
+        {
+            var row = ListItem(RowH, on, indent);
+            float x = 18f;
+            if (ticked != null)
+            {
+                var box = Framed(row, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(x, -20f), new Vector2(x + 40f, 20f),
+                    true, ticked.Value ? OnEdge : RowBg);
+                if (ticked.Value) Txt(box, "X", 24, PrimaryInk, TextAnchor.MiddleCenter);
+                x += 56f;
+            }
+            UiKit.Panel(row, new Vector2(0f, 0.5f), new Vector2(0f, 0.5f), new Vector2(x, -36f), new Vector2(x + 12f, 36f), TierColor(r.Tier));
+            x += 28f;
+            bool stars = r.Tier is LootTier.Bronze or LootTier.Silver or LootTier.Gold;
+            float right = stars || tag != null ? 170f : 16f;
+            Txt(UiKit.Rect(row, "n", new Vector2(0f, 0.5f), new Vector2(1f, 1f), new Vector2(x, 0f), new Vector2(-right, -8f)),
+                ItemName(r), BodySize, Ink, TextAnchor.LowerLeft);
+            Txt(UiKit.Rect(row, "s", Vector2.zero, new Vector2(1f, 0.5f), new Vector2(x, 8f), new Vector2(-right, 0f)),
+                sub, SmallSize, SubInk, TextAnchor.UpperLeft);
+            if (stars)
+                UiKit.Stars(UiKit.Rect(row, "stars", new Vector2(1f, 0.5f), Vector2.one, new Vector2(-160f, 0f), new Vector2(-16f, -10f)),
+                    r.UpgradeLevel, GearRoller.MaxLevel, 30f, StarOn, StarOff);
+            if (tag != null)
+                Txt(UiKit.Rect(row, "tag", new Vector2(1f, 0f), new Vector2(1f, 0.5f), new Vector2(-160f, 8f), new Vector2(-16f, 0f)),
+                    tag, SmallSize, tagInk ?? Dim, TextAnchor.MiddleCenter);
+            return row;
+        }
+
+        float _dy;
+
+        /// <summary>The next block down the detail, <paramref name="h"/> tall.</summary>
+        RectTransform Stack(float h, float gap = Gap)
+        {
+            var r = UiKit.Rect(_detail, "block", new Vector2(0f, 1f), Vector2.one, new Vector2(0f, -_dy - h), new Vector2(0f, -_dy));
+            _dy += h + gap;
+            return r;
+        }
+
+        /// <summary>The space left between the stack and the footer's buttons.</summary>
+        RectTransform Rest(bool footer = true)
+            => UiKit.Rect(_detail, "rest", Vector2.zero, Vector2.one, new Vector2(0f, footer ? ButtonH + 20f : 0f), new Vector2(0f, -_dy));
+
+        Text Para(string text, int size, Color color, float h, float gap = Gap)
+            => Txt(Stack(h, gap), text, size, color, TextAnchor.UpperLeft, wrap: true);
+
+        static float ButtonW(string label)
+        {
+            int longest = label.Split('\n').Max(l => l.Length);
+            return Mathf.Max(200f, longest * 21f + 80f);
+        }
+
+        /// <summary>A button filling <paramref name="r"/>: gold for the main action, dark for the
+        /// rest, greyed when it cannot be pressed.</summary>
+        RectTransform Button(RectTransform r, string label, bool primary, bool enabled, Action tap, int size = ButtonSize)
+        {
+            var img = r.gameObject.GetComponent<Image>() ?? r.gameObject.AddComponent<Image>();
+            img.color = enabled && primary ? Primary : QuietBg;
+            Txt(r, label, size, !enabled ? Off : primary ? PrimaryInk : Ink, TextAnchor.MiddleCenter);
+            if (enabled && tap != null) Act(r, tap);
+            return r;
+        }
+
+        /// <summary>The detail's foot: buttons from the right, in the order given, and a note to their left.</summary>
+        void Footer(string note, Color noteInk, params (string Label, bool Primary, bool Enabled, Action Tap)[] buttons)
+        {
+            float x = 0f;
+            for (int i = buttons.Length - 1; i >= 0; i--)
+            {
+                var b = buttons[i];
+                float w = ButtonW(b.Label);
+                Button(UiKit.Rect(_detail, "button", new Vector2(1f, 0f), new Vector2(1f, 0f), new Vector2(x - w, 0f), new Vector2(x, ButtonH)),
+                    b.Label, b.Primary, b.Enabled, b.Tap);
+                x -= w + Gap;
+            }
+            if (!string.IsNullOrEmpty(note))
+                Txt(UiKit.Rect(_detail, "note", Vector2.zero, new Vector2(1f, 0f), Vector2.zero, new Vector2(x - 8f, ButtonH)),
+                    note, SmallSize, noteInk, buttons.Length > 0 ? TextAnchor.MiddleRight : TextAnchor.MiddleLeft, wrap: true);
+        }
+
+        /// <summary>A picture of the piece: its menu art, every layer side by side, in the colours
+        /// <paramref name="swatches"/> dye it (the dyed copy, built once - Chain.Recolour.Registered).</summary>
+        void PiecePicture(RectTransform parent, GearItem piece, string[] swatches, Vector2 min, Vector2 max)
+        {
+            var drawn = swatches != null ? Recolour.Registered(piece, swatches) ?? piece : piece;
+            var layers = drawn.LayersFor(menu: true).Where(l => l?.Sprite != null && !RigLayers.IsBody(l.Layer)).ToList();
+            if (layers.Count == 0) return;
+            var box = UiKit.Rect(parent, "pic", min, max, new Vector2(8, 8), new Vector2(-8, -8));
+            for (int i = 0; i < layers.Count; i++)
+            {
+                var slot = UiKit.Rect(box, "l" + i, new Vector2(i / (float)layers.Count, 0f), new Vector2((i + 1) / (float)layers.Count, 1f),
+                    Vector2.zero, Vector2.zero);
+                var img = slot.gameObject.AddComponent<Image>();
+                img.sprite = layers[i].Sprite;
+                img.color = layers[i].Tint;
+                img.preserveAspect = true;
+                img.raycastTarget = false;
             }
         }
 
-        void Subtitle(string text)
+        // ------------------------------------------------------------------ pieces in words
+
+        static string Pct(float v) => $"+{v:0.#}%";
+        static float Scaled(float unscaled, int level) => unscaled * GearRoller.UpgradeScale(level);
+
+        internal static string ItemName(MintedGearRecord r)
         {
-            UiKit.Label(UiKit.Rect(_content, "s", new Vector2(0, 1), new Vector2(1, 1),
-                new Vector2(0, -34), new Vector2(0, 0)),
-                text, 18, new Color(0.5f, 0.53f, 0.6f), TextAnchor.MiddleCenter);
+            string name = r.Slot == GearSlot.Weapon ? $"{Label(r.Tier)} {r.Class}" : $"{Label(r.Tier)} {r.Slot.Label()}";
+            return r.Slot == GearSlot.Torso ? $"{name} ({r.DefensiveAbility.Label()})" : name;
         }
 
-        /// <summary>A grid of tap cards, sized/positioned uniformly by every tab.</summary>
-        RectTransform Card(int index, int cols, float cellW, float cellH, float gap, float top)
+        static string PrimaryText(MintedGearRecord r, LootTier tier, int level)
+            => $"{GearForge.Label(r.PrimaryStat)} {Pct(Scaled(GearRoller.PrimaryPoints(r.PrimaryStat, tier, r.Slot), level))}";
+
+        static string SubText(MintedGearRecord r)
         {
-            float gridW = cols * cellW + (cols - 1) * gap;
-            int col = index % cols, row = index / cols;
-            float x = -gridW * 0.5f + col * (cellW + gap);
-            float y = top - row * (cellH + gap);
-            return UiKit.Panel(_content, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
-                new Vector2(x, y - cellH), new Vector2(x + cellW, y),
-                new Color(0.15f, 0.11f, 0.08f));
+            if (r.SubStats == null || r.SubStats.Count == 0) return "";
+            return string.Join(" · ", r.SubStats.Where(s => s != null)
+                .Select(s => $"{GearForge.Label(s.Kind)} {Pct(Scaled(s.Value, r.UpgradeLevel))}"));
         }
 
-        static Color TierColor(LootTier tier) => tier switch
+        /// <summary>A row of stars <paramref name="size"/> tall, starting at the left of <paramref name="parent"/>.</summary>
+        static void StarsAt(RectTransform parent, float x, int level, float size = 30f)
         {
-            LootTier.Bronze => new Color(0.62f, 0.42f, 0.28f),
-            LootTier.Silver => new Color(0.75f, 0.77f, 0.8f),
-            LootTier.Gold => new Color(0.86f, 0.72f, 0.32f),
-            LootTier.Diamond => new Color(0.65f, 0.85f, 0.95f),
-            LootTier.BlackDiamond => new Color(0.55f, 0.35f, 0.85f),
-            _ => Color.white,
-        };
-
-        // ------------------------------------------------------------------ Phial (the run's healing)
-
-        /// <summary>The phial's three tiers side by side: what each holds, the one carried, and what
-        /// the next costs - its own tier's boxes (Tuning.Phial). A tap on one the player can pay for
-        /// forges it.</summary>
-        void BuildPhial()
-        {
-            int have = _ctx.PhialTier != null ? _ctx.PhialTier() : 0;
-            Subtitle($"forge a better phial - {Tuning.Phial.CraftBoxes} boxes of its tier; full at a run's start, a drink back after each boss");
-            for (int t = 0; t < Tuning.Phial.Charges.Length; t++)
-            {
-                var tier = Tuning.Phial.TierOf(t);
-                var card = Card(t, 3, 300f, 200f, 24f, -60f);
-                string holds = $"{Tuning.Phial.ChargesFor(t)} drinks  ·  {Mathf.RoundToInt(Tuning.Phial.HealFor(t) * 100f)}% health each";
-                string state;
-                Color ink = Dim;
-                bool canBuy = false;
-                if (t == have) { state = "CARRIED"; ink = CarriedInk; }
-                else if (t < have) state = "outgrown";
-                else
-                {
-                    int boxes = _ctx.Boxes.Get(tier);
-                    canBuy = boxes >= Tuning.Phial.CraftBoxes;
-                    state = $"{Tuning.Phial.CraftBoxes} {Label(tier)} boxes  (you have {boxes})";
-                    ink = canBuy ? PoweredInk : Dim;
-                }
-                UiKit.Label(UiKit.Rect(card, "t", new Vector2(0, 1), Vector2.one, new Vector2(8, -64), new Vector2(-8, -12)),
-                    $"{Label(tier).ToUpperInvariant()} PHIAL", 26, TierColor(tier), TextAnchor.MiddleCenter);
-                UiKit.Label(UiKit.Rect(card, "h", new Vector2(0, 0.5f), new Vector2(1, 0.5f), new Vector2(8, -22), new Vector2(-8, 22)),
-                    holds, 18, Ink, TextAnchor.MiddleCenter);
-                UiKit.Label(UiKit.Rect(card, "s", Vector2.zero, new Vector2(1, 0), new Vector2(8, 10), new Vector2(-8, 56)),
-                    state, 18, ink, TextAnchor.MiddleCenter);
-                if (!canBuy) continue;
-                int chosen = t;
-                _actions.Add((card, () =>
-                {
-                    if (_ctx.OnCraftPhial != null && _ctx.OnCraftPhial(chosen)) Rebuild();
-                }));
-            }
+            float w = GearRoller.MaxLevel * size;
+            UiKit.Stars(UiKit.Rect(parent, "stars", new Vector2(0f, 0f), new Vector2(0f, 1f), new Vector2(x, 0f), new Vector2(x + w, 0f)),
+                level, GearRoller.MaxLevel, size, StarOn, StarOff);
         }
-
-        // ------------------------------------------------------------------ Redeem (random slot, one box)
-
-        void BuildRedeem()
-        {
-            Subtitle($"spend {Tuning.GearRoll.ForgeRandomRedeemBoxCost} box - random slot at that box's tier");
-            BuildTierPicker(tier =>
-            {
-                Close();
-                _ctx.OnRedeemRandom?.Invoke(tier);
-            });
-        }
-
-        // ------------------------------------------------------------------ Targeted (chosen slot [+ class])
-
-        void BuildTargeted()
-        {
-            if (_pickedTier == null)
-            {
-                Subtitle($"spend {Tuning.GearRoll.ForgeTargetedRedeemBoxCost} boxes - pick a tier, then the exact slot" +
-                         "   (Diamond and Black Diamond boxes open at random only)");
-                BuildTierPicker(tier => { _pickedTier = tier; Rebuild(); }, designs: false);
-                return;
-            }
-
-            if (_pickedSlot == null)
-            {
-                Subtitle($"{_pickedTier} box - pick the slot");
-                // Diamond and Black Diamond redeem into DESIGNS, so only slots holding one of that
-                // tier are offered - and the relic slot is, since designs include relics.
-                var slots = DesignDrops.IsDesignTier(_pickedTier.Value)
-                    ? DesignDrops.Slots(_pickedTier.Value).ToArray()
-                    : Slots;
-                for (int i = 0; i < slots.Length; i++)
-                {
-                    var slot = slots[i];
-                    var card = Card(i, 4, 220f, 130f, 22f, -50f);
-                    UiKit.Label(UiKit.Rect(card, "n", Vector2.zero, Vector2.one,
-                        new Vector2(6, 6), new Vector2(-6, -6)),
-                        slot.Label(), 22, new Color(0.96f, 0.87f, 0.74f), TextAnchor.MiddleCenter);
-
-                    var chosen = slot;
-                    _actions.Add((card, () =>
-                    {
-                        if (chosen == GearSlot.Weapon) { _pickedSlot = chosen; Rebuild(); return; }
-                        Close();
-                        _ctx.OnRedeemTargeted?.Invoke(chosen, _pickedTier.Value, WeaponClass.Greatsword);
-                    }));
-                }
-                return;
-            }
-
-            // Weapon slot only reaches here - pick the class.
-            Subtitle($"{_pickedTier} Weapon - pick the class");
-            var classes = DesignDrops.IsDesignTier(_pickedTier.Value)
-                ? DesignDrops.Classes(_pickedTier.Value).ToArray()
-                : Classes;
-            for (int i = 0; i < classes.Length; i++)
-            {
-                var wc = classes[i];
-                var card = Card(i, 3, 260f, 130f, 22f, -50f);
-                UiKit.Label(UiKit.Rect(card, "n", Vector2.zero, Vector2.one,
-                    new Vector2(6, 6), new Vector2(-6, -6)),
-                    wc.ToString(), 22, new Color(0.96f, 0.87f, 0.74f), TextAnchor.MiddleCenter);
-
-                var chosen = wc;
-                var slot = _pickedSlot.Value;
-                var tier = _pickedTier.Value;
-                _actions.Add((card, () => { Close(); _ctx.OnRedeemTargeted?.Invoke(slot, tier, chosen); }));
-            }
-        }
-
-        const float TierCardW = 230f, TierCardH = 200f, TierLabelH = 52f;
-
-        static string Label(LootTier tier) => tier == LootTier.BlackDiamond ? "Black Diamond" : tier.ToString();
-
-        /// <summary>Owned box tiers, each card its box. <paramref name="designs"/> false leaves out
-        /// Diamond and Black Diamond (targeted redemption, which they never take).</summary>
-        void BuildTierPicker(Action<LootTier> onPick, bool designs = true)
-        {
-            var owned = BoxTiers.Where(t => _ctx.Boxes.Get(t) > 0 && (designs || !DesignDrops.IsDesignTier(t))).ToList();
-            int col = 0;
-
-            foreach (var tier in owned)
-            {
-                var card = Card(col, 5, TierCardW, TierCardH, 18f, -50f);
-                BoxIcon.Add(card, BoxIcon.KindOf(tier), true, new Vector2(0.5f, 0f), new Vector2(0f, TierLabelH));
-                UiKit.Label(UiKit.Rect(card, "n", Vector2.zero, new Vector2(1f, 0f),
-                    new Vector2(6, 4), new Vector2(-6, TierLabelH)),
-                    $"{Label(tier)}  x{_ctx.Boxes.Get(tier)}", 20, TierColor(tier), TextAnchor.MiddleCenter);
-                var chosen = tier;
-                _actions.Add((card, () => onPick(chosen)));
-                col++;
-            }
-
-            if (col == 0)
-                Subtitle("no boxes to spend - clear floors to find them");
-        }
-
-        // ------------------------------------------------------------------ shared pieces
-
-        static readonly Color Ink = new(0.96f, 0.87f, 0.74f);
-        static readonly Color Dim = new(0.5f, 0.53f, 0.6f);
-        static readonly Color CarriedInk = new(0.55f, 0.9f, 0.6f);
-        static readonly Color PoweredInk = new(0.97f, 0.8f, 0.4f);
-        static readonly Color RandomInk = new(0.72f, 0.6f, 0.95f);
-        static readonly Color StarOn = new(1f, 0.82f, 0.3f);
-        static readonly Color StarOff = new(1f, 1f, 1f, 0.12f);
-        static readonly Color ButtonBg = new(0.28f, 0.2f, 0.12f);
-        static readonly Color QuietBg = new(0.13f, 0.11f, 0.1f);
-        static readonly Color RefusedInk = new(0.95f, 0.5f, 0.45f);
 
         /// <summary>Promoting (three stars into the next tier) takes a Rift Box from the banked
         /// reserve - GameBootstrap.CombineGear spends it and refuses without one.</summary>
@@ -440,548 +534,231 @@ namespace Convergence.UI
         int RiftHeld => _ctx.RiftBoxes?.Invoke() ?? 0;
         bool CanPromote => RiftHeld >= PromoteCost;
 
-        const int PageSize = 8;   // 4 x 2 item cards
-        const float ItemW = 410f, ItemH = 220f, ItemGap = 20f, GridTop = -50f;
-        static float NavY => GridTop - 2 * (ItemH + ItemGap) - 10f;
+        // ------------------------------------------------------------------ Open a box
 
-        static string Pct(float v) => $"+{v:0.#}%";
-        static float Scaled(float unscaled, int level) => unscaled * GearRoller.UpgradeScale(level);
+        static readonly (GearSlot Slot, WeaponClass Class, string Label)[] OpenChoices = BuildOpenChoices();
 
-        static string ItemName(MintedGearRecord r)
+        /// <summary>The ten armour slots, then the weapon once per class - one tap, not a second step.</summary>
+        static (GearSlot, WeaponClass, string)[] BuildOpenChoices()
         {
-            string name = r.Slot == GearSlot.Weapon ? $"{r.Tier} {r.Class}" : $"{r.Tier} {r.Slot.Label()}";
-            return r.Slot == GearSlot.Torso ? $"{name} ({r.DefensiveAbility})" : name;
-        }
-
-        static string PrimaryText(MintedGearRecord r, LootTier tier, int level)
-            => $"{GearForge.Label(r.PrimaryStat)} {Pct(Scaled(GearRoller.PrimaryPoints(r.PrimaryStat, tier, r.Slot), level))}";
-
-        static string ItemText(MintedGearRecord r)
-        {
-            var sb = new System.Text.StringBuilder();
-            sb.Append(ItemName(r)).Append('\n').Append(PrimaryText(r, r.Tier, r.UpgradeLevel));
-            if (r.SubStats != null)
-                foreach (var sub in r.SubStats)
-                    if (sub != null)
-                        sb.Append("\n  ").Append(GearForge.Label(sub.Kind)).Append(' ')
-                          .Append(Pct(Scaled(sub.Value, r.UpgradeLevel)));
-            return sb.ToString();
-        }
-
-        /// <summary>One left-aligned line in a centred column, its top edge at y.</summary>
-        void Line(float y, string text, int size, Color color, float width = 1000f)
-        {
-            UiKit.Label(UiKit.Rect(_content, "l", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
-                new Vector2(-width * 0.5f, y - size - 10), new Vector2(width * 0.5f, y)),
-                text, size, color, TextAnchor.MiddleLeft);
-        }
-
-        void StarRow(float x, float y, int level, float size = 30f)
-        {
-            var row = UiKit.Rect(_content, "stars", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
-                new Vector2(x - 100f, y - size), new Vector2(x + 100f, y));
-            UiKit.Stars(row, level, GearRoller.MaxLevel, size, StarOn, StarOff);
-        }
-
-        RectTransform Button(float x, float y, float w, float h, string text, Color bg, Action onTap)
-        {
-            var card = UiKit.Panel(_content, new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
-                new Vector2(x, y - h), new Vector2(x + w, y), bg);
-            UiKit.Label(UiKit.Rect(card, "n", Vector2.zero, Vector2.one, new Vector2(6, 6), new Vector2(-6, -6)),
-                text, 20, Ink, TextAnchor.MiddleCenter);
-            _actions.Add((card, onTap));
-            return card;
-        }
-
-        RectTransform ItemCard(int index, string text, LootTier tier, int level, bool highlight)
-        {
-            var card = Card(index, 4, ItemW, ItemH, ItemGap, GridTop);
-            if (highlight) card.GetComponent<Image>().color = new Color(0.36f, 0.25f, 0.1f);
-            UiKit.Label(UiKit.Rect(card, "n", Vector2.zero, Vector2.one, new Vector2(14, 42), new Vector2(-14, -10)),
-                text, 18, TierColor(tier), TextAnchor.UpperLeft);
-            var row = UiKit.Rect(card, "stars", new Vector2(0, 0), new Vector2(1, 0), new Vector2(0, 8), new Vector2(0, 36));
-            UiKit.Stars(row, level, GearRoller.MaxLevel, 26f, StarOn, StarOff);
-            return card;
-        }
-
-        List<T> Page<T>(List<T> all)
-        {
-            int pages = Mathf.Max(1, (all.Count + PageSize - 1) / PageSize);
-            _page = Mathf.Clamp(_page, 0, pages - 1);
-            return all.Skip(_page * PageSize).Take(PageSize).ToList();
-        }
-
-        /// <summary>BACK (if given) plus PREV/NEXT when the list is longer than one page.</summary>
-        void NavRow(int total, Action back)
-        {
-            if (back != null) Button(-840f, NavY, 260f, 128f, "BACK", QuietBg, back);
-            if (total <= PageSize) return;
-
-            int pages = (total + PageSize - 1) / PageSize;
-            Line(NavY - 44f, $"page {_page + 1} / {pages}", 20, Dim, 200f);
-            if (_page > 0) Button(-360f, NavY, 240f, 128f, "PREV", QuietBg, () => { _page--; Rebuild(); });
-            if (_page < pages - 1) Button(120f, NavY, 240f, 128f, "NEXT", QuietBg, () => { _page++; Rebuild(); });
-        }
-
-        // ------------------------------------------------------------------ Combine
-
-        void BuildCombine()
-        {
-            if (_result != null) { BuildCombineResult(); return; }
-            if (_plan != null) { BuildCombinePreview(); return; }
-
-            var groups = GearForge.Groups(_ctx.MintedGear, _ctx.IsEquipped);
-            var group = _groupKey == null ? null : groups.Find(g => GearForge.MatchKey(g[0]) == _groupKey);
-            if (group == null)
-            {
-                _groupKey = null;
-                _pickA = null;
-                BuildCombineGroups(groups);
-                return;
-            }
-
-            Subtitle(_pickA == null ? "pick the first piece" : "pick the second piece - tap the first again to un-pick it");
-            var shown = Page(group);
-            for (int i = 0; i < shown.Count; i++)
-            {
-                var r = shown[i];
-                var card = ItemCard(i, ItemText(r), r.Tier, r.UpgradeLevel, r == _pickA);
-                _actions.Add((card, () =>
-                {
-                    if (_pickA == null) _pickA = r;
-                    else if (_pickA == r) _pickA = null;
-                    else _plan = GearForge.Plan(_pickA, r);
-                    Rebuild();
-                }));
-            }
-            NavRow(group.Count, () => { _groupKey = null; _pickA = null; _page = 0; Rebuild(); });
-        }
-
-        void BuildCombineGroups(List<List<MintedGearRecord>> groups)
-        {
-            Subtitle("two matching pieces become one - same slot, tier, stars and primary stat" +
-                     " (and class / ability). No boxes needed." +
-                     // The showcase stops at Bronze 3 stars (GearForge.Ceiling).
-                     (RunFormat.Showcase ? "  Gear progression stops at Bronze 3 stars in the showcase." : ""));
-
-            if (groups.Count == 0)
-            {
-                Line(-80f, "no two matching pieces yet (equipped pieces don't count - unequip first)", 20, Dim, 1100f);
-                return;
-            }
-
-            var shown = Page(groups);
-            for (int i = 0; i < shown.Count; i++)
-            {
-                var g = shown[i];
-                var r = g[0];
-                string next = r.UpgradeLevel >= GearRoller.MaxLevel ? "combine into the next tier" : "combine for a star";
-                var card = ItemCard(i,
-                    $"{ItemName(r)}\n{PrimaryText(r, r.Tier, r.UpgradeLevel)}\nx{g.Count} owned\n{next}",
-                    r.Tier, r.UpgradeLevel, false);
-
-                var key = GearForge.MatchKey(r);
-                _actions.Add((card, () =>
-                {
-                    // A pair is the only possible choice - go straight to the preview.
-                    if (g.Count == 2) _plan = GearForge.Plan(g[0], g[1]);
-                    else { _groupKey = key; _pickA = null; _page = 0; }
-                    Rebuild();
-                }));
-            }
-            NavRow(groups.Count, null);
+            var list = Slots.Where(s => s != GearSlot.Weapon).Select(s => (s, WeaponClass.Greatsword, s.Label())).ToList();
+            list.Add((GearSlot.Weapon, WeaponClass.Greatsword, "Greatsword"));
+            list.Add((GearSlot.Weapon, WeaponClass.Disc, "Discs"));
+            list.Add((GearSlot.Weapon, WeaponClass.Bow, "Bow"));
+            return list.ToArray();
         }
 
         /// <summary>
-        /// What the combine WILL do, before it does it. Carried-over and powered-up rows show
-        /// real numbers (they are certain); randomized rows show "??? (?-?)" and nothing else,
-        /// because they have not been rolled yet and each stat has its own range.
+        /// Random and targeted redemption as one tab: how to open (a random slot for one box, or the
+        /// slot chosen for more), which box, and - chosen - which slot. Diamond and Black Diamond
+        /// open at random only. OPEN closes the screen for the reveal.
         /// </summary>
-        void BuildCombinePreview()
+        void BuildOpen()
         {
-            var p = _plan;
-            Subtitle("check the result before you confirm - randomized sub-stats roll on CONFIRM");
+            Whole();
+            int randomCost = Tuning.GearRoll.ForgeRandomRedeemBoxCost, targetCost = Tuning.GearRoll.ForgeTargetedRedeemBoxCost;
+            int cost = _targeted ? targetCost : randomCost;
+            bool Opens(LootTier t) => (_ctx.Boxes?.Get(t) ?? 0) >= cost && (!_targeted || !DesignDrops.IsDesignTier(t));
+            if (_boxTier == null || !Opens(_boxTier.Value)) _boxTier = BoxTiers.Cast<LootTier?>().FirstOrDefault(t => Opens(t.Value));
 
-            float y = -40f;
-            Line(y, $"{ItemName(p.A)}  x2", 28, TierColor(p.FromTier), 700f);
-            StarRow(360f, y - 2f, p.FromLevel);
-            y -= 50f;
-            Line(y, $"becomes  {p.ToTier} {(p.A.Slot == GearSlot.Weapon ? p.A.Class.ToString() : p.A.Slot.Label())}",
-                 28, TierColor(p.ToTier), 700f);
-            StarRow(360f, y - 2f, p.ToLevel);
-            y -= 64f;
-
-            Line(y, "POWERED UP", 22, PoweredInk); y -= 34f;
-            float before = Scaled(GearRoller.PrimaryPoints(p.A.PrimaryStat, p.FromTier, p.A.Slot), p.FromLevel);
-            float after = Scaled(GearRoller.PrimaryPoints(p.A.PrimaryStat, p.ToTier, p.A.Slot), p.ToLevel);
-            Line(y, $"    {GearForge.Label(p.A.PrimaryStat)}  {Pct(before)}  ->  {Pct(after)}", 20, Ink); y -= 30f;
-            if (p.Promotes)
+            // How to open.
+            var how = Stack(88f, 24f);
+            void Way(int i, bool targeted, string title, string sub)
             {
-                Line(y, $"    Tier {p.FromTier} -> {p.ToTier}, sub-stat slots " +
-                        $"{GearRoller.SubStatCount(p.FromTier)} -> {GearRoller.SubStatCount(p.ToTier)}", 20, Ink);
-                y -= 30f;
-                Line(y, $"    takes {PromoteCost} Rift Box{(PromoteCost == 1 ? "" : "es")}  (you have {RiftHeld})",
-                     20, CanPromote ? Ink : RefusedInk);
+                bool on = _targeted == targeted;
+                var b = UiKit.Panel(how, Vector2.zero, new Vector2(0f, 1f), new Vector2(i * 388f, 0f), new Vector2(i * 388f + 380f, 0f),
+                    on ? OnBg : ChipBg);
+                Txt(UiKit.Rect(b, "t", new Vector2(0f, 0.5f), Vector2.one, new Vector2(16f, 0f), new Vector2(-16f, -6f)),
+                    title, 26, on ? OnInk : Dim, TextAnchor.LowerCenter);
+                Txt(UiKit.Rect(b, "s", Vector2.zero, new Vector2(1f, 0.5f), new Vector2(16f, 6f), new Vector2(-16f, 0f)),
+                    sub, SmallSize, on ? Ink : Dim, TextAnchor.UpperCenter);
+                Act(b, () => { _targeted = targeted; _boxSlot = null; Rebuild(); });
             }
-            else
-                Line(y, $"    every stat x{GearRoller.UpgradeScale(p.ToLevel) / GearRoller.UpgradeScale(p.FromLevel):0.00}", 20, Ink);
-            y -= 44f;
+            Way(0, false, "RANDOM SLOT", Plural(randomCost, "box"));
+            Way(1, true, "CHOOSE THE SLOT", Plural(targetCost, "box"));
+            Txt(UiKit.Rect(how, "n", Vector2.zero, Vector2.one, new Vector2(800f, 0f), Vector2.zero),
+                "Diamond and Black Diamond open at random only", SmallSize, Dim, TextAnchor.MiddleLeft, wrap: true);
 
-            Line(y, "CARRIED OVER", 22, CarriedInk); y -= 34f;
-            if (p.Carried.Count == 0) { Line(y, "    nothing matched", 20, Dim); y -= 30f; }
-            foreach (var c in p.Carried)
+            // Which box.
+            var tiles = Stack(200f, 24f);
+            for (int i = 0; i < BoxTiers.Length; i++)
             {
-                if (p.Promotes)
-                {
-                    // The stat is certain; its value re-rolls in the new tier's range, which is known.
-                    var (min, max) = GearRoller.SubStatRange(c.Kind, p.ToTier);
-                    Line(y, $"    {GearForge.Label(c.Kind)}  ({Scaled(min, p.ToLevel):0.#}-{Scaled(max, p.ToLevel):0.#}%)" +
-                            "   new roll in the new tier's range", 20, Ink);
-                }
+                var tier = BoxTiers[i];
+                bool can = Opens(tier), on = can && _boxTier == tier;
+                float a = i / (float)BoxTiers.Length, b = (i + 1) / (float)BoxTiers.Length;
+                var tile = Framed(tiles, new Vector2(a, 0f), new Vector2(b, 1f), new Vector2(i == 0 ? 0f : 7f, 0f),
+                    new Vector2(i == BoxTiers.Length - 1 ? 0f : -7f, 0f), on, on ? OnBg : RowBg);
+                var icon = BoxIcon.Add(tile, BoxIcon.KindOf(tier), true, new Vector2(0.5f, 0f), new Vector2(0f, 60f));
+                Txt(UiKit.Rect(tile, "n", Vector2.zero, new Vector2(1f, 0f), new Vector2(6f, 8f), new Vector2(-6f, 56f)),
+                    $"{Label(tier)} ×{_ctx.Boxes?.Get(tier) ?? 0}", SmallSize, TierColor(tier), TextAnchor.MiddleCenter);
+                if (!can) tile.gameObject.AddComponent<CanvasGroup>().alpha = 0.35f;
                 else
                 {
-                    Line(y, $"    {GearForge.Label(c.Kind)}  {Pct(Scaled(c.Value, p.FromLevel))}  ->  " +
-                            $"{Pct(Scaled(c.Value, p.ToLevel))}   higher roll kept", 20, Ink);
+                    var chosen = tier;
+                    Act(tile, () => { _boxTier = chosen; Rebuild(); });
                 }
-                y -= 30f;
-            }
-            y -= 14f;
-
-            Line(y, "RANDOMIZED", 22, RandomInk); y -= 34f;
-            if (p.Randomized == 0) { Line(y, "    nothing - every sub-stat matched", 20, Dim); y -= 30f; }
-            for (int i = 0; i < p.Randomized; i++) { Line(y, "    ??? (?-?)", 20, Ink); y -= 30f; }
-            y -= 20f;
-
-            bool can = !p.Promotes || CanPromote;
-            Button(-280f, y, 260f, 128f, can ? "CONFIRM" : "NEEDS A\nRIFT BOX", can ? ButtonBg : QuietBg, () =>
-            {
-                if (!can) return;
-                var result = _ctx.OnCombine?.Invoke(p.A.InstanceId, p.B.InstanceId);
-                _plan = null;
-                _pickA = null;
-                if (result != null) { _result = result; _resultNewFrom = p.Carried.Count; }
-                Rebuild();
-            });
-            Button(20f, y, 260f, 128f, "BACK", QuietBg, () => { _plan = null; _pickA = null; Rebuild(); });
-        }
-
-        void BuildCombineResult()
-        {
-            var r = _result;
-            Subtitle("combined");
-
-            float y = -40f;
-            Line(y, ItemName(r), 30, TierColor(r.Tier), 700f);
-            StarRow(360f, y - 2f, r.UpgradeLevel);
-            y -= 60f;
-            Line(y, PrimaryText(r, r.Tier, r.UpgradeLevel), 22, Ink); y -= 40f;
-
-            for (int i = 0; i < r.SubStats.Count; i++)
-            {
-                var sub = r.SubStats[i];
-                bool fresh = i >= _resultNewFrom;
-                Line(y, $"    {GearForge.Label(sub.Kind)}  {Pct(Scaled(sub.Value, r.UpgradeLevel))}" +
-                        $"   {(fresh ? "NEW" : "CARRIED")}", 20, fresh ? RandomInk : CarriedInk);
-                y -= 32f;
-            }
-            y -= 24f;
-
-            Button(-130f, y, 260f, 128f, "DONE", ButtonBg, () => { ResetSteps(); Rebuild(); });
-        }
-
-        // ------------------------------------------------------------------ Re-roll
-
-        void BuildReroll()
-        {
-            if (_rerollItem != null && (_ctx.MintedGear == null || !_ctx.MintedGear.Contains(_rerollItem)))
-                _rerollItem = null;
-            if (_rerollItem != null) { BuildRerollItem(); return; }
-
-            Subtitle($"pick a piece - {Tuning.GearRoll.ForgeRerollValueBoxCost} box of its tier re-rolls one value, " +
-                     $"{Tuning.GearRoll.ForgeRerollStatBoxCost} change the stat");
-
-            var eligible = (_ctx.MintedGear ?? new List<MintedGearRecord>())
-                .Where(r => GearForge.CanReroll(r, 0)).ToList();
-            if (eligible.Count == 0)
-            {
-                Line(-80f, "nothing to re-roll yet - Bronze, Silver and Gold pieces carry sub-stats", 20, Dim, 1100f);
-                return;
+                _ = icon;
             }
 
-            var shown = Page(eligible);
-            for (int i = 0; i < shown.Count; i++)
+            // Which slot, when chosen.
+            if (_targeted && _boxTier != null)
             {
-                var r = shown[i];
-                var card = ItemCard(i, ItemText(r), r.Tier, r.UpgradeLevel, false);
-                _actions.Add((card, () => { _rerollItem = r; _rerollNote = null; Rebuild(); }));
-            }
-            NavRow(eligible.Count, null);
-        }
-
-        void BuildRerollItem()
-        {
-            var r = _rerollItem;
-            int owned = _ctx.Boxes.Get(r.Tier);
-            Subtitle($"{r.Tier} boxes: {owned} - a re-roll can come out worse");
-
-            float y = -40f;
-            Line(y, ItemName(r), 30, TierColor(r.Tier), 700f);
-            StarRow(360f, y - 2f, r.UpgradeLevel);
-            y -= 56f;
-            Line(y, $"{PrimaryText(r, r.Tier, r.UpgradeLevel)}   primary - fixed", 20, Dim); y -= 44f;
-
-            int valueCost = Tuning.GearRoll.ForgeRerollValueBoxCost, statCost = Tuning.GearRoll.ForgeRerollStatBoxCost;
-            for (int i = 0; i < r.SubStats.Count; i++)
-            {
-                var sub = r.SubStats[i];
-                var (min, max) = GearRoller.SubStatRange(sub.Kind, r.Tier);
-                UiKit.Label(UiKit.Rect(_content, "sub", new Vector2(0.5f, 1f), new Vector2(0.5f, 1f),
-                    new Vector2(-840f, y - 128f), new Vector2(-120f, y)),
-                    $"{GearForge.Label(sub.Kind)}  {Pct(Scaled(sub.Value, r.UpgradeLevel))}\n" +
-                    $"range {Scaled(min, r.UpgradeLevel):0.#}-{Scaled(max, r.UpgradeLevel):0.#}%",
-                    22, Ink, TextAnchor.MiddleLeft);
-
-                int index = i;
-                Button(-100f, y, 300f, 128f, $"NEW VALUE\n{valueCost} box{(valueCost == 1 ? "" : "es")}",
-                       owned >= valueCost ? ButtonBg : QuietBg, () => Reroll(index, false));
-                Button(220f, y, 300f, 128f, $"NEW STAT\n{statCost} box{(statCost == 1 ? "" : "es")}",
-                       owned >= statCost ? ButtonBg : QuietBg, () => Reroll(index, true));
-                y -= 140f;
+                Txt(Stack(40f, 12f), $"{Label(_boxTier.Value).ToUpperInvariant()} - PICK THE SLOT", SmallSize, Dim);
+                const int cols = 7;
+                int rows = (OpenChoices.Length + cols - 1) / cols;
+                var grid = Stack(rows * 84f + (rows - 1) * 10f);
+                for (int i = 0; i < OpenChoices.Length; i++)
+                {
+                    var (slot, cls, label) = OpenChoices[i];
+                    bool on = _boxSlot == slot && (slot != GearSlot.Weapon || _boxClass == cls);
+                    int c = i % cols, row = i / cols;
+                    var cell = Framed(grid, new Vector2(c / (float)cols, 1f), new Vector2((c + 1) / (float)cols, 1f),
+                        new Vector2(c == 0 ? 0f : 5f, -row * 94f - 84f), new Vector2(c == cols - 1 ? 0f : -5f, -row * 94f),
+                        on, on ? OnBg : RowBg);
+                    Txt(cell, label, SmallSize, Ink, TextAnchor.MiddleCenter);
+                    Act(cell, () => { _boxSlot = slot; _boxClass = cls; Rebuild(); });
+                }
             }
 
-            if (!string.IsNullOrEmpty(_rerollNote)) Line(y, _rerollNote, 22, RandomInk);
-            Button(-840f, NavY - 60f, 260f, 128f, "BACK", QuietBg, () => { _rerollItem = null; _rerollNote = null; Rebuild(); });
-        }
-
-        void Reroll(int index, bool changeStat)
-        {
-            var r = _rerollItem;
-            var old = r.SubStats[index];
-            string before = $"{GearForge.Label(old.Kind)} {Pct(Scaled(old.Value, r.UpgradeLevel))}";
-
-            var result = _ctx.OnReroll?.Invoke(r.InstanceId, index, changeStat);
-            if (result == null)
-            {
-                _rerollNote = $"not enough {r.Tier} boxes";
-            }
+            // The verdict and OPEN.
+            string note;
+            bool ready = _boxTier != null && (!_targeted || _boxSlot != null);
+            if (_boxTier == null)
+                note = _targeted ? $"Choosing the slot takes {targetCost} Bronze, Silver or Gold boxes of one tier"
+                                 : "No boxes yet - clear floors to find them";
             else
             {
-                var now = result.SubStats[index];
-                _rerollNote = $"{before}  ->  {GearForge.Label(now.Kind)} {Pct(Scaled(now.Value, result.UpgradeLevel))}";
+                var tier = _boxTier.Value;
+                int held = _ctx.Boxes.Get(tier);
+                string what = !_targeted ? $"A random slot at {Label(tier)}"
+                            : _boxSlot == null ? "Pick the slot"
+                            : $"{Label(tier)} {(_boxSlot == GearSlot.Weapon ? WeaponName(_boxClass) : _boxSlot.Value.Label())}";
+                note = ready ? $"{what} - spends {(cost == held ? $"all {cost}" : cost.ToString())} of your {held} {Label(tier)} boxes" : what;
+                if (ready && cost == 1) note = $"{what} - spends 1 of your {held} {Label(tier)} boxes";
             }
-            Rebuild();
+            Footer(note, Dim, ("OPEN", true, ready, () =>
+            {
+                var tier = _boxTier.Value;
+                var slot = _boxSlot;
+                var cls = _boxClass;
+                bool targeted = _targeted;
+                Close();
+                if (targeted) _ctx.OnRedeemTargeted?.Invoke(slot.Value, tier, cls);
+                else _ctx.OnRedeemRandom?.Invoke(tier);
+            }));
         }
 
-        // ------------------------------------------------------------------ Salvage
-
-        /// <summary>
-        /// Unwanted Bronze/Silver/Gold pieces break into calx of their tier, CalxPerBox of it
-        /// making a box. Tap pieces to pick them (across pages), or PICK LONERS for every base
-        /// piece nothing else matches; SALVAGE asks once before anything is destroyed. A piece
-        /// that has a partner is marked, since it is one combine away from a star.
-        /// </summary>
-        void BuildSalvage()
+        static string WeaponName(WeaponClass cls) => cls switch
         {
-            _salvagePick ??= new HashSet<string>();
-            var eligible = (_ctx.MintedGear ?? new List<MintedGearRecord>())
-                .Where(r => GearForge.Salvageable(r) && (_ctx.IsEquipped == null || !_ctx.IsEquipped(r.InstanceId)))
-                .OrderBy(r => r.Tier).ThenBy(r => r.UpgradeLevel).ThenBy(r => r.Slot).ToList();
-            _salvagePick.RemoveWhere(id => !eligible.Exists(r => r.InstanceId == id));
-            var picked = eligible.Where(r => _salvagePick.Contains(r.InstanceId)).ToList();
+            WeaponClass.Disc => "Discs",
+            _ => cls.ToString(),
+        };
 
-            if (_salvageConfirm && picked.Count > 0) { BuildSalvageConfirm(picked); return; }
-            _salvageConfirm = false;
+        // ------------------------------------------------------------------ Phial (the run's healing)
 
-            int per = Tuning.GearRoll.CalxPerBox;
-            string held = _ctx.Calx == null ? "" :
-                $"   calx: Bronze {_ctx.Calx.Bronze}/{per}  Silver {_ctx.Calx.Silver}/{per}  Gold {_ctx.Calx.Gold}/{per}";
-            Subtitle($"tap pieces to pick them - each breaks into calx of its tier (1 for a base piece, " +
-                     $"doubling with each star), {per} make a box{held}");
-
-            if (eligible.Count == 0)
+        /// <summary>The phial's three tiers side by side: what each holds, the one carried, and what
+        /// the next costs - its own tier's boxes (Tuning.Phial).</summary>
+        void BuildPhial()
+        {
+            Whole();
+            int have = _ctx.PhialTier != null ? _ctx.PhialTier() : 0;
+            Para("Full at a run's start - a drink back after each boss.", BodySize, Dim, 44f, 24f);
+            var row = Stack(340f);
+            int n = Tuning.Phial.Charges.Length;
+            for (int t = 0; t < n; t++)
             {
-                Line(-80f, "nothing to salvage - equipped pieces, Diamond and Black Diamond never are", 20, Dim, 1100f);
-                if (!string.IsNullOrEmpty(_salvageNote)) Line(-130f, _salvageNote, 22, CarriedInk, 1100f);
-                return;
-            }
-
-            var shown = Page(eligible);
-            for (int i = 0; i < shown.Count; i++)
-            {
-                var r = shown[i];
-                string text = ItemText(r) + $"\n{GearForge.CalxFor(r)} calx" +
-                              (GearForge.HasPartner(r, _ctx.MintedGear, _ctx.IsEquipped) ? "   HAS A PARTNER" : "");
-                var card = ItemCard(i, text, r.Tier, r.UpgradeLevel, _salvagePick.Contains(r.InstanceId));
-                var id = r.InstanceId;
-                _actions.Add((card, () =>
+                var tier = Tuning.Phial.TierOf(t);
+                bool carried = t == have;
+                var card = Framed(row, new Vector2(t / (float)n, 0f), new Vector2((t + 1) / (float)n, 1f),
+                    new Vector2(t == 0 ? 0f : 12f, 0f), new Vector2(t == n - 1 ? 0f : -12f, 0f), carried, RowBg);
+                Txt(UiKit.Rect(card, "t", new Vector2(0f, 1f), Vector2.one, new Vector2(16f, -90f), new Vector2(-16f, -24f)),
+                    $"{Label(tier).ToUpperInvariant()} PHIAL", HeadSize, TierColor(tier), TextAnchor.MiddleCenter);
+                Txt(UiKit.Rect(card, "h", new Vector2(0f, 1f), Vector2.one, new Vector2(16f, -190f), new Vector2(-16f, -100f)),
+                    $"{Tuning.Phial.ChargesFor(t)} drinks\n{Mathf.RoundToInt(Tuning.Phial.HealFor(t) * 100f)}% health each",
+                    BodySize, Ink, TextAnchor.MiddleCenter);
+                var foot = UiKit.Rect(card, "f", Vector2.zero, new Vector2(1f, 0f), new Vector2(20f, 20f), new Vector2(-20f, 20f + ButtonH));
+                if (carried) Txt(foot, "CARRIED", ButtonSize, Good, TextAnchor.MiddleCenter);
+                else if (t < have) Txt(foot, "OUTGROWN", ButtonSize, Dim, TextAnchor.MiddleCenter);
+                else
                 {
-                    if (!_salvagePick.Remove(id)) _salvagePick.Add(id);
-                    _salvageNote = null;
-                    Rebuild();
-                }));
+                    int boxes = _ctx.Boxes.Get(tier);
+                    int need = Tuning.Phial.CraftBoxes;
+                    bool can = boxes >= need;
+                    int chosen = t;
+                    Button(foot, can ? $"FORGE - {need} BOXES" : $"{need} BOXES - HAVE {boxes}", true, can, () =>
+                    {
+                        if (_ctx.OnCraftPhial != null && _ctx.OnCraftPhial(chosen)) Rebuild();
+                    }, 26);
+                }
             }
-            NavRow(eligible.Count, null);
-
-            // Every BASE piece with no partner. Starred pieces and relics are left to the
-            // player - a lone two-star is still half a three-star, and a relic is a finisher.
-            Button(-840f, NavY, 260f, 128f, "PICK LONERS", QuietBg, () =>
-            {
-                foreach (var r in eligible)
-                    if (r.UpgradeLevel == 0 && GearForge.Combinable(r) &&
-                        !GearForge.HasPartner(r, _ctx.MintedGear, _ctx.IsEquipped))
-                        _salvagePick.Add(r.InstanceId);
-                _salvageNote = null;
-                Rebuild();
-            });
-            Button(580f, NavY, 260f, 128f, $"SALVAGE {picked.Count}",
-                   picked.Count > 0 ? ButtonBg : QuietBg, () =>
-            {
-                if (picked.Count == 0) return;
-                _salvageConfirm = true;
-                Rebuild();
-            });
-
-            if (!string.IsNullOrEmpty(_salvageNote)) Line(NavY - 140f, _salvageNote, 22, CarriedInk, 1400f);
-        }
-
-        void BuildSalvageConfirm(List<MintedGearRecord> picked)
-        {
-            Subtitle("these are destroyed - check before you confirm");
-
-            float y = -40f;
-            foreach (var tier in new[] { LootTier.Bronze, LootTier.Silver, LootTier.Gold })
-            {
-                var ofTier = picked.Where(r => r.Tier == tier).ToList();
-                if (ofTier.Count == 0) continue;
-                int calx = ofTier.Sum(GearForge.CalxFor);
-                int total = (_ctx.Calx?.Get(tier) ?? 0) + calx;
-                int boxes = total / Tuning.GearRoll.CalxPerBox;
-                Line(y, $"{ofTier.Count} {tier} piece{(ofTier.Count == 1 ? "" : "s")}  ->  {calx} calx" +
-                        (boxes > 0 ? $"  ->  {boxes} {tier} box{(boxes == 1 ? "" : "es")}" : "") +
-                        $"   ({total - boxes * Tuning.GearRoll.CalxPerBox} calx left over)",
-                     24, TierColor(tier), 1200f);
-                y -= 44f;
-            }
-
-            int partnered = picked.Count(r => GearForge.HasPartner(r, _ctx.MintedGear, _ctx.IsEquipped));
-            int starred = picked.Count(r => r.UpgradeLevel > 0);
-            if (partnered > 0)
-            {
-                Line(y, $"{partnered} of them could still combine with a piece you hold", 22, RefusedInk, 1200f);
-                y -= 40f;
-            }
-            if (starred > 0)
-            {
-                Line(y, $"{starred} of them carry stars", 22, RefusedInk, 1200f);
-                y -= 40f;
-            }
-            y -= 24f;
-
-            Button(-290f, y, 260f, 128f, "BACK", QuietBg, () => { _salvageConfirm = false; Rebuild(); });
-            Button(30f, y, 260f, 128f, "SALVAGE", ButtonBg, () =>
-            {
-                var ids = picked.Select(r => r.InstanceId).ToList();
-                _salvageNote = _ctx.OnSalvage?.Invoke(ids) ?? "nothing was salvaged";
-                _salvagePick.Clear();
-                _salvageConfirm = false;
-                Rebuild();
-            });
-        }
-
-        // ------------------------------------------------------------------ Fuse
-
-        /// <summary>
-        /// Fusions: specific designs burned into a Black Diamond weapon and its relic. Walks
-        /// fusion -> what it burns (each piece marked held or missing) -> CONFIRM -> the result.
-        /// Nothing here is random, so unlike combining there is no plan/execute split to protect.
-        /// </summary>
-        void BuildFuse()
-        {
-            if (_fused != null)
-            {
-                Subtitle("fused");
-                Line(-40f, _fused.DisplayName, 34, TierColor(_fused.Tier), 700f);
-                Line(-100f, "and its seal - the relic carrying the weapon art - are yours.", 22, Ink, 900f);
-                Line(-140f, "The three swords are gone.", 22, Dim, 900f);
-                Button(-130f, -220f, 260f, 128f, "DONE", ButtonBg, () =>
-                {
-                    ResetSteps();
-                    // The set just burned - if it was the only one, FUSE goes with it.
-                    if (!AnyFusionHeld()) _mode = Mode.Redeem;
-                    BuildTabs(_full);
-                    Rebuild();
-                });
-                return;
-            }
-            if (_fusion != null) { BuildFusePreview(); return; }
-
-            Subtitle("burn a set of Diamond weapons into the Black Diamond weapon they make - " +
-                     "no box drops these");
-            // Only sets the player holds in full - the same rule that shows the tab at all.
-            var ready = GearForge.Fusions
-                .Where(f => GearForge.FusionInputs(f, _ctx.MintedGear, null).All(r => r != null)).ToList();
-            for (int i = 0; i < ready.Count; i++)
-            {
-                var f = ready[i];
-                var held = GearForge.FusionInputs(f, _ctx.MintedGear, _ctx.IsEquipped);
-                int have = held.Count(r => r != null);
-                // A plain card, not ItemCard: that one always draws a star row, and nothing a
-                // fusion makes or burns has stars.
-                var card = Card(i, 4, ItemW, ItemH, ItemGap, GridTop);
-                if (have == f.Inputs.Length) card.GetComponent<Image>().color = new Color(0.36f, 0.25f, 0.1f);
-                UiKit.Label(UiKit.Rect(card, "n", Vector2.zero, Vector2.one, new Vector2(14, 10), new Vector2(-14, -10)),
-                    $"{f.Name}\n{have} / {f.Inputs.Length} pieces held" +
-                    (have == f.Inputs.Length ? "\nready to fuse" : ""),
-                    22, TierColor(LootTier.BlackDiamond), TextAnchor.MiddleCenter);
-                var chosen = f;
-                _actions.Add((card, () => { _fusion = chosen; Rebuild(); }));
-            }
-        }
-
-        void BuildFusePreview()
-        {
-            var f = _fusion;
-            var held = GearForge.FusionInputs(f, _ctx.MintedGear, _ctx.IsEquipped);
-            bool ready = held.All(r => r != null);
-            Subtitle(ready ? "these are burned - check before you confirm"
-                           : "missing pieces - equipped pieces don't count, unequip first");
-
-            float y = -40f;
-            Line(y, "BURNS", 22, Dim); y -= 36f;
-            for (int i = 0; i < f.Inputs.Length; i++)
-            {
-                var design = GearCatalog.Get(f.Inputs[i]);
-                string name = design != null ? design.DisplayName : f.Inputs[i];
-                Line(y, $"    {name}   {(held[i] != null ? "held" : "MISSING")}", 24,
-                     held[i] != null ? TierColor(LootTier.Diamond) : RandomInk, 900f);
-                y -= 38f;
-            }
-            y -= 20f;
-
-            Line(y, "MAKES", 22, Dim); y -= 36f;
-            var weapon = GearCatalog.Get(f.Weapon);
-            var relic = GearCatalog.Get(f.Relic);
-            Line(y, $"    {(weapon != null ? weapon.DisplayName : f.Weapon)}   Black Diamond weapon",
-                 24, TierColor(LootTier.BlackDiamond), 900f); y -= 38f;
-            if (!string.IsNullOrEmpty(f.Relic))
-            {
-                Line(y, $"    {(relic != null ? relic.DisplayName : f.Relic)}   relic - " +
-                        $"{relic?.Signature?.DisplayName ?? "its weapon art"}", 24, TierColor(LootTier.BlackDiamond), 900f);
-                y -= 38f;
-            }
-            y -= 22f;
-
-            if (ready)
-                Button(-280f, y, 260f, 128f, "FUSE", ButtonBg, () =>
-                {
-                    var made = _ctx.OnFuse?.Invoke(f.Id);
-                    if (made != null) _fused = made;
-                    Rebuild();
-                });
-            Button(ready ? 20f : -130f, y, 260f, 128f, "BACK", QuietBg, () => { _fusion = null; Rebuild(); });
+            Para($"A phial is forged from {Tuning.Phial.CraftBoxes} boxes of its own tier.", SmallSize, Dim, 40f);
         }
 
         // ------------------------------------------------------------------ input
+
+        readonly List<RectTransform> _focusRects = new();
+        readonly List<(RectTransform Rect, Action OnTap)> _actions = new();
+
+        void Act(RectTransform rect, Action tap) => _actions.Add((rect, tap));
+
+        float _scroll;
+        bool _scrolling, _pressed;
+        Vector2 _scrollOrigin, _pressAt;
+        float _scrollFrom;
+        const float DragSlop = 64f, TapSlop = 400f;
+
+        float ScrollMax => _pane == null ? 0f : Mathf.Max(0f, _listH - _pane.rect.height);
+
+        void ApplyScroll()
+        {
+            _scroll = Mathf.Clamp(_scroll, 0f, ScrollMax);
+            if (_listContent != null) _listContent.anchoredPosition = new Vector2(0f, _scroll);
+        }
+
+        int FocusedIndex()
+        {
+            var f = Controls.Focused;
+            if (f == null) return -1;
+            return _actions.FindIndex(a => a.Rect == f);
+        }
+
+        /// <summary>The D-pad keeps its place across a rebuild: the rect at the same index, which is
+        /// the same button unless the rebuild changed the list.</summary>
+        void RestoreFocus(int index)
+        {
+            if (index < 0 || _actions.Count == 0) return;
+            _focusRects.Clear();
+            foreach (var (rect, _) in _actions) _focusRects.Add(rect);
+            Controls.SetFocusCandidates(_focusRects);
+            Controls.Focus(_actions[Mathf.Min(index, _actions.Count - 1)].Rect);
+        }
+
+        /// <summary>Drag the list, or turn the wheel over it. A press only becomes a scroll once it
+        /// has travelled far enough that it cannot have been meant as a tap (the same test the gear
+        /// display screen and the mastery board use).</summary>
+        void ScrollList()
+        {
+            if (_pane == null) return;
+            var at = Controls.PointerPosition;
+            bool inside = RectTransformUtility.RectangleContainsScreenPoint(_pane, at, null);
+
+            if (inside && Mathf.Abs(Controls.Zoom) > 0.01f) { _scroll -= Controls.Zoom * 90f; ApplyScroll(); }
+
+            if (Controls.Pinching) _scrolling = false;
+            else if (Controls.Tapped(out var down) && inside && ScrollMax > 0f)
+            {
+                _scrolling = true;
+                _scrollOrigin = down;
+                _scrollFrom = _scroll;
+            }
+            if (!Controls.PointerHeld(out _)) _scrolling = false;
+            if (!_scrolling) return;
+
+            float dy = at.y - _scrollOrigin.y;
+            if (dy * dy <= DragSlop) return;
+            _scroll = _scrollFrom + dy / Mathf.Max(0.0001f, _pane.lossyScale.y);
+            ApplyScroll();
+        }
 
         void Update()
         {
@@ -990,19 +767,36 @@ namespace Convergence.UI
             _focusRects.Clear();
             foreach (var (rect, _) in _actions)
                 if (rect != null) _focusRects.Add(rect);
-            Core.Controls.SetFocusCandidates(_focusRects);
+            Controls.SetFocusCandidates(_focusRects);
 
-            if (Core.Controls.CancelTapped)
+            if (Time.frameCount == _openedFrame) return;   // the press that opened this
+            if (Controls.CancelTapped) { Close(); return; }
+
+            ScrollList();
+
+            // A row the D-pad lands on below the fold scrolls up into the pane.
+            var focused = Controls.Focused;
+            if (focused != null && _listContent != null && focused.IsChildOf(_listContent))
             {
-                Close();
-                return;
+                float d = UiKit.ScrollToShow(_pane, focused);
+                if (d != 0f) { _scroll += d; ApplyScroll(); }
             }
 
-            if (!Core.Controls.Tapped(out var at)) return;
+            // COMMITTED ON RELEASE, not on press - the same press may be the start of a drag of the
+            // list, and a scroll's opening frame must not also pick the row the finger landed on.
+            if (Controls.Tapped(out var press)) { _pressAt = press; _pressed = true; }
+            if (!Controls.PointerReleased || !_pressed) return;
+            _pressed = false;
+
+            var at = Controls.PointerPosition;
+            if ((at - _pressAt).sqrMagnitude > TapSlop) return;   // that was a drag
 
             foreach (var (rect, onTap) in _actions)
             {
                 if (rect == null || !RectTransformUtility.RectangleContainsScreenPoint(rect, at, null)) continue;
+                // A row scrolled out of the pane is clipped, not gone: only taps inside the pane reach it.
+                if (_listContent != null && rect.IsChildOf(_listContent)
+                    && !RectTransformUtility.RectangleContainsScreenPoint(_pane, at, null)) continue;
                 onTap?.Invoke();
                 return;
             }

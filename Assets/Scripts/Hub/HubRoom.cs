@@ -317,7 +317,9 @@ namespace Convergence.Hub
             // looks: the circle is the room's fixed centrepiece everywhere else in this project's
             // own documentation. Included anyway because the design it was built from said so
             // explicitly rather than sliding it in unannounced - see the room editor's own notes.
-            var circleAt = DefaultOr("circle", new Vector2(0f, (FloorTop + FloorBottom) * 0.5f));
+            // Default straight below the sigil door (the user's pick, 2026-11-12, "Hub Calm and Flow"): the room points at the
+            // way out, and the south half stays open floor - the prompt card and the touch buttons cover it on a phone.
+            var circleAt = DefaultOr("circle", new Vector2(Tuning.Hub.DoorX, -0.55f));
             _circle = TransmutationCircle.Build(_root, circleAt, Tuning.Hub.CircleRadius);
             var circlePoint = HubInteractable.Attach(_circle.gameObject, _circle.Anchor, _circle.Radius,
                 () => _editMode
@@ -507,7 +509,7 @@ namespace Convergence.Hub
             _roster = roster ?? System.Array.Empty<CharacterProfile>();
             if (_room.CouchOut) BuildCouch(DefaultOr("couch", new Vector2(-3.6f, 2.15f)));
 
-            // ---- terminal, west, mirroring the crate on the far side of the floor ----
+            // ---- terminal, on the west wall with the kit (rack, stand, booth) ----
             //
             // BUILT ONLY WITH A WALLET CONNECTED. The terminal is a receipt roll for CHAIN
             // transactions, and with no wallet there are none - the local stores deliberately post
@@ -520,7 +522,7 @@ namespace Convergence.Hub
             // wholesale on connect, so nothing extra is needed to make it reappear.
             if (Chain.Web.ChainWallet.Connected)
             {
-            var terminalAt = DefaultOr("terminal", new Vector2(-4.6f, -3.15f));
+            var terminalAt = DefaultOr("terminal", new Vector2(-5.1f, 2.3f));
             var terminal = TerminalStation.Build(_root, terminalAt);
             var terminalPoint = HubInteractable.Attach(terminal.gameObject, terminalAt + new Vector2(0f, 0.65f), 1.2f,
                 () => _editMode
@@ -551,7 +553,7 @@ namespace Convergence.Hub
             // the loft exists for, and it was already the room's most upstairs-shaped fixture.
             // DefaultOr means a player who edits it back onto the ground floor stays there.
             var (lx0, lx1, ly0, ly1) = LoftBounds();
-            var tableDefault = new Vector2(lx0 + 3.2f, (ly0 + ly1) * 0.5f + 0.05f);
+            var tableDefault = new Vector2(lx0 + 3.45f, (ly0 + ly1) * 0.5f - 0.03f);
             var tableAt = DefaultOr("table", tableDefault);
             _table = GridTable.Build(_root, tableAt, 1.6f, 1.1f);
             _table.ShowLetter(HasLetter);
@@ -822,7 +824,8 @@ namespace Convergence.Hub
         /// </summary>
         void BuildCrate()
         {
-            var at = DefaultOr("crate", new Vector2(2.6f, -3.25f));
+            // Beside the forge, the workshop (the user's pick, 2026-11-12): a run's parcel and boxes, then the forge.
+            var at = DefaultOr("crate", new Vector2(2.15f, 1.55f));
             var go = new GameObject("showcase-crate");
             go.transform.SetParent(_root, false);
             go.transform.localPosition = at;
@@ -841,7 +844,9 @@ namespace Convergence.Hub
             }
             DepthSorted.Attach(go, -0.32f, false, crateArt.Art, crateArt.RimRenderer);
 
-            _cratePoint = HubInteractable.Attach(go, at + new Vector2(0f, 0.75f), 1.15f,
+            // Used from ANY side (2026-11-12): its default moved from the south wall, where it was walked up to
+            // from the north, to beside the forge, walked up to from the south - so the point sits on the crate.
+            _cratePoint = HubInteractable.Attach(go, at + new Vector2(0f, 0.15f), 1.15f,
                 () => _editMode
                     ? new Prompt
                     {
@@ -913,8 +918,8 @@ namespace Convergence.Hub
         /// </summary>
         void BuildPhotoBooth()
         {
-            var (lx0, _, ly0, _) = LoftBounds();
-            var at = DefaultOr("booth", new Vector2(lx0 - 0.62f, ly0 + 0.95f));
+            // On the west wall with the rack and stand - how the character looks, in one place (2026-11-12).
+            var at = DefaultOr("booth", new Vector2(-6.6f, -2.75f));
             _booth = PhotoBooth.Build(_root, at);
             RefreshBooth();
 
@@ -1005,7 +1010,9 @@ namespace Convergence.Hub
         /// </summary>
         void BuildForge()
         {
-            var at = DefaultOr("forge", new Vector2(0f, -3.3f));
+            // Set into the north wall, its chimney up the stone (the user's pick, 2026-11-12) - out of the
+            // circle's way and off the south floor the phone's prompt card covers.
+            var at = DefaultOr("forge", new Vector2(0.75f, 2.5f));
             _forge = Forge.Build(_root, at);
             RefreshForge();
 
@@ -1077,8 +1084,8 @@ namespace Convergence.Hub
 
         public void FlashForge() => _forge?.Flash();
 
-        /// <summary>The showcase's new character chooses its weapon and defensive at the Forge
-        /// (GameBootstrap.AskShowcaseKit): the Forge beckons and its prompt says so. Pushed every hub
+        /// <summary>A new character (any format) chooses its kit's weapon and defensive at the Forge
+        /// (GameBootstrap.AskKit): the Forge beckons and its prompt says so. Pushed every hub
         /// frame by GameBootstrap - a plain bool, nothing held across a reload.</summary>
         public bool KitWaiting
         {
@@ -1112,7 +1119,7 @@ namespace Convergence.Hub
         /// </summary>
         void BuildArmoury()
         {
-            var rackAt = DefaultOr("rack", new Vector2(-6.55f, 0.55f));
+            var rackAt = DefaultOr("rack", new Vector2(-6.55f, 1.25f));
             _rack = WeaponRack.Build(_root, rackAt);
 
             var rackPoint = HubInteractable.Attach(_rack.gameObject, rackAt + new Vector2(0f, -0.7f), 1.0f,
@@ -1148,7 +1155,7 @@ namespace Convergence.Hub
             // unrelated objects, while still clearing both footprints - the two are separate
             // fixtures and separately movable, but they start as a pair because that is what
             // they are.
-            var standAt = DefaultOr("stand", new Vector2(-6.55f, -1.35f));
+            var standAt = DefaultOr("stand", new Vector2(-6.55f, -0.95f));
             _stand = ArmourStand.Build(_root, standAt);
 
             var standPoint = HubInteractable.Attach(_stand.gameObject, standAt + new Vector2(0f, -0.95f), 1.0f,
@@ -1351,7 +1358,8 @@ namespace Convergence.Hub
         /// </summary>
         void BuildManualShrine()
         {
-            var at = DefaultOr("shrine", new Vector2(3.6f, -1.0f));
+            // Up on the loft with the mastery table - the study (2026-11-12).
+            var at = DefaultOr("shrine", new Vector2(LoftBounds().x0 + 0.75f, FloorTop - 0.75f));
             _shrine = ManualShrine.Build(_root, at);
 
             var shrinePoint = HubInteractable.Attach(_shrine.gameObject, at + new Vector2(0f, 0.1f), 0.9f,
@@ -1862,7 +1870,7 @@ namespace Convergence.Hub
         {
             _avatarGo = new GameObject("HubAvatar");
             _avatarGo.transform.SetParent(_root, false);
-            _avatarGo.transform.localPosition = new Vector3(0f, (FloorTop + FloorBottom) * 0.5f - 0.4f, 0f);
+            _avatarGo.transform.localPosition = new Vector3(0.5f, -1.9f, 0f);   // the open south half, clear of every fixture
 
             _rig = CharacterRigFactory.Build(_avatarGo, profile.LastElement, SortingOrders.Character);
             if (_rig is PrimitiveCharacterRig steps) steps.MakesSound = true;
@@ -2050,6 +2058,13 @@ namespace Convergence.Hub
         void UpdateAvatarFacingAway()
         {
             if (_avatar == null || _rig == null) return;
+            // Eight directions (DEV): the rig faces the walk itself, in its eight views, as the arena's player does.
+            _rig.SetAimViews(PrimitiveCharacterRig.DevEightDir);
+            if (PrimitiveCharacterRig.DevEightDir)
+            {
+                if (_avatarFacingAway) { _avatarFacingAway = false; _rig.SetFacingAway(false); }
+                return;
+            }
             var v = _avatar.Velocity;
             if (v.sqrMagnitude < 0.0025f) return;   // too slow to have a clear heading
 

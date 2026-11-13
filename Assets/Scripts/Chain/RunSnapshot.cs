@@ -132,6 +132,9 @@ namespace Convergence.Chain
         /// snapshots from before formats: Classic.</summary>
         public string Format;
         public int PendingMastery;
+        /// <summary>The part of PendingMastery that came from XP reward cards - the run-end screen's
+        /// breakdown (UI/RunEndScreen). Additive: older snapshots read 0.</summary>
+        public int CardMastery;
         public int RunCalx;
         public int RunCalxTaken;
         public bool StakeGateCleared;
