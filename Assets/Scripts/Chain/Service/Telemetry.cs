@@ -87,11 +87,13 @@ namespace Convergence.Chain.Service
             if (!On || _run == null) return;
             try
             {
+                // The killer first: closing the boss's fight forgets which boss it was ("boss:?").
+                string by = how == "death" && killing.HasValue ? Killer(killing.Value) : null;
                 if (_boss != null) BossOver(how == "death" ? "died" : how);
                 if (_puzzle != null) PuzzleOver(false);
                 var e = Ev("run_end").S("how", how).I("f", floor).N("clk", clock).I("kills", kills)
                     .I("perfect", _perfect).I("good", _good).I("missed", _missed).I("exc", _errors);
-                if (how == "death" && killing.HasValue) e.S("by", Killer(killing.Value));
+                if (by != null) e.S("by", by);
                 e.Send();
                 AddFrames(Ev("frames").I("f", floor)).Send();
                 Flush();
