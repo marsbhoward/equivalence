@@ -405,6 +405,7 @@ namespace Convergence.Player
         }
 
         float _guardBuffer;
+        bool _meterWasFull = true;   // true: a meter full at spawn is not news
 
         /// <summary>The run's healing (Player.Phial) - attached by GameBootstrap.BuildPlayer.</summary>
         [System.NonSerialized] public Phial Phial;
@@ -468,6 +469,7 @@ namespace Convergence.Player
                     var input = Core.Controls.Move;
                     var dashDir = AimedOr(input.sqrMagnitude > 0.01f ? input.normalized : Facing);
                     Dash(dashDir, Tuning.Defense.DashSpeed, Tuning.Defense.DashSeconds);
+                    Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Dodge, transform.position);
                     // Figures dropped along the ground actually covered, for exactly as long as
                     // the i-frames last - see DashTrail. Null on any build whose chest grants
                     // something else, which is most of them.
@@ -479,6 +481,7 @@ namespace Convergence.Player
                     _defenseCooldown = Tuning.Defense.BarrierCooldown * cdMul;
                     _barrierFacing = AimedOr(Facing);   // the right stick points the dome
                     BarrierDome.Raise(transform, _barrierFacing, Tuning.Defense.BarrierSeconds * window);
+                    Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Ward, transform.position);
                     if (Health != null)
                     {
                         Health.BlocksHit = info =>
@@ -498,11 +501,13 @@ namespace Convergence.Player
                     _defenseActiveTimer = Tuning.Defense.BulwarkSeconds * window;
                     _defenseCooldown = Tuning.Defense.BulwarkCooldown * cdMul;
                     if (Aura != null) Aura.Raise(Tuning.Defense.BulwarkSeconds * window);
+                    Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Bulwark, transform.position);
                     break;   // BulwarkActive is read directly by IncomingDamageMultiplier
 
                 default:   // ParryStance - no benefit beyond the shared window above
                     _defenseActiveTimer = Tuning.Defense.ParryWindowSeconds * window * Mods.DefenseWindowMul;
                     _defenseCooldown = Tuning.Defense.ParryStanceCooldown * cdMul;
+                    Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.ParryReady, transform.position);
                     break;
             }
 
@@ -560,6 +565,7 @@ namespace Convergence.Player
 
         void ParryTell(Vector2 attackerPosition)
         {
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Clash, attackerPosition);
             Hitstop.TriggerParry();
 
             // The answer, and it OPENS where GuardRing closes. The contracting ring means a
@@ -1771,6 +1777,7 @@ namespace Convergence.Player
             if (Effects != null && Effects.StatusesBlocked) return;          // Dull Link
             Effects?.BeforeStatus(target, burning: true, soaking: false);   // Steam, a union
             if (Effects != null) dps *= Effects.BurnGrowth;                  // Kindling, grown
+            Afflicted(target, 0, s => s.Burning);
             if (Board != null) Board.Burn(target, dps, seconds);
             else if (target != null) StatusEffects.Get(target.gameObject).ApplyBurn(dps, seconds, gameObject);
         }
@@ -1783,6 +1790,7 @@ namespace Convergence.Player
                            && target.GetComponent<StatusEffects>() is { Soaked: true };
             Effects?.BeforeStatus(target, burning: false, soaking: true);   // Steam, a union
             if (Effects != null) seconds += Effects.SoakGrowth;                 // Swell, grown
+            Afflicted(target, 1, s => s.Soaked);
             if (Board != null) Board.Soak(target, seconds, vulnerability);
             else if (target != null) StatusEffects.Get(target.gameObject).ApplySoak(seconds, vulnerability);
             if (already && !target.IsDead) Stagger(target, Tuning.Exchange.SaturateStagger);
@@ -1794,6 +1802,7 @@ namespace Convergence.Player
             if (Effects != null && Effects.StatusesBlocked) return;          // Dull Link
             Effects?.OnStaggering(target);   // Clot, a union
             if (Effects != null) seconds += Effects.StaggerGrowth;          // Settling, grown
+            Afflicted(target, 3, s => s.Staggered);
             if (Board != null) Board.Stagger(target, seconds);
             else if (target != null) StatusEffects.Get(target.gameObject).ApplyStagger(seconds);
         }
@@ -1802,8 +1811,19 @@ namespace Convergence.Player
         {
             if (Effects != null && Effects.StatusesBlocked) return;          // Dull Link
             if (Effects != null) dps *= Effects.BleedGrowth;                  // Deepening, grown
+            Afflicted(target, 2, s => s.Bleeding);
             if (Board != null) Board.Bleed(target, dps, seconds);
             else if (target != null) StatusEffects.Get(target.gameObject).ApplyBleed(dps, seconds, gameObject);
+        }
+
+        /// <summary>A status LANDING is heard (Sound.Afflict, by kind: 0 burn, 1 soak, 2 bleed, 3 stagger) -
+        /// only on a body not already under it, so a burn refreshed every tick is not a constant hiss.</summary>
+        static void Afflicted(Health target, int kind, System.Func<StatusEffects, bool> already)
+        {
+            if (target == null || target.IsDead) return;
+            var st = target.GetComponent<StatusEffects>();
+            if (st != null && already(st)) return;
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Afflict, kind, target.transform.position);
         }
 
         // ---- what the run's ledger asks of the body ----
@@ -1891,6 +1911,11 @@ namespace Convergence.Player
 
         void Update()
         {
+            // The meter just filled: one soft chord (Sound.MeterFull) - the seal glowing is easy to miss mid-fight.
+            bool full = Resource != null && Resource.Fill01 >= 0.999f;
+            if (full && !_meterWasFull) Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.MeterFull, transform.position);
+            _meterWasFull = full;
+
             // No device check. This used to open with `if (kb == null) return;`, which on a phone
             // - where Keyboard.current IS null - silently disabled the entire player: no attacks,
             // no facing, no combo decay, and nothing on screen saying why. Everything below goes
@@ -2188,7 +2213,11 @@ namespace Convergence.Player
         {
             Convergence.Art.Lighting.Glow.Flash(transform.position, Tuning.Lighting.ReleaseRadius,
                 ElementInfo.Tint(Resource.Element), Tuning.Lighting.ReleaseSeconds);
-            Convergence.Audio.Sfx.Play(Resource.Element switch { ElementType.Fire => Convergence.Audio.Sound.ReleaseFire, ElementType.Water => Convergence.Audio.Sound.ReleaseWater, ElementType.Earth => Convergence.Audio.Sound.ReleaseEarth, _ => Convergence.Audio.Sound.ReleaseAir }, transform.position);
+            // The element's own sound for a blast; the other kinds say what they are over a quieter one.
+            var elementSound = Resource.Element switch { ElementType.Fire => Convergence.Audio.Sound.ReleaseFire, ElementType.Water => Convergence.Audio.Sound.ReleaseWater, ElementType.Earth => Convergence.Audio.Sound.ReleaseEarth, _ => Convergence.Audio.Sound.ReleaseAir };
+            Convergence.Audio.Sfx.Play(elementSound, transform.position, kind == ReleaseKind.Blast ? 1f : kind == ReleaseKind.Combo ? 0.7f : 0.4f);
+            if (kind is ReleaseKind.Buff or ReleaseKind.Guard or ReleaseKind.Mobility)
+                Convergence.Audio.Sfx.Play(kind switch { ReleaseKind.Buff => Convergence.Audio.Sound.Empower, ReleaseKind.Guard => Convergence.Audio.Sound.Ward, _ => Convergence.Audio.Sound.Dodge }, transform.position);
             // Concentrate: a release from a FULL meter reaches further - set round this one call.
             Resource.ReleaseRadiusMul = Effects != null ? Effects.ReleaseRadiusMul(Resource.Fill01) : 1f;
             try { Resource.Fire(kind); }

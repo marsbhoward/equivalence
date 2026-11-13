@@ -391,6 +391,7 @@ namespace Convergence.UI
             string who = string.IsNullOrEmpty(p.DisplayName) ? "portrait" : p.DisplayName;
             foreach (char c in System.IO.Path.GetInvalidFileNameChars()) who = who.Replace(c, '-');
             string name = $"equivalence-{who.Replace(' ', '-').ToLowerInvariant()}-{DateTime.Now:yyyyMMdd-HHmmss}.png";
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Shutter);
             Note(PictureSaver.Save(PictureSaver.Png(_preview.Texture), name));
         }
 
@@ -513,6 +514,7 @@ namespace Convergence.UI
             var p = _profile();
             var png = ShotPng();
             if (png == null) { Note("the picture could not be made"); return; }
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Shutter);
             if (BoothShots.CountFor(p.ProfileId) >= Tuning.Booth.ShotsKept)
             {
                 OpenReplace();

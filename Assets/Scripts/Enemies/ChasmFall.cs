@@ -83,6 +83,7 @@ namespace Convergence.Enemies
 
         public static IEnumerator Drop(Transform body, Vector2 thrown)
         {
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Fall, body.position);
             var parts = TakeBody(body, out var bounds);
             var start = body.position;
             float lip = Arena.ChasmLipBelow(start);

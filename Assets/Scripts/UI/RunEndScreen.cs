@@ -250,6 +250,8 @@ namespace Convergence.UI
             var (level, xp, need) = LevelAt(Mathf.RoundToInt(_r.Gained * e));
             UiKit.SetFill(_fill, xp / (float)need);
             if (level == _shownLevel) { UiKit.SetText(_caption, $"{xp:N0} / {need:N0} to level {level + 1}"); return; }
+            // A level passing as the bar fills is heard (not the level the bar starts on).
+            if (_shownLevel >= 0 && level > _shownLevel) Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.LevelUp);
             _shownLevel = level;
             UiKit.SetText(_caption, $"{xp:N0} / {need:N0} to level {level + 1}");
             Color el = ElementInk(_r.Element);

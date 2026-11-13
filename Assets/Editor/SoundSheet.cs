@@ -50,7 +50,54 @@ namespace Convergence.EditorTools
             W("stone_chip", Synth.Chip(1)); W("stone_rubble", Synth.Rubble(1));
             foreach (Bed b in System.Enum.GetValues(typeof(Bed)))
                 if (b != Bed.None) W($"bed_{b.ToString().ToLowerInvariant()}", Synth.Bed(b));
+            foreach (var (name, data) in Feedback()) W(name, data);
             return $"{n} files in {dir}";
+        }
+
+        /// <summary>The 2026-11-13 pass's sounds, by file name.</summary>
+        static (string, float[])[] Feedback() => new[]
+        {
+            ("dodge", Synth.Dodge(1)), ("ward", Synth.Ward()), ("bulwark", Synth.BulwarkUp()), ("parry_ready", Synth.ParryReady(1)),
+            ("blocked", Synth.Blocked(1)), ("empower", Synth.Empower()), ("lock_on", Synth.LockTick(true)), ("lock_off", Synth.LockTick(false)),
+            ("meter_full", Synth.MeterFull()), ("level_up", Synth.LevelUp()),
+            ("afflict_burn", Synth.Afflict(0, 1)), ("afflict_soak", Synth.Afflict(1, 1)), ("afflict_bleed", Synth.Afflict(2, 1)), ("afflict_stagger", Synth.Afflict(3, 1)),
+            ("pickup", Synth.Pickup(1)), ("box_pickup", Synth.BoxPickup(1)), ("rift_open", Synth.RiftOpen()), ("rift_close", Synth.RiftClose(1)),
+            ("spikes", Synth.Spikes(1)), ("gust", Synth.Gust(1)), ("fall", Synth.Fall(1)), ("thud", Synth.Thud(1)),
+            ("plate_press", Synth.PlatePress(1)), ("puzzle_solved", Synth.PuzzleSolved()), ("puzzle_failed", Synth.PuzzleFailed()),
+            ("deal_taken", Synth.DealTaken(1)), ("equip", Synth.Equip(1)), ("shutter", Synth.Shutter()), ("anvil", Synth.Anvil(1)),
+            ("crate", Synth.Crate(1)), ("place", Synth.Place(1)), ("transmute", Synth.Transmute()),
+            ("ui_move", Synth.UiTick()), ("ui_confirm", Synth.UiTwoTone(true)), ("ui_back", Synth.UiTwoTone(false)),
+        };
+
+        /// <summary>The pass's sounds plus a few old ones for reference, each scaled by its in-game loudness
+        /// (Tuning.Audio.Loudness) so a listening page compares them as the game would play them.</summary>
+        public static string ExportPass(string dir)
+        {
+            Directory.CreateDirectory(dir);
+            float L(Sound s) => Core.Tuning.Audio.Loudness(s);
+            float[] Scaled(float[] d, float k) { var c = (float[])d.Clone(); for (int i = 0; i < c.Length; i++) c[i] *= k; return c; }
+            var names = new System.Collections.Generic.Dictionary<string, Sound>
+            {
+                ["dodge"] = Sound.Dodge, ["ward"] = Sound.Ward, ["bulwark"] = Sound.Bulwark, ["parry_ready"] = Sound.ParryReady,
+                ["blocked"] = Sound.Blocked, ["empower"] = Sound.Empower, ["lock_on"] = Sound.LockOn, ["lock_off"] = Sound.LockOff,
+                ["meter_full"] = Sound.MeterFull, ["level_up"] = Sound.LevelUp, ["afflict_burn"] = Sound.Afflict,
+                ["afflict_soak"] = Sound.Afflict, ["afflict_bleed"] = Sound.Afflict, ["afflict_stagger"] = Sound.Afflict,
+                ["pickup"] = Sound.Pickup, ["box_pickup"] = Sound.BoxPickup, ["rift_open"] = Sound.RiftOpen, ["rift_close"] = Sound.RiftClose,
+                ["spikes"] = Sound.Spikes, ["gust"] = Sound.Gust, ["fall"] = Sound.Fall, ["thud"] = Sound.Thud,
+                ["plate_press"] = Sound.PlatePress, ["puzzle_solved"] = Sound.PuzzleSolved, ["puzzle_failed"] = Sound.PuzzleFailed,
+                ["deal_taken"] = Sound.DealTaken, ["equip"] = Sound.Equip, ["shutter"] = Sound.Shutter, ["anvil"] = Sound.Anvil,
+                ["crate"] = Sound.Crate, ["place"] = Sound.Place, ["transmute"] = Sound.Transmute,
+                ["ui_move"] = Sound.UiMove, ["ui_confirm"] = Sound.UiConfirm, ["ui_back"] = Sound.UiBack,
+            };
+            int n = 0;
+            foreach (var (name, data) in Feedback()) { Write(Path.Combine(dir, name + ".wav"), Scaled(data, L(names[name]))); n++; }
+            // References already in the game, at their own loudness.
+            Write(Path.Combine(dir, "ref_hit_medium.wav"), Scaled(Synth.Hit(2, 1), L(Sound.HitMedium)));
+            Write(Path.Combine(dir, "ref_swing.wav"), Scaled(Synth.Swing(false, 1), L(Sound.Swing)));
+            Write(Path.Combine(dir, "ref_release_fire.wav"), Scaled(Synth.Release(Core.ElementType.Fire, 1), L(Sound.ReleaseFire)));
+            Write(Path.Combine(dir, "ref_floor_clear.wav"), Scaled(Synth.FloorClear(), L(Sound.FloorClear)));
+            Write(Path.Combine(dir, "ref_door_open.wav"), Scaled(Synth.DoorOpen(), L(Sound.DoorOpen)));
+            return $"{n + 5} files in {dir}";
         }
 
         /// <summary>16-bit mono PCM.</summary>

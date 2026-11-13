@@ -348,6 +348,7 @@ namespace Convergence.Hub
                     else { _circle.Use(); _onTransmute?.Invoke(); }
                 },
                 on => _circle.SetFocus(on));
+            circlePoint.Sound = Convergence.Audio.Sound.Transmute;
             _points.Add(circlePoint);
             RegisterMovable("circle", _circle.transform, Tuning.Hub.CircleFootprint, circlePoint);
         }
@@ -466,6 +467,7 @@ namespace Convergence.Hub
                         Accent = ElementInfo.Tint(_door.Element),
                     },
                 () => _onEnter?.Invoke(_door.Element), on => _door.SetFocus(on), priority: 10);
+            doorPoint.Sound = Convergence.Audio.Sound.DoorOpen;
 
             // The prompt radius (1.9) stays generous on purpose - see ClearanceRadius's own note
             // on why that number shouldn't also decide how much open floor the door reserves for
@@ -872,6 +874,7 @@ namespace Convergence.Hub
                     else TakeOutFrame();
                 },
                 on => crateArt.SetFocus(on));
+            _cratePoint.Sound = Convergence.Audio.Sound.Crate;
             _points.Add(_cratePoint);
             RegisterMovable("crate", go.transform, Tuning.Hub.CrateFootprint, _cratePoint);
         }
@@ -957,6 +960,7 @@ namespace Convergence.Hub
                     _onTakePortrait?.Invoke();   // the booth screen (GameBootstrap.TakePortrait)
                 },
                 on => _booth.SetFocus(on));
+            boothPoint.Sound = Convergence.Audio.Sound.Shutter;
             _points.Add(boothPoint);
             RegisterMovable("booth", _booth.transform, Tuning.Hub.BoothFootprint, boothPoint);
         }
@@ -1057,6 +1061,7 @@ namespace Convergence.Hub
                     _onOpenForge?.Invoke();
                 },
                 on => _forge.SetFocus(on));
+            forgePoint.Sound = Convergence.Audio.Sound.Anvil;
             _points.Add(forgePoint);
             RegisterMovable("forge", _forge.transform, Tuning.Hub.ForgeFootprint, forgePoint);
         }
@@ -1214,6 +1219,7 @@ namespace Convergence.Hub
                     Accent = Gold,
                 },
                 EnterArmoury, on => _armouryDoor.SetFocus(on), priority: 10);
+            point.Sound = Convergence.Audio.Sound.DoorOpen;
             point.ClearanceRadius = Tuning.Hub.DoorClearanceRadius;
             _points.Add(point);
         }
@@ -1526,6 +1532,7 @@ namespace Convergence.Hub
         /// <summary>Lift an already-placed frame back off the floor, to move it or return it.</summary>
         void PickUp(string frameId)
         {
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Place);
             if (_carrying != null || _room == null) return;
 
             TrophyPlacement placement = null;
@@ -1733,6 +1740,7 @@ namespace Convergence.Hub
 
         void EndFixtureCarry(bool save, Vector2 at = default)
         {
+            if (save) Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Place, at);
             // Fresh out of the crate there is nowhere to put it back to but the crate.
             if (!save && _couchFresh && _carryFixtureKey == "couch") { StoreCouch(); return; }
             if (save && _carryFixtureKey == "couch")
@@ -1849,6 +1857,7 @@ namespace Convergence.Hub
 
         void EndPlacement(bool save, Vector2 at = default)
         {
+            if (save) Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Place, at);
             if (_carrying != null) Destroy(_carrying.gameObject);
             _carrying = null;
 
@@ -2050,7 +2059,12 @@ namespace Convergence.Hub
                 if (frame != null && frame.HasArt) { OpenInspect(frame); return; }
             }
 
-            if (Core.Controls.InteractTapped) _focused?.OnInteract?.Invoke();
+            if (Core.Controls.InteractTapped && _focused != null)
+            {
+                // Rearranging, [E] lifts the fixture - the same sound whatever it is.
+                Convergence.Audio.Sfx.Play(_editMode ? Convergence.Audio.Sound.Place : _focused.Sound, _focused.Anchor);
+                _focused.OnInteract?.Invoke();
+            }
         }
 
         /// <summary>

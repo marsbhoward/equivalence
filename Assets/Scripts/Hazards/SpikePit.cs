@@ -184,6 +184,8 @@ namespace Convergence.Hazards
             if (_tick < Tuning.Hazards.SpikeTickInterval) return;
             _tick = 0f;
 
+            // A tick is silent (DamageInfo.Tick) - the jab is the pit's own, so walking on it is heard.
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Spikes, pos);
             PlayerHealth.Take(new DamageInfo(
                 Tuning.Hazards.SpikeDamagePerSecond * Tuning.Hazards.SpikeTickInterval * DamageScale * FloorPits.PlayerBite,
                 ElementType.Earth, gameObject) { Tick = true });

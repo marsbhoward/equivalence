@@ -34,6 +34,7 @@ namespace Convergence.Rifts
         /// <param name="tear">A Rift's own collapse: the tear squeezes shut first.</param>
         public static RiftImplosion At(Vector2 where, float scale = 1f, bool tear = false)
         {
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.RiftClose, where, Mathf.Clamp(scale, 0.5f, 1f));
             float s = Mathf.Max(0.2f, scale) * TexelFx.Body;
             int half = Mathf.CeilToInt(Mathf.Max(s * 1.2f, tear ? RiftShape.HalfHeight : 0f)) + 18;
             var e = Make<RiftImplosion>("rift.implosion", where, half, half, half, SortingOrders.Fx - 1, TexelFx.Body, false);

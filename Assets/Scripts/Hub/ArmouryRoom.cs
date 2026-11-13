@@ -181,6 +181,7 @@ namespace Convergence.Hub
                     Accent = Gold,
                 },
                 onExit, on => _exit.SetFocus(on), priority: 10);
+            exitPoint.Sound = Convergence.Audio.Sound.DoorOpen;
             _points.Add(exitPoint);
 
             // ---- the bays ----

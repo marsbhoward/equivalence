@@ -298,7 +298,11 @@ namespace Convergence.Combat
             if (info.Price) { Pay(info); return; }
             if (Immune) return;
             if (Floor > 0f && Current <= Floor) return;
-            if (BlocksHit != null && BlocksHit(info)) return;
+            if (BlocksHit != null && BlocksHit(info))
+            {
+                if (!info.Tick) Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Blocked, transform.position);
+                return;
+            }
 
             float amount = info.Amount * Vulnerability;
             if (ScaleIncoming != null) amount *= Mathf.Max(0f, ScaleIncoming(info));

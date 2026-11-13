@@ -21,6 +21,13 @@ namespace Convergence.Audio
         Arrive, ArriveNigredo,
         Clash,
         Hiss, Spit,
+        // The player's feedback (2026-11-13 sound pass): the defensives, a blocked hit, a release's kind,
+        // the lock, a full meter, a level, a status landing (Afflict: 0 burn, 1 soak, 2 bleed, 3 stagger).
+        Dodge, Ward, Bulwark, ParryReady, Blocked, Empower, LockOn, LockOff, MeterFull, LevelUp, Afflict,
+        // The world: loot, the Rift, hazards, falls, puzzles.
+        Pickup, BoxPickup, RiftOpen, RiftClose, Spikes, Gust, Fall, Thud, PlatePress, PuzzleSolved, PuzzleFailed,
+        // The hub and the menus.
+        DealTaken, Equip, Shutter, Anvil, Crate, Place, Transmute, UiMove, UiConfirm, UiBack,
     }
 
     public enum Bed { None, Hub, Crypt, Deep, Abyss, Throne, Boss, Forest, Sky, Salt, Nigredo }
@@ -142,6 +149,38 @@ namespace Convergence.Audio
                 Sound.Pull => one(g.Pull), Sound.Chip => many(g.Chip), Sound.Rubble => many(g.Rubble),
                 Sound.Clash => many(g.Clash),
                 Sound.Hiss => many(g.Hiss), Sound.Spit => many(g.Spit),
+                Sound.Dodge => many(g.Dodge),
+                Sound.Ward => many(g.Ward),
+                Sound.Bulwark => many(g.Bulwark),
+                Sound.ParryReady => many(g.ParryReady),
+                Sound.Blocked => many(g.Blocked),
+                Sound.Empower => many(g.Empower),
+                Sound.Afflict => many(g.Afflict),
+                Sound.Pickup => many(g.Pickup),
+                Sound.BoxPickup => many(g.BoxPickup),
+                Sound.RiftOpen => many(g.RiftOpen),
+                Sound.RiftClose => many(g.RiftClose),
+                Sound.Spikes => many(g.Spikes),
+                Sound.Gust => many(g.Gust),
+                Sound.Fall => many(g.Fall),
+                Sound.Thud => many(g.Thud),
+                Sound.PlatePress => many(g.PlatePress),
+                Sound.DealTaken => many(g.DealTaken),
+                Sound.Equip => many(g.Equip),
+                Sound.Anvil => many(g.Anvil),
+                Sound.Crate => many(g.Crate),
+                Sound.Place => many(g.Place),
+                Sound.Transmute => many(g.Transmute),
+                Sound.LockOn => one(g.LockOn),
+                Sound.LockOff => one(g.LockOff),
+                Sound.MeterFull => one(g.MeterFull),
+                Sound.LevelUp => one(g.LevelUp),
+                Sound.PuzzleSolved => one(g.PuzzleSolved),
+                Sound.PuzzleFailed => one(g.PuzzleFailed),
+                Sound.Shutter => one(g.Shutter),
+                Sound.UiMove => one(g.UiMove),
+                Sound.UiConfirm => one(g.UiConfirm),
+                Sound.UiBack => one(g.UiBack),
                 _ => null,
             };
         }
@@ -165,6 +204,11 @@ namespace Convergence.Audio
                 Sound.DistantForest => 6,
                 Sound.DistantSky => 6,
                 Sound.DistantSalt => 6,
+                Sound.Afflict => 4,   // a status each: 0 burn, 1 soak, 2 bleed, 3 stagger - played by variant
+                Sound.LockOn or Sound.LockOff or Sound.MeterFull or Sound.LevelUp or Sound.PuzzleSolved
+                    or Sound.PuzzleFailed or Sound.Shutter or Sound.UiMove or Sound.UiConfirm or Sound.UiBack
+                    or Sound.RiftOpen or Sound.Transmute or Sound.Ward or Sound.Bulwark or Sound.Empower => 1,
+                Sound.Anvil or Sound.Crate or Sound.Fall or Sound.RiftClose or Sound.Gust => 2,
                 _ => SynthVariants,
             };
             var set = new AudioClip[n];
@@ -238,6 +282,38 @@ namespace Convergence.Audio
                     Sound.Clash => Synth.Clash(seed),
                     Sound.Hiss => Synth.SerpentHiss(seed),
                     Sound.Spit => Synth.Spit(seed),
+                    Sound.Dodge => Synth.Dodge(seed),
+                    Sound.Ward => Synth.Ward(),
+                    Sound.Bulwark => Synth.BulwarkUp(),
+                    Sound.ParryReady => Synth.ParryReady(seed),
+                    Sound.Blocked => Synth.Blocked(seed),
+                    Sound.Empower => Synth.Empower(),
+                    Sound.LockOn => Synth.LockTick(true),
+                    Sound.LockOff => Synth.LockTick(false),
+                    Sound.MeterFull => Synth.MeterFull(),
+                    Sound.LevelUp => Synth.LevelUp(),
+                    Sound.Afflict => Synth.Afflict(i, seed),
+                    Sound.Pickup => Synth.Pickup(seed),
+                    Sound.BoxPickup => Synth.BoxPickup(seed),
+                    Sound.RiftOpen => Synth.RiftOpen(),
+                    Sound.RiftClose => Synth.RiftClose(seed),
+                    Sound.Spikes => Synth.Spikes(seed),
+                    Sound.Gust => Synth.Gust(seed),
+                    Sound.Fall => Synth.Fall(seed),
+                    Sound.Thud => Synth.Thud(seed),
+                    Sound.PlatePress => Synth.PlatePress(seed),
+                    Sound.PuzzleSolved => Synth.PuzzleSolved(),
+                    Sound.PuzzleFailed => Synth.PuzzleFailed(),
+                    Sound.DealTaken => Synth.DealTaken(seed),
+                    Sound.Equip => Synth.Equip(seed),
+                    Sound.Shutter => Synth.Shutter(),
+                    Sound.Anvil => Synth.Anvil(seed),
+                    Sound.Crate => Synth.Crate(seed),
+                    Sound.Place => Synth.Place(seed),
+                    Sound.Transmute => Synth.Transmute(),
+                    Sound.UiMove => Synth.UiTick(),
+                    Sound.UiConfirm => Synth.UiTwoTone(true),
+                    Sound.UiBack => Synth.UiTwoTone(false),
                     _ => new float[Synth.Rate / 10],
                 };
                 set[i] = Synth.Clip($"{s}_{i}", data);
@@ -268,6 +344,7 @@ namespace Convergence.Audio
             DontDestroyOnLoad(go);
             _host = go.AddComponent<AudioHost>();
             go.AddComponent<Ambience>();
+            go.AddComponent<UiSounds>();
             Volume.Apply();
             return _host;
         }

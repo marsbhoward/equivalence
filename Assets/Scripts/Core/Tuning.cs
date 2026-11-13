@@ -4951,6 +4951,38 @@ namespace Convergence.Core
                 Convergence.Audio.Sound.Clash => 0.55f,
                 Convergence.Audio.Sound.Hiss => 0.55f,
                 Convergence.Audio.Sound.Spit => 0.35f,
+                // The 2026-11-13 pass. Feedback sits under the fight; menus are quiet ticks.
+                Convergence.Audio.Sound.Dodge => 0.30f,
+                Convergence.Audio.Sound.Ward => 0.40f,
+                Convergence.Audio.Sound.Bulwark => 0.50f,
+                Convergence.Audio.Sound.ParryReady => 0.32f,
+                Convergence.Audio.Sound.Blocked => 0.45f,
+                Convergence.Audio.Sound.Empower => 0.40f,
+                Convergence.Audio.Sound.LockOn or Convergence.Audio.Sound.LockOff => 0.20f,
+                Convergence.Audio.Sound.MeterFull => 0.30f,
+                Convergence.Audio.Sound.LevelUp => 0.50f,
+                Convergence.Audio.Sound.Afflict => 0.26f,
+                Convergence.Audio.Sound.Pickup => 0.40f,
+                Convergence.Audio.Sound.BoxPickup => 0.50f,
+                Convergence.Audio.Sound.RiftOpen => 0.50f,
+                Convergence.Audio.Sound.RiftClose => 0.50f,
+                Convergence.Audio.Sound.Spikes => 0.32f,
+                Convergence.Audio.Sound.Gust => 0.40f,
+                Convergence.Audio.Sound.Fall => 0.35f,
+                Convergence.Audio.Sound.Thud => 0.45f,
+                Convergence.Audio.Sound.PlatePress => 0.35f,
+                Convergence.Audio.Sound.PuzzleSolved => 0.45f,
+                Convergence.Audio.Sound.PuzzleFailed => 0.40f,
+                Convergence.Audio.Sound.DealTaken => 0.45f,
+                Convergence.Audio.Sound.Equip => 0.30f,
+                Convergence.Audio.Sound.Shutter => 0.40f,
+                Convergence.Audio.Sound.Anvil => 0.35f,
+                Convergence.Audio.Sound.Crate => 0.35f,
+                Convergence.Audio.Sound.Place => 0.32f,
+                Convergence.Audio.Sound.Transmute => 0.40f,
+                Convergence.Audio.Sound.UiMove => 0.10f,
+                Convergence.Audio.Sound.UiConfirm => 0.18f,
+                Convergence.Audio.Sound.UiBack => 0.16f,
                 _ => 0.5f,
             };
 
@@ -4974,6 +5006,12 @@ namespace Convergence.Core
                 Convergence.Audio.Sound.Rubble => 0.15f,
                 Convergence.Audio.Sound.Chip => 0.05f,
                 Convergence.Audio.Sound.Clash => 0.05f,
+                // A status spread over a pack lands as one; spikes bite once a tick, not per body.
+                Convergence.Audio.Sound.Afflict => 0.15f,
+                Convergence.Audio.Sound.Spikes => 0.25f,
+                Convergence.Audio.Sound.Blocked => 0.08f,
+                Convergence.Audio.Sound.Fall or Convergence.Audio.Sound.Thud => 0.12f,
+                Convergence.Audio.Sound.UiMove => 0.04f,
                 _ => 0.03f,
             };
 
@@ -4986,6 +5024,11 @@ namespace Convergence.Core
                     or Convergence.Audio.Sound.FuseTick or Convergence.Audio.Sound.Sing
                     or Convergence.Audio.Sound.Toll or Convergence.Audio.Sound.Enrage
                     or Convergence.Audio.Sound.BossDeath => 0f,   // the Wreathe's notes are a TUNE
+                // Signals, not textures: a menu tick or a level's chord should sound the same every time.
+                Convergence.Audio.Sound.LockOn or Convergence.Audio.Sound.LockOff or Convergence.Audio.Sound.MeterFull
+                    or Convergence.Audio.Sound.LevelUp or Convergence.Audio.Sound.PuzzleSolved
+                    or Convergence.Audio.Sound.PuzzleFailed or Convergence.Audio.Sound.UiMove
+                    or Convergence.Audio.Sound.UiConfirm or Convergence.Audio.Sound.UiBack => 0f,
                 Convergence.Audio.Sound.Distant => 0.15f,
                 _ => 0.07f,
             };

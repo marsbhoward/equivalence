@@ -134,6 +134,7 @@ namespace Convergence.Puzzles
             int stepped = -1;
             for (int i = 0; i < Plates.Count; i++)
                 if (Plates[i] != null && Plates[i].Entered(Player.position) && stepped < 0) stepped = i;
+            if (stepped >= 0 && _state == PuzzleState.Active) Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.PlatePress, Plates[stepped].transform.position);
             Tick(stepped);
         }
 
@@ -149,6 +150,7 @@ namespace Convergence.Puzzles
         {
             if (_state != PuzzleState.Active) return;
             _state = PuzzleState.Solved;
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.PuzzleSolved, transform.position);
             // Locked in (the user's pick, group 4): every stone sinks a texel, gold. The door then
             // opens with its own picture - no flash over the room.
             foreach (var p in Plates) if (p) p.LockIn();
@@ -160,6 +162,7 @@ namespace Convergence.Puzzles
         {
             if (_state != PuzzleState.Active) return;
             _state = PuzzleState.Failed;
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.PuzzleFailed, transform.position);
             foreach (var p in Plates) if (p) p.Set(PuzzlePlate.Look.Dead);
             if (wrong) wrong.Set(PuzzlePlate.Look.Wrong);
         }

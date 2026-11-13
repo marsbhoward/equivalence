@@ -118,6 +118,7 @@ namespace Convergence.Rifts
             }
 
             _taken = true;
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Pickup, transform.position);
             TexelFx.BeamDrop(transform.position, TexelFx.RampOf(_tint), LootBeam.Height, TexelFx.Air);
             _onTaken?.Invoke(_record);
             Destroy(gameObject);

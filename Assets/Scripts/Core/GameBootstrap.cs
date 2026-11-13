@@ -846,6 +846,7 @@ namespace Convergence.Core
                 return;
             }
             _profile.Gear.Set(slot, itemId);
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Equip);
 
             // Changing the WEAPON can invalidate the relic beside it and any weapon disguise, both
             // of which are tied to the held class. Dropping the stale entry here rather than

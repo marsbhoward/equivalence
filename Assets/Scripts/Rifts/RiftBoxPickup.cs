@@ -164,6 +164,7 @@ namespace Convergence.Rifts
             if (!Controls.InteractTapped) return;
 
             _taken = true;
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.BoxPickup, transform.position);
             TexelFx.BeamDrop(transform.position, TexelFx.Rift, LootBeam.Height, TexelFx.Air);
             _onTaken?.Invoke();
             Destroy(gameObject);

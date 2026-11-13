@@ -59,6 +59,10 @@ namespace Convergence.Hub
         /// </summary>
         public int Priority;
 
+        /// <summary>What [E] here sounds like (HubRoom plays it as it acts): a menu's confirm unless the
+        /// fixture has its own - the Forge's anvil, the crate's lid, the circle, a door.</summary>
+        public Convergence.Audio.Sound Sound = Convergence.Audio.Sound.UiConfirm;
+
         /// <summary>Built fresh on every focus, so a prompt can name live state.</summary>
         public Func<Prompt> Describe;
 

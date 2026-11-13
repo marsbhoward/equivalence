@@ -1266,6 +1266,7 @@ namespace Convergence.Enemies
             _droppingTier = false;
             if (_health.IsDead) yield break;
             Combat.TexelFx.Puff(to, Combat.TexelFx.Stone, 8, 4f, 0.35f, Combat.TexelFx.Ground);
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Thud, to);
             var pc = source != null ? source.GetComponentInParent<Player.PlayerController>() : _targetController;
             if (pc != null) pc.Stagger(_health, Tuning.Tiers.DropStaggerSeconds);
             else Combat.StatusEffects.Get(gameObject).ApplyStagger(Tuning.Tiers.DropStaggerSeconds);

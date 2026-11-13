@@ -90,6 +90,7 @@ namespace Convergence.Hazards
 
         public static Tornado Spawn(Vector2 at, float damagePerSecond, Transform player, Transform parent)
         {
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Gust, at);
             var go = new GameObject("tornado");
             go.transform.SetParent(parent, false);
             go.transform.position = at;

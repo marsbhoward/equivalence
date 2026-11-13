@@ -40,6 +40,11 @@ namespace Convergence.Audio
         [UnityEngine.Tooltip("Medusa's crown hissing (it wakes her statues); her venom spat")] public AudioClip[] Hiss, Spit;
         public AudioClip Enrage, Vulnerable, Seal, BossDeath, GazeLook, Petrify, Push, Pull;
 
+        [Header("Feedback, the world, the hub and menus (2026-11-13; Afflict: burn, soak, bleed, stagger)")]
+        public AudioClip[] Dodge, Ward, Bulwark, ParryReady, Blocked, Empower, Afflict, Pickup, BoxPickup, RiftOpen, RiftClose,
+            Spikes, Gust, Fall, Thud, PlatePress, DealTaken, Equip, Anvil, Crate, Place, Transmute;
+        public AudioClip LockOn, LockOff, MeterFull, LevelUp, PuzzleSolved, PuzzleFailed, Shutter, UiMove, UiConfirm, UiBack;
+
         [Header("Stone")]
         public AudioClip[] Chip, Rubble;
 

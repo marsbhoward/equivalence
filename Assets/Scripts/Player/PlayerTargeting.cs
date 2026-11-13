@@ -90,7 +90,18 @@ namespace Convergence.Player
         Exchange.Mods Mods => ModsSource?.Invoke() ?? NoMods;
 
         /// <summary>The lock (the player's choice), or null.</summary>
-        public Health Locked { get; private set; }
+        public Health Locked
+        {
+            get => _locked;
+            private set
+            {
+                if (value == _locked) return;
+                _locked = value;
+                // Taken, moved or let go: two notes up, or down (Sound.LockOn / LockOff).
+                Convergence.Audio.Sfx.Play(value != null ? Convergence.Audio.Sound.LockOn : Convergence.Audio.Sound.LockOff);
+            }
+        }
+        Health _locked;
 
         /// <summary>With no lock: the soft assist's pick this frame, or null.</summary>
         public Health Assist { get; private set; }

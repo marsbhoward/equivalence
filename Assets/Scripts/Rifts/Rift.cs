@@ -101,6 +101,7 @@ namespace Convergence.Rifts
 
         public static Rift Open(Vector2 at, Transform parent, Transform player)
         {
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.RiftOpen, at);
             var go = new GameObject("rift");
             if (parent != null) go.transform.SetParent(parent, false);
             go.transform.position = at;
@@ -218,6 +219,7 @@ namespace Convergence.Rifts
         {
             if (!Sealed) return;
             Sealed = false;
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.RiftOpen, transform.position);
             for (int i = 0; i < _steady.Length; i++)
                 if (_steady[i] != null) _steady[i].color = _steadyRest[i];
             if (_rimPic != null) _rimPic.Open();   // the rim drawn again up both sides from the foot
@@ -228,6 +230,7 @@ namespace Convergence.Rifts
         {
             if (!Unstable) return;
             Unstable = false;
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.RiftOpen, transform.position, 0.6f);
             for (int i = 0; i < _steady.Length; i++)
                 if (_steady[i] != null) _steady[i].color = _steadyRest[i];
             RimAlpha = 1f;

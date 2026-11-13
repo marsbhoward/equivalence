@@ -259,12 +259,18 @@ namespace Convergence.Hazards
             };
         }
 
+        bool _wasBurning;
+
         void Update()
         {
             if (!EnsureLayers()) return;
 
             float heat = Heat01();
             Paint(heat);
+            // The flames coming up out of the ash are heard - a cue, like the glow (quietly: pits come in groups).
+            bool burning = BurnFor(heat) > 0f;
+            if (burning && !_wasBurning) Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Flame, transform.position, 0.45f);
+            _wasBurning = burning;
             if (_glow != null) _glow.Intensity = Mathf.Lerp(Tuning.Lighting.FireEmberIntensity, 1f, Burn);
 
             if (!PlayerAlive) return;

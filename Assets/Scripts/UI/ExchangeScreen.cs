@@ -566,6 +566,7 @@ namespace Convergence.UI
 
             _taken = slate.Pair;
             _taking = slate;
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.DealTaken);
             _takenAt = Time.unscaledTime;
             slate.Scale.Take();
 

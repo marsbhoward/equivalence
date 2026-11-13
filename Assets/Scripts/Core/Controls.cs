@@ -440,6 +440,22 @@ namespace Convergence.Core
             _focused = rt;
         }
 
+        /// <summary>This frame's press (a tap, a click, or the pad's A through the shared cursor) landed on one of
+        /// the open screen's registered choices - Audio.UiSounds plays the menu's confirm off it, so no screen
+        /// has to.</summary>
+        public static bool TappedChoice
+        {
+            get
+            {
+                Sync();
+                if (!_pointerDown || !CandidatesLive) return false;
+                foreach (var c in _focusCandidates)
+                    if (c != null && c.gameObject.activeInHierarchy && RectTransformUtility.RectangleContainsScreenPoint(c, _pointer, null))
+                        return true;
+                return false;
+            }
+        }
+
         // Screens register from their own Update, which can run before or after the first Sync of
         // a frame - so last frame's list still counts.
         static bool CandidatesLive => Time.frameCount - _candidatesFrame <= 1;
