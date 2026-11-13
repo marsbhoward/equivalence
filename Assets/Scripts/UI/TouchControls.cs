@@ -262,7 +262,8 @@ namespace Convergence.UI
             Button("VIEW", AbilityR, BottomRight, ThumbArc(64f, AbilityReach), Controls.Context.Hub,
                    v => Controls.VirtualSecondAbility = v, null,
                    key: "R", pad: () => GamepadGlyphs.SecondAbility, held: () => Controls.SecondAbilityHeld,
-                   icon: () => TouchIcons.Eye);
+                   icon: () => Controls.SecondTarget is null or "VIEW" ? TouchIcons.Eye : null,
+                   name: () => Controls.SecondTarget ?? "VIEW");
             // Q at the focused fixture - pick a frame up, rearrange the room, wear a design's look. Shown only
             // where Q does something, and named for it (Controls.AltTarget), so it never stands idle.
             Button("ALT", AbilityR, BottomRight, ThumbArc(10f, AbilityReach), Controls.Context.Hub,

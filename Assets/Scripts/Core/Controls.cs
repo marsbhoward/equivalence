@@ -280,6 +280,9 @@ namespace Convergence.Core
         /// </summary>
         public static string AltTarget;
 
+        /// <summary>The same for the second ability's key (R) - VIEW, STORE, COUCH - or null (HubRoom.SetFocus).</summary>
+        public static string SecondTarget;
+
         /// <summary>
         /// What USE would act on IN A RUN this frame, by name, or null - a drop in reach, the open
         /// Rift, the Red Rift's seal, a thrown blade to blink to. Raised every frame by whatever is

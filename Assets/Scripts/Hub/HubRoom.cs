@@ -2127,6 +2127,7 @@ namespace Convergence.Hub
                 // In reach but with nothing to say still takes USE - only its name is missing.
                 Core.Controls.InteractTarget = point == null ? null : "";
                 Core.Controls.AltTarget = null;
+                Core.Controls.SecondTarget = null;
                 _card.gameObject.SetActive(false);
                 return;
             }
@@ -2134,6 +2135,7 @@ namespace Convergence.Hub
             var prompt = point.Describe();
             Core.Controls.InteractTarget = prompt.Title ?? "";
             Core.Controls.AltTarget = AltName(prompt.Key);
+            Core.Controls.SecondTarget = SecondName(prompt.Key);
             _promptAccent.color = prompt.Accent;
             _promptTitle.color = prompt.Accent;
             _promptTitle.text = prompt.Title;
@@ -2173,7 +2175,9 @@ namespace Convergence.Hub
             if (Core.Controls.TouchMode)
             {
                 var alt = AltName(key);
-                key = key.Replace("[ E ]", "USE").Replace("[E]", "USE").Replace("[ R ]", "VIEW");
+                var second = SecondName(key);
+                key = key.Replace("[ E ]", "USE").Replace("[E]", "USE");
+                if (second != null) key = key.Replace("[ R ]", second);
                 return alt != null ? key.Replace("[ Q ]", alt) : key;
             }
 
@@ -2186,13 +2190,9 @@ namespace Convergence.Hub
         /// </summary>
         static string AltName(string key)
         {
-            int at = key?.IndexOf("[ Q ]", System.StringComparison.Ordinal) ?? -1;
-            if (at < 0) return null;
-            string rest = key.Substring(at + 5).TrimStart();
-            int end = rest.IndexOf('[');
-            string action = (end < 0 ? rest : rest.Substring(0, end)).Trim();
-            return action switch
+            return ActionAfter(key, "[ Q ]") switch
             {
+                null => null,
                 "pick up" => "PICK UP",
                 "rearrange the room" => "EDIT",
                 "finish editing" => "DONE",
@@ -2200,6 +2200,28 @@ namespace Convergence.Hub
                 "stop using its appearance" => "REMOVE",
                 _ => "MORE",
             };
+        }
+
+        /// <summary>The same for "[ R ]", the VIEW button's key: named for what it does here.</summary>
+        static string SecondName(string key)
+        {
+            return ActionAfter(key, "[ R ]") switch
+            {
+                null => null,
+                "into the crate" => "STORE",
+                "take out the couch" => "COUCH",
+                _ => "VIEW",
+            };
+        }
+
+        /// <summary>The words a prompt gives after <paramref name="token"/>, up to the next key, or null.</summary>
+        static string ActionAfter(string key, string token)
+        {
+            int at = key?.IndexOf(token, System.StringComparison.Ordinal) ?? -1;
+            if (at < 0) return null;
+            string rest = key.Substring(at + token.Length).TrimStart();
+            int end = rest.IndexOf('[');
+            return (end < 0 ? rest : rest.Substring(0, end)).Trim();
         }
 
         // ------------------------------------------------------------------ inspect
@@ -2292,6 +2314,7 @@ namespace Convergence.Hub
             CloseInspect();
             Core.Controls.InteractTarget = null;
             Core.Controls.AltTarget = null;
+            Core.Controls.SecondTarget = null;
             if (_promptPanel != null) Destroy(_promptPanel.gameObject);
             if (_root != null) Destroy(_root.gameObject);
             _promptPanel = null;
