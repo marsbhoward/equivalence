@@ -2126,12 +2126,14 @@ namespace Convergence.Hub
             {
                 // In reach but with nothing to say still takes USE - only its name is missing.
                 Core.Controls.InteractTarget = point == null ? null : "";
+                Core.Controls.AltTarget = null;
                 _card.gameObject.SetActive(false);
                 return;
             }
 
             var prompt = point.Describe();
             Core.Controls.InteractTarget = prompt.Title ?? "";
+            Core.Controls.AltTarget = AltName(prompt.Key);
             _promptAccent.color = prompt.Accent;
             _promptTitle.color = prompt.Accent;
             _promptTitle.text = prompt.Title;
@@ -2169,9 +2171,35 @@ namespace Convergence.Hub
                           .Replace("[ R ]", UI.GamepadGlyphs.SecondAbility);
 
             if (Core.Controls.TouchMode)
-                return key.Replace("[ E ]", "USE").Replace("[E]", "USE").Replace("[ R ]", "VIEW");
+            {
+                var alt = AltName(key);
+                key = key.Replace("[ E ]", "USE").Replace("[E]", "USE").Replace("[ R ]", "VIEW");
+                return alt != null ? key.Replace("[ Q ]", alt) : key;
+            }
 
             return key;
+        }
+
+        /// <summary>
+        /// The touch button's name for a prompt's "[ Q ]" action, or null when the prompt has none. Short words,
+        /// because the button is the small one; an action not listed here still gets a button, named MORE.
+        /// </summary>
+        static string AltName(string key)
+        {
+            int at = key?.IndexOf("[ Q ]", System.StringComparison.Ordinal) ?? -1;
+            if (at < 0) return null;
+            string rest = key.Substring(at + 5).TrimStart();
+            int end = rest.IndexOf('[');
+            string action = (end < 0 ? rest : rest.Substring(0, end)).Trim();
+            return action switch
+            {
+                "pick up" => "PICK UP",
+                "rearrange the room" => "EDIT",
+                "finish editing" => "DONE",
+                "use its appearance" => "WEAR",
+                "stop using its appearance" => "REMOVE",
+                _ => "MORE",
+            };
         }
 
         // ------------------------------------------------------------------ inspect
@@ -2263,6 +2291,7 @@ namespace Convergence.Hub
         {
             CloseInspect();
             Core.Controls.InteractTarget = null;
+            Core.Controls.AltTarget = null;
             if (_promptPanel != null) Destroy(_promptPanel.gameObject);
             if (_root != null) Destroy(_root.gameObject);
             _promptPanel = null;

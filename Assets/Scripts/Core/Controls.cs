@@ -274,6 +274,13 @@ namespace Convergence.Core
         public static string InteractTarget;
 
         /// <summary>
+        /// The touch name of what Alt (Q) would do at the hub's focused fixture - PICK UP, EDIT, WEAR - or null
+        /// when it does nothing there (HubRoom.SetFocus). The hub's touch overlay shows its third button only
+        /// while this is set: a phone had no Q, so the prompts named a key it could not press.
+        /// </summary>
+        public static string AltTarget;
+
+        /// <summary>
         /// What USE would act on IN A RUN this frame, by name, or null - a drop in reach, the open
         /// Rift, the Red Rift's seal, a thrown blade to blink to. Raised every frame by whatever is
         /// in reach (<see cref="OfferUse"/>) rather than written by one owner, since the things that

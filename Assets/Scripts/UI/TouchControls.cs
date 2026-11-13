@@ -257,10 +257,18 @@ namespace Convergence.UI
             // A showcase Frame's "look closer", on the VirtualSecondAbility input - the arena no
             // longer claims it (a chosen second ability fires from ABILITY instead). Doing
             // nothing when nothing with art is focused, same as USE does when nothing is.
-            Button("VIEW", SmallR, BottomRight, ThumbArc(38f, SmallReach), Controls.Context.Hub,
+            // The hub's buttons stand where the run's do (the user, 2026-11-13): VIEW in ABILITY's place, the
+            // Q button in GUARD's - the same key in the same spot under the thumb.
+            Button("VIEW", AbilityR, BottomRight, ThumbArc(64f, AbilityReach), Controls.Context.Hub,
                    v => Controls.VirtualSecondAbility = v, null,
                    key: "R", pad: () => GamepadGlyphs.SecondAbility, held: () => Controls.SecondAbilityHeld,
                    icon: () => TouchIcons.Eye);
+            // Q at the focused fixture - pick a frame up, rearrange the room, wear a design's look. Shown only
+            // where Q does something, and named for it (Controls.AltTarget), so it never stands idle.
+            Button("ALT", AbilityR, BottomRight, ThumbArc(10f, AbilityReach), Controls.Context.Hub,
+                   v => Controls.VirtualAlt = v, null, visible: () => Controls.AltTarget != null,
+                   key: "Q", pad: () => GamepadGlyphs.Alt, held: () => Controls.AltHeld,
+                   name: () => Controls.AltTarget ?? "");
             Pill("GEAR", PillW, TopRight, new Vector2(-120f, -86f), Controls.Context.Hub,
                  v => Controls.VirtualLoadout = v,
                  key: "C", pad: () => GamepadGlyphs.Loadout, held: () => Controls.LoadoutHeld);
@@ -663,7 +671,7 @@ namespace Convergence.UI
         Vector2 _stickFrom;
         float _stickSince, _stickTravel;
         int _freeFinger = -1;
-        bool _lastOverlay, _lastDevice, _lastUse;
+        bool _lastOverlay, _lastDevice, _lastUse, _lastAlt;
         int _lastPrefs = -1;
 
         void Update()
@@ -671,9 +679,11 @@ namespace Convergence.UI
             // Re-laid out on what it shows changing - the device, the context, a setting - and on
             // nothing else, since Relayout touches every button.
             if (_lastOverlay != Live || _lastDevice != Controls.TouchMode
-                || _mode != Controls.Screen || _lastPrefs != HudPrefs.Version || _lastUse != UseShown)
+                || _mode != Controls.Screen || _lastPrefs != HudPrefs.Version || _lastUse != UseShown
+                || _lastAlt != (Controls.AltTarget != null))
             {
                 _lastUse = UseShown;
+                _lastAlt = Controls.AltTarget != null;
                 _lastOverlay = Live;
                 _lastDevice = Controls.TouchMode;
                 _lastPrefs = HudPrefs.Version;
