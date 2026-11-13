@@ -43,6 +43,10 @@ namespace Convergence.UI
 
         public RenderTexture Texture => _rt;
 
+        /// <summary>Screen pixels to one art texel at the weapon's density (PixelSprite.LayoutUnit), as the
+        /// frame is zoomed now - 0 before the first fit.</summary>
+        public int PixelsPerTexel => _steps;
+
         /// <summary>What the camera clears to - the booth's pose cards set their own glass.</summary>
         public Color Background { set { if (_cam != null) _cam.backgroundColor = value; } }
         public ICharacterRig Rig => _rig;

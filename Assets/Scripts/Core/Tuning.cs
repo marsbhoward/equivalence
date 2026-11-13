@@ -8210,6 +8210,19 @@ namespace Convergence.Core
         /// every one of them for a service player - its copy of these numbers is
         /// web/service/src/cosmetics.ts, keep the two in step; a LOCAL save rolls them here.
         /// </summary>
+        /// <summary>
+        /// BOOTH SHOTS - pictures from the portrait booth kept to hang in the hub's frames (the user's calls,
+        /// 2026-11-13: the moment as taken, kept with the character on the service, twelve each).
+        /// web/service/src/cosmetics.ts holds the service's copy - keep the two in step.
+        /// </summary>
+        public static class Booth
+        {
+            /// <summary>Shots a character keeps; one more asks which to replace.</summary>
+            public const int ShotsKept = 12;
+            /// <summary>The most one shot's PNG may weigh - the art's own pixel size is a few KB.</summary>
+            public const int ShotMaxBytes = 96 * 1024;
+        }
+
         public static class Cosmetics
         {
             /// <summary>

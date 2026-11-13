@@ -507,11 +507,15 @@ namespace Convergence.Core
             // holdings changing - every Frame is registered with Showcase directly (see its own
             // header), so a picture finishing its async fetch after the frame that wants it was
             // already built repaints through the same Showcase.Refresh() the source calls itself.
-            if (Tuning.Testing.DemoShowcase && Hub.Showcase.Source == null)
-                Hub.Showcase.Source = new Hub.DevShowcaseSource(8);
-            else if (Hub.Showcase.Source == null)
-                Hub.Showcase.Source = gameObject.AddComponent<Hub.WalletShowcaseSource>();
+            if (Tuning.Testing.DemoShowcase && Hub.Showcase.Wallet == null)
+                Hub.Showcase.Wallet = new Hub.DevShowcaseSource(8);
+            else if (Hub.Showcase.Wallet == null)
+                Hub.Showcase.Wallet = gameObject.AddComponent<Hub.WalletShowcaseSource>();
             WalletInventory.Changed += Hub.Showcase.Refresh;
+            // The booth's kept pictures hang in frames too (Chain.BoothShots) - read before the room, and
+            // again when a wallet signs in or out, since whose they are follows the identity.
+            await BoothShots.LoadAsync();
+            WalletInventory.Changed += ReloadBoothShots;
 
             // Editor testing only - see WalletInventory.RefreshFromServiceAsync's own note. Awaited
             // here rather than fired and forgotten, so the crate and gallery already show the real
@@ -1465,6 +1469,8 @@ namespace Convergence.Core
                 "A new theme for your hub - its floor, its walls and every piece in it. The room is dressed in it now; " +
                 "change any piece back at the crate - [ R ]  hub themes.", "OK", null);
         }
+
+        static async void ReloadBoothShots() => await BoothShots.LoadAsync();
 
         /// <summary>Choose a placed Frame's art, wall-mounted or standing - the wallet's pieces
         /// grouped by policy. Picking one swaps what it shows without moving it; EMPTY empties it.</summary>

@@ -128,6 +128,7 @@ namespace Convergence.UI
             _preview.Dispose();
             foreach (var card in _poseCards)
                 if (card.Texture != null) { card.Texture.Release(); Destroy(card.Texture); }
+            CloseReplace();
             if (_root) Destroy(_root);
             _root = null;
             _hits.Clear();
@@ -239,13 +240,24 @@ namespace Convergence.UI
                 "Earned poses join this row when an avatar drops one.", 17, Muted, TextAnchor.MiddleLeft);
             y -= 52f;
 
-            // ---- SAVE A PICTURE: the gold button ----
-            var save = UiKit.Panel(_full, Centre, Centre, new Vector2(cx, y - 120f), new Vector2(cx + ColumnW, y), GoldBright);
+            // ---- SAVE A PICTURE: the gold button; KEEP FOR A FRAME beside it ----
+            const float keepW = 300f;
+            float saveR = cx + ColumnW - keepW - 16f;
+            var save = UiKit.Panel(_full, Centre, Centre, new Vector2(cx, y - 120f), new Vector2(saveR, y), GoldBright);
             UiKit.Panel(save, Vector2.zero, Vector2.one, new Vector2(3, 3), new Vector2(-3, -3), Gold);
-            CameraIcon(save, new Vector2(-170f, 0f), InkOnGold);
+            CameraIcon(save, new Vector2(-190f, 0f), InkOnGold);
             UiKit.Label(UiKit.Rect(save, "l", Vector2.zero, Vector2.one, new Vector2(60, 0), Vector2.zero),
-                "SAVE A PICTURE", 32, InkOnGold, TextAnchor.MiddleCenter);
+                "SAVE A PICTURE", 30, InkOnGold, TextAnchor.MiddleCenter);
             _hits.Add((save, SavePicture));
+
+            // The moment as taken, kept with the character to hang in the hub's frames (Chain.BoothShots).
+            var keep = Framed(new Vector2(saveR + 16f, y - 120f), new Vector2(cx + ColumnW, y), out _);
+            UiKit.Label(UiKit.Rect(keep, "l", new Vector2(0, 0.5f), new Vector2(1, 1), new Vector2(12, -6), new Vector2(-12, -14)),
+                "KEEP FOR A FRAME", 22, GoldBright, TextAnchor.MiddleCenter);
+            _keepCount = UiKit.Label(UiKit.Rect(keep, "n", new Vector2(0, 0), new Vector2(1, 0.5f), new Vector2(12, 14), new Vector2(-12, 6)),
+                "", 16, Muted, TextAnchor.MiddleCenter);
+            PaintKeepCount();
+            _hits.Add((keep, KeepForFrame));
             y -= 120f;
 
             _note = UiKit.Label(UiKit.Rect(_full, "note", Centre, Centre, new Vector2(cx, y - 34f), new Vector2(cx + ColumnW, y - 4f)),
@@ -436,6 +448,159 @@ namespace Convergence.UI
             if (_note != null) _note.text = text;
         }
 
+        // ------------------------------------------------------------------ booth shots
+
+        Text _keepCount;
+        bool _keeping;
+        /// <summary>The picture waiting on the replace chooser, taken when KEEP was pressed.</summary>
+        byte[] _pendingShot;
+        GameObject _replaceRoot;
+        List<(RectTransform Rect, Action OnClick)> _replaceHits = new();
+
+        void PaintKeepCount()
+        {
+            if (_keepCount == null || _profile == null) return;
+            int n = BoothShots.CountFor(_profile().ProfileId);
+            _keepCount.text = $"{n} of {Tuning.Booth.ShotsKept} kept";
+        }
+
+        /// <summary>
+        /// The picture at the art's own pixel size: the preview draws <see cref="CharacterPreview.PixelsPerTexel"/>
+        /// screen pixels to a texel, so every second one of those keeps every texel and weighs a few KB.
+        /// A frame zoomed far out keeps one sample a texel instead, if two would be over the cap.
+        /// </summary>
+        byte[] ShotPng()
+        {
+            var rt = _preview.Texture;
+            if (rt == null) return null;
+            int steps = Mathf.Max(1, _preview.PixelsPerTexel);
+            byte[] png = null;
+            foreach (int f in new[] { Mathf.Max(1, steps / 2), steps })
+            {
+                png = Downsampled(rt, f);
+                if (png != null && png.Length <= Tuning.Booth.ShotMaxBytes) return png;
+            }
+            return png;
+        }
+
+        static byte[] Downsampled(RenderTexture rt, int f)
+        {
+            var prev = RenderTexture.active;
+            RenderTexture.active = rt;
+            var full = new Texture2D(rt.width, rt.height, TextureFormat.RGB24, false);
+            full.ReadPixels(new Rect(0, 0, rt.width, rt.height), 0, 0);
+            full.Apply();
+            RenderTexture.active = prev;
+
+            int w = Mathf.Max(1, rt.width / f), h = Mathf.Max(1, rt.height / f);
+            var src = full.GetPixels32();
+            var dst = new Color32[w * h];
+            for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+                dst[y * w + x] = src[Mathf.Min(rt.height - 1, y * f + f / 2) * rt.width + Mathf.Min(rt.width - 1, x * f + f / 2)];
+            Destroy(full);
+            var small = new Texture2D(w, h, TextureFormat.RGB24, false);
+            small.SetPixels32(dst);
+            small.Apply();
+            var png = small.EncodeToPNG();
+            Destroy(small);
+            return png;
+        }
+
+        async void KeepForFrame()
+        {
+            if (_keeping) return;
+            var p = _profile();
+            var png = ShotPng();
+            if (png == null) { Note("the picture could not be made"); return; }
+            if (BoothShots.CountFor(p.ProfileId) >= Tuning.Booth.ShotsKept)
+            {
+                OpenReplace();
+                _pendingShot = png;   // after: opening clears any chooser before it, and its picture
+                return;
+            }
+            await Keep(png, null);
+        }
+
+        async System.Threading.Tasks.Task Keep(byte[] png, string replaces)
+        {
+            _keeping = true;
+            Note("keeping...");
+            string said;
+            try { said = await BoothShots.KeepAsync(_profile(), png, replaces); }
+            catch (Exception e) { Debug.LogWarning($"[Booth] keep: {e.Message}"); said = "could not keep the picture - try again"; }
+            _keeping = false;
+            if (!IsOpen) return;
+            Note(said);
+            PaintKeepCount();
+        }
+
+        /// <summary>Twelve are kept: the character's shots in a grid over the booth, the one tapped gives
+        /// its place to the new picture. A frame showing it then stands empty.</summary>
+        void OpenReplace()
+        {
+            CloseReplace();
+            _replaceHits ??= new();
+            _replaceRoot = new GameObject("replace", typeof(RectTransform));
+            _replaceRoot.transform.SetParent(_full, false);
+            var full = (RectTransform)_replaceRoot.transform;
+            full.anchorMin = Vector2.zero; full.anchorMax = Vector2.one;
+            full.offsetMin = Vector2.zero; full.offsetMax = Vector2.zero;
+            UiKit.Panel(full, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero, new Color(0.02f, 0.02f, 0.04f, 0.94f));
+            UiKit.Label(UiKit.Rect(full, "t", Centre, Centre, new Vector2(-700f, 330f), new Vector2(700f, 390f)),
+                $"YOU KEEP {Tuning.Booth.ShotsKept}  -  REPLACE WHICH?", 34, Gold, TextAnchor.MiddleCenter);
+            UiKit.Label(UiKit.Rect(full, "s", Centre, Centre, new Vector2(-700f, 290f), new Vector2(700f, 326f)),
+                "The new picture takes its place. A frame showing the old one stands empty.", 19, Muted, TextAnchor.MiddleCenter);
+
+            const int cols = 6;
+            const float cw = 190f, chh = 250f, gap = 18f;
+            float x0 = -(cols * cw + (cols - 1) * gap) * 0.5f, top = 260f;
+            var shots = BoothShots.Of(_profile().ProfileId);
+            for (int i = 0; i < shots.Count; i++)
+            {
+                float x = x0 + (i % cols) * (cw + gap), yTop = top - (i / cols) * (chh + gap);
+                var edge = UiKit.Panel(full, Centre, Centre, new Vector2(x, yTop - chh), new Vector2(x + cw, yTop), Gold);
+                UiKit.Panel(edge, Vector2.zero, Vector2.one, new Vector2(2, 2), new Vector2(-2, -2), Glass);
+                var art = shots[i].Art;
+                if (art != null)
+                {
+                    var picGo = new GameObject("shot", typeof(RawImage));
+                    picGo.transform.SetParent(edge, false);
+                    var prt = (RectTransform)picGo.transform;
+                    prt.anchorMin = Vector2.zero; prt.anchorMax = Vector2.one;
+                    prt.offsetMin = new Vector2(8, 8); prt.offsetMax = new Vector2(-8, -8);
+                    var pic = picGo.GetComponent<RawImage>();
+                    pic.texture = art.texture;
+                    pic.raycastTarget = false;
+                    var fit = picGo.AddComponent<AspectRatioFitter>();
+                    fit.aspectMode = AspectRatioFitter.AspectMode.FitInParent;
+                    fit.aspectRatio = art.texture.width / (float)Mathf.Max(1, art.texture.height);
+                }
+                string id = shots[i].ShotId;
+                _replaceHits.Add((edge, () => Replace(id)));
+            }
+
+            var cancel = Framed(new Vector2(-150f, top - 2 * (chh + gap) - 70f), new Vector2(150f, top - 2 * (chh + gap) - 10f), out _);
+            cancel.SetParent(full, true);
+            UiKit.Label(UiKit.Rect(cancel, "l", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero), "KEEP THEM ALL", 20, GoldBright, TextAnchor.MiddleCenter);
+            _replaceHits.Add((cancel, () => { CloseReplace(); Note("nothing replaced"); }));
+        }
+
+        async void Replace(string shotId)
+        {
+            var png = _pendingShot;
+            CloseReplace();
+            if (png != null) await Keep(png, shotId);
+        }
+
+        void CloseReplace()
+        {
+            _pendingShot = null;
+            _replaceHits?.Clear();
+            if (_replaceRoot) Destroy(_replaceRoot);
+            _replaceRoot = null;
+        }
+
         // ------------------------------------------------------------------ input
 
         void Update()
@@ -444,12 +609,25 @@ namespace Convergence.UI
 
             _focusRects ??= new();
             _focusRects.Clear();
-            foreach (var (rect, _) in _hits) if (rect != null) _focusRects.Add(rect);
+            var hits = _replaceRoot ? _replaceHits : _hits;
+            foreach (var (rect, _) in hits) if (rect != null) _focusRects.Add(rect);
             Controls.SetFocusCandidates(_focusRects);
 
             if (_refitFrame >= 0 && Time.frameCount >= _refitFrame) { _refitFrame = -1; _preview.Fit(); }
 
             if (Time.frameCount == _openedFrame) return;
+            if (_replaceRoot)
+            {
+                if (Controls.CancelTapped) { CloseReplace(); Note("nothing replaced"); return; }
+                if (!Controls.Tapped(out var tap)) return;
+                foreach (var (rect, onClick) in _replaceHits)
+                {
+                    if (rect == null || !RectTransformUtility.RectangleContainsScreenPoint(rect, tap, null)) continue;
+                    onClick?.Invoke();
+                    return;
+                }
+                return;
+            }
             if (Controls.CancelTapped) { Close(); return; }
 
             var before = _preview.CurrentView;

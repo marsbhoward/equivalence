@@ -30,7 +30,7 @@ namespace Convergence.Hub
     /// features. A picture on a wall is decoration, and decoration is the one thing that stays
     /// safe on every platform - so a source that returns nothing must leave the game complete.
     ///
-    /// A later wallet or backend implements this and assigns <see cref="Showcase.Source"/>; the
+    /// A later wallet or backend implements this and assigns <see cref="Showcase.Wallet"/>; the
     /// room polls it and knows nothing else about where the images came from.
     /// </summary>
     public interface IShowcaseSource
@@ -84,13 +84,26 @@ namespace Convergence.Hub
     /// </summary>
     public static class Showcase
     {
-        static IShowcaseSource _source;
+        static BoothShowcase _booth;
+        static IShowcaseSource _source => _booth ??= new BoothShowcase();
 
-        /// <summary>Set this from wallet/backend code. Setting it repaints every live frame.</summary>
-        public static IShowcaseSource Source
+        /// <summary>Everything a frame may show: the booth shots first, then the wallet's pieces
+        /// (<see cref="BoothShowcase"/>). Never null.</summary>
+        public static IShowcaseSource Source => _source;
+
+        /// <summary>The wallet's pieces alone. Set this from wallet/backend code; setting it repaints
+        /// every live frame.</summary>
+        public static IShowcaseSource Wallet
         {
-            get => _source;
-            set { _source = value; Refresh(); }
+            get => _booth?.Wallet;
+            set
+            {
+                _booth ??= new BoothShowcase();
+                _booth.Wallet = value;
+                Chain.BoothShots.Changed -= Refresh;
+                Chain.BoothShots.Changed += Refresh;
+                Refresh();
+            }
         }
 
         static readonly List<Frame> _frames = new();

@@ -344,6 +344,20 @@ const MIGRATIONS: string[] = [
   CREATE INDEX telemetry_kind_at ON telemetry (kind, at);
   CREATE INDEX telemetry_run ON telemetry (run);
   `,
+
+  // 14 - BOOTH SHOTS (routes/shots.ts): pictures a character took in the portrait booth, kept to hang
+  // in the hub's frames. Their own table, not the save: a save is rewritten every checkpoint and kept
+  // in history, and a dozen pictures in it would ride along every time.
+  `
+  CREATE TABLE booth_shots (
+    owner         TEXT NOT NULL,
+    profile_id    TEXT NOT NULL,
+    shot_id       TEXT NOT NULL,
+    png           BYTEA NOT NULL,
+    taken_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (owner, profile_id, shot_id)
+  );
+  `,
 ];
 
 /** Applies every migration not yet applied. Called once at start-up. */

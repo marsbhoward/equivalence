@@ -887,15 +887,18 @@ namespace Convergence.Hub
 
         Prompt DescribeCrate()
         {
-            int n = Showcase.Source?.Count ?? 0;
+            int n = Showcase.Wallet?.Count ?? 0, shots = Chain.BoothShots.All.Count;
+            string held = n > 0 ? $"{n} piece{(n == 1 ? "" : "s")} in your wallet" : "";
+            if (shots > 0) held += (held.Length > 0 ? "  ·  " : "") + $"{shots} booth shot{(shots == 1 ? "" : "s")}";
+            n += shots;
             return new Prompt
             {
                 Title = "THE CRATE",
-                Sub = n > 0 ? $"{n} piece{(n == 1 ? "" : "s")} in your wallet" : "frames",
+                Sub = held.Length > 0 ? held : "frames",
                 Body = n > 0
                     ? "Take out a frame, hang it on the gallery wall or stand it anywhere, then " +
                       "choose the art it shows."
-                    : "Take out a frame and hang it or stand it. Connect a wallet holding art to fill it.",
+                    : "Take out a frame and hang it or stand it. Fill it with a picture kept at the portrait booth, or connect a wallet holding art.",
                 Key = "[ E ]  take out a frame     [ R ]  inventory     [ Q ]  rearrange the room",
                 Accent = new Color(0.72f, 0.58f, 0.34f),
             };

@@ -24,6 +24,11 @@ import type { FormatId } from './runFormat.js';
  * exported from the game itself.
  */
 export const CHARGES_PER_BOX = 7;
+
+/** Booth shots a character keeps for the hub's frames, and the most one picture may weigh (routes/shots.ts).
+ *  Kept in step with Tuning.Booth.ShotsKept / ShotMaxBytes. */
+export const BOOTH_SHOTS_KEPT = 12;
+export const BOOTH_SHOT_MAX_BYTES = 96 * 1024;
 export const AVATAR_RARE_DYE_CHANCE = 0.03;
 export const FINAL_LATER_RARE_DYE_CHANCE = 0.04;
 const RARE_WEIGHT = 3;

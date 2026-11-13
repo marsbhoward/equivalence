@@ -8,7 +8,7 @@ namespace Convergence.Hub
     /// exists. Exactly the same scaffolding role as GameBootstrap.EnsureStarterGear.
     ///
     /// It is not pretending to be a wallet: it invents pictures. When a real
-    /// <see cref="IShowcaseSource"/> arrives, assigning it to <see cref="Showcase.Source"/> is
+    /// <see cref="IShowcaseSource"/> arrives, assigning it to <see cref="Showcase.Wallet"/> is
     /// the whole switchover and this file can be deleted. Enable it from
     /// <see cref="Core.Tuning.Testing.DemoShowcase"/>.
     /// </summary>

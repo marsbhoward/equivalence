@@ -21,6 +21,7 @@ import { newGuest, requireIdentity } from './identity.js';
 import { claimFinalFloor, finalFloorStatus } from './routes/finalFloor.js';
 import { claimAvatarBoxes, devDecideAvatarBoxes } from './routes/avatarBox.js';
 import { breakBox, claimMilestone, loadItems, recolour } from './routes/items.js';
+import { listShots, putShot } from './routes/shots.js';
 import { breakBoxTokens, depositDyes, submitBurn, withdrawDyes } from './routes/dyes.js';
 import { mintPortrait, portraitStatus, readPortrait, renewPortrait, submitPortrait, updatePortrait } from './routes/pfp.js';
 import { beatRun, claimRun, endRun, loadRun, saveRun } from './routes/runs.js';
@@ -232,6 +233,10 @@ app.get('/saves/items/:profileId', loadItems);
 app.post('/saves/items/:profileId/recolour', recolour);
 app.post('/saves/items/:profileId/break-box', breakBox);
 app.post('/saves/milestone', claimMilestone);
+// Booth shots kept for the hub's frames (routes/shots.ts).
+const shots = perIdentity('shots', LIMITS.shots);
+app.get('/saves/shots', shots, listShots);
+app.put('/saves/shots/:profileId/:shotId', shots, putShot);
 // A run in flight - snapshots, heartbeats, and one live session per run (routes/runs.ts).
 app.get('/saves/runs/:profileId', loadRun);
 app.put('/saves/runs/:profileId', saveRun);

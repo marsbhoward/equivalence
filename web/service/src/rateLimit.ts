@@ -151,6 +151,8 @@ export const LIMITS = {
   savesIp: { burst: 300, perMinute: 900 },
   // ---- after authentication (per identity)
   saves: { burst: 120, perMinute: 240 },
+  /** Booth shots (routes/shots.ts): a picture kept by a tap, the list read when the hub opens. */
+  shots: { burst: 12, perMinute: 30 },
   write: { burst: 20, perMinute: 30 },
   commit: { burst: 3, perMinute: 6 },
   open: { burst: 6, perMinute: 12 },

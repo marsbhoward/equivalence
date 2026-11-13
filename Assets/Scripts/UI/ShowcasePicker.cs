@@ -59,6 +59,8 @@ namespace Convergence.UI
         /// <param name="current">The key the frame shows now (empty for an empty frame) - the
         /// picker opens on its policy and marks it.</param>
         /// <param name="onPick">The chosen key; EMPTY when the player empties the frame.</param>
+        static bool Booth(ShowcaseGroup g) => g.Id != null && g.Id.StartsWith(BoothShowcase.GroupPrefix);
+
         public void Open(Transform canvas, IShowcaseSource source, Func<string, bool> isPlaced,
                          string current, Action<string> onPick)
         {
@@ -73,11 +75,15 @@ namespace Convergence.UI
             _groups.Clear();
             if (source != null) _groups.AddRange(source.Groups);
             _learned.Clear();
-            _groups.Sort((a, b) => string.Compare(NameOf(a), NameOf(b), StringComparison.OrdinalIgnoreCase));
+            // The booth's shots first (Hub.BoothShowcase), then the wallet's collections by name.
+            _groups.Sort((a, b) => Booth(a) != Booth(b) ? (Booth(a) ? -1 : 1)
+                                 : string.Compare(NameOf(a), NameOf(b), StringComparison.OrdinalIgnoreCase));
             // Opens on the policy of what the frame shows - the head of its key. An empty frame opens
             // on the list alone, nothing chosen (the user's call, 2026-10-31): no collection's pictures
             // are fetched until the player picks one.
-            string policy = _current.Length >= 56 ? _current.Substring(0, 56) : null;
+            string policy = _current.StartsWith(Chain.BoothShots.KeyPrefix)
+                ? BoothShowcase.GroupOf(_current)
+                : _current.Length >= 56 ? _current.Substring(0, 56) : null;
             _group = policy == null ? -1 : _groups.FindIndex(g => g.Id == policy);
             _groupPage = Mathf.Max(0, _group) / GroupsPerPage;
             _page = 0;
@@ -98,8 +104,8 @@ namespace Convergence.UI
             UiKit.Label(UiKit.Rect(_full, "s", new Vector2(0, 1), new Vector2(1, 1),
                 new Vector2(0, -142), new Vector2(0, -108)),
                 _groups.Count > 0
-                    ? "your wallet's pieces, by collection    -    BACK or [BACKSPACE] to close"
-                    : "nothing to show - connect a wallet holding art",
+                    ? "your booth shots and wallet's pieces    -    BACK or [BACKSPACE] to close"
+                    : "nothing to show - keep a picture at the portrait booth, or connect a wallet holding art",
                 18, new Color(0.5f, 0.53f, 0.6f), TextAnchor.MiddleCenter);
 
             Rebuild();
