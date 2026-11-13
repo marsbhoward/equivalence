@@ -3100,10 +3100,19 @@ namespace Convergence.Art
                     if (glow) ch = GlowTone(ch, iris);
                     for (int dy = 0; dy < scale; dy++)
                     for (int dx = 0; dx < scale; dx++)
-                        PixelDetail.Put(big, (ax + c) * scale + dx, (ay + r) * scale + dy, ch);
+                    {
+                        int px = (ax + c) * scale + dx, py = (ay + r) * scale + dy;
+                        // Hair falling over the face stays over the eye: the drawn eye is taller than the block
+                        // it replaces, so it reached up and out into fringes and locs and painted over them.
+                        if (IsHairInk(PixelDetail.At(big, px, py))) continue;
+                        PixelDetail.Put(big, px, py, ch);
+                    }
                 }
             }
         }
+
+        /// <summary>A texel of the hair itself (its ramp, or a line drawn in it) - never a brow's or a beard's.</summary>
+        static bool IsHairInk(char ch) => ch == 'Z' || HairChars.IndexOf(ch) >= 0;
 
         /// <summary>
         /// Where the Wraith's Eye's glow sits, in the coarse head's texels: the red iris of whichever eye the face
