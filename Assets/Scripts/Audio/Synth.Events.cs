@@ -287,20 +287,28 @@ namespace Convergence.Audio
             return Normalise(s, 0.85f);
         }
 
-        /// <summary>The sigil door parting: stone grinding open, light chiming through.</summary>
+        /// <summary>A door opening (the user's call, 2026-11-13: stones scraping - the chime is gone): a heavy slab
+        /// dragged over stone, its friction catching and slipping, with a low rumble under it and a settle at the end.</summary>
         public static float[] DoorOpen()
         {
-            var s = Buffer(1.8f);
+            var s = Buffer(1.9f);
             var n = new Noise(77);
-            var f = new Svf();
+            var grit = new Svf();
+            var body = new Svf();
+            float catchAt = 0f;
             for (int i = 0; i < s.Length; i++)
             {
                 float t = i / (float)Rate;
-                float grain = n.Next() * (0.5f + 0.5f * Mathf.Abs(Mathf.Sin(t * 41f)));
-                f.Run(grain, 350f, 1f);
-                s[i] = f.Band * Env(t, 0.2f, 1.1f);
+                // Friction: stick-slip bursts whose rate drifts, so the drag never sounds like a loop.
+                catchAt += (18f + 9f * Mathf.Sin(t * 3.1f)) / Rate;
+                float slip = Mathf.Pow(Mathf.Abs(Mathf.Sin(catchAt * Mathf.PI)), 6f);
+                float x = n.Next();
+                grit.Run(x * (0.25f + 0.75f * slip), 900f + 500f * slip, 1.3f);
+                body.Run(x, 160f, 0.9f);
+                float env = Env(t, 0.12f, 1.5f) * (t < 1.55f ? 1f : Mathf.Exp(-(t - 1.55f) * 14f));
+                s[i] = (grit.Band * 0.9f + body.Low * 0.9f) * env;
             }
-            Ring(s, new[] { 1046.5f, 1568f, 2093f }, new[] { 0.18f, 0.12f, 0.07f }, 0.3f, 1.2f, 0.4f);
+            Thump(s, 90f, 50f, 0.03f, 0.35f, 0.5f, 1.5f);   // the slab coming to rest
             return Normalise(s, 0.85f);
         }
 

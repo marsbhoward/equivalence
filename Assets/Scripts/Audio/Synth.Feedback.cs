@@ -77,25 +77,16 @@ namespace Convergence.Audio
             return Normalise(s);
         }
 
-        /// <summary>Parry Stance (v2, 2026-11-13 redo): a blade drawn up against another - a short steel scrape
-        /// rising, settling on a low, firm ring rather than a thin high one.</summary>
+        /// <summary>Parry Stance (v3, the user 2026-11-13): the swing itself (<see cref="Swing"/>) with a chime on
+        /// top - the guard is a motion, and the bell says it is set.</summary>
         public static float[] ParryReady(int seed)
         {
-            var n = new Noise(seed);
-            var s = Buffer(0.55f);
-            var f = new Svf();
-            for (int i = 0; i < s.Length; i++)
-            {
-                float t = i / (float)Rate;
-                if (t > 0.16f) break;
-                float grain = n.Next() * (0.55f + 0.45f * Mathf.Abs(Mathf.Sin(t * 2f * Mathf.PI * 70f)));
-                f.Run(grain, Mathf.Lerp(1400f, 3600f, t / 0.16f), 3f);
-                s[i] = f.Band * Mathf.Sin(Mathf.PI * t / 0.16f) * 0.8f;
-            }
-            float b = n.Range(1050, 1150);
-            Ring(s, new[] { b, b * 2.76f, b * 5.4f }, new[] { 0.32f, 0.12f, 0.05f }, 0.003f, 0.35f, 0.14f);
-            Thump(s, 240f, 170f, 0.01f, 0.05f, 0.25f, 0.14f);
-            return Normalise(s, 0.8f);
+            var sw = Swing(false, seed);
+            var s = Buffer(0.7f);
+            for (int i = 0; i < sw.Length && i < s.Length; i++) s[i] = sw[i] * 0.8f;
+            // The chime lands near the swing's peak, a clear bell rather than a metal ring.
+            Ring(s, new[] { 1760f, 2637f, 3520f }, new[] { 0.3f, 0.14f, 0.07f }, 0.003f, 0.5f, 0.09f);
+            return Normalise(s, 0.85f);
         }
 
         /// <summary>A hit stopped by the Barrier: a dull knock on something that rings a little.</summary>
