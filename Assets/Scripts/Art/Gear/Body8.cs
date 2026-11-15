@@ -39,7 +39,10 @@ namespace Convergence.Art.Gear
         static Color[] _ghostPx;
         /// <summary>The cape at rest: its top and its hem (texels above the soles), and its flutter at the hem.</summary>
         const float CapeTop = 104f, CapeHem = 30f, CapeFlutter = 1.5f;
-        const int CacheSize = 192;
+        /// <summary>Pictures kept. Was 192: walking every way needs more than that (8 directions x the stride's frames x
+        /// the gait's sizes), so it replaced pictures it was about to reuse - about 10 MB at 192 on a phone, so 384 is
+        /// about 20 MB (2026-11-15, the user's call).</summary>
+        const int CacheSize = 384;
 
         static readonly Color Outline = new Color32(0x14, 0x12, 0x1C, 0xFF);
 

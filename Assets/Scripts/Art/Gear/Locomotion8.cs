@@ -28,9 +28,12 @@ namespace Convergence.Art.Gear
             public float Height(float p) => Bob * Mathf.Cos(4f * Mathf.PI * (p - BobPhase)) + BobOffset;
         }
 
+        // Pictures a stride: 25 a second for both (the walk's 0.96 s, the run's 0.64 s), the hand-drawn sprite rate - the
+        // user's call, 2026-11-15, from the walk mock (https://claude.ai/artifact/Joy242wN6r6yHV7Zyxgp4i). Was 48 and 32,
+        // 50 a second, which doubled the pictures the pose cache had to hold for no difference anyone could see.
         public static readonly Gait Run = new Gait
         {
-            Name = "run", Frames = 32,
+            Name = "run", Frames = 16,
             Foot = new[] { new[] { 0f, 0.30f, 0f }, new[] { 0.33f, -0.36f, 0f }, new[] { 0.48f, -0.55f, 0.42f }, new[] { 0.66f, -0.08f, 0.55f }, new[] { 0.84f, 0.46f, 0.24f } },
             Pitch = new[] { new[] { 0f, 18f }, new[] { 0.12f, 0f }, new[] { 0.33f, -40f }, new[] { 0.5f, -55f }, new[] { 0.7f, -20f }, new[] { 0.86f, 10f } },
             Bob = 3.2f, BobPhase = 0.42f, BobOffset = -1.5f, Lean = 11f, Base = 54.4f, HipDrop = 0f, Arm = 34f, Elbow = 88f, Trail = 11f,
@@ -38,7 +41,7 @@ namespace Convergence.Art.Gear
 
         public static readonly Gait Walk = new Gait
         {
-            Name = "walk", Frames = 48,
+            Name = "walk", Frames = 24,
             Foot = new[] { new[] { 0f, 0.30f, 0f }, new[] { 0.6f, -0.30f, 0f }, new[] { 0.72f, -0.18f, 0.10f }, new[] { 0.86f, 0.12f, 0.13f }, new[] { 0.96f, 0.32f, 0.03f } },
             Pitch = new[] { new[] { 0f, 16f }, new[] { 0.1f, 0f }, new[] { 0.55f, -8f }, new[] { 0.62f, -30f }, new[] { 0.75f, -10f }, new[] { 0.92f, 8f } },
             Bob = 1.3f, BobPhase = 0.30f, BobOffset = 0f, Lean = 3f, Base = 56.3f, HipDrop = 1f, Arm = 14f, Elbow = 28f, Trail = 4f,
