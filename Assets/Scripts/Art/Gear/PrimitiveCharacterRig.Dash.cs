@@ -38,7 +38,7 @@ namespace Convergence.Art.Gear
         bool _dashAway;     // this dash goes away from the facing - fixed at the takeoff
         float _dashLiftFront, _dashLiftBack;
 
-        bool DashingNow => DevDashing || (Player != null && Player.Dashing);
+        bool DashingNow => DevDashing || (Player != null && (Player.Dashing || Player.HoppingBack));   // a hop back is drawn as a dash away
 
         /// <summary>After AdvanceGait: the dash weight, and the walk handing the legs over to it.</summary>
         void AdvanceDash(float dt)

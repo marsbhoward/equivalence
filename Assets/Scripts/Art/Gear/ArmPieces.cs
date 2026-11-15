@@ -41,9 +41,30 @@ namespace Convergence.Art.Gear
         /// <summary>The whole piece's opacity - the afterimage is see-through.</summary>
         public static float Alpha(AccessoryKind k) => k == AccessoryKind.PenumbraArm ? 0.72f : 1f;
 
-        /// <summary>Copies drawn where the arm was a moment ago, fainter (seconds back, alpha) - the
-        /// afterimage's trail.</summary>
-        public static readonly (float dt, float alpha)[] PenumbraEcho = { (0.12f, 0.42f), (0.24f, 0.2f) };
+        /// <summary>
+        /// PENUMBRA'S AFTERIMAGES (the user's pick B, 2026-11-15; was an always-on trail of two copies 0.12 and
+        /// 0.24 s behind, which stacked into one dark smear): only through a weapon art, the arm and blade drop
+        /// a violet copy every <see cref="AfterimageEvery"/> s, left where they were in the world, fading out
+        /// over <see cref="AfterimageLife"/> from <see cref="AfterimageAlpha"/> - a fan along the swing. A copy
+        /// is only dropped once the arm or the body has moved on (<see cref="AfterimageMoved"/> texels), so a
+        /// standing art leaves fewer, spaced-out copies instead of a pile on the figure.
+        /// </summary>
+        public const float AfterimageEvery = 0.06f, AfterimageLife = 0.35f, AfterimageAlpha = 0.7f, AfterimageMoved = 3f;
+
+        static readonly Color AfterimageDark = new(0.29f, 0.18f, 0.54f), AfterimageLight = new(0.89f, 0.85f, 1f);
+
+        /// <summary>A texel of an afterimage: its brightness on Shadow's violet, so the arm's and blade's shape and
+        /// edges survive and the colour is the echo's.</summary>
+        public static Color Afterimage(Color c)
+        {
+            float l = Mathf.Clamp01(0.3f * c.r + 0.59f * c.g + 0.11f * c.b);
+            var v = Color.Lerp(AfterimageDark, AfterimageLight, Mathf.Pow(l, 0.7f));
+            v.a = c.a;
+            return v;
+        }
+
+        /// <summary>The arm at rest: the mock's drift at ARM_ST.t 0.4, held (the float is gone with the trail).</summary>
+        public const float PenumbraRestT = 0.4f;
 
         /// <summary>The torso layers of these sit OVER the arm and head (embers) rather than under them (a strap).</summary>
         public static bool TorsoOver(AccessoryKind k) => k == AccessoryKind.SalamanderArm;
@@ -477,8 +498,8 @@ namespace Convergence.Art.Gear
             o.AddRange(new[] { arm, sh });
         }
 
-        // 9. PENUMBRA (Echo): a dark see-through arm (the rig draws it at Alpha) that drifts a little and trails
-        // fainter copies of itself where it has just been (PenumbraEcho).
+        // 9. PENUMBRA (Echo): a dark see-through arm (the rig draws it at Alpha) that leaves violet afterimages
+        // through a weapon art (AfterimageEvery).
         public static Vector2 Drift(float t) => new(Mathf.Sin(t * 1.6f) * 2.4f, Mathf.Sin(t * 2.3f) * 0.8f);
         static Layer Shifted(Layer l, float dx, float dy)
         {
@@ -489,7 +510,7 @@ namespace Convergence.Art.Gear
         }
         static void PenumbraEchoArm(ArmPieceState st, List<Layer> o)
         {
-            var d = Drift(st.T);
+            var d = Drift(PenumbraRestT);
             var m = U(Poly(V(-0.5f, 37), V(9.5f, 37), V(10, 49), V(9.5f, 61), V(-0.5f, 61), V(-1, 49)), Ell(4.8f, 65f, 5f, 4.4f));
             var sm = Ell(4.5f, 34.5f, 7.2f, 5.8f);
             Shader GhostFill(Mask mm) => (x, y, _) => !mm.Has(x - 1, y) ? Violet[3] : Ghost[Cyl(4.5f, 6f, x)];

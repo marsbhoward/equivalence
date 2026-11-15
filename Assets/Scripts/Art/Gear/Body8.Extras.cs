@@ -22,12 +22,8 @@ namespace Convergence.Art.Gear
             public Color[] WrapTones;
             /// <summary>The arm piece worn, or null.</summary>
             public ArmPieces8.Cloud Arm;
-            /// <summary>Penumbra's idle drift now (ArmPieces.Drift, whole texels as the flat art shifts it), and its echoes:
-            /// the arm where it was (<see cref="LastArm"/> of an earlier picture), its drift then, and how faint.</summary>
+            /// <summary>An arm piece's drift (whole texels as the flat art shifts it); zero is the piece as baked.</summary>
             public Vector2Int ArmDrift = Vector2Int.zero;
-            public Frame[][] Echoes;
-            public Vector2Int[] EchoDrift;
-            public float[] EchoAlpha;
             /// <summary>The wraps' tails' wobble clock (the mock's t).</summary>
             public float WrapT = 0.4f;
             /// <summary>The wraps on a dash: how far they stream out (0 hanging .. 1), the way out behind the travel (drawn
@@ -306,11 +302,9 @@ namespace Convergence.Art.Gear
             var frames = new[] { Of(J, dc, PieceCapY0, 1f), Of(J, d1, PieceUpperY0, k), Of(E, d2, PieceForeY0, k) };
             _drawnArm = frames;
 
+            int armFirst = parts.Count;
             CloudOn(cloud, frames, ex.ArmDrift, 1f, 0f, parts);
-            // Penumbra's echoes: fainter copies where the arm just was, behind it on a tie (the flat rig's)
-            if (ex.Echoes != null)
-                for (int e = 0; e < ex.Echoes.Length; e++)
-                    if (ex.Echoes[e] != null) CloudOn(cloud, ex.Echoes[e], ex.EchoDrift[e], ex.EchoAlpha[e], -0.5f - e, parts);
+            for (int j = armFirst; j < parts.Count; j++) parts[j].Ghost = true;   // Penumbra's afterimage lifts it
         }
 
         /// <summary>The mock's drift baked into Penumbra's cloud (ARM_ST.t 0.4): the arm's whole-texel shift, the cap half.</summary>

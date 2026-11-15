@@ -29,6 +29,14 @@ namespace Convergence.Art.Gear
         const float HeadFront = 9f;
         /// <summary>The last uncached (swing) Draw's weapon texels in front of the head, or null - the caller's.</summary>
         public static Sprite LastOver;
+
+        /// <summary>Asked before a draw (Penumbra through a weapon art): the picture's arm piece and weapon are
+        /// lifted out again on their own, recoloured violet (ArmPieces.Afterimage), into <see cref="LastGhost"/>.
+        /// Only an uncached draw (key null) makes one.</summary>
+        public static bool WantGhost;
+        /// <summary>The last draw's afterimage of the arm and weapon, or null.</summary>
+        public static Sprite LastGhost;
+        static Color[] _ghostPx;
         /// <summary>The cape at rest: its top and its hem (texels above the soles), and its flutter at the hem.</summary>
         const float CapeTop = 104f, CapeHem = 30f, CapeFlutter = 1.5f;
         const int CacheSize = 192;
@@ -81,7 +89,7 @@ namespace Convergence.Art.Gear
         }
 
         // ------------------------------------------------------------- drawing
-        sealed class Part { public int OutR; public double DepthSum; public int Count; public float Bias, Alpha = 1f; public bool OverHead; public List<int> Won; }
+        sealed class Part { public int OutR; public double DepthSum; public int Count; public float Bias, Alpha = 1f; public bool OverHead, Ghost; public List<int> Won; }
 
         static float[] _z;
         static int[] _owner;
@@ -285,7 +293,7 @@ namespace Convergence.Art.Gear
             Part cardPart = null;
             if (grip.Cards != null && grip.Cards.Count > 0)
             {
-                cardPart = new Part { OutR = 0 };
+                cardPart = new Part { OutR = 0, Ghost = true };
                 int id = parts.Count; parts.Add(cardPart);
                 foreach (var cd in grip.Cards)
                 {
@@ -338,6 +346,20 @@ namespace Convergence.Art.Gear
             }
 
             var sprite = PixelSprite.FromPixels(outCol, _W, _H, new Vector2Int(_GX, _GY), ppu, crop: true);
+
+            // Penumbra's afterimage: the arm and weapon texels as they show in the picture, violet
+            LastGhost = null;
+            if (WantGhost && key == null)
+            {
+                if (_ghostPx == null || _ghostPx.Length != n) _ghostPx = new Color[n]; else System.Array.Clear(_ghostPx, 0, n);
+                bool anyGhost = false;
+                foreach (var p in order)
+                {
+                    if (!p.Ghost) continue;
+                    foreach (int i in p.Won) { _ghostPx[i] = ArmPieces.Afterimage(outCol[i]); anyGhost = true; }
+                }
+                if (anyGhost) LastGhost = PixelSprite.FromPixels(_ghostPx, _W, _H, new Vector2Int(_GX, _GY), ppu, crop: true);
+            }
 
             // A swing's weapon nearer the camera than the front of the head: the head is its own sprite ABOVE this
             // picture, so those texels go again on an overlay the rig sorts over the head (else a sweep passing

@@ -109,41 +109,41 @@ namespace Convergence.Art.Gear
             _extras8 = any ? ex : null;
         }
 
-        // ---- Penumbra's echoes (ArmPieces.PenumbraEcho): the arm where it was 0.12 and 0.24 s ago, from the pictures drawn
+        // ---- Penumbra's afterimages (ArmPieces.AfterimageEvery): through a weapon art, the drawn arm and weapon left
+        // behind in violet, fading
 
-        struct ArmPast8 { public float T; public Body8.Frame[] Arm; public Vector2Int Drift; }
-        System.Collections.Generic.List<ArmPast8> _armPast8;
+        float _ghostAt8 = -10f;
+        Body8.Frame[] _ghostArm8;
+        Vector3 _ghostBodyAt8;
+        /// <summary>The afterimage this frame's draw lifted, waiting for the picture to be placed.</summary>
+        Sprite _ghostDue8;
+        /// <summary>This frame's picture is lifting an afterimage (Afterimage8Due said so at the draw).</summary>
+        bool _ghostWanted8;
 
-        /// <summary>Hide8's part: the arm as this frame's final picture has it.</summary>
-        void RecordArm8()
+        /// <summary>Before the draw: whether this frame's picture should lift an afterimage - Penumbra worn, a weapon
+        /// art in motion, the last copy AfterimageEvery ago, and the arm or the body moved on since it.</summary>
+        bool Afterimage8Due()
         {
-            if (_acc8Kind != AccessoryKind.PenumbraArm || Body8.LastArm == null || _extras8 == null) { _armPast8?.Clear(); return; }
-            _armPast8 ??= new System.Collections.Generic.List<ArmPast8>();
-            float now = Time.time, keep = ArmPieces.PenumbraEcho[ArmPieces.PenumbraEcho.Length - 1].dt + 0.1f;
-            _armPast8.Add(new ArmPast8 { T = now, Arm = Body8.LastArm, Drift = _extras8.ArmDrift });
-            while (_armPast8.Count > 2 && _armPast8[1].T < now - keep) _armPast8.RemoveAt(0);
+            if (_acc8Kind != AccessoryKind.PenumbraArm || Player == null || !Player.ArtInMotion) return false;
+            if (Time.time - _ghostAt8 < ArmPieces.AfterimageEvery) return false;
+            float body = _legs8 != null ? (_legs8.transform.position - _ghostBodyAt8).magnitude * Proportions.BodyPpu : 99f;
+            return _ghostArm8 == null || Moved8(Body8.LastArm, _ghostArm8) >= ArmPieces.AfterimageMoved || body >= ArmPieces.AfterimageMoved;
         }
 
-        /// <summary>The echoes for this picture, or none when the arm has stayed where it is (then the picture caches).</summary>
-        void Echoes8()
+        /// <summary>Hide8's part, once the picture is placed: the copy the draw lifted goes into the world where it is.</summary>
+        void DropAfterimage8()
         {
-            _extras8.Echoes = null;
-            if (_armPast8 == null || _armPast8.Count < 2) return;
-            var echoes = ArmPieces.PenumbraEcho;
-            var now = _armPast8[_armPast8.Count - 1];
-            float t = Time.time;
-            Body8.Frame[][] arms = null;
-            for (int e = 0; e < echoes.Length; e++)
-            {
-                var pose = _armPast8[0];
-                for (int h = _armPast8.Count - 1; h >= 0; h--) if (_armPast8[h].T <= t - echoes[e].dt) { pose = _armPast8[h]; break; }
-                if (Moved8(pose.Arm, now.Arm) < 0.75f && pose.Drift == now.Drift) continue;
-                arms ??= new Body8.Frame[echoes.Length][];
-                _extras8.EchoDrift ??= new Vector2Int[echoes.Length];
-                _extras8.EchoAlpha ??= new float[echoes.Length];
-                arms[e] = pose.Arm; _extras8.EchoDrift[e] = pose.Drift; _extras8.EchoAlpha[e] = echoes[e].alpha;
-            }
-            _extras8.Echoes = arms;
+            var ghost = _ghostDue8;
+            _ghostDue8 = null;
+            if (ghost == null || _legs8 == null) return;
+            _ghostAt8 = Time.time; _ghostArm8 = Body8.LastArm; _ghostBodyAt8 = _legs8.transform.position;
+            // over the figure, not under it: the arm sits inside the drawn body, so a copy beneath it only showed
+            // where the arm had swung clear of the whole figure
+            DropAfterimage(ghost, _legs8.transform, _legs8.flipX, _legs8.sortingLayerID, _legs8.sortingOrder + 1);
+            // a swing not drawn into the figure keeps its blade on today's weapon layer: that goes too
+            if (_layers.TryGetValue(RigLayer.Weapon, out var w) && w != null && w.enabled && w.sprite != null
+                && (_hidden8 == null || !_hidden8.Contains(w)))
+                DropAfterimage(Violet(w.sprite), w.transform, w.flipX, w.sortingLayerID, w.sortingOrder - 1);
         }
 
         /// <summary>How far apart two poses of the arm are (texels): the most any joint or the hand moved.</summary>
@@ -204,19 +204,12 @@ namespace Convergence.Art.Gear
                     if (loop <= 0f) key.Append(".s").Append(k);
                 }
             }
-            // Fulmen's bolts re-strike (12 a second standing, with the stride moving); Penumbra drifts and trails echoes
+            // Fulmen's bolts re-strike (12 a second standing, with the stride moving); Penumbra holds still (its baked drift)
             if (_acc8Kind == AccessoryKind.FulmenArm)
             {
                 int strike = (size > 0f ? Mathf.FloorToInt(phase * 24f) : Mathf.FloorToInt(_armClock * 12f)) % ArmPieces8.FulmenStrikes;
                 _extras8.Arm = ArmPieces8.For(_acc8Kind, strike) ?? _extras8.Arm;
                 key.Append(".z").Append(strike);
-            }
-            if (_acc8Kind == AccessoryKind.PenumbraArm)
-            {
-                var d = ArmPieces.Drift(_armClock);
-                _extras8.ArmDrift = new Vector2Int(Mathf.RoundToInt(d.x), Mathf.RoundToInt(d.y));
-                key.Append(".d").Append(_extras8.ArmDrift.x).Append(',').Append(_extras8.ArmDrift.y);
-                Echoes8();
             }
             // the wraps' wobble: the mock's t * 3.2 is the angle
             _extras8.WrapT = _acc8Kind == AccessoryKind.WristWraps ? angle / 3.2f : 0.4f;

@@ -3584,6 +3584,17 @@ namespace Convergence.Core
             public const float BasicStrikeMoveShare = 0.35f;
 
             /// <summary>
+            /// THE HOP BACK (the user's call, 2026-11-15): a basic that LANDS while the stick points
+            /// away from the swing springs the body back - HopBackDistance over HopBackSeconds,
+            /// along the stick, held at a chasm's lip and kept on the floor. The stick must be
+            /// tilted past HopBackMinTilt and within acos(HopBackMinAway) of straight back (0.5 =
+            /// 60 degrees). Hit and get out - the forward step's mirror; never on a weapon art.
+            /// LOCKED ON only (the user's call, 2026-11-15): unlocked, the swing turns to the stick.
+            /// </summary>
+            public const float HopBackDistance = 0.7f, HopBackSeconds = 0.14f;
+            public const float HopBackMinTilt = 0.3f, HopBackMinAway = 0.5f;
+
+            /// <summary>
             /// How long a fresh press on a banked weapon art must be HELD before it aims (the
             /// user's call, 2026-10-14: hold to aim, release to fire). Released sooner it was a
             /// tap and the art goes at the auto-target; held past it the aim arrow appears and the

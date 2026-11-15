@@ -51,7 +51,7 @@ namespace Convergence.UI
             var tierCol = CharacterScreen.TierColor(it.Tier);
             lines.Add((it.DisplayName, tierCol, 24));
             string what = (it.Tier == LootTier.BlackDiamond ? "Black Diamond" : it.Tier.ToString())
-                        + "  " + (it.Slot == GearSlot.Weapon ? it.Class.ToString() : it.Slot.ToString());
+                        + "  " + (it.Slot == GearSlot.Weapon ? it.Class.ToString() : it.Slot.Label());
             lines.Add((what, Dim, 16));
             if (it.PrimaryStat != StatKind.None)
                 lines.Add(($"{GearForge.Label(it.PrimaryStat)}   {GearRoller.PointsOf(it.Grants, it.PrimaryStat):+0;-0}%", FreeInk, 20));

@@ -1785,7 +1785,7 @@ namespace Convergence.Art.Gear
         Sprite _headOpen, _headClipped;
 
         /// <summary>
-        /// Under a SEALED helm (<see cref="GearItem.SealsHead"/>), the head is cut to the helm's
+        /// Under a helm (sealed or open - not a face mask), the head is cut to the helm's
         /// outline (<see cref="PixelSprite.Enclosed"/>, the hood's rule for a helm): ClipOverhead
         /// only blanks the rows above the skull, and the hair at the skull's top corners still
         /// poked out where a round dome narrows. The face opening is inside the outline, so the
@@ -1800,7 +1800,10 @@ namespace Convergence.Art.Gear
             _headOpen = head.sprite;
             _headClipped = null;
 
-            if (!_headSealed || _helmHidden) return;
+            // Every helm, open ones too (2026-11-15): a cap's dome is narrower than a big style's top
+            // corners. Below the helm's lowest row is kept, so the face under a brim stays. A mask
+            // stops below the hairline and cuts nothing.
+            if (!_helmOn || _faceMaskOnly || _helmHidden) return;
             if (!_layers.TryGetValue(RigLayer.HeadArmor, out var helm) || helm == null) return;
             var frame = helm.sprite == _helmBack && _helmBack != null ? _helmFront : helm.sprite;
             if (frame == null) return;

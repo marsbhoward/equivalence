@@ -82,7 +82,6 @@ namespace Convergence.Art.Gear
                 if (_layers.TryGetValue(layer, out var sr) && sr != null) { sr.transform.localRotation = Quaternion.identity; sr.color = Color.white; }
             foreach (var layer in ArmPartLayers)
                 if (_layers.TryGetValue(layer, out var sr) && sr != null) sr.color = Color.white;
-            ShowArmEchoes(false);
             ShowAccessoryGlows(null);
         }
 
@@ -243,7 +242,7 @@ namespace Convergence.Art.Gear
         }
 
         /// <summary>LateUpdate's part, after the arm's pose is final: the shoulder piece (and turned away its
-        /// risers) onto the arm, and the afterimage's trail.</summary>
+        /// risers) onto the arm, and Penumbra's afterimages through a weapon art.</summary>
         void FollowArmPiece()
         {
             if (_armPiece == AccessoryKind.None || _torso == null) return;
@@ -258,75 +257,8 @@ namespace Convergence.Art.Gear
                 sr.transform.localRotation = turn;
                 sr.transform.localScale = Vector3.one;
             }
-            TrailArmEchoes();
+            DropArmAfterimages();
         }
 
-        // ---------------------------------------------------------------- the afterimage's trail
-
-        struct ArmPose { public float T; public Vector3 P; public Quaternion R; public Vector3 S; }
-        List<ArmPose>[] _armHistory;
-        SpriteRenderer[] _armEchoSr;
-
-        /// <summary>Each part's copies, drawn where the part was <see cref="ArmPieces.PenumbraEcho"/> seconds
-        /// ago (torso-local, so a walk does not smear them), fainter, a hair behind it; offset by the arm's own
-        /// drift then, so even a still arm shows them.</summary>
-        void TrailArmEchoes()
-        {
-            if (_armPiece != AccessoryKind.PenumbraArm) { ShowArmEchoes(false); return; }
-            var echoes = ArmPieces.PenumbraEcho;
-            int parts = ArmPartLayers.Length;
-            _armHistory ??= new List<ArmPose>[parts];
-            if (_armEchoSr == null || _armEchoSr.Length != parts * echoes.Length) _armEchoSr = new SpriteRenderer[parts * echoes.Length];
-            float now = Time.time, keep = echoes[echoes.Length - 1].dt + 0.1f;
-            var torsoInv = Quaternion.Inverse(_torso.rotation);
-            float alpha = ArmPieces.Alpha(_armPiece);
-            for (int i = 0; i < parts; i++)
-            {
-                if (!_layers.TryGetValue(ArmPartLayers[i], out var src) || src == null) continue;
-                var hist = _armHistory[i] ??= new List<ArmPose>();
-                var t = src.transform;
-                var ls = t.lossyScale; var ts = _torso.lossyScale;
-                hist.Add(new ArmPose { T = now, P = _torso.InverseTransformPoint(t.position), R = torsoInv * t.rotation,
-                                       S = new Vector3(ls.x / ts.x, ls.y / ts.y, 1f) });
-                while (hist.Count > 2 && hist[1].T < now - keep) hist.RemoveAt(0);
-                for (int e = 0; e < echoes.Length; e++)
-                {
-                    var sr = EchoRenderer(i * echoes.Length + e);
-                    if (sr == null) continue;
-                    var pose = hist[0];
-                    for (int h = hist.Count - 1; h >= 0; h--) if (hist[h].T <= now - echoes[e].dt) { pose = hist[h]; break; }
-                    // the canvas carries the drift of when it was drawn; the copy shows the drift of its own moment
-                    var d = ArmPieces.Drift(_armDrawnT - echoes[e].dt) - ArmPieces.Drift(_armDrawnT);
-                    if (i == 3) d *= 0.5f;
-                    var off = pose.R * new Vector3(d.x / Proportions.BodyPpu, -d.y / Proportions.BodyPpu, 0f);
-                    sr.transform.localPosition = pose.P + off + new Vector3(0f, 0f, 0.01f * (e + 1));   // behind, on a tie
-                    sr.transform.localRotation = pose.R;
-                    sr.transform.localScale = pose.S;
-                    sr.sprite = src.sprite;
-                    sr.sortingOrder = src.sortingOrder;
-                    sr.color = new Color(1f, 1f, 1f, alpha * echoes[e].alpha);
-                    sr.enabled = src.enabled && src.sprite != null;
-                }
-            }
-        }
-
-        SpriteRenderer EchoRenderer(int i)
-        {
-            var sr = _armEchoSr[i];
-            if (sr != null || _torso == null) return sr;
-            string name = "armpiece.echo" + i;
-            var t = _torso.Find(name);
-            if (t == null) { t = new GameObject(name).transform; t.SetParent(_torso, false); }
-            sr = t.GetComponent<SpriteRenderer>();
-            if (sr == null) sr = t.gameObject.AddComponent<SpriteRenderer>();
-            return _armEchoSr[i] = sr;
-        }
-
-        void ShowArmEchoes(bool on)
-        {
-            if (_armEchoSr == null) return;
-            foreach (var sr in _armEchoSr) if (sr != null) sr.enabled = on && sr.enabled;
-            if (!on && _armHistory != null) foreach (var h in _armHistory) h?.Clear();
-        }
     }
 }

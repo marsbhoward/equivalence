@@ -411,7 +411,9 @@ namespace Convergence.Player
         [System.NonSerialized] public Phial Phial;
         /// <summary>Drinking from the phial: held, and no release or defensive until it is done.</summary>
         public bool Drinking => Phial != null && Phial.Drinking;
-        public bool Dashing => _dashSeconds > 0f && !_shoved;
+        public bool Dashing => _dashSeconds > 0f && !_shoved && !_hopBack;
+        /// <summary>The hop back off a landed basic (HopBack) is running - drawn as a dash away.</summary>
+        public bool HoppingBack => _dashSeconds > 0f && _hopBack;
 
         /// <summary>A weapon art pressed and not yet struck - set in DoAttack, cleared by SettleStrike.</summary>
         bool _artUnstruck;
@@ -431,6 +433,12 @@ namespace Convergence.Player
                 return _artUnstruck || (_lunging && Dashing) || (_artActing && AttackLocked);
             }
         }
+        /// <summary>
+        /// A weapon art under way, from the press through its strike and lock (and a lunge's flight) - what
+        /// Penumbra's afterimages run on (ArmPieces.AfterimageEvery). False through basics and walking.
+        /// </summary>
+        public bool ArtInMotion => !_basicSwing && (_artUnstruck || AttackLocked || _lunging || _artActing || (Rig != null && Rig.InStrike));
+
         /// <summary>A lunge art in flight - judged at its launch, committed until it lands (LungeStrike,
         /// Disengage's flip, Cross Cut's step-in).</summary>
         bool _lunging;
@@ -1502,6 +1510,7 @@ namespace Convergence.Player
             _dashVelocity = direction.normalized * speed;
             _dashSeconds = seconds;
             _shoved = false;   // Shove sets it after this
+            _hopBack = false;  // HopBack too
             if (_rb != null) _rb.linearDamping = 0f;
         }
 
@@ -1510,6 +1519,33 @@ namespace Convergence.Player
         /// <summary>The slide running is a SHOVE (an enemy's - the Brute's), not the player's dash:
         /// no dodge, no dash pose, and it stops at a chasm's lip instead of crossing.</summary>
         bool _shoved;
+
+        /// <summary>The slide running is the HOP BACK off a landed basic: the player's own move, but
+        /// not a dash (no dodge, no dash boons), held at a chasm's lip like a shove.</summary>
+        bool _hopBack;
+
+        /// <summary>
+        /// A basic that landed while the stick points away from the swing: the body springs back
+        /// along the stick (Tuning.Combo.HopBack*), kept on the floor. LOCKED ON only - unlocked,
+        /// the swing turns to the stick. Not while dashing, leaping or stone; never on a weapon
+        /// art or a bow.
+        /// </summary>
+        void HopBack(Vector2 swingDir)
+        {
+            if (_dashSeconds > 0f || Airborne || Statue || Petrified) return;
+            if (Weapon == Art.Gear.WeaponClass.Bow) return;
+            if (Targeting == null || !Targeting.IsLocked) return;   // a lock-on move: unlocked, a held stick turns the swing
+            var input = Core.Controls.Move;
+            if (Effects != null && Effects.InputsInverted) input = -input;   // Retrograde, as the walk
+            if (input.magnitude < Tuning.Combo.HopBackMinTilt) return;
+            var dir = input.normalized;
+            if (Vector2.Dot(dir, swingDir.normalized) > -Tuning.Combo.HopBackMinAway) return;
+            float distance = LungeReach(dir, Tuning.Combo.HopBackDistance, stopAtTarget: false);
+            if (distance <= 0.05f) return;
+            float seconds = Tuning.Combo.HopBackSeconds * distance / Tuning.Combo.HopBackDistance;
+            Dash(dir, distance / seconds, seconds);
+            _hopBack = true;
+        }
 
         /// <summary>
         /// Driven <paramref name="distance"/> along <paramref name="direction"/> over
@@ -2302,7 +2338,7 @@ namespace Convergence.Player
             {
                 _pullPut = Vector2.zero;
                 _rb.linearVelocity = _dashVelocity;
-                if (_shoved) HoldChasmEdge();   // a shove is held at the lip, as a walk is
+                if (_shoved || _hopBack) HoldChasmEdge();   // a shove or a hop back is held at the lip, as a walk is
                 _dashSeconds -= Time.fixedDeltaTime;
                 if (_dashSeconds <= DashEpsilon)
                 {
@@ -2320,6 +2356,7 @@ namespace Convergence.Player
             {
                 _dashStopping = false;
                 _shoved = false;
+                _hopBack = false;
                 _dashVelocity = Vector2.zero;
                 _rb.linearVelocity = Vector2.zero;
                 _rb.linearDamping = _dampingBeforeDash;
@@ -7701,6 +7738,9 @@ namespace Convergence.Player
             // The board hears the swing once, however many bodies it caught: a basic steeps the next
             // weapon art (Cohobation); an AREA weapon art draws the crowd in and salts the ground
             // (Borax, Fermentation) round its blast.
+            // The hop back: a basic that landed, with the stick pulled away from the swing.
+            if (landed && !isFinisher && !_echoing && !_arcRepeat) HopBack(ArcFacing);
+
             if (landed && !_echoing && !_arcRepeat && Board != null)
             {
                 if (!isFinisher) Board.OnBasicLanded();

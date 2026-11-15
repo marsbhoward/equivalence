@@ -72,7 +72,7 @@ namespace Convergence.Art.Gear
             }
             var view = HeadViewFor(_aimAngle);
             bool same = _head8Sprite != null && view == _head8View && _facingLeft == _head8Left && _facingAway == _head8Away
-                        && _layers.TryGetValue(RigLayer.Head, out var h) && h != null && h.sprite == _head8Sprite;
+                        && _layers.TryGetValue(RigLayer.Head, out var h) && h != null && (h.sprite == _head8Sprite || (h.sprite == _head8Cut && _head8Cut != null));
             if (same) return;
             _head8View = view; _head8Left = _facingLeft; _head8Away = _facingAway;
             PaintHead8(view, _facingLeft);
@@ -116,12 +116,14 @@ namespace Convergence.Art.Gear
 
             if (_layers.TryGetValue(RigLayer.HairBack, out var hb) && hb != null)
             {
+                _hairBack8Open = null;
                 if (over || mane == null || (_headSealed && _helmOn)) { hb.enabled = false; hb.sprite = null; }
                 else
                 {
                     string mkey = $"dir8.mane.{view}.{(left ? "L" : "R")}.{style}.{_look.Hair}.x{scale}";
                     var ms = PixelSprite.Cached(mkey) ?? PixelSprite.From(mkey, mane, Palette.Of(hair, hair), pixelsPerUnit: ppu);
                     SetBodyPixel(RigLayer.HairBack, ms, new Vector2(0, Proportions.Cells(hv.ManeTop - hv.Mane.Length * 0.5f)));
+                    _hairBack8Open = ms;
                 }
             }
         }
@@ -213,9 +215,12 @@ namespace Convergence.Art.Gear
             _b8Flip = flip; _b8Dir = dir; _b8Sole = HipsRest.y - LegLength;
             var held = Held8();
             string key = $"b8.{_worn8Key}.{gait.Name}.{dir}.{(mirrored ? "m" : "r")}.{frame}.{size:0.00}{(held != null ? "." + held.Key : "")}{StanceKey8(stance)}{ExtrasFrame8(dt, size, phase)}";
-            // Penumbra's echoes trailing a moving arm: a picture for this frame alone (its history is not the pose's)
-            bool once = _extras8?.Echoes != null;
+            // Penumbra's afterimage due (a weapon art): a picture for this frame alone, the arm and weapon lifted out
+            bool once = Body8.WantGhost = Afterimage8Due();
             var sprite = Body8.Draw(once ? null : key, pose, gait, phase, size, view, mirrored, _worn8, _worn8Strips, Palette.Of(Palette.Undersuit), bodyPpu, held, _extras8);
+            Body8.WantGhost = false;
+            _ghostDue8 = once ? Body8.LastGhost : null;
+            _ghostWanted8 = once;   // a swing redrawing the picture this frame lifts it again, with its blade
             var restOver = Body8.LastOver;
             DropRest8();
             if (once) { _rest8Sprite = sprite; _rest8Over = restOver; }
@@ -391,7 +396,7 @@ namespace Convergence.Art.Gear
         /// <summary>The helm's view over the head, centred where the mock's head is (121 texels up).</summary>
         void PlaceHelm8(int view, bool mirrored, bool flip)
         {
-            if (_helm8Piece == null || _helmHidden || _head == null) { if (_helm8) _helm8.enabled = false; return; }
+            if (_helm8Piece == null || _helmHidden || _head == null) { if (_helm8) _helm8.enabled = false; Enclose8(); return; }   // gives the uncut head back
             if (_helm8 == null)
             {
                 var go = new GameObject("helm8");
@@ -417,6 +422,37 @@ namespace Convergence.Art.Gear
                 _helm8.sortingLayerID = ha.sortingLayerID;
                 _helm8.sortingOrder = ha.sortingOrder;
             }
+            Enclose8();
+        }
+
+        /// <summary>The head and the hair behind it as painted, and their copies cut to the helm.</summary>
+        Sprite _hairBack8Open, _head8Cut, _hairBack8Cut;
+
+        /// <summary>
+        /// Under a helm (not a face mask), the head and the hair behind it are cut to the helm's outline
+        /// (<see cref="PixelSprite.Enclosed"/>, EncloseHeadInHelm's rule): a cap's dome is narrower than a big
+        /// style's crown. Below the helm's lowest row is kept - the face under a brim, hair past the jaw.
+        /// Every frame with the helm; Enclosed caches, and the helm rides the head so the cut repeats.
+        /// </summary>
+        void Enclose8()
+        {
+            bool on = _helm8 != null && _helm8.enabled && _helm8.sprite != null && !_faceMaskOnly && !_helmHidden;
+            if (_layers.TryGetValue(RigLayer.Head, out var hd) && hd != null)
+                hd.sprite = Cut8(hd, _head8Sprite, ref _head8Cut, on);
+            if (_layers.TryGetValue(RigLayer.HairBack, out var hb) && hb != null && hb.sprite != null)
+                hb.sprite = Cut8(hb, _hairBack8Open, ref _hairBack8Cut, on);
+        }
+
+        Sprite Cut8(SpriteRenderer sr, Sprite open, ref Sprite cut, bool on)
+        {
+            if (open == null || (sr.sprite != open && sr.sprite != cut)) return sr.sprite;   // painted by another path
+            if (!on) return open;
+            // A flipped renderer mirrors its sprite about the pivot: carried in the mapping both ends.
+            var mirror = Matrix4x4.Scale(new Vector3(-1f, 1f, 1f));
+            var m = (_helm8.flipX ? mirror : Matrix4x4.identity) * _helm8.transform.worldToLocalMatrix
+                    * sr.transform.localToWorldMatrix * (sr.flipX ? mirror : Matrix4x4.identity);
+            cut = PixelSprite.Enclosed(open, _helm8.sprite, m) ?? open;
+            return cut;
         }
 
         /// <summary>The mock's head centre, texels above the soles; and a nudge (units) onto the game's head art.</summary>
@@ -458,7 +494,6 @@ namespace Convergence.Art.Gear
             if (_helm8 != null) _helm8.sortingOrder = headTop + 1;
             if (_over8 != null) _over8.sortingOrder = headTop + 2;
             PlaceGlows8(headTop + 3);
-            RecordArm8();
             _hidden8 ??= new System.Collections.Generic.HashSet<SpriteRenderer>();
             _srScratch ??= new System.Collections.Generic.List<SpriteRenderer>();
             bool swinging = Swinging8 && !_swing8Drawn;   // a swing drawn into the figure (phase 4) hides today's weapon too
@@ -483,6 +518,7 @@ namespace Convergence.Art.Gear
                 sr.enabled = false;
                 _hidden8.Add(sr);
             }
+            DropAfterimage8();   // last: what shows this frame is settled
         }
 
         /// <summary>Today's weapon sprites (and what hangs off them): shown through a swing until phase 4.</summary>
@@ -626,8 +662,11 @@ namespace Convergence.Art.Gear
 
             var held = new Weapon8.Held { Art = cards[0].Art, Kind = Weapon8.Kind.Sword, Live = new Weapon8.Grip { Hand = hands, Cards = cards },
                                           Quiver = bow ? QuiverArt8() : null };
+            Body8.WantGhost = _ghostWanted8;
             var sprite = Body8.Draw(null, _b8Pose, _b8Gait, _b8Phase, _b8Size, _b8View, _b8Mirrored, _worn8, _worn8Strips,
                                     Palette.Of(Palette.Undersuit), bodyPpu, held, _extras8);
+            Body8.WantGhost = false;
+            if (_ghostWanted8 && Body8.LastGhost != null) _ghostDue8 = Body8.LastGhost;
             DropSwing8();
             _swing8Sprite = sprite;
             _legs8.sprite = sprite;

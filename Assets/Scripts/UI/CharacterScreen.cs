@@ -272,7 +272,7 @@ namespace Convergence.UI
 
                 var nameRt = UiKit.Rect(card, "slot", new Vector2(0, 1), new Vector2(1, 1),
                     new Vector2(18, -46), new Vector2(-12, -14));
-                var nameTxt = UiKit.Label(nameRt, slots[i].ToString().ToUpper(), 17,
+                var nameTxt = UiKit.Label(nameRt, slots[i].Label().ToUpperInvariant(), 17,
                     new Color(0.5f, 0.53f, 0.6f));
 
                 var itemRt = UiKit.Rect(card, "item", new Vector2(0, 0), new Vector2(1, 1),
