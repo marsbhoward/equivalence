@@ -38,8 +38,9 @@ namespace Convergence.Enemies
         protected override Sprite[] Build(EnemyLook look, bool elite) => DasherArt.For(look, elite);
         protected override Color[] Reserved => DasherArt.Reserved;
         protected override Sprite[] Build(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome) => DasherArt.For(look, elite, biome);
+        protected override Sprite[] Build(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome, bool dross) => DasherArt.For(look, elite, biome, dross);
 
-        float Scale => _elite ? 1.2f : 1f;
+        float Scale => _elite ? 1.2f : _dross ? Core.Tuning.Dross.SizeMul : 1f;
 
         static int Alternate(float seconds) => Mathf.FloorToInt(Time.time / seconds) % 2;
 

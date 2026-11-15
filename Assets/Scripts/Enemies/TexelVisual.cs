@@ -18,6 +18,8 @@ namespace Convergence.Enemies
         [SerializeField] protected SpriteRenderer _sr;
         [SerializeField] protected EnemyLook _look;
         [SerializeField] protected bool _elite;
+        /// <summary>The lesser tier (Tuning.Dross): smaller, fewer parts, one verdigris (DrossLook).</summary>
+        [SerializeField] protected bool _dross;
         [SerializeField] protected bool _faceLeft;
         /// <summary>The place it was spawned in - its weathering and accents (CreatureWeathering).</summary>
         [SerializeField] protected Art.Biomes.BiomeKind _biome;
@@ -42,6 +44,7 @@ namespace Convergence.Enemies
             v._sr = sr;
             v._look = look;
             v._elite = elite;
+            v._dross = enemy != null && enemy.Dross;
             v._biome = Art.Biomes.Biome.Current;
             // The Nigredo's shards on it give light - steady, never a flash, so never a tell.
             int shards = Art.Biomes.Nigredo.Shards;
@@ -65,12 +68,19 @@ namespace Convergence.Enemies
         /// overrides this; the weathering is laid over whatever comes back.</summary>
         protected virtual Sprite[] Build(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome) => Build(look, elite);
 
+        /// <summary>The same as a DROSS - drawn smaller with fewer parts; a kind with a lesser form
+        /// overrides this (Tuning.Dross.Kinds). DrossLook recolours whatever comes back.</summary>
+        protected virtual Sprite[] Build(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome, bool dross)
+            => Build(look, elite, biome);
+
         /// <summary>The kind's tells and glows - never weathered (its Art's <c>Reserved</c>).</summary>
         protected virtual Color[] Reserved => null;
 
         Sprite[] Frames => _frames != null && _frames.Length > 0 && _frames[0] != null
             ? _frames
-            : _frames = CreatureWeathering.For(Build(_look, _elite, _biome), _biome, Reserved);
+            : _frames = Lesser(CreatureWeathering.For(Build(_look, _elite, _biome, _dross), _biome, Reserved));
+
+        Sprite[] Lesser(Sprite[] frames) => _dross ? DrossLook.For(frames, Reserved) : frames;
 
         /// <summary>
         /// Advances the walk by the distance moved since the last call and returns which of

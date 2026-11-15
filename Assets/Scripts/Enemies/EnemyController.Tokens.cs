@@ -39,7 +39,9 @@ namespace Convergence.Enemies
             if (HoldsToken && _telegraphTimer <= 0f) ReleaseToken(0f);
         }
 
-        int TokenCost => Elite ? Tuning.AttackTokens.EliteCost : 1;
+        /// <summary>What this body's turn takes, in HALF turns: a Dross takes half a turn, so the
+        /// pool is counted in halves (an elite 4, a body 2, a Dross 1).</summary>
+        int TokenCost => Elite ? Tuning.AttackTokens.EliteCost * 2 : Dross ? Mathf.RoundToInt(Tuning.AttackTokens.DrossCost * 2f) : 2;
 
         /// <summary>Whether this body may START a tell now - taking a turn from the ONE shared pool
         /// if so (Tuning.AttackTokens). Asked every frame a ready enemy waits; a refused one holds.</summary>
@@ -75,7 +77,7 @@ namespace Convergence.Enemies
             }
             // An empty pool always gives a turn, so an elite costing more than the pool holds is
             // never locked out.
-            if (used > 0 && used + TokenCost > max) return false;
+            if (used > 0 && used + TokenCost > max * 2) return false;   // in halves (TokenCost)
 
             _tokenUntil = now + Tuning.AttackTokens.MaxHoldSeconds;
             _lastTellStart = now;

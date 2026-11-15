@@ -120,14 +120,15 @@ namespace Convergence.Enemies
 
         /// <summary>The same, wearing the place's accent (CreatureAccents) - weathered after by
         /// CreatureWeathering.</summary>
-        public static Sprite[] For(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome)
+        public static Sprite[] For(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome, bool dross = false)
         {
-            int key = (look == EnemyLook.Automaton ? 1 : 0) | (elite ? 2 : 0) | ((int)biome << 2) | (Art.Biomes.Nigredo.Shards << 5);
+            int key = (look == EnemyLook.Automaton ? 1 : 0) | (elite ? 2 : 0) | ((int)biome << 2) | (Art.Biomes.Nigredo.Shards << 5)
+                    | (dross ? 1 << 12 : 0);
             if (_cache.TryGetValue(key, out var hit) && hit != null && hit.Length > 0 && hit[0] != null) return hit;
 
             var mat = look == EnemyLook.Automaton ? Ironbound : Chitin;
             var frames = new Sprite[Poses.Length];
-            for (int i = 0; i < frames.Length; i++) frames[i] = Render(i, mat, elite, biome);
+            for (int i = 0; i < frames.Length; i++) frames[i] = Render(i, mat, elite, biome, dross);
             _cache[key] = frames;
             return frames;
         }
@@ -137,6 +138,9 @@ namespace Convergence.Enemies
         // Six legs: hip x, near side?, which tripod. The tripods alternate in the scuttle.
         static readonly (float hip, bool near, int tri)[] Legs =
             { (19f, true, 0), (16.2f, false, 0), (13.4f, true, 0), (19f, false, 1), (16.2f, true, 1), (13.4f, false, 1) };
+
+        /// <summary>The rig being built is a Dross's (set round Build by RenderIn).</summary>
+        static bool _drossRig;
 
         static float RestFoot(float hip) => hip > 18f ? 25.5f : hip > 15f ? 18.5f : 9f;
 
@@ -159,6 +163,8 @@ namespace Convergence.Enemies
             // legs: thin, many, knees high - it is all reach and no mass
             foreach (var (hx0, near, tri) in Legs)
             {
+                // A Dross walks on four - the middle pair gone (fewer parts, Tuning.Dross).
+                if (_drossRig && hx0 > 15f && hx0 < 17f) continue;
                 var g = tri == 0 ? p.GaitA : p.GaitB;
                 var hip = new Vector2(hx0 + bx, 5.6f + by + p.Rear * (19f - hx0) / -6f);
                 float rest = RestFoot(hx0);
@@ -239,9 +245,9 @@ namespace Convergence.Enemies
         /// muzzle flash all start here (EnemyController.RangedMuzzle), so they leave the gland
         /// the player was watching rather than the middle of the body under it.
         /// </summary>
-        public static Vector2 MuzzleOffset(bool elite, bool faceLeft)
+        public static Vector2 MuzzleOffset(bool elite, bool faceLeft, bool dross = false)
         {
-            float scale = elite ? EliteScale : 1f;
+            float scale = elite ? EliteScale : dross ? Core.Tuning.Dross.SizeMul : 1f;
             Gland(Poses[(int)RangedFrame.Locked], null, out _, out var tip);
             // the sprite's pivot is rounded to a whole texel (TexelRig.Rasterise); measure from it
             float pivotX = Mathf.Round(PivotX * scale), pivotY = Mathf.Round(PivotY * scale);
@@ -252,22 +258,24 @@ namespace Convergence.Enemies
 
         // ---------------------------------------------------------------- raster
 
-        static Sprite Render(int frame, Mat mat, bool elite, Art.Biomes.BiomeKind biome)
+        static Sprite Render(int frame, Mat mat, bool elite, Art.Biomes.BiomeKind biome, bool dross = false)
         {
             CreatureAccents.Biome = biome; CreatureAccents.Frame = frame; CreatureAccents.Shards = Art.Biomes.Nigredo.Shards;
-            try { return RenderIn(frame, mat, elite, biome); }
+            try { return RenderIn(frame, mat, elite, biome, dross); }
             finally { CreatureAccents.Biome = Art.Biomes.BiomeKind.Tower; CreatureAccents.Shards = 0; }
         }
 
-        static Sprite RenderIn(int frame, Mat mat, bool elite, Art.Biomes.BiomeKind biome)
+        static Sprite RenderIn(int frame, Mat mat, bool elite, Art.Biomes.BiomeKind biome, bool dross)
         {
+            _drossRig = dross;
             var p = Poses[frame];
-            float scale = elite ? EliteScale : 1f;
+            float scale = elite ? EliteScale : dross ? Core.Tuning.Dross.SizeMul : 1f;
             int w = Mathf.RoundToInt(W * scale / 2f) * 2, h = Mathf.RoundToInt(H * scale);
             var fx = new Lights();
             var rig = Build(p, mat, elite, fx);
+            _drossRig = false;
 
-            string name = $"enemy.ranged.{(mat.Iron ? "iron" : "chitin")}{(elite ? ".elite" : "")}.{(RangedFrame)frame}";
+            string name = $"enemy.ranged.{(mat.Iron ? "iron" : "chitin")}{(elite ? ".elite" : dross ? ".dross" : "")}.{(RangedFrame)frame}";
 
             if (biome != Art.Biomes.BiomeKind.Tower) name += "." + biome;
             return TexelRig.Rasterise(name, rig, w, h, scale, mat.Out,

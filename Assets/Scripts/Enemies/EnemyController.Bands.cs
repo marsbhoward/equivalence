@@ -13,11 +13,13 @@ namespace Convergence.Enemies
     /// </summary>
     public partial class EnemyController
     {
-        bool AtBand(int fromBand) => _band >= fromBand;
+        /// <summary>Whether a behaviour arriving at <paramref name="fromBand"/> is on. Never for a
+        /// Dross - its kind's base move only (Tuning.Dross).</summary>
+        bool AtBand(int fromBand) => !Dross && _band >= fromBand;
 
         /// <summary>A BASIC at the veterans' band: it carries its elite's move (Tuning.EnemyBands).
         /// Read wherever a behaviour (not a stat, never the art) asked the Elite bool.</summary>
-        public bool Veteran => !Elite && _band >= Tuning.EnemyBands.VeteranFromBand;
+        public bool Veteran => !Elite && !Dross && _band >= Tuning.EnemyBands.VeteranFromBand;
 
         /// <summary>
         /// Set once by EnemyFactory, after the kind's stats and elite pattern: what the band changes

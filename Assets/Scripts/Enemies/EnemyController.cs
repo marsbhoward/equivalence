@@ -36,6 +36,9 @@ namespace Convergence.Enemies
         /// resistance, and the extra attack pattern.
         /// </summary>
         public bool Elite;
+        /// <summary>The LESSER tier (Tuning.Dross): its kind's base move only - no band move, veteran
+        /// move or affix (AtBand, Veteran) - and half a turn (TokenCost).</summary>
+        public bool Dross;
 
         /// <summary>The look this body was drawn in (EnemyLooks, rolled per floor), kept on the
         /// body so effects it makes later - the Tempest Eye's lightning and static mire - match
@@ -906,14 +909,15 @@ namespace Convergence.Enemies
             {
                 desired = BombCutOff(pos, dist, speed);
             }
-            else if (Kind == EnemyKind.Chaser && _rubbleTell)
+            else if (Kind == EnemyKind.Chaser && (_rubbleTell || _shoveTell))
             {
-                desired = Vector2.zero;   // planted for the throw
+                desired = Vector2.zero;   // planted for the throw, or crouched for the shove
             }
-            else if (Kind == EnemyKind.Chaser && ArtLoaded && !HoldsToken)
+            else if (Kind == EnemyKind.Chaser && (ArtLoaded || Stalks) && !HoldsToken)
             {
-                // The player's art is loaded: a Brute without a turn keeps its distance.
-                desired = Standoff(pos, to, dist, speed);
+                // A Brute without a turn keeps its distance: a stalking one always, herding from
+                // its side (EnemyController.Stalk); a Dross only while the player's art is loaded.
+                desired = Stalks ? Herd(pos, to, dist, speed) : Standoff(pos, to, dist, speed);
             }
             else
             {
@@ -1519,6 +1523,7 @@ namespace Convergence.Enemies
                 if (_telegraphTimer <= 0f)
                 {
                     if (_rubbleTell) ThrowRubble();
+                    else if (_shoveTell) LandShove();
                     else SwingChaser();
                 }
                 return;
@@ -1531,15 +1536,22 @@ namespace Convergence.Enemies
             float dist = Vector2.Distance(transform.position, _target.position);
             // A spent weapon art: the swing is ready at once.
             if (PunishBegins(dist)) _cooldown = Mathf.Min(_cooldown, 0f);
-            // A loaded one: only a Brute that takes a turn from its standoff comes in.
-            if (ArtLoaded && !HoldsToken)
+            bool live = _targetHealth != null && !_targetHealth.IsDead;
+            // A loaded one - or a stalking Brute, always: only a Brute that takes a turn from its
+            // standoff comes in. Crowded inside ShoveRange, a stalker shoves instead.
+            if ((ArtLoaded || Stalks) && !HoldsToken)
             {
-                if (_cooldown <= 0f && dist <= StandoffRadius + 0.3f) TryTakeToken();
+                if (Stalks && live && _cooldown <= 0f && dist <= Tuning.EnemyAi.ShoveRange && TryTakeToken())
+                    BeginShoveTell();
+                else if (_cooldown <= 0f && dist <= StandoffRadius + 0.3f) TryTakeToken();
+                else if (Stalks && live && WantsRubble(dist) && TryTakeToken()) BeginRubbleTell();
                 return;
             }
-            if (dist <= ChaserReach && _cooldown <= 0f && _targetHealth != null && !_targetHealth.IsDead
-                && TryTakeToken())
-                BeginChaserTelegraph();
+            if (dist <= ChaserReach && _cooldown <= 0f && live && TryTakeToken())
+            {
+                if (Stalks && dist <= Tuning.EnemyAi.ShoveRange) BeginShoveTell();
+                else BeginChaserTelegraph();
+            }
             // Band 4: a player kiting out of reach is answered with thrown rubble.
             else if (_targetHealth != null && !_targetHealth.IsDead && WantsRubble(dist) && TryTakeToken())
                 BeginRubbleTell();
@@ -1737,6 +1749,7 @@ namespace Convergence.Enemies
         {
             _telegraphTimer = 0f;
             _rubbleTell = false;
+            _shoveTell = false;
             if (_groundTell != null) Destroy(_groundTell.gameObject);
             _groundTell = null;
             if (_telegraphVisual != null) Destroy(_telegraphVisual);
@@ -1754,7 +1767,7 @@ namespace Convergence.Enemies
         public bool AimsLeft => _aimsLeft;
 
         /// <summary>Where a Ranged's shot leaves: the sting's tip on its locked frame (RangedArt).</summary>
-        public Vector2 RangedMuzzle => (Vector2)transform.position + RangedArt.MuzzleOffset(Elite, _aimsLeft);
+        public Vector2 RangedMuzzle => (Vector2)transform.position + RangedArt.MuzzleOffset(Elite, _aimsLeft, Dross);
 
         void Fire()
         {

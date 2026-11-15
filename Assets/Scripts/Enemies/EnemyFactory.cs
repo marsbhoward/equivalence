@@ -13,8 +13,10 @@ namespace Convergence.Enemies
         /// into the ordinary fields here; the behaviour half (displacement resistance, the extra
         /// attack pattern) is carried by EnemyController.Elite.
         /// </param>
+        /// <param name="dross">The LESSER tier (Tuning.Dross): smaller, a fifth of the health, less
+        /// damage, no armour, and only its kind's base move (EnemyController.Dross). Never elite too.</param>
         public static EnemyController Spawn(Vector2 pos, EnemyKind kind, int wave, Transform target, Transform parent,
-                                            bool elite = false, EliteAffix affix = EliteAffix.None)
+                                            bool elite = false, EliteAffix affix = EliteAffix.None, bool dross = false)
         {
             // ONE LOOKUP, NOT NINE SWITCHES. Every per-kind value lives on the type record -
             // see EnemyTypes - so an enemy can be read as a whole and adding a property means
@@ -26,7 +28,8 @@ namespace Convergence.Enemies
             go.transform.position = pos;
 
             // Root stays at scale 1 so world sizes stay honest; the visual child carries the size.
-            float size = def.Size * (elite ? Tuning.Enemy.EliteSizeMul : 1f);
+            if (dross) { elite = false; affix = EliteAffix.None; }
+            float size = def.Size * (elite ? Tuning.Enemy.EliteSizeMul : dross ? Tuning.Dross.SizeMul : 1f);
 
             var art = def.Art();
             var visual = Art.ArtBinder.AttachVisual(go, art, Spr.Circle, def.Tint, size, 5);
@@ -36,6 +39,7 @@ namespace Convergence.Enemies
             // `size` for the placeholder path just above. Without this an elite with real art
             // renders at the same size as a basic and loses the one tell that tells the two apart.
             if (elite && art.HasArt) visual.transform.localScale *= Tuning.Enemy.EliteSizeMul;
+            if (dross && art.HasArt) visual.transform.localScale *= Tuning.Dross.SizeMul;
 
             var col = go.AddComponent<CircleCollider2D>();
             col.radius = size * 0.5f;
@@ -54,7 +58,7 @@ namespace Convergence.Enemies
 
             // The floor curve, from the one place that owns it - see Enemies.FloorDifficulty for
             // what each axis is for and why speed is on the list at all.
-            float maxHp = MaxHpFor(def, wave, elite);
+            float maxHp = MaxHpFor(def, wave, elite, dross);
             var hp = go.AddComponent<Health>();
             hp.Configure(maxHp);
             hp.Immovable = !Tuning.Enemy.TakesKnockback;
@@ -90,6 +94,7 @@ namespace Convergence.Enemies
             var ec = go.AddComponent<EnemyController>();
             ec.Kind = kind;
             ec.Elite = elite;
+            ec.Dross = dross;
             ec.Band = Core.RunFormat.EnemyBand(wave);   // the behaviours that arrive with depth
             ec.Look = EnemyLooks.Of(kind);
             // SPEED SCALES WITH DEPTH NOW. It never did, and that was the whole reason a
@@ -97,7 +102,8 @@ namespace Convergence.Enemies
             // ever catch them, so the only thing depth bought was a longer fight.
             ec.MoveSpeed = (def.MoveSpeed + Random.Range(def.MoveSpeedJitterMin, def.MoveSpeedJitterMax))
                          * FloorDifficulty.Speed(wave);
-            ec.Damage = def.Damage * FloorDifficulty.Damage(wave) * (elite ? Tuning.Enemy.EliteDamageMul : 1f);
+            ec.Damage = def.Damage * FloorDifficulty.Damage(wave)
+                      * (elite ? Tuning.Enemy.EliteDamageMul : dross ? Tuning.Dross.DamageMul : 1f);
             ec.AttackRange = def.AttackRange;
             ec.PreferredMinRange = def.PreferredMinRange;
 
@@ -153,7 +159,7 @@ namespace Convergence.Enemies
             // TYPE to carry armor by default (additive with the tier's own amount) - nothing
             // does yet, so it is 0 for everything today.
             float barSize = maxHp * Tuning.Enemy.ArmorBarFraction;
-            float armorMax = ArmorFor(def, maxHp, wave, elite);
+            float armorMax = ArmorFor(def, maxHp, wave, elite, dross);
 
             if (armorMax > 0f)
             {
@@ -184,8 +190,8 @@ namespace Convergence.Enemies
         /// <summary>A spawn's max health. Public so WaveComposer prices an enemy with the same
         /// number this factory gives it - a copy of the formula would drift the first time
         /// either side was tuned.</summary>
-        public static float MaxHpFor(EnemyDef def, int wave, bool elite)
-            => def.BaseHp * FloorDifficulty.Hp(wave) * (elite ? Tuning.Enemy.EliteHpMul : 1f);
+        public static float MaxHpFor(EnemyDef def, int wave, bool elite, bool dross = false)
+            => def.BaseHp * FloorDifficulty.Hp(wave) * (elite ? Tuning.Enemy.EliteHpMul : dross ? Tuning.Dross.HpMul : 1f);
 
         /// <summary>
         /// A spawn's armor pool, sized off its own <paramref name="maxHp"/>. Public for the same
@@ -197,9 +203,10 @@ namespace Convergence.Enemies
         /// family has, since EnemyController.Flinch refuses a Medium interrupt while any armor
         /// remains.
         /// </summary>
-        public static float ArmorFor(EnemyDef def, float maxHp, int wave, bool elite)
+        public static float ArmorFor(EnemyDef def, float maxHp, int wave, bool elite, bool dross = false)
         {
-            if (def.NeverArmored) return 0f;
+            // A Dross is cut through, not chipped - an armour bar on fodder is a chore.
+            if (def.NeverArmored || dross) return 0f;
             int growthBars = wave / Tuning.Enemy.ArmorGrowthFloors;
             float tierArmor = (elite ? maxHp * Tuning.Enemy.EliteArmorFraction : 0f)
                              + growthBars * maxHp * Tuning.Enemy.ArmorBarFraction;

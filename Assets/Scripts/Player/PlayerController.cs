@@ -411,7 +411,7 @@ namespace Convergence.Player
         [System.NonSerialized] public Phial Phial;
         /// <summary>Drinking from the phial: held, and no release or defensive until it is done.</summary>
         public bool Drinking => Phial != null && Phial.Drinking;
-        public bool Dashing => _dashSeconds > 0f;
+        public bool Dashing => _dashSeconds > 0f && !_shoved;
 
         /// <summary>A weapon art pressed and not yet struck - set in DoAttack, cleared by SettleStrike.</summary>
         bool _artUnstruck;
@@ -1501,10 +1501,28 @@ namespace Convergence.Player
 
             _dashVelocity = direction.normalized * speed;
             _dashSeconds = seconds;
+            _shoved = false;   // Shove sets it after this
             if (_rb != null) _rb.linearDamping = 0f;
         }
 
         float _dampingBeforeDash;
+
+        /// <summary>The slide running is a SHOVE (an enemy's - the Brute's), not the player's dash:
+        /// no dodge, no dash pose, and it stops at a chasm's lip instead of crossing.</summary>
+        bool _shoved;
+
+        /// <summary>
+        /// Driven <paramref name="distance"/> along <paramref name="direction"/> over
+        /// <paramref name="seconds"/> by an enemy's blow - the dash's own scripted slide (so the
+        /// distance is the distance), with the stick ignored for its length. Refused while the
+        /// player dashes, leaps, or is stone.
+        /// </summary>
+        public void Shove(Vector2 direction, float distance, float seconds)
+        {
+            if (Dashing || Airborne || Statue || Petrified || seconds <= 0f) return;
+            Dash(direction, distance / seconds, seconds);
+            _shoved = true;
+        }
 
         // ---------------------------------------------------------------- chasms
         //
@@ -1619,6 +1637,8 @@ namespace Convergence.Player
         [SerializeField] MonoBehaviour _rigBehaviour;
 
         public int Kills { get; private set; }
+        /// <summary>Of <see cref="Kills"/>, how many were Dross.</summary>
+        public int DrossKills { get; private set; }
 
         void Awake()
         {
@@ -1682,7 +1702,8 @@ namespace Convergence.Player
             // the rest of this session and simply not survive a reload.
             _rigBehaviour = rig as MonoBehaviour;
         }
-        public void RegisterKill() => Kills++;
+        /// <param name="dross">A lesser body - counted, and paid a share of the XP (Tuning.Dross.XpShare).</param>
+        public void RegisterKill(bool dross = false) { Kills++; if (dross) DrossKills++; }
 
         /// <summary>
         /// Hand the chain straight back to a finisher. Ouroboros's refund.
@@ -2281,6 +2302,7 @@ namespace Convergence.Player
             {
                 _pullPut = Vector2.zero;
                 _rb.linearVelocity = _dashVelocity;
+                if (_shoved) HoldChasmEdge();   // a shove is held at the lip, as a walk is
                 _dashSeconds -= Time.fixedDeltaTime;
                 if (_dashSeconds <= DashEpsilon)
                 {
@@ -2288,15 +2310,16 @@ namespace Convergence.Player
                     _dashStopping = true;
                 }
 
-                IsMoving = true;
-                MoveIntent = true;   // a dash IS movement, however it was started
-                Resource?.OnMoved(true);
+                IsMoving = !_shoved;
+                MoveIntent = !_shoved;   // a dash IS movement, however it was started; a shove is not the player's
+                if (!_shoved) Resource?.OnMoved(true);
                 return;
             }
 
             if (_dashStopping)
             {
                 _dashStopping = false;
+                _shoved = false;
                 _dashVelocity = Vector2.zero;
                 _rb.linearVelocity = Vector2.zero;
                 _rb.linearDamping = _dampingBeforeDash;
@@ -7815,6 +7838,7 @@ namespace Convergence.Player
             s.ThirdSlotRemoved = false;   // slot 3 can no longer be dropped (2026-11-12)
             s.RotationIndex = RotationIndex;
             s.Kills = Kills;
+            s.DrossKills = DrossKills;
             s.PerfectStreak = _perfectStreak;
             s.PhialCharges = Phial != null ? Phial.Charges : -1;
             if (Resource != null)
@@ -7856,6 +7880,7 @@ namespace Convergence.Player
             RotationIndex = Slots.Count > 0 ? Mathf.Clamp(s.RotationIndex, 0, Slots.Count - 1) : 0;
             ComboIndex = 0;
             Kills = Mathf.Max(0, s.Kills);
+            DrossKills = Mathf.Clamp(s.DrossKills, 0, Kills);
             _perfectStreak = Mathf.Max(0, s.PerfectStreak);
             Phial?.SetCharges(s.PhialCharges);
         }

@@ -21,6 +21,7 @@ namespace Convergence.Enemies
         protected override Sprite[] Build(EnemyLook look, bool elite) => RangedArt.For(look, elite);
         protected override Color[] Reserved => RangedArt.Reserved;
         protected override Sprite[] Build(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome) => RangedArt.For(look, elite, biome);
+        protected override Sprite[] Build(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome, bool dross) => RangedArt.For(look, elite, biome, dross);
 
         void LateUpdate()
         {

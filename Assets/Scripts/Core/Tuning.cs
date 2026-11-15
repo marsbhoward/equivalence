@@ -6892,6 +6892,10 @@ namespace Convergence.Core
             /// its pool is EMPTY, whatever the pool's size.</summary>
             public const int EliteCost = 2;
 
+            /// <summary>A Dross's turn takes HALF a turn: four of them share two (Tuning.Dross).
+            /// Counted in halves (EnemyController.TokenCost).</summary>
+            public const float DrossCost = 0.5f;
+
             /// <summary>Held this long after the blow resolves, so the next tell in the pool cannot
             /// start on the frame this one lands.</summary>
             public const float HoldAfterSeconds = 0.25f;
@@ -6984,6 +6988,29 @@ namespace Convergence.Core
             public const float StandoffMargin = 1.0f;
             public const float StandoffBackOffFraction = 0.5f;
             public const float StandoffCircleFraction = 0.3f;
+
+            // ---- THE BRUTE STALKS (the user's design, 2026-11-15, mock-up
+            // https://claude.ai/artifact/TDzR6yBMBKae4hh6NBpw3X): a full-sized Brute (normal or
+            // elite - never a Dross, which keeps the old rush) holds the STANDOFF by default, not
+            // only while an art is loaded; while it waits it HERDS - takes the side of the player
+            // with the most open floor, away from its pack - and comes in only on its turn. Crowd it
+            // and it SHOVES: a low tell, then its shoulder drives the player back out of reach.
+
+            public const bool BruteStalks = true;
+            /// <summary>How often a stalking Brute picks its side again.</summary>
+            public const float HerdRepickSeconds = 0.5f;
+            /// <summary>How much a Brute prefers the side it is already on (against flip-flopping).</summary>
+            public const float HerdStickiness = 0.35f;
+            /// <summary>The player inside this of a stalking Brute is crowding it: it shoves.</summary>
+            public const float ShoveRange = 1.0f;
+            /// <summary>The shove's tell - LOW, where the overhead's (0.35 s) is tall.</summary>
+            public const float ShoveTellSeconds = 0.25f;
+            public const float ShoveDamageMul = 0.5f;
+            /// <summary>How far the shove drives the player, and over how long (a scripted slide, as
+            /// a dash is; it stops at a chasm's lip).</summary>
+            public const float ShoveDistance = 1.5f, ShoveSeconds = 0.16f;
+            /// <summary>How far past ShoveRange a shove still connects as it lands.</summary>
+            public const float ShoveReachSlack = 0.45f;
             public const int LoadedTokenCut = 1;
 
             /// <summary>For this long after an art is DONE (PlayerController.ArtEndedAt), rushers
@@ -7017,6 +7044,43 @@ namespace Convergence.Core
             public const float MaxPoolShare = 0.75f;
             /// <summary>How far round the group's arrival point its members are placed.</summary>
             public const float Spread = 1.4f;
+        }
+
+        /// <summary>
+        /// DROSS, the lesser tier (the user's design, 2026-11-15, from the mock-up at
+        /// https://claude.ai/artifact/TDzR6yBMBKae4hh6NBpw3X): the same kinds smaller, weaker and in
+        /// PACKS, so a room fills the way a Hades room does without a new creature to learn. The tier
+        /// mirrors the elite: an elite is bigger, has more parts and burns brighter; a Dross is
+        /// smaller, has fewer parts and is one dull verdigris (its tells keep the kind's own colour).
+        /// It has only its kind's BASE move - no band move, veteran move or affix. Code-only name.
+        /// </summary>
+        public static class Dross
+        {
+            /// <summary>The kinds with a lesser form. The rest are an effect more than a body (beam,
+            /// root, bubble, roar, shell) - a smaller one is no easier to deal with.</summary>
+            public static readonly Convergence.Enemies.EnemyKind[] Kinds =
+            {
+                Convergence.Enemies.EnemyKind.Chaser, Convergence.Enemies.EnemyKind.Ranged,
+                Convergence.Enemies.EnemyKind.Bomb, Convergence.Enemies.EnemyKind.Dasher,
+            };
+            /// <summary>Re-drawn on the grid at this size (the elite's is 1.2).</summary>
+            public const float SizeMul = 0.75f;
+            public const float HpMul = 0.2f;
+            public const float DamageMul = 0.4f;
+            /// <summary>Of its kind's pressure on the on-screen cap: four weigh about one full body.</summary>
+            public const float PressureMul = 0.3f;
+            /// <summary>No packs before this floor.</summary>
+            public const int FromFloor = 3;
+            public const int PackMin = 3, PackMax = 5;
+            /// <summary>The chance of a first and a second pack, from FromFloor to RampedByFloor.</summary>
+            public const float FirstPackChanceFrom = 0.45f, FirstPackChanceTo = 0.85f;
+            public const float SecondPackChanceFrom = 0f, SecondPackChanceTo = 0.5f;
+            public const int RampedByFloor = 40;
+            /// <summary>Packs spend at most this share of the floor's pool, so they have company.</summary>
+            public const float MaxPoolShare = 0.4f;
+            /// <summary>A Dross kill pays this share of a kill's XP - a fifth of a body, so packs add
+            /// bodies to a run without adding a run's worth of XP.</summary>
+            public const float XpShare = 0.2f;
         }
 
         /// <summary>

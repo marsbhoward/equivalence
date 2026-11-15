@@ -17,9 +17,13 @@ namespace Convergence.Enemies
         public readonly WaveGroupId Group;
         /// <summary>An elite's modifier (Tuning.EliteAffixes), or None.</summary>
         public readonly EliteAffix Affix;
+        /// <summary>The lesser tier (Tuning.Dross) - never elite too.</summary>
+        public readonly bool Dross;
+        /// <summary>The Dross pack it arrives with (1, 2, ...), or 0.</summary>
+        public readonly int Pack;
         public WaveSpawn(EnemyKind kind, bool elite, WaveGroupId group = WaveGroupId.None,
-                         EliteAffix affix = EliteAffix.None)
-        { Kind = kind; Elite = elite; Group = group; Affix = affix; }
+                         EliteAffix affix = EliteAffix.None, bool dross = false, int pack = 0)
+        { Kind = kind; Elite = elite; Group = group; Affix = affix; Dross = dross; Pack = pack; }
     }
 
     /// <summary>A floor's whole wave, decided before anything spawns.</summary>
@@ -47,6 +51,7 @@ namespace Convergence.Enemies
         }
 
         public int Elites => Spawns.Count(s => s.Elite);
+        public int DrossCount => Spawns.Count(s => s.Dross);
 
         /// <summary>The designed group drawn, or None (code only - never shown).</summary>
         public WaveGroupId Group;
@@ -57,9 +62,10 @@ namespace Convergence.Enemies
                 .OrderByDescending(g => g.Count())
                 .Select(g =>
                 {
-                    int e = g.Count(s => s.Elite);
+                    int e = g.Count(s => s.Elite), d = g.Count(s => s.Dross);
                     string name = EnemyTypes.Of(g.Key).Name;
-                    return e > 0 ? $"{g.Count()} {name} ({e} elite)" : $"{g.Count()} {name}";
+                    string tiers = e > 0 && d > 0 ? $" ({e} elite, {d} dross)" : e > 0 ? $" ({e} elite)" : d > 0 ? $" ({d} dross)" : "";
+                    return $"{g.Count()} {name}{tiers}";
                 }));
     }
 
@@ -177,20 +183,25 @@ namespace Convergence.Enemies
         // ------------------------------------------------------------------ prices
 
         /// <summary>Health plus armor, exactly as EnemyFactory would build this spawn.</summary>
-        public static float Ehp(EnemyKind kind, bool elite, int floor)
+        public static float Ehp(EnemyKind kind, bool elite, int floor, bool dross = false)
         {
             var def = EnemyTypes.Of(kind);
-            float hp = EnemyFactory.MaxHpFor(def, floor, elite);
-            return hp + EnemyFactory.ArmorFor(def, hp, floor, elite);
+            float hp = EnemyFactory.MaxHpFor(def, floor, elite, dross);
+            return hp + EnemyFactory.ArmorFor(def, hp, floor, elite, dross);
         }
 
-        public static float Cost(EnemyKind kind, bool elite, int floor)
-            => Mathf.Max(Ehp(kind, elite, floor),
-                         Tuning.Waves.MinCostFraction * Ehp(EnemyKind.Chaser, false, floor));
+        /// <summary>What a body costs against the pool. A Dross pays its own small price - the
+        /// floor under it (MinCostFraction) is there to stop support kinds filling MaxBodies, and a
+        /// pack is meant to be many cheap bodies.</summary>
+        public static float Cost(EnemyKind kind, bool elite, int floor, bool dross = false)
+            => dross ? Ehp(kind, false, floor, true)
+                     : Mathf.Max(Ehp(kind, elite, floor),
+                                 Tuning.Waves.MinCostFraction * Ehp(EnemyKind.Chaser, false, floor));
 
-        /// <summary>A spawn's pressure, its elite modifier included.</summary>
-        public static float Pressure(EnemyKind kind, bool elite, EliteAffix affix)
-            => Pressure(kind, elite) * (affix != EliteAffix.None ? Tuning.EliteAffixes.PressureMul : 1f);
+        /// <summary>A spawn's pressure, its elite modifier and its tier included.</summary>
+        public static float Pressure(EnemyKind kind, bool elite, EliteAffix affix, bool dross = false)
+            => Pressure(kind, elite) * (affix != EliteAffix.None ? Tuning.EliteAffixes.PressureMul : 1f)
+                                     * (dross ? Tuning.Dross.PressureMul : 1f);
 
         public static float Pressure(EnemyKind kind, bool elite)
         {
@@ -222,7 +233,7 @@ namespace Convergence.Enemies
         public static bool Fits(WaveSpawn next, float livePressure, int liveBodies, int floor)
             => liveBodies == 0
             || (liveBodies < Tuning.Waves.MaxLiveBodies
-                && livePressure + Pressure(next.Kind, next.Elite, next.Affix) <= LivePressureCap(floor) + 1e-4f);
+                && livePressure + Pressure(next.Kind, next.Elite, next.Affix, next.Dross) <= LivePressureCap(floor) + 1e-4f);
 
         /// <summary>Seconds of damage the floor should take the expected player.</summary>
         public static float TargetSeconds(int floor)
@@ -362,6 +373,39 @@ namespace Convergence.Enemies
                 }
             }
 
+            // DROSS PACKS (Tuning.Dross): from a stream of their own, never on a debut floor (that floor
+            // teaches one thing), only kinds the run has met. Bought before the draw, so the rest of
+            // the pool fills round them; queued among it below, each pack together.
+            var packs = new List<List<WaveSpawn>>();
+            var prng = new System.Random(seed ^ 0x44524F53);
+            if (!debutFloor && depth >= Tuning.Dross.FromFloor)
+            {
+                float ramp = Mathf.InverseLerp(Tuning.Dross.FromFloor, Tuning.Dross.RampedByFloor, depth);
+                int want = 0;
+                if (prng.NextDouble() < Mathf.Lerp(Tuning.Dross.FirstPackChanceFrom, Tuning.Dross.FirstPackChanceTo, ramp)) want++;
+                if (want > 0 && prng.NextDouble() < Mathf.Lerp(Tuning.Dross.SecondPackChanceFrom, Tuning.Dross.SecondPackChanceTo, ramp)) want++;
+                var kinds = Tuning.Dross.Kinds.Where(k => UnlockAt(k) <= depth).ToList();
+                float budget = wave.Pool * Tuning.Dross.MaxPoolShare, spent = 0f;
+                for (int n = 0; n < want && kinds.Count > 0; n++)
+                {
+                    var kind = kinds[prng.Next(kinds.Count)];
+                    int size = prng.Next(Tuning.Dross.PackMin, Tuning.Dross.PackMax + 1);
+                    float each = Cost(kind, false, floor, true);
+                    while (size >= Tuning.Dross.PackMin && (spent + size * each > budget || size * each > wave.Pool - wave.Spent)) size--;
+                    if (size < Tuning.Dross.PackMin) continue;
+                    var pack = new List<WaveSpawn>();
+                    for (int i = 0; i < size; i++)
+                    {
+                        pack.Add(new WaveSpawn(kind, false, dross: true, pack: packs.Count + 1));
+                        wave.Spent += each;
+                        wave.TotalEhp += each;
+                        spent += each;
+                    }
+                    packs.Add(pack);
+                }
+            }
+            int packed = packs.Sum(pk => pk.Count);
+
             // This floor's lean: every eligible kind's weight scaled by a log-normal draw, a kind
             // fresh off its debut ramping up from DebutWeight.
             var weights = new Dictionary<EnemyKind, float>();
@@ -379,7 +423,7 @@ namespace Convergence.Enemies
             double eliteShare = rng.NextDouble() * EliteShareCap(floor);
             var options = new List<(EnemyKind Kind, float Weight)>();
 
-            while (drawn.Count + group.Count + (guaranteed.HasValue ? 1 : 0) < Tuning.Waves.MaxBodies)
+            while (drawn.Count + group.Count + packed + (guaranteed.HasValue ? 1 : 0) < Tuning.Waves.MaxBodies)
             {
                 float remaining = wave.Pool - wave.Spent;
                 if (remaining <= 0f) break;
@@ -387,7 +431,7 @@ namespace Convergence.Enemies
                 // Running out of bodies before running out of pool: only what is dear enough to
                 // spend the rest in the slots left. Otherwise a deep room of cheap kinds hits
                 // MaxBodies with a fifth of its pool unspent - a floor that comes up short.
-                int slotsLeft = Tuning.Waves.MaxBodies - drawn.Count - group.Count - (guaranteed.HasValue ? 1 : 0);
+                int slotsLeft = Tuning.Waves.MaxBodies - drawn.Count - group.Count - packed - (guaranteed.HasValue ? 1 : 0);
                 float atLeast = remaining / slotsLeft;
 
                 bool elite = elites < eliteCap && rng.NextDouble() < eliteShare;
@@ -420,6 +464,8 @@ namespace Convergence.Enemies
                 int j = rng.Next(i + 1);
                 (drawn[i], drawn[j]) = (drawn[j], drawn[i]);
             }
+            // Each pack goes in at a place of its own among the rest, its members together.
+            foreach (var pack in packs) drawn.InsertRange(prng.Next(drawn.Count + 1), pack);
             // The group arrives FIRST, together, ahead of the shuffled rest.
             wave.Spawns.AddRange(group);
             wave.Spawns.AddRange(drawn);
@@ -448,7 +494,7 @@ namespace Convergence.Enemies
                 foreach (var a in all)
                     if (a != EliteAffix.None && WaveGroups.Suits(a, s.Kind)) fit.Add(a);
                 if (fit.Count == 0) continue;
-                wave.Spawns[i] = new WaveSpawn(s.Kind, s.Elite, s.Group, fit[arng.Next(fit.Count)]);
+                wave.Spawns[i] = new WaveSpawn(s.Kind, s.Elite, s.Group, fit[arng.Next(fit.Count)], s.Dross, s.Pack);
             }
         }
 
@@ -492,7 +538,7 @@ namespace Convergence.Enemies
             sb.Append($"{runs} waves per floor. pool in basic Chasers of that floor; " +
                       "damage-seconds are the bodies' real EHP over each player's DPS\n");
             sb.Append("floor  pool | bodies p10/50/90 max | elites p50/90 max | opening live p10/50/90 | " +
-                      "top kind p90 | spent/pool min-avg | ref/avg  built/avg  built/stack\n");
+                      "top kind p90 | spent/pool min-avg | ref/avg  built/avg  built/stack | dross p50/90\n");
 
             var seenOn = new Dictionary<EnemyKind, int>();
             var groupsDrawn = new Dictionary<WaveGroupId, int>();
@@ -504,6 +550,7 @@ namespace Convergence.Enemies
             {
                 var bodies = new List<int>();
                 var elites = new List<int>();
+                var dross = new List<int>();
                 var live = new List<int>();
                 var top = new List<float>();
                 var fill = new List<float>();
@@ -515,6 +562,7 @@ namespace Convergence.Enemies
                     var w = Compose(floor, unchecked(i * 7919 + floor * 104729), floor % 3 == 0, false);
                     bodies.Add(w.Spawns.Count);
                     elites.Add(w.Elites);
+                    dross.Add(w.DrossCount);
                     live.Add(OpeningLive(w));
                     top.Add(w.Spawns.GroupBy(s => s.Kind).Max(g => g.Count()) / (float)w.Spawns.Count);
                     fill.Add(w.Spent / w.Pool);
@@ -543,7 +591,7 @@ namespace Convergence.Enemies
                           $"{P(elites, .5f)}/{P(elites, .9f)} {elites.Max(),2} | " +
                           $"{P(live, .1f),2}/{P(live, .5f),2}/{P(live, .9f),2} | " +
                           $"{P(top, .9f),4:0.00} | {fill.Min(),4:0.00}-{fill.Average(),4:0.00} | " +
-                          $"{r,5:0}s  {ba,5:0}s  {bs,5:0}s\n");
+                          $"{r,5:0}s  {ba,5:0}s  {bs,5:0}s | {P(dross, .5f)}/{P(dross, .9f)}\n");
             }
 
             sb.Append($"\nfloors (of {Core.RunFormat.FinalFloor}) each kind appears on: ");
@@ -564,7 +612,7 @@ namespace Convergence.Enemies
             foreach (var s in w.Spawns)
             {
                 if (!Fits(s, pressure, n, w.Floor)) break;
-                pressure += Pressure(s.Kind, s.Elite, s.Affix);
+                pressure += Pressure(s.Kind, s.Elite, s.Affix, s.Dross);
                 n++;
             }
             return n;

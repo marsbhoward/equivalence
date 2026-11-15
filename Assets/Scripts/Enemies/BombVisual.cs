@@ -20,6 +20,7 @@ namespace Convergence.Enemies
         protected override Sprite[] Build(EnemyLook look, bool elite) => BombArt.For(look, elite);
         protected override Color[] Reserved => BombArt.Reserved;
         protected override Sprite[] Build(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome) => BombArt.For(look, elite, biome);
+        protected override Sprite[] Build(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome, bool dross) => BombArt.For(look, elite, biome, dross);
 
         void LateUpdate()
         {

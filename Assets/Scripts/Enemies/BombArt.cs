@@ -137,14 +137,15 @@ namespace Convergence.Enemies
 
         /// <summary>The same, wearing the place's accent (CreatureAccents) - weathered after by
         /// CreatureWeathering.</summary>
-        public static Sprite[] For(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome)
+        public static Sprite[] For(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome, bool dross = false)
         {
-            int key = (look == EnemyLook.Automaton ? 1 : 0) | (elite ? 2 : 0) | ((int)biome << 2) | (Art.Biomes.Nigredo.Shards << 5);
+            int key = (look == EnemyLook.Automaton ? 1 : 0) | (elite ? 2 : 0) | ((int)biome << 2) | (Art.Biomes.Nigredo.Shards << 5)
+                    | (dross ? 1 << 12 : 0);
             if (_cache.TryGetValue(key, out var hit) && hit != null && hit.Length > 0 && hit[0] != null) return hit;
 
             var mat = look == EnemyLook.Automaton ? Ironbound : Slag;
             var frames = new Sprite[Poses.Length];
-            for (int i = 0; i < frames.Length; i++) frames[i] = Render(i, mat, elite, biome);
+            for (int i = 0; i < frames.Length; i++) frames[i] = Render(i, mat, elite, biome, dross);
             _cache[key] = frames;
             return frames;
         }
@@ -222,21 +223,21 @@ namespace Convergence.Enemies
 
         // ---------------------------------------------------------------- raster
 
-        static Sprite Render(int frame, Mat mat, bool elite, Art.Biomes.BiomeKind biome)
+        static Sprite Render(int frame, Mat mat, bool elite, Art.Biomes.BiomeKind biome, bool dross = false)
         {
             CreatureAccents.Biome = biome; CreatureAccents.Frame = frame; CreatureAccents.Shards = Art.Biomes.Nigredo.Shards;
-            try { return RenderIn(frame, mat, elite, biome); }
+            try { return RenderIn(frame, mat, elite, biome, dross); }
             finally { CreatureAccents.Biome = Art.Biomes.BiomeKind.Tower; CreatureAccents.Shards = 0; }
         }
 
-        static Sprite RenderIn(int frame, Mat mat, bool elite, Art.Biomes.BiomeKind biome)
+        static Sprite RenderIn(int frame, Mat mat, bool elite, Art.Biomes.BiomeKind biome, bool dross)
         {
             var p = Poses[frame];
-            float scale = elite ? EliteScale : 1f;
+            float scale = elite ? EliteScale : dross ? Core.Tuning.Dross.SizeMul : 1f;
             int w = Mathf.RoundToInt(W * scale / 2f) * 2, h = Mathf.RoundToInt(H * scale);
             var fx = new Lights();
             var rig = Build(p, elite, fx);
-            string name = $"enemy.bomb.{(mat.Iron ? "iron" : "slag")}{(elite ? ".elite" : "")}.{(BombFrame)frame}";
+            string name = $"enemy.bomb.{(mat.Iron ? "iron" : "slag")}{(elite ? ".elite" : dross ? ".dross" : "")}.{(BombFrame)frame}";
             if (biome != Art.Biomes.BiomeKind.Tower) name += "." + biome;
             return TexelRig.Rasterise(name, rig, w, h, scale, mat.Out,
                 (in TexelRig.Cell c, int x, int y, int s, System.Func<int, int, TexelRig.Part> at) => ColourOf(c, x, y, mat, p, at),

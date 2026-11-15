@@ -65,7 +65,7 @@ namespace Convergence.Core
             if (_plan.Category != Rifts.FloorCategory.Combat || _plan.Rift != Rifts.RiftKind.None) return PlatformKind.None;
             if (RunFormat.Depth(floor) < Tuning.Rooms.FromFloor) return PlatformKind.None;
             float total = 0f;
-            foreach (var s in wave.Spawns) total += WaveComposer.Pressure(s.Kind, s.Elite, s.Affix);
+            foreach (var s in wave.Spawns) total += WaveComposer.Pressure(s.Kind, s.Elite, s.Affix, s.Dross);
             if (total < WaveComposer.LivePressureCap(floor) * Tuning.Platforms.MinFills) return PlatformKind.None;
             var rng = new System.Random(unchecked(PlatformSeed(floor) * 37 + 11));
             if (rng.NextDouble() >= Tuning.Platforms.Chance) return PlatformKind.None;
@@ -98,7 +98,7 @@ namespace Convergence.Core
             var all = _spawnQueue.ToArray();
             _spawnQueue.Clear();
             float total = 0f;
-            foreach (var s in all) total += WaveComposer.Pressure(s.Kind, s.Elite, s.Affix);
+            foreach (var s in all) total += WaveComposer.Pressure(s.Kind, s.Elite, s.Affix, s.Dross);
             int rounds = Mathf.Max(1, Tuning.Platforms.Rounds);
             var queues = new List<Queue<PendingSpawn>>();
             for (int i = 0; i < rounds; i++) queues.Add(new Queue<PendingSpawn>());
@@ -107,7 +107,7 @@ namespace Convergence.Core
             {
                 int r = total > 0f ? Mathf.Min(rounds - 1, (int)(acc / total * rounds)) : 0;
                 queues[r].Enqueue(s);
-                acc += WaveComposer.Pressure(s.Kind, s.Elite, s.Affix);
+                acc += WaveComposer.Pressure(s.Kind, s.Elite, s.Affix, s.Dross);
             }
             foreach (var s in queues[0]) _spawnQueue.Enqueue(s);
             for (int i = 1; i < rounds; i++) if (queues[i].Count > 0) _laterRounds.Add(queues[i]);
@@ -191,16 +191,16 @@ namespace Convergence.Core
             {
                 if (token != _runToken || _player == null) break;
                 var next = q.Peek();
-                if (!WaveComposer.Fits(new WaveSpawn(next.Kind, next.Elite, affix: next.Affix), pressure, bodies, _floor)) break;
+                if (!WaveComposer.Fits(new WaveSpawn(next.Kind, next.Elite, affix: next.Affix, dross: next.Dross), pressure, bodies, _floor)) break;
                 q.Dequeue();
                 var e = EnemyFactory.Spawn(next.Position(), next.Kind, _floor, _player.transform, _enemyRoot,
-                                           elite: next.Elite, affix: next.Affix);
+                                           elite: next.Elite, affix: next.Affix, dross: next.Dross);
                 e.RollIndex = _floorSpawns++;
                 Harden(e);
                 HookDeath(e);
                 if (!Lobs(next.Kind)) e.BeginGated();
                 _gated.Add(e);
-                pressure += WaveComposer.Pressure(next.Kind, next.Elite, next.Affix);
+                pressure += WaveComposer.Pressure(next.Kind, next.Elite, next.Affix, next.Dross);
                 bodies++;
                 yield return new WaitForSecondsRealtime(0.05f);
             }

@@ -128,7 +128,8 @@ namespace Convergence.Enemies
             return w;
         }
 
-        static byte Classify(Color c, Color[] reserved)
+        /// <summary>0 empty, 1 outline, 2 kept (effect, tell, accent), 3 body - shared with DrossLook.</summary>
+        internal static byte Classify(Color c, Color[] reserved)
         {
             if (c.a <= 0f) return 0;
             if (c.r < 0.066f && c.g < 0.066f && c.b < 0.066f) return 1;   // the outline (every kind's is under #111)

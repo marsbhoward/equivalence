@@ -145,21 +145,22 @@ namespace Convergence.Enemies
 
         /// <summary>The same, wearing the place's accent (CreatureAccents) - weathered after by
         /// CreatureWeathering.</summary>
-        public static Sprite[] For(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome)
+        public static Sprite[] For(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome, bool dross = false)
         {
-            int key = (look == EnemyLook.Automaton ? 1 : 0) | (elite ? 2 : 0) | ((int)biome << 2) | (Art.Biomes.Nigredo.Shards << 5);
+            int key = (look == EnemyLook.Automaton ? 1 : 0) | (elite ? 2 : 0) | ((int)biome << 2) | (Art.Biomes.Nigredo.Shards << 5)
+                    | (dross ? 1 << 12 : 0);
             if (_cache.TryGetValue(key, out var hit) && hit != null && hit.Length > 0 && hit[0] != null) return hit;
 
             var mat = look == EnemyLook.Automaton ? Ironbound : Carrion;
             var frames = new Sprite[Poses.Length];
-            for (int i = 0; i < frames.Length; i++) frames[i] = Render(i, mat, elite, biome);
+            for (int i = 0; i < frames.Length; i++) frames[i] = Render(i, mat, elite, biome, dross);
             _cache[key] = frames;
             return frames;
         }
 
         // ---------------------------------------------------------------- the rig (facing +x)
 
-        static TexelRig.Rig Build(Pose p, Mat mat, bool elite)
+        static TexelRig.Rig Build(Pose p, Mat mat, bool elite, bool dross = false)
         {
             var rig = new TexelRig.Rig();
             TexelRig.Part Add(float order, Slot slot, TexelRig.Shape test, bool far = false, bool sep = false,
@@ -239,12 +240,13 @@ namespace Convergence.Enemies
             Add(4.3f, Slot.Eye, TexelRig.Ellipse(ey.x, ey.y, 0.85f, 0.55f, p.HeadRot), level: p.Glow);
 
             // the mane: wind streaming off the spine (Ironbound: off a row of iron vanes)
-            int manes = elite ? 5 : 3;
+            // A Dross trails one streamer - fewer parts, as an elite has more (Tuning.Dross).
+            int manes = elite ? 5 : dross ? 1 : 3;
             var back0 = new Vector2(n.x - 0.8f, n.y + 1.2f);
             var back1 = new Vector2(hip.x + 2f, hip.y + 3.2f);
             for (int i = 0; i < manes; i++)
             {
-                float t = i / (float)(manes - 1);
+                float t = manes > 1 ? i / (float)(manes - 1) : 0.4f;
                 var b = Vector2.Lerp(back0, back1, t);
                 if (iron) Add(2.6f + i * 0.01f, Slot.Vane, TexelRig.Taper(b, new Vector2(b.x - 1.6f, b.y + 1.9f), 0.85f, 0.35f));
                 float len = (4.2f + (elite ? 1.2f : 0f) + p.WindLen * 0.5f - t * 1.2f) * p.Wind;
@@ -271,21 +273,21 @@ namespace Convergence.Enemies
 
         // ---------------------------------------------------------------- raster
 
-        static Sprite Render(int frame, Mat mat, bool elite, Art.Biomes.BiomeKind biome)
+        static Sprite Render(int frame, Mat mat, bool elite, Art.Biomes.BiomeKind biome, bool dross = false)
         {
             CreatureAccents.Biome = biome; CreatureAccents.Frame = frame; CreatureAccents.Shards = Art.Biomes.Nigredo.Shards;
-            try { return RenderIn(frame, mat, elite, biome); }
+            try { return RenderIn(frame, mat, elite, biome, dross); }
             finally { CreatureAccents.Biome = Art.Biomes.BiomeKind.Tower; CreatureAccents.Shards = 0; }
         }
 
-        static Sprite RenderIn(int frame, Mat mat, bool elite, Art.Biomes.BiomeKind biome)
+        static Sprite RenderIn(int frame, Mat mat, bool elite, Art.Biomes.BiomeKind biome, bool dross)
         {
             var p = Poses[frame];
-            float scale = elite ? EliteScale : 1f;
+            float scale = elite ? EliteScale : dross ? Core.Tuning.Dross.SizeMul : 1f;
             int w = Mathf.RoundToInt(W * scale / 2f) * 2, h = Mathf.RoundToInt(H * scale);
-            var rig = Build(p, mat, elite);
+            var rig = Build(p, mat, elite, dross);
 
-            string name = $"enemy.dasher.{(mat.Iron ? "iron" : "carrion")}{(elite ? ".elite" : "")}.{(DasherFrame)frame}";
+            string name = $"enemy.dasher.{(mat.Iron ? "iron" : "carrion")}{(elite ? ".elite" : dross ? ".dross" : "")}.{(DasherFrame)frame}";
 
             if (biome != Art.Biomes.BiomeKind.Tower) name += "." + biome;
             return TexelRig.Rasterise(name, rig, w, h, scale, mat.Out,

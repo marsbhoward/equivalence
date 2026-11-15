@@ -5,7 +5,7 @@ using UnityEngine;
 namespace Convergence.Enemies
 {
     /// <summary>The Chaser's frames, in the order <see cref="ChaserArt.For"/> returns them.</summary>
-    public enum ChaserFrame { Walk0, Walk1, Walk2, Walk3, Idle, Raise, Cocked, Strike, Recover, StillLit, Riposte, Idle1, Idle2 }
+    public enum ChaserFrame { Walk0, Walk1, Walk2, Walk3, Idle, Raise, Cocked, Strike, Recover, StillLit, Riposte, Idle1, Idle2, Crouch, Shove }
 
     /// <summary>
     /// The Chaser as a GRAVE BRUTE (the user's sign-off, 2026-10-18, from the mock-up at
@@ -123,6 +123,14 @@ namespace Convergence.Enemies
             // head with it, the arms hanging a touch looser. Feet planted; nothing raised (the tell).
             P(by: 0.5f, hy: 0.3f, u: -51, fu: -74),
             P(by: 1f, hy: 0.7f, u: -50, f: -16, fu: -72, ff: -43),
+            // Crouch, Shove: THE SHOVE (2026-11-15), read by HEIGHT against the overhead - the
+            // crouch is the lowest it stands (the overhead's Cocked the tallest): body dropped and
+            // drawn back, head sunk, the cleaver arm tucked low behind, knees wide, the eye lit and
+            // the blade's vein dark. Then the drive: the cleaver folded in to the chest and everything thrown forward behind the shoulder.
+            P(bx: -1.5f, by: -2.5f, hx: -0.8f, hy: -2.2f, u: -128, f: -150, fu: -112, ff: -78,
+              footNx: 27.5f, footFx: 12.5f, glow: 0, eye: 3),
+            P(bx: 3.5f, by: -1f, hx: 2.6f, hy: -1.6f, u: -75, f: 15, fu: -95, ff: -40,
+              footNx: 31f, footFx: 12.5f, glow: 0, eye: 3),
         };
 
         // ---------------------------------------------------------------- cache
@@ -136,14 +144,15 @@ namespace Convergence.Enemies
         /// the rest over it): a bracket fungus on the hump's back flank in the forest, a shelf of
         /// salt cubes there on the flats, two torn streamers off the hump in the sky ruin. Parts
         /// of the rig, so the body's own pose carries them and the arm and cleaver draw over them.</summary>
-        public static Sprite[] For(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome)
+        public static Sprite[] For(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome, bool dross = false)
         {
-            int key = (look == EnemyLook.Automaton ? 1 : 0) | (elite ? 2 : 0) | ((int)biome << 2) | (Art.Biomes.Nigredo.Shards << 5);
+            int key = (look == EnemyLook.Automaton ? 1 : 0) | (elite ? 2 : 0) | ((int)biome << 2) | (Art.Biomes.Nigredo.Shards << 5)
+                    | (dross ? 1 << 12 : 0);
             if (_cache.TryGetValue(key, out var hit) && hit != null && hit.Length > 0 && hit[0] != null) return hit;
 
             var mat = look == EnemyLook.Automaton ? Ironbound : Rotten;
             var frames = new Sprite[Poses.Length];
-            for (int i = 0; i < frames.Length; i++) frames[i] = Render(i, mat, elite, biome);
+            for (int i = 0; i < frames.Length; i++) frames[i] = Render(i, mat, elite, biome, dross);
             _cache[key] = frames;
             return frames;
         }
@@ -182,7 +191,7 @@ namespace Convergence.Enemies
             wr = Pt(el, f, 6f);
         }
 
-        static TexelRig.Rig Build(in Pose p, Mat mat, bool elite, Art.Biomes.BiomeKind biome, int frame)
+        static TexelRig.Rig Build(in Pose p, Mat mat, bool elite, Art.Biomes.BiomeKind biome, int frame, bool dross = false)
         {
             var rig = new TexelRig.Rig();
             void Add(float order, Slot slot, TexelRig.Shape test, bool far = false, bool sep = false,
@@ -218,7 +227,8 @@ namespace Convergence.Enemies
                               new Vector2(21.2f, 7.6f), new Vector2(19.2f, 5.8f), new Vector2(17f, 8f) };
             for (int i = 0; i < rag.Length; i++) rag[i] += new Vector2(bx, by);
             Add(6f, Slot.Cloth, TexelRig.Poly(rag), decor: Decor.Cloth);
-            foreach (float a in elite ? new[] { 100f, 120f, 140f, 160f } : new[] { 105f, 128f, 150f })
+            // A Dross has no spines - fewer parts, as an elite has more (Tuning.Dross).
+            foreach (float a in elite ? new[] { 100f, 120f, 140f, 160f } : dross ? new float[0] : new[] { 105f, 128f, 150f })
             {
                 var b0 = new Vector2(humpX + Mathf.Cos(Rad(a)) * humpRx * 0.8f, humpY + Mathf.Sin(Rad(a)) * humpRy * 0.8f);
                 Add(7f, Slot.Bone, Taper(b0, Pt(b0, a + 8f, elite ? 4.8f : 3.3f), 1.25f, 0.2f));
@@ -305,14 +315,14 @@ namespace Convergence.Enemies
 
         // ---------------------------------------------------------------- raster
 
-        static Sprite Render(int frame, Mat mat, bool elite, Art.Biomes.BiomeKind biome)
+        static Sprite Render(int frame, Mat mat, bool elite, Art.Biomes.BiomeKind biome, bool dross = false)
         {
             var p = Poses[frame];
-            float scale = RigScale * (elite ? EliteScale : 1f);
+            float scale = RigScale * (elite ? EliteScale : dross ? Core.Tuning.Dross.SizeMul : 1f);
             int w = Mathf.RoundToInt(W * scale), h = Mathf.RoundToInt(H * scale);
             w += w & 1; // an even width mirrors onto a texel boundary
             CreatureAccents.Shards = Art.Biomes.Nigredo.Shards;
-            var rig = Build(p, mat, elite, biome, frame);
+            var rig = Build(p, mat, elite, biome, frame, dross);
             CreatureAccents.Shards = 0;
 
             TexelRig.Overlay smear = null;
@@ -337,7 +347,7 @@ namespace Convergence.Enemies
                 };
             }
 
-            string name = $"enemy.chaser.{(mat.Iron ? "iron" : "rotten")}{(elite ? ".elite" : "")}{(biome != Art.Biomes.BiomeKind.Tower ? "." + biome : "")}.{(ChaserFrame)frame}";
+            string name = $"enemy.chaser.{(mat.Iron ? "iron" : "rotten")}{(elite ? ".elite" : dross ? ".dross" : "")}{(biome != Art.Biomes.BiomeKind.Tower ? "." + biome : "")}.{(ChaserFrame)frame}";
             return TexelRig.Rasterise(name, rig, w, h, scale, mat.Out,
                 (in TexelRig.Cell c, int x, int y, int s) => ColourOf(c, x, y, mat, p, elite, s),
                 new Vector2(PivotX, PivotY), smear);

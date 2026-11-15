@@ -233,12 +233,15 @@ namespace Convergence.Core
             public readonly EnemyKind Kind;
             public readonly bool Elite;
             public readonly EliteAffix Affix;
+            public readonly bool Dross;
             public readonly Func<Vector2> Position;
-            public PendingSpawn(EnemyKind kind, bool elite, Func<Vector2> position, EliteAffix affix = EliteAffix.None)
+            public PendingSpawn(EnemyKind kind, bool elite, Func<Vector2> position, EliteAffix affix = EliteAffix.None,
+                                bool dross = false)
             {
                 Kind = kind;
                 Elite = elite;
                 Affix = affix;
+                Dross = dross;
                 Position = position;
             }
         }
@@ -4224,6 +4227,8 @@ namespace Convergence.Core
             Func<Vector2> groupAnchor = null;
             var groupNow = Enemies.WaveGroupId.None;
             int groupIndex = 0;
+            Func<Vector2> packAnchor = null;
+            int packNow = 0, packIndex = 0;
             foreach (var s in wave.Spawns)
             {
                 var place = PlacementFor(s.Kind);
@@ -4236,7 +4241,20 @@ namespace Convergence.Core
                     int i = groupIndex++;
                     place = () => NearGroup(anchor(), i);
                 }
-                _spawnQueue.Enqueue(new PendingSpawn(s.Kind, s.Elite, place, s.Affix));
+                // A DROSS PACK arrives the same way (Tuning.Dross): one point at the edge, the rest round it.
+                else if (s.Pack != 0)
+                {
+                    if (s.Pack != packNow)
+                    {
+                        packNow = s.Pack; packIndex = 0;
+                        Vector2? at = null;
+                        packAnchor = () => at ??= RandomEdgePoint();
+                    }
+                    var anchor = packAnchor;
+                    int i = packIndex++;
+                    place = () => NearGroup(anchor(), i);
+                }
+                _spawnQueue.Enqueue(new PendingSpawn(s.Kind, s.Elite, place, s.Affix, s.Dross));
             }
             if (wave.Group != Enemies.WaveGroupId.None) Debug.Log($"[Floor] group: {wave.Group}");
             SplitRounds();
@@ -4436,10 +4454,10 @@ namespace Convergence.Core
             foreach (var e in _alive)
             {
                 if (e == null) continue;
-                pressure += Enemies.WaveComposer.Pressure(e.Kind, e.Elite, e.Affix);
+                pressure += Enemies.WaveComposer.Pressure(e.Kind, e.Elite, e.Affix, e.Dross);
                 bodies++;
             }
-            return Enemies.WaveComposer.Fits(new Enemies.WaveSpawn(next.Kind, next.Elite, affix: next.Affix),
+            return Enemies.WaveComposer.Fits(new Enemies.WaveSpawn(next.Kind, next.Elite, affix: next.Affix, dross: next.Dross),
                                              pressure, bodies, _floor);
         }
 
@@ -4449,7 +4467,7 @@ namespace Convergence.Core
         {
             var next = _spawnQueue.Dequeue();
             var e = EnemyFactory.Spawn(next.Position(), next.Kind, _floor, _player.transform, _enemyRoot,
-                                       elite: next.Elite, affix: next.Affix);
+                                       elite: next.Elite, affix: next.Affix, dross: next.Dross);
             e.RollIndex = _floorSpawns++;   // the queue's order - the seed's, not the fight's
             Harden(e);
             HookDeath(e);
@@ -6264,10 +6282,10 @@ namespace Convergence.Core
             {
                 // What this body was worth against the floor's pool - the spire rises on it, a
                 // Rift Box drops in proportion to it, and the ledger's per-kill entries count it.
-                float cost = Enemies.WaveComposer.Cost(enemy.Kind, enemy.Elite, _floor);
+                float cost = Enemies.WaveComposer.Cost(enemy.Kind, enemy.Elite, _floor, enemy.Dross);
                 float worth = cost / Enemies.WaveComposer.Ehp(EnemyKind.Chaser, false, _floor);
 
-                if (_player) _player.RegisterKill();
+                if (_player) _player.RegisterKill(enemy.Dross);
                 // The board hears every death, whatever caused it - a hit, a burn, a fall.
                 if (_player && _player.Board) _player.Board.OnEnemyDied(h);
                 if (_player && _player.Effects) _player.Effects.OnEnemyDied(h, worth);
@@ -6578,6 +6596,7 @@ namespace Convergence.Core
                 RunId = _runId,
                 Element = _player && _player.Resource ? _player.Resource.Element : ElementType.Fire,
                 Kills = _player ? _player.Kills : 0,
+                DrossKills = _player ? _player.DrossKills : 0,
                 Floors = _floor,
                 Seconds = Time.time - _runStartTime,
                 PendingMastery = _pendingMastery,
@@ -6621,7 +6640,7 @@ namespace Convergence.Core
         {
             public string RunId;
             public ElementType Element;
-            public int Kills, Floors, PendingMastery, CardMastery, RunCalx, GuaranteeWeek;
+            public int Kills, DrossKills, Floors, PendingMastery, CardMastery, RunCalx, GuaranteeWeek;
             public float Seconds;
             public bool StakeGateCleared;
             public int RunStartDiamondBoxes, RunStartBlackDiamondBoxes;
@@ -6640,7 +6659,9 @@ namespace Convergence.Core
                 RunId = t.RunId,
                 Element = t.Element,
                 Kills = t.Kills,
-                XpEarned = t.Kills * XpPerKill,
+                // A Dross pays a share of a kill's XP, as it is a share of a body (Tuning.Dross).
+                XpEarned = (t.Kills - t.DrossKills) * XpPerKill
+                         + Mathf.RoundToInt(t.DrossKills * XpPerKill * Tuning.Dross.XpShare),
                 Floors = t.Floors,
                 DurationSeconds = t.Seconds,
                 Survived = survived,
@@ -7507,6 +7528,7 @@ namespace Convergence.Core
                     RunId = s.RunId,
                     Element = s.Element,
                     Kills = s.Kills,
+                    DrossKills = s.DrossKills,
                     Floors = s.Floor,
                     Seconds = s.RunSeconds,
                     PendingMastery = s.PendingMastery,

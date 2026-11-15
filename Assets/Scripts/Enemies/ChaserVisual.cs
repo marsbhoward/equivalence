@@ -20,6 +20,7 @@ namespace Convergence.Enemies
         protected override Sprite[] Build(EnemyLook look, bool elite) => ChaserArt.For(look, elite);
         protected override Color[] Reserved => ChaserArt.Reserved;
         protected override Sprite[] Build(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome) => ChaserArt.For(look, elite, biome);
+        protected override Sprite[] Build(EnemyLook look, bool elite, Art.Biomes.BiomeKind biome, bool dross) => ChaserArt.For(look, elite, biome, dross);
 
         static ChaserFrame Breathing(int k) => k == 0 ? ChaserFrame.Idle : k == 1 ? ChaserFrame.Idle1 : ChaserFrame.Idle2;
 
@@ -35,7 +36,9 @@ namespace Convergence.Enemies
             ChaserFrame frame;
             bool swinging = true;
             float tele = _enemy.TelegraphRemaining;
-            if (tele > 0f)
+            if (_enemy.ShoveTelling) frame = ChaserFrame.Crouch;
+            else if (now - _enemy.ShoveAt < strike) frame = ChaserFrame.Shove;
+            else if (tele > 0f)
                 frame = tele <= _enemy.TelegraphDuration * Tuning.Enemy.ChaserCockedShare
                     ? ChaserFrame.Cocked : ChaserFrame.Raise;
             else if (now - _enemy.SwungAt < strike) frame = ChaserFrame.Strike;

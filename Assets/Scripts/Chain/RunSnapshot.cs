@@ -159,6 +159,8 @@ namespace Convergence.Chain
         public float Health;
         public List<DurabilityEntry> Wear = new();
         public int Kills;
+        /// <summary>Of <see cref="Kills"/>, how many were Dross (Tuning.Dross.XpShare).</summary>
+        public int DrossKills;
         public List<string> Slots = new();
         public List<bool> SlotLocked = new();
         public bool ThirdSlotRemoved;
