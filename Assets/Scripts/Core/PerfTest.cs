@@ -37,9 +37,35 @@ namespace Convergence.Core
             go.AddComponent<Report>();
         }
 
+        /// <summary>
+        /// A LOCK line (2026-11-16, the phone's taps not locking): one per tap the lock path saw, and per stick
+        /// touch that lifted without counting as a tap - what was under it and why it did or did not lock.
+        /// <paramref name="fields"/> is the line's JSON body without braces. Capped per window, so a
+        /// thumb on the stick cannot flood the log. Nothing in a release build.
+        /// </summary>
+        public static void Lock(string fields)
+        {
+            if (!Build && LockLogInEditor) { Debug.Log("[Lock] " + fields); return; }
+            if (!Build || _report == null || _report.LockLines >= 40) return;
+            _report.LockLines++;
+            _report.Post("{\"kind\":\"lock\",\"t\":" + Time.realtimeSinceStartup.ToString("0.0") + "," + fields + "}");
+        }
+
+        /// <summary>DEV: the lock lines go to the Editor's console instead (set from eval). Static, so Play resets it.</summary>
+        public static bool LockLogInEditor;
+
+        /// <summary>Whether lock lines are wanted at all - the call sites skip building them otherwise.</summary>
+        public static bool LockLogging => Build || LockLogInEditor;
+
+        public static string Esc(string s) => (s ?? "").Replace("\\", "\\\\").Replace("\"", "\\\"");
+
+        static Report _report;
+
         /// <summary>Frame times and the pose cache over each window, posted as one JSON line.</summary>
         sealed class Report : MonoBehaviour
         {
+            public int LockLines;
+            string _lastHeld;
             const float Window = 10f;
             List<float> _ms;
             Player.PlayerController _player;
@@ -54,6 +80,7 @@ namespace Convergence.Core
 
             void Start()
             {
+                _report = this;
                 var page = Application.absoluteURL;
                 if (!string.IsNullOrEmpty(page)) _url = new System.Uri(page).GetLeftPart(System.UriPartial.Authority) + "/devlog";
                 _gc0 = System.GC.CollectionCount(0);
@@ -109,7 +136,24 @@ namespace Convergence.Core
                   .Append(",\"dropped\":").Append(evicted - _evicted0).Append(",\"swingFrames\":").Append(frames - _frames0)
                   .Append(",\"cache\":").Append(count).Append(",\"cap\":").Append(Body8.PoseCacheSize)
                   .Append(",\"gpuMB\":").Append((gpu / 1048576f).ToString("0.0")).Append(",\"cpuMB\":").Append((cpu / 1048576f).ToString("0.0"))
-                  .Append("}}");
+                  .Append('}');
+                // What the run holds: at each floor's end, and in any report where it changed - by name and stack.
+                var mods = Exchange.RunModifiers.Live;
+                if (mods != null)
+                {
+                    var held = new StringBuilder("[");
+                    for (int i = 0; i < mods.Held.Count; i++)
+                    {
+                        var e = mods.Held[i];
+                        if (i > 0) held.Append(',');
+                        held.Append('"').Append(Esc(e.Name)).Append(' ').Append(mods.StacksOf(e)).Append('"');
+                    }
+                    string list = held.Append(']').ToString();
+                    if (kind == "floor-end" || list != _lastHeld) sb.Append(",\"held\":").Append(list);
+                    _lastHeld = list;
+                }
+                sb.Append('}');
+                LockLines = 0;
                 _reused0 = reused; _drawn0 = drawn; _frames0 = frames; _evicted0 = evicted; _gc0 = gc;
                 _ms.Clear(); _moving = 0; _since = 0f;
                 Post(sb.ToString());
@@ -117,7 +161,7 @@ namespace Convergence.Core
 
             float At(float q) => _ms.Count == 0 ? 0f : _ms[Mathf.Clamp(Mathf.FloorToInt(q * (_ms.Count - 1)), 0, _ms.Count - 1)];
 
-            void Post(string json)
+            public void Post(string json)
             {
                 Debug.Log("[PerfTest] " + json);
                 if (_url == null) return;
@@ -128,8 +172,6 @@ namespace Convergence.Core
                 }
                 catch (System.Exception e) { Debug.LogWarning("[PerfTest] report not sent: " + e.Message); _url = null; }
             }
-
-            static string Esc(string s) => (s ?? "").Replace("\\", "\\\\").Replace("\"", "\\\"");
         }
     }
 }

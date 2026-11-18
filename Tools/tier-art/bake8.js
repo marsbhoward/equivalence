@@ -22,7 +22,14 @@ const SLOT_OF = {
              apron: 'Legs', apronBack: 'Legs', seat: 'Legs', belt: 'Belt', vial0: 'Belt', vial1: 'Belt', vial2: 'Belt', pouch: 'Belt',
              back: 'Back', sidePouchL: 'Back', sidePouchR: 'Back', flask: 'Back', straps: 'Back' },
 };
-const SETS8 = { hoplite: hoplite3d, wayfarer: wayfarer3d, athanor: athanor3d };
+let SETS8 = { hoplite: hoplite3d, wayfarer: wayfarer3d, athanor: athanor3d };
+// QUARTZ (regen8q.sh): the Quartz back pieces of quartz8.js instead - every piece is the Back slot, a set
+// named after its design (Body8Art.QuartzSetOf), no bare body or limb strips, into Body8Art.Quartz.cs.
+const QUARTZ_RUN = typeof QUARTZ_BAKE !== 'undefined' && QUARTZ_BAKE;
+if (QUARTZ_RUN) {
+  SETS8 = Object.fromEntries(Object.entries(QUARTZ8).map(([id, make]) => ['q_' + id, make]));
+  for (const id of Object.keys(SETS8)) SLOT_OF[id] = new Proxy({}, { get: (_, piece) => (String(piece).startsWith('hood') ? 'Head' : 'Back') });
+}
 
 const mx = p => v3(-p.x, p.y, p.z);
 const mirrored = pr => ({ ...pr, sdf: p => pr.sdf(mx(p)), color: (p, n, nb) => pr.color(mx(p), n, nb && mx(nb)) });
@@ -78,14 +85,33 @@ const only = (hits, name) => new Map([...hits].filter(([, h]) => h.piece === nam
 
 // a helm's group, outlined and stacked as compose() does, straight on (it sits on the 2D head art)
 // the bare head goes in as an occluder (dropped after): what the helm leaves open shows the game's own face
-function helmView(prims, yaw, palette) {
+// A hood (Quartz): its outline where it lies over the body or its own cloak is the SEAM, baked in its own colour so the
+// game can draw it otherwise than as ink (PrimitiveCharacterRig.HoodSeam8); against nothing it stays the silhouette.
+const SEAM = '#14121D';
+// the hood's edge against the FACE is a seam too: no ink between the hood and the face it frames (the user, 2026-11-17)
+const HOOD_FACE_SEAM = true;
+const FACE_SEAM = '#14121E';
+function helmView(prims, yaw, palette, rest = null) {
   POSE.hands = {}; CARDS = [];
-  const head = body3d().filter(p => p.piece === 'head').map(p => ({ ...p, piece: '#head' }));
+  // a hood (Quartz, rest given) is occluded by the body too: its skirt of cloak goes behind the torso and arms
+  const occ = rest ? ['head', 'torso', 'armL', 'armR'] : ['head'];
+  const head = body3d().filter(p => occ.includes(p.piece)).map(p => ({ ...p, piece: '#head' }));
   const hits = render([...prims, ...head], yaw, 0), layers = new Map();
   for (const [k, h] of hits) { if (h.piece === '#head') continue; if (!layers.has(h.piece)) { const l = new Layer(0); l.outR = h.outR; l.zs = []; layers.set(h.piece, l); } const l = layers.get(h.piece); l.c.set(k, h.color); l.zs.push(h.z); }
   for (const l of layers.values()) l.depth = l.zs.reduce((s, z) => s + z, 0) / l.zs.length;
   const g = compose([...layers.values()]), m = new Map();
-  for (const [k, c] of g) m.set(k, { color: c, z: 0 });
+  let under = null, face = null;
+  if (rest) {
+    POSE.hands = {}; CARDS = [];
+    under = new Set();
+    for (const [k, h] of render([...rest, ...body3d().filter(p => p.piece !== 'head')], yaw, 0)) under.add(k);
+    if (HOOD_FACE_SEAM) { POSE.hands = {}; CARDS = []; face = new Set(); for (const [k] of render(body3d().filter(p => p.piece === 'head'), yaw, 0)) face.add(k); }
+  }
+  // facing the camera (front, its three-quarter, the side) the face lies OVER the hood's seam at the chin: there the face
+  // wins (cleared, the head not erased); turned away the head is under the hood, and the body's seam wins (erases it)
+  const faceFirst = yaw <= 90;
+  const seamOf = k => faceFirst && face && face.has(k) ? FACE_SEAM : under.has(k) ? SEAM : face && face.has(k) ? FACE_SEAM : null;
+  for (const [k, c] of g) m.set(k, { color: c !== OUTLINE || !under ? c : seamOf(k) ?? c, z: 0 });
   const v = view(m, palette); delete v.depth; return v;
 }
 
@@ -98,7 +124,7 @@ const piece = (set, slot, name, outR, pal, views, mviews) => {
 const palStr = palette => palette.suit ? '@suit' : [...palette.map].map(([c, ch]) => ch + c.slice(1).toUpperCase()).join(' ');
 
 // ---- the bare suit's torso
-{
+if (!QUARTZ_RUN) {
   POSE.hands = {}; CARDS = [];
   const torso = body3d().filter(p => p.piece === 'torso').map(p => ({ ...p, color: (q, n) => tone(SUIT, litTone(n.x, -n.y, n.z)) }));
   const palette = { suit: true };
@@ -111,8 +137,9 @@ for (const [id, make] of Object.entries(SETS8)) {
   const prims = make(), slots = SLOT_OF[id];
   // the helm, whole
   const head = prims.filter(p => slots[p.piece] === 'Head');
-  {
-    const palette = { map: new Map() }, views = YAWS.map(y => helmView(head, y, palette)), mv = YAWS.map(y => helmView(head.map(mirrored), y, palette));
+  if (head.length) {
+    const rest = QUARTZ_RUN ? prims.filter(p => slots[p.piece] !== 'Head') : null;
+    const palette = { map: new Map() }, views = YAWS.map(y => helmView(head, y, palette, rest)), mv = YAWS.map(y => helmView(head.map(mirrored), y, palette, rest && rest.map(mirrored)));
     const asym = YAWS.some((_, i) => !eq(views[i], mv[i]));
     piece(id, 'Head', 'helm', 0, palStr(palette), views, asym ? mv : null);
   }
@@ -193,7 +220,7 @@ const strips = [];
 for (const [id, make] of Object.entries(SETS8)) {
   POSE.hands = {}; CARDS = [];
   const prims = make();
-  for (const [name, slot] of Object.entries(LIMB_OF[id])) {
+  for (const [name, slot] of Object.entries(LIMB_OF[id] || {})) {
     const mine = prims.filter(p => p.piece === name), pal = { map: new Map() };
     const ch = c => { if (!pal.map.has(c)) pal.map.set(c, CH[pal.map.size]); return pal.map.get(c); };
     const renders = STRIP_VIEWS.map(([, y]) => render(mine, y, 0));
@@ -206,7 +233,7 @@ for (const [id, make] of Object.entries(SETS8)) {
     }
   }
 }
-lines.push(...strips);
+if (!QUARTZ_RUN) lines.push(...strips);
 
 const cs = `using Convergence.Art.Gear;
 
@@ -221,9 +248,8 @@ namespace Convergence.Art.Gear
     // list, when a piece has one, is its MIRROR IMAGE's views: what it shows facing left.
     public static partial class Body8Art
     {
-        public const int Top = ${Y1};
-
-        static void Bake()
+${QUARTZ_RUN ? '' : '        public const int Top = ' + Y1 + ';\n'}
+        static void ${QUARTZ_RUN ? 'BakeQuartz' : 'Bake'}()
         {
 ${lines.join('\n\n')}
         }

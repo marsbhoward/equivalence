@@ -37,7 +37,12 @@ namespace Convergence.Art.Gear
         {
             public int OutR;
             public float Bias, Alpha;
+            /// <summary>Drawn only where nothing else is (Body8.PutUnder) - Sanguis's flecks, which side-on would stand
+            /// between the camera and the arm. Baked as a bias under <see cref="UnderBias"/>, taken back off here.</summary>
+            public bool Under;
         }
+
+        const float UnderBias = -50f, UnderShift = 100f;
 
         public sealed class Cloud
         {
@@ -50,11 +55,35 @@ namespace Convergence.Art.Gear
         }
 
         static Dictionary<string, Cloud> _clouds;
+        static Cloud _glacies;
+
+        /// <summary>A copy of <paramref name="c"/> sharing its points, each colour rule passed through <paramref name="map"/>
+        /// (Glacies: Sanguis in ice).</summary>
+        static Cloud Recoloured(Cloud c, string id, System.Func<Color32, Color32> map)
+        {
+            var rules = new Dictionary<Rule, Rule>();
+            var r = new Cloud { Id = id, Prims = c.Prims, Count = c.Count, Seg = c.Seg, PrimOf = c.PrimOf, P = c.P, N = c.N, RuleOf = new Rule[c.Count] };
+            for (int i = 0; i < c.Count; i++)
+            {
+                var src = c.RuleOf[i];
+                if (!rules.TryGetValue(src, out var dst))
+                {
+                    dst = new Rule { D = src.D, T = src.T, C = new Color32[src.C.Length], HasRim = src.HasRim, Rim = src.HasRim ? map(src.Rim) : src.Rim };
+                    for (int k = 0; k < src.C.Length; k++) dst.C[k] = map(src.C[k]);
+                    rules[src] = dst;
+                }
+                r.RuleOf[i] = dst;
+            }
+            return r;
+        }
 
         /// <summary>Fulmen's bolts: this many strikes baked, the rig cycling them (the mock re-strikes 12 times a second).</summary>
         public const int FulmenStrikes = 6;
+        /// <summary>Sanguis's smoke: its one-second loop baked at this many points, the rig cycling them.</summary>
+        public const int SanguisFrames = 8;
 
-        /// <summary>The arm piece's cloud for an accessory kind, or null; <paramref name="strike"/> picks Fulmen's bolts.</summary>
+        /// <summary>The arm piece's cloud for an accessory kind, or null; <paramref name="strike"/> picks Fulmen's bolts or
+        /// Sanguis's smoke picture.</summary>
         public static Cloud For(AccessoryKind kind, int strike = 0)
         {
             string id = kind switch
@@ -65,22 +94,26 @@ namespace Convergence.Art.Gear
                 AccessoryKind.SalamanderArm => "salamander",
                 AccessoryKind.SaltArm => "salt",
                 AccessoryKind.CrucibleArm => "crucible",
-                AccessoryKind.SanguisArm => "sanguis-crystal",
+                AccessoryKind.SanguisArm => "sanguis-smoke",
                 AccessoryKind.HomunculusPlatedArm => "homunculus-plated",
                 AccessoryKind.HomunculusHydraulicArm => "homunculus-hydraulic",
                 AccessoryKind.FulmenArm => "fulmen-cage",
                 AccessoryKind.PenumbraArm => "penumbra-echo",
+                AccessoryKind.GlaciesArm => "sanguis-crystal",
                 _ => null,
             };
             if (id == null) return null;
             if (_clouds == null) Load();
+            if (kind == AccessoryKind.GlaciesArm) return _glacies ??= _clouds.TryGetValue(id, out var sg) ? Recoloured(sg, "glacies", ArmPieces.SanguisToIce) : null;
             if (kind == AccessoryKind.FulmenArm && strike % FulmenStrikes != 0) id += "#" + (strike % FulmenStrikes);
+            if (kind == AccessoryKind.SanguisArm && strike % SanguisFrames != 0) id += "#" + (strike % SanguisFrames);
             return _clouds.TryGetValue(id, out var c) ? c : null;
         }
 
         static void Load()
         {
             _clouds = new Dictionary<string, Cloud>();
+            _glacies = null;
             var asset = Resources.Load<TextAsset>("Body8/ArmPieces8");
             if (asset == null) { Debug.LogWarning("ArmPieces8: Resources/Body8/ArmPieces8.bytes missing (Tools/tier-art/regen8x.sh)"); return; }
             var b = asset.bytes;
@@ -112,7 +145,12 @@ namespace Convergence.Art.Gear
                 var c = new Cloud { Id = System.Text.Encoding.UTF8.GetString(b, o, len) };
                 o += len;
                 c.Prims = new Prim[U8()];
-                for (int i = 0; i < c.Prims.Length; i++) c.Prims[i] = new Prim { OutR = U8(), Bias = F32(), Alpha = F32() };
+                for (int i = 0; i < c.Prims.Length; i++)
+                {
+                    var pr = new Prim { OutR = U8(), Bias = F32(), Alpha = F32() };
+                    if (pr.Bias < UnderBias) { pr.Under = true; pr.Bias += UnderShift; }
+                    c.Prims[i] = pr;
+                }
                 int n = (int)U32();
                 c.Count = n; c.Seg = new byte[n]; c.PrimOf = new byte[n]; c.P = new Vector3[n]; c.N = new Vector3[n]; c.RuleOf = new Rule[n];
                 for (int i = 0; i < n; i++)

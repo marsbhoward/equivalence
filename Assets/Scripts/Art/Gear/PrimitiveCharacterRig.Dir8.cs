@@ -17,6 +17,8 @@ namespace Convergence.Art.Gear
 
         /// <summary>DEV ONLY: a direction of travel to face as if moving (checking the views without input).</summary>
         public static Vector2? DevTravel;
+        /// <summary>DEV: this figure's own travel (Editor RunSheet's facings), before <see cref="DevTravel"/>.</summary>
+        [System.NonSerialized] public Vector2? DevTravelOwn;
 
         /// <summary>How fast the character must move before it turns to face where it is going (world units/s).</summary>
         const float TravelFacingSpeed = 0.25f;
@@ -34,7 +36,8 @@ namespace Convergence.Art.Gear
         {
             if (!DevEightDir) return aim;
             var v = Body != null ? Body.linearVelocity : Vector2.zero;
-            if (DevTravel.HasValue) _travelDir = DevTravel.Value.normalized;
+            if (DevTravelOwn.HasValue) _travelDir = DevTravelOwn.Value.normalized;   // a sheet's figure, its own way
+            else if (DevTravel.HasValue) _travelDir = DevTravel.Value.normalized;
             else if (v.sqrMagnitude > TravelFacingSpeed * TravelFacingSpeed) _travelDir = v.normalized;
             if (HeldBow) return aim;
             if (_attackTimer > 0f && _attackHold <= 0f) return aim;
@@ -161,7 +164,21 @@ namespace Convergence.Art.Gear
         // picture (phase 3c, Weapon8). The limb gear (3b) is swept along
         // the posed arms and legs from its baked strips.
 
-        SpriteRenderer _legs8, _helm8;
+        /// <summary>A foot of the drawn legs landing: the footstep (a heard rig, at a jog or faster) and the dust kicked
+        /// back off the travel (as the flat rig's footfall, which stands down while these legs are drawn).</summary>
+        void Footfall8(float speed, float arenaSpeed)
+        {
+            if (MakesSound && arenaSpeed >= Locomotion8.JogSpeed * 0.75f)
+                Convergence.Audio.CombatSounds.Footstep(Body != null ? Body.position : (Vector2)transform.position);
+            if (speed >= DustSpeed)
+            {
+                Vector2 back = Body != null ? -Body.linearVelocity.normalized : Vector2.zero;
+                Vector3 ground = _shadow != null ? _shadow.transform.position : transform.position;
+                DustPuff.Raise(ground + (Vector3)(back * DustAhead * _visualScale), back);
+            }
+        }
+
+        SpriteRenderer _legs8, _helm8, _hood8;
         float _legs8Phase;
         System.Collections.Generic.List<SpriteRenderer> _srScratch;
         System.Collections.Generic.HashSet<SpriteRenderer> _hidden8;
@@ -170,11 +187,15 @@ namespace Convergence.Art.Gear
         System.Collections.Generic.List<Body8Art.Piece> _worn8;
         System.Collections.Generic.List<Body8Art.Strip> _worn8Strips;
         Body8Art.Piece _helm8Piece;
+        /// <summary>A Back item's hood (its set's Head piece): drawn over the head and the helm, both cut to it.</summary>
+        Body8Art.Piece _hood8Piece;
 
-        /// <summary>Above this share of the base move speed the legs run; below it they walk.</summary>
-        const float RunFromSpeed = 0.8f;
-        /// <summary>One whole stride (two steps), seconds, at the gait's own speed: the mock's 32 and 48 frames.</summary>
-        const float RunCycleSeconds = 0.64f, WalkCycleSeconds = 0.96f;
+        /// <summary>The fastest stride the legs' clock follows (arena units a second): a dash's 14.4 would spin them.</summary>
+        const float StrideClockCap = 7.4f;
+        /// <summary>The run stance (Weapon8.Held.Run): from this speed (arena units a second), eased in over this long.</summary>
+        const float RunStanceFrom = 1f, RunStanceSeconds = 0.2f;
+        float _run8, _run8Phase;
+        Locomotion8.Gait _run8Gait;
         /// <summary>The neck, texels above the soles (the baked torso's top): the head leans as it does.</summary>
         const float Neck8 = 106f;
 
@@ -184,7 +205,7 @@ namespace Convergence.Art.Gear
         {
             if (!Body8On)
             {
-                if (_legs8 != null && _legs8.enabled) { _legs8.enabled = false; if (_helm8) _helm8.enabled = false; HideExtras8(); Unhide8(); }
+                if (_legs8 != null && _legs8.enabled) { _legs8.enabled = false; if (_helm8) _helm8.enabled = false; if (_hood8) _hood8.enabled = false; if (_armOver8) _armOver8.enabled = false; HideExtras8(); Unhide8(); }
                 return;
             }
             // The legs face the travel for a bow (the torso aims), the body's turn for everything else.
@@ -196,34 +217,54 @@ namespace Convergence.Art.Gear
             int view = dir switch { 0 => Body8Art.Side, 1 => Body8Art.BackQuarter, 2 => Body8Art.Back, 6 => Body8Art.Front, _ => Body8Art.FrontQuarter };
             bool mirrored = _facingLeft != flip;
 
-            float rel = Mathf.Clamp(speed / Core.Tuning.Player.MoveSpeed, 0f, 2.5f);
-            var gait = rel > RunFromSpeed ? Locomotion8.Run : Locomotion8.Walk;
-            float size = Mathf.Round(Mathf.Clamp01(_gaitWeight) * 4f) / 4f;
-            float cycle = gait == Locomotion8.Run ? RunCycleSeconds : WalkCycleSeconds;
-            float pace = Mathf.Sqrt(Mathf.Max(0.25f, rel / (gait == Locomotion8.Run ? 1f : 0.5f)));
-            if (size > 0f) _legs8Phase = Mathf.Repeat(_legs8Phase + dt / cycle * pace, 1f);
-            int frame = size > 0f ? Mathf.FloorToInt(_legs8Phase * gait.Frames) % gait.Frames : 0;
-            if (size <= 0f) gait = Locomotion8.Walk;
+            // THE SCALED STRIDE (Locomotion8.StrideFor): the stride drawn for this speed, its clock run by the ground
+            // covered, so a planted foot holds its spot at any speed. Speeds in arena units a second: a rig drawn at
+            // another scale (the hub's) covers its own texels.
+            float texPerUnit = bodyPpu / Mathf.Max(0.01f, _visualScale);
+            float arenaSpeed = speed * texPerUnit / Locomotion8.ArenaTexelsPerUnit;
+            bool moving = arenaSpeed > Locomotion8.StandBelow;
+            var gait = moving ? Locomotion8.StrideFor(arenaSpeed) : Locomotion8.Walk;
+            float size = moving ? 1f : 0f;
+            if (moving)
+            {
+                float was = _legs8Phase;
+                float ground = Mathf.Min(arenaSpeed, StrideClockCap) * Locomotion8.ArenaTexelsPerUnit;
+                _legs8Phase = Mathf.Repeat(_legs8Phase + ground * dt / (gait.SpeedTex * gait.Cycle), 1f);
+                // a foot lands at 0 (the drawn right) and at 0.5 (the left): the footstep and its dust, on these legs
+                if (Mathf.FloorToInt(was * 2f) != Mathf.FloorToInt(_legs8Phase * 2f)) Footfall8(speed, arenaSpeed);
+            }
+            int frame = moving ? Mathf.FloorToInt(_legs8Phase * gait.Frames) % gait.Frames : 0;
             float phase = frame / (float)gait.Frames;
             var stance = SwingStance8(dir, flip);
             var pose = Locomotion8.PoseAt(dir * 45f, gait, phase, size, stance);
 
             Worn8();
             bool fighting8 = _inCombat || Swinging8 || _sinceSwing < CarryReturnDelay;
+            // the weapon's RUN STANCE: running in combat between swings (Weapon8.Held.Run); the guard holds through a chain
+            bool runStance = _inCombat && moving && arenaSpeed >= RunStanceFrom && !Swinging8 && _sinceSwing >= CarryReturnDelay;
+            _run8 = Mathf.MoveTowards(_run8, runStance ? 1f : 0f, dt / RunStanceSeconds);
+            _run8Gait = gait; _run8Phase = phase;
             _bowReady8 = Mathf.MoveTowards(_bowReady8, fighting8 ? 1f : 0f, dt / BowReadySeconds);
             _b8Pose = pose; _b8Gait = gait; _b8Phase = phase; _b8Size = size; _b8View = view; _b8Mirrored = mirrored;
             _b8Flip = flip; _b8Dir = dir; _b8Sole = HipsRest.y - LegLength;
             var held = Held8();
+            if (!Swinging8) _restHeld8 = held;   // the stance a swing will leave (SwingFrom8)
             string key = $"b8.{_worn8Key}.{gait.Name}.{dir}.{(mirrored ? "m" : "r")}.{frame}.{size:0.00}{(held != null ? "." + held.Key : "")}{StanceKey8(stance)}{ExtrasFrame8(dt, size, phase)}";
             // Penumbra's afterimage due (a weapon art): a picture for this frame alone, the arm and weapon lifted out
             bool once = Body8.WantGhost = Afterimage8Due();
-            var sprite = Body8.Draw(once ? null : key, pose, gait, phase, size, view, mirrored, _worn8, _worn8Strips, Palette.Of(Palette.Undersuit), bodyPpu, held, _extras8);
+            string cape = LiveCape8(dt, size, phase);
+            bool alone = once || cape == null;   // a living cape's one-shot: this frame's picture only
+            Body8.Cape = _cape8;
+            Body8.WantArmOver = _hood8Piece != null;   // an arm piece sticks out of a hood's cloak too (ShowArmOver8)
+            var sprite = Body8.Draw(alone ? null : key + cape, pose, gait, phase, size, view, mirrored, _worn8, _worn8Strips, Palette.Of(Palette.Undersuit), bodyPpu, held, _extras8);
             Body8.WantGhost = false;
             _ghostDue8 = once ? Body8.LastGhost : null;
             _ghostWanted8 = once;   // a swing redrawing the picture this frame lifts it again, with its blade
             var restOver = Body8.LastOver;
+            var armOver = Body8.WantArmOver ? Body8.LastArmOver : null;
+            Body8.WantArmOver = false;
             DropRest8();
-            if (once) { _rest8Sprite = sprite; _rest8Over = restOver; }
+            if (alone) { _rest8Sprite = sprite; _rest8Over = restOver; _rest8ArmOver = armOver; }
 
             if (_legs8 == null)
             {
@@ -252,6 +293,7 @@ namespace Convergence.Art.Gear
             if (flip) lean.x = -lean.x;
             if (_head) _head.localPosition = new Vector3(HeadRest.x + Units(lean.x), HeadRest.y + Units(lean.y), 0f);
             PlaceHelm8(view, mirrored, flip);
+            ShowArmOver8(armOver);
             ShowRestOver8(restOver);
             PlaceStones8(dt, pose, mirrored, flip, sole);
         }
@@ -300,6 +342,7 @@ namespace Convergence.Art.Gear
             _worn8 = new System.Collections.Generic.List<Body8Art.Piece>(Body8Art.Of("bare", GearSlot.Torso));
             _worn8Strips = new System.Collections.Generic.List<Body8Art.Strip>();
             _helm8Piece = null;
+            _hood8Piece = null;
             _extras8 = null;
             if (lo == null) return;
             foreach (var slot in new[] { GearSlot.Legs, GearSlot.Boots, GearSlot.Gloves })
@@ -320,6 +363,13 @@ namespace Convergence.Art.Gear
             if (helmSet != null)
                 foreach (var p in Body8Art.Of(helmSet, GearSlot.Head))
                     _helm8Piece = Dyed8(helmId, p.Palette) is { } pal ? p.Recoloured(pal) : p;
+            // a hood comes with a Quartz back piece only: a Bronze set's cape shares its set with the set's HELM (hoplite,
+            // wayfarer, athanor all carry one), which read as a hood - the helm drawn with no helm worn, and the arm piece
+            // laid over the face as over a hood (found 2026-11-17)
+            string backId = lo.Get(GearSlot.Back), backSet = Body8Art.SetOf(backId);
+            if (backSet != null && backSet.StartsWith("q_"))
+                foreach (var p in Body8Art.Of(backSet, GearSlot.Head))
+                    _hood8Piece = Dyed8(backId, p.Palette) is { } pal ? p.Recoloured(pal) : p;
             WornExtras8(lo);
         }
 
@@ -347,6 +397,9 @@ namespace Convergence.Art.Gear
         bool Swinging8 => _attackTimer > 0f || _chargeTimer > 0f || _sinceSwing < CarryReturnDelay;
 
         Weapon8.Held _held8;
+        string _held8Draft;
+        /// <summary>The "Shoulder Carry" portrait pose is held: the greatsword shows the carry it is named for.</summary>
+        bool _poseShoulder8;
         /// <summary>The bow's ready clock: 0 out of combat (O1) .. 1 at the ready (C1), 0.45 s each way as the discs'.</summary>
         float _bowReady8;
         const float BowReadySeconds = 0.45f;
@@ -372,19 +425,27 @@ namespace Convergence.Art.Gear
             bool bow = item.Class == WeaponClass.Bow;
             var kind = bow ? Weapon8.Kind.Bow
                      : item.Class == WeaponClass.Disc ? (_discDraw <= 0f ? Weapon8.Kind.DiscStowed : _discDraw >= 1f ? Weapon8.Kind.DiscWings : Weapon8.Kind.DiscDraw)
-                     : Weapon8.Kind.Sword;
+                     : _poseShoulder8 ? Weapon8.Kind.SwordShoulder : Weapon8.Kind.Sword;
             // eighths of the bow's ease, sixteenths of the discs' draw: each a cached picture
-            float ready = bow ? Mathf.Round(_bowReady8 * 8f) / 8f : kind == Weapon8.Kind.DiscDraw ? Mathf.Round(_discDraw * 16f) / 16f : 0f;
+            // the greatsword eases slung -> high guard on the bow's clock (Weapon8.SwordRest/SwordGuard)
+            float ready = bow || kind == Weapon8.Kind.Sword ? Mathf.Round(_bowReady8 * 8f) / 8f : kind == Weapon8.Kind.DiscDraw ? Mathf.Round(_discDraw * 16f) / 16f : 0f;
             float stowZ = Weapon8.StowDepthFor(Body8Art.SetOf(_lastLoadout.Get(GearSlot.Back)));
-            if (_held8 != null && _held8Sprite == ls.Sprite && _held8Kind == kind && _held8.StowZ == stowZ && _held8.Ready == ready
+            // the run stance in quarters (each a cached picture), riding this frame of the stride
+            float run = Mathf.Round(_run8 * 4f) / 4f, runPhase = run > 0f ? _run8Phase : 0f;
+            var runGait = run > 0f ? _run8Gait : null;
+            if (_held8 != null && _held8Sprite == ls.Sprite && _held8Kind == kind && _held8.StowZ == stowZ && _held8.Ready == ready && _held8Draft == Weapon8.SwordDraft
+                && _held8.Run == run && _held8.RunPhase == runPhase && _held8.RunGait == runGait
                 && (_held8.Quiver != null) == (QuiverArt8() != null) && (_held8.Arrow != null) == (_arrowSprite != null)) return _held8;
             // the art at the size the rig draws it: body texels per texture texel
             float scale = ls.Size.x / Mathf.Max(1f, ls.Sprite.rect.width) * bodyPpu;
             var art = Weapon8.ArtOf(ls.Sprite, Mathf.Round(scale * 4f) / 4f);
             if (art == null) return null;
             art.Shape = FormOf8(item.Class);
-            _held8Sprite = ls.Sprite; _held8Kind = kind;
-            _held8 = new Weapon8.Held { Art = art, Kind = kind, StowZ = stowZ, Ready = ready, Key = $"{item.ItemId}.{kind}.{stowZ:0.0}.{ready:0.000}" };
+            _held8Sprite = ls.Sprite; _held8Kind = kind; _held8Draft = Weapon8.SwordDraft;
+            _held8 = new Weapon8.Held { Art = art, Kind = kind, StowZ = stowZ, Ready = ready, Key = $"{item.ItemId}.{kind}.{stowZ:0.0}.{ready:0.000}",
+                                        Run = run, RunPhase = runPhase, RunGait = runGait };
+            if (run > 0f) _held8.Key += $".r{run:0.00}.{runGait?.Name}.{runPhase:0.000}";
+            if (kind == Weapon8.Kind.Sword && Weapon8.SwordDraft != null) _held8.Key += "." + Weapon8.SwordDraft;   // a draft stance (dev)
             if (bow)
             {
                 _held8.Quiver = QuiverArt8(); _held8.Arrow = ArrowArt8();
@@ -393,40 +454,175 @@ namespace Convergence.Art.Gear
             return _held8;
         }
 
-        /// <summary>The helm's view over the head, centred where the mock's head is (121 texels up).</summary>
+        /// <summary>The helm's view over the head, centred where the mock's head is (121 texels up), and a hood's over
+        /// both (a Back item's Head piece: the hood order - over the head and the helm, which are cut to its outline).</summary>
         void PlaceHelm8(int view, bool mirrored, bool flip)
         {
-            if (_helm8Piece == null || _helmHidden || _head == null) { if (_helm8) _helm8.enabled = false; Enclose8(); return; }   // gives the uncut head back
-            if (_helm8 == null)
+            bool helm = _helm8Piece != null && !_helmHidden && _head != null;
+            _helm8Open = helm ? HeadPiece8(ref _helm8, "helm8", _helm8Piece, GearSlot.Head, view, mirrored, flip) : null;
+            if (!helm && _helm8) _helm8.enabled = false;
+            bool hood = _hood8Piece != null && _head != null;
+            _hood8Open = hood ? HeadPiece8(ref _hood8, "hood8", _hood8Piece, GearSlot.Back, view, mirrored, flip) : null;
+            if (!hood && _hood8) _hood8.enabled = false;
+            Enclose8();   // with neither, gives the uncut head back
+        }
+
+        /// <summary>The helm's sprite and the hood's as painted (before the hood's cut).</summary>
+        Sprite _helm8Open, _hood8Open, _helm8Cut;
+
+        /// <summary>A head piece's view on its own renderer, a child of the head.</summary>
+        Sprite HeadPiece8(ref SpriteRenderer sr, string name, Body8Art.Piece piece, GearSlot slot, int view, bool mirrored, bool flip)
+        {
+            if (sr == null)
             {
-                var go = new GameObject("helm8");
-                _helm8 = go.AddComponent<SpriteRenderer>();
+                var go = new GameObject(name);
+                sr = go.AddComponent<SpriteRenderer>();
             }
-            if (_helm8.transform.parent != _head) _helm8.transform.SetParent(_head, false);
-            var v = _helm8Piece.For(view, mirrored);
-            string key = $"helm8.{_helm8Piece.Set}{DyeTag8(_lastLoadout?.Get(GearSlot.Head))}.{view}.{(mirrored && _helm8Piece.Mirror != null ? "m" : "r")}";
+            if (sr.transform.parent != _head) sr.transform.SetParent(_head, false);
+            var v = piece.For(view, mirrored);
+            string key = $"{name}.{piece.Set}{DyeTag8(_lastLoadout?.Get(slot))}.{view}.{(mirrored && piece.Mirror != null ? "m" : "r")}{(slot == GearSlot.Back ? ".s" + HoodSeam8 : "")}";
             var sprite = PixelSprite.Cached(key);
             if (sprite == null)
             {
                 int w = v.W + (v.W & 1);
                 var rows = new string[v.H];
                 for (int y = 0; y < v.H; y++) rows[y] = v.Cols.Substring(y * v.W, v.W).PadRight(w, '.');
-                sprite = PixelSprite.From(key, rows, _helm8Piece.Palette, pivotTexel: new Vector2Int(-v.X0, Body8Art.Top - HelmCentre8 - v.Y0), pixelsPerUnit: bodyPpu);
+                sprite = PixelSprite.From(key, rows, piece.Palette, pivotTexel: new Vector2Int(-v.X0, Body8Art.Top - HelmCentre8 - v.Y0), pixelsPerUnit: bodyPpu);
+                if (slot == GearSlot.Back) { ShadeOpening8(sprite); Seam8(sprite); }
             }
-            _helm8.sprite = sprite;
-            _helm8.flipX = flip;
-            _helm8.transform.localPosition = new Vector3(0f, PixelSprite.Px(0f, _head8Centre).y + HelmLift8, 0f);
-            _helm8.enabled = true;
+            sr.sprite = sprite;
+            sr.flipX = flip;
+            sr.transform.localPosition = new Vector3(0f, PixelSprite.Px(0f, _head8Centre).y + HelmLift8, 0f);
+            sr.enabled = true;
             if (_layers.TryGetValue(RigLayer.HeadArmor, out var ha) && ha != null)
             {
-                _helm8.sortingLayerID = ha.sortingLayerID;
-                _helm8.sortingOrder = ha.sortingOrder;
+                sr.sortingLayerID = ha.sortingLayerID;
+                sr.sortingOrder = ha.sortingOrder + (sr == _hood8 ? 1 : 0);
             }
-            Enclose8();
+            return sprite;
+        }
+
+        /// <summary>
+        /// How a hood's SEAM is drawn - its outline where it lies over the body or its own cloak (bake8.js marks it
+        /// #14121D; against nothing the outline stays ink): 0 ink, 1 a fold (the hood's darkest cloth tone), 2 a soft
+        /// shadow (see-through ink), 3 none, 4 a fold then a shadow. Being mocked (2026-11-17): the ink line read as one
+        /// piece laid on another.
+        /// </summary>
+        public static int HoodSeam8 = 3;   // D, none: the user's pick (2026-11-17)
+
+        static void Seam8(Sprite sprite)
+        {
+            var tex = sprite != null ? sprite.texture : null;
+            if (tex == null || !tex.isReadable) return;
+            var r = sprite.rect; int w = (int)r.width, h = (int)r.height, x0 = (int)r.x, y0 = (int)r.y, tw = tex.width;
+            var px = tex.GetPixels32();
+            int I(int x, int y) => (y0 + y) * tw + x0 + x;
+            bool IsSeam(Color32 c) => c.a > 0 && c.r == 0x14 && c.g == 0x12 && c.b == 0x1D;
+            bool IsFace(Color32 c) => c.a > 0 && c.r == 0x14 && c.g == 0x12 && c.b == 0x1E;   // the hood's edge on the face
+            // the hood's darkest cloth tone (not the ink)
+            Color32 deep = default; int best = int.MaxValue;
+            foreach (var c in px)
+            {
+                if (c.a == 0 || IsSeam(c) || IsFace(c) || (c.r == 0x14 && c.g == 0x12 && c.b == 0x1C)) continue;
+                int l = c.r + c.g + c.b; if (l < best) { best = l; deep = c; }
+            }
+            bool changed = false;
+            for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+            {
+                int i = I(x, y);
+                if (IsFace(px[i])) { px[i] = new Color32(0, 0, 0, 0); changed = true; continue; }   // no line between hood and face
+                if (!IsSeam(px[i]) || HoodSeam8 == 0) continue;
+                // beside the cloth (a texel of the fold), or further out (its shadow)
+                bool beside = false;
+                for (int dy = -1; dy <= 1 && !beside; dy++)
+                for (int dx = -1; dx <= 1 && !beside; dx++)
+                {
+                    int X = x + dx, Y = y + dy;
+                    if (X < 0 || Y < 0 || X >= w || Y >= h) continue;
+                    var n = px[I(X, Y)];
+                    beside = n.a == 255 && !IsSeam(n) && !(n.r == 0x14 && n.g == 0x12 && n.b == 0x1C);
+                }
+                var ink = new Color32(0x14, 0x12, 0x1C, 0xFF);
+                px[i] = HoodSeam8 switch
+                {
+                    1 => deep,
+                    2 => new Color32(ink.r, ink.g, ink.b, 100),
+                    3 => new Color32(ink.r, ink.g, ink.b, 1),   // unseen, but still the hood's for the head's cut (Enclosed)
+                    _ => beside ? deep : new Color32(ink.r, ink.g, ink.b, 90),
+                };
+                changed = true;
+            }
+            if (!changed) return;
+            tex.SetPixels32(px);
+            tex.Apply();
+        }
+
+        /// <summary>How deep (texels) the hood's shade reaches into its opening, and how dark it is at the face.</summary>
+        const int HoodShade = 4;
+        const float HoodShadeNear = 0.35f;
+
+        /// <summary>
+        /// A hood's face opening is ringed by its outline, which read as a black band over the hair (the user's call:
+        /// shaded, not black). The ink INSIDE the opening - ink beside a clear texel that lies within its row's span - is
+        /// made see-through, darkest at the hood and fading toward the face, so the head under it shows in the hood's shade.
+        /// </summary>
+        static void ShadeOpening8(Sprite sprite)
+        {
+            var tex = sprite != null ? sprite.texture : null;
+            if (tex == null || !tex.isReadable) return;
+            var r = sprite.rect; int w = (int)r.width, h = (int)r.height, x0 = (int)r.x, y0 = (int)r.y, tw = tex.width;
+            var px = tex.GetPixels32();
+            Color32 At(int x, int y) => px[(y0 + y) * tw + x0 + x];
+            // each row's opaque span, and which clear texels lie inside one (the opening)
+            var hole = new bool[w * h];
+            bool any = false;
+            for (int y = 0; y < h; y++)
+            {
+                int a = -1, b = -1;
+                for (int x = 0; x < w; x++) if (At(x, y).a > 0) { if (a < 0) a = x; b = x; }
+                for (int x = a + 1; x > 0 && x < b; x++) if (At(x, y).a == 0) { hole[y * w + x] = true; any = true; }
+            }
+            if (!any) return;
+            var ink = (Color32)new Color32(0x14, 0x12, 0x1C, 0xFF);
+            bool Ink(Color32 c) => c.a > 0 && Mathf.Abs(c.r - ink.r) + Mathf.Abs(c.g - ink.g) + Mathf.Abs(c.b - ink.b) < 24;
+            bool changed = false;
+            for (int y = 0; y < h; y++)
+            for (int x = 0; x < w; x++)
+            {
+                var c = At(x, y);
+                if (!Ink(c)) continue;
+                // the nearest opening texel, in steps along a row or a column
+                int d = int.MaxValue;
+                for (int k = 1; k <= HoodShade && d == int.MaxValue; k++)
+                    if ((x - k >= 0 && hole[y * w + x - k]) || (x + k < w && hole[y * w + x + k])
+                        || (y - k >= 0 && hole[(y - k) * w + x]) || (y + k < h && hole[(y + k) * w + x])) d = k;
+                if (d == int.MaxValue) continue;
+                // only UNDER THE BRIM is it shade (the hair in the hood's shadow): beside and below the face the opening
+                // has no line at all, not even the texel at the cloth (the user, 2026-11-17: it left a tick at the chin)
+                bool brim = false;
+                for (int k = 1; k <= HoodShade && !brim; k++) brim = y - k >= 0 && hole[(y - k) * w + x];
+                if (!brim) { px[(y0 + y) * tw + x0 + x] = new Color32(0, 0, 0, 0); changed = true; continue; }
+                // under the brim, the texel beside the hood's cloth stays solid: the brim keeps its edge
+                bool edge = false;
+                for (int dy = -1; dy <= 1 && !edge; dy++)
+                for (int dx = -1; dx <= 1 && !edge; dx++)
+                {
+                    int X = x + dx, Y = y + dy;
+                    if (X >= 0 && Y >= 0 && X < w && Y < h) { var n = At(X, Y); edge = n.a > 0 && !Ink(n); }
+                }
+                if (edge) continue;
+                float alpha = Mathf.Lerp(HoodShadeNear, 0.85f, (d - 1f) / Mathf.Max(1, HoodShade - 1));
+                px[(y0 + y) * tw + x0 + x] = new Color32(ink.r, ink.g, ink.b, (byte)(alpha * 255f));
+                changed = true;
+            }
+            if (!changed) return;
+            tex.SetPixels32(px);
+            tex.Apply();
         }
 
         /// <summary>The head and the hair behind it as painted, and their copies cut to the helm.</summary>
-        Sprite _hairBack8Open, _head8Cut, _hairBack8Cut;
+        Sprite _hairBack8Open, _head8Cut, _hairBack8Cut, _headBack8Open, _headBack8Cut;
 
         /// <summary>
         /// Under a helm (not a face mask), the head and the hair behind it are cut to the helm's outline
@@ -436,23 +632,42 @@ namespace Convergence.Art.Gear
         /// </summary>
         void Enclose8()
         {
-            bool on = _helm8 != null && _helm8.enabled && _helm8.sprite != null && !_faceMaskOnly && !_helmHidden;
+            bool helm = _helm8 != null && _helm8.enabled && _helm8Open != null && !_faceMaskOnly && !_helmHidden;
+            bool hood = _hood8 != null && _hood8.enabled && _hood8Open != null;
             if (_layers.TryGetValue(RigLayer.Head, out var hd) && hd != null)
-                hd.sprite = Cut8(hd, _head8Sprite, ref _head8Cut, on);
+                hd.sprite = Cut8(hd, _head8Sprite, ref _head8Cut, helm, hood);
             if (_layers.TryGetValue(RigLayer.HairBack, out var hb) && hb != null && hb.sprite != null)
-                hb.sprite = Cut8(hb, _hairBack8Open, ref _hairBack8Cut, on);
+                hb.sprite = Cut8(hb, _hairBack8Open, ref _hairBack8Cut, helm, hood);
+            // the back of the head (shown turned away, its neck with it): its own painter sets it, so its painted
+            // sprite is taken as found - under a hood its neck showed below the hood from behind
+            if (_layers.TryGetValue(RigLayer.HeadBack, out var hk) && hk != null && hk.sprite != null)
+            {
+                if (hk.sprite != _headBack8Cut) _headBack8Open = hk.sprite;
+                hk.sprite = Cut8(hk, _headBack8Open, ref _headBack8Cut, helm, hood);
+            }
+            // the helm under a hood: cut to the hood's outline as the head is
+            if (_helm8 != null && _helm8.enabled && _helm8Open != null)
+                _helm8.sprite = hood ? (_helm8Cut = PixelSprite.Enclosed(_helm8Open, _hood8.sprite, Into8(_hood8, _helm8), underFaint: true) ?? _helm8Open) : _helm8Open;
         }
 
-        Sprite Cut8(SpriteRenderer sr, Sprite open, ref Sprite cut, bool on)
+        Sprite Cut8(SpriteRenderer sr, Sprite open, ref Sprite cut, bool helm, bool hood)
         {
             if (open == null || (sr.sprite != open && sr.sprite != cut)) return sr.sprite;   // painted by another path
-            if (!on) return open;
-            // A flipped renderer mirrors its sprite about the pivot: carried in the mapping both ends.
-            var mirror = Matrix4x4.Scale(new Vector3(-1f, 1f, 1f));
-            var m = (_helm8.flipX ? mirror : Matrix4x4.identity) * _helm8.transform.worldToLocalMatrix
-                    * sr.transform.localToWorldMatrix * (sr.flipX ? mirror : Matrix4x4.identity);
-            cut = PixelSprite.Enclosed(open, _helm8.sprite, m) ?? open;
+            if (!helm && !hood) return open;
+            var c = open;
+            if (helm) c = PixelSprite.Enclosed(c, _helm8Open, Into8(_helm8, sr)) ?? c;
+            if (hood) c = PixelSprite.Enclosed(c, _hood8.sprite, Into8(_hood8, sr), underFaint: true) ?? c;
+            cut = c;
             return cut;
+        }
+
+        /// <summary>Maps <paramref name="sr"/>'s sprite space into <paramref name="frame"/>'s. A flipped renderer
+        /// mirrors its sprite about the pivot: carried in the mapping both ends.</summary>
+        static Matrix4x4 Into8(SpriteRenderer frame, SpriteRenderer sr)
+        {
+            var mirror = Matrix4x4.Scale(new Vector3(-1f, 1f, 1f));
+            return (frame.flipX ? mirror : Matrix4x4.identity) * frame.transform.worldToLocalMatrix
+                   * sr.transform.localToWorldMatrix * (sr.flipX ? mirror : Matrix4x4.identity);
         }
 
         /// <summary>The mock's head centre, texels above the soles; and a nudge (units) onto the game's head art.</summary>
@@ -475,11 +690,45 @@ namespace Convergence.Art.Gear
             int headTop = _legs8.sortingOrder;
             foreach (var l in new[] { RigLayer.Head, RigLayer.HeadBack, RigLayer.HeadArmor })
                 if (_layers.TryGetValue(l, out var hs) && hs != null) headTop = Mathf.Max(headTop, hs.sortingOrder);
-            if (_helm8 != null) _helm8.sortingOrder = headTop + 1;
-            if (_over8 != null) _over8.sortingOrder = headTop + 2;
+            RankHead8(headTop);
             if (delta == 0) return;
             if (_glows8 != null) foreach (var g in _glows8) if (g != null) g.sortingOrder += delta;
             if (_stones8 != null) foreach (var st in _stones8) if (st != null) st.sortingOrder += delta;
+        }
+
+        /// <summary>Over the head: the helm, then the hood. The overlay (what of the body's picture lies before the face)
+        /// goes over both for a swing's blade, but UNDER a hood at rest - the hood's own cape and bib are what it holds.</summary>
+        void RankHead8(int headTop)
+        {
+            bool underHood = _hood8 != null && _hood8.enabled && _swing8Over == null;
+            if (_helm8 != null) _helm8.sortingOrder = headTop + 1;
+            if (_hood8 != null) _hood8.sortingOrder = headTop + (underHood ? 3 : 2);
+            if (_over8 != null) _over8.sortingOrder = headTop + (underHood ? 2 : 3);
+            if (_armOver8 != null)
+            {
+                _armOver8.sortingOrder = headTop + 4;   // over the hood and the rest overlay
+                if (_swing8Drawn || _swing8Over != null) _armOver8.enabled = false;   // a swing's picture has its own arm
+            }
+        }
+
+        /// <summary>The arm piece alone over the hood (whose picture carries its cloak's top over the shoulders): the
+        /// arm sticks out of the cloak (the user's call, 2026-11-17). Only while a hood shows.</summary>
+        SpriteRenderer _armOver8;
+        void ShowArmOver8(Sprite s)
+        {
+            bool on = s != null && _hood8 != null && _hood8.enabled;
+            if (!on) { if (_armOver8 != null) { _armOver8.sprite = null; _armOver8.enabled = false; } return; }
+            if (_armOver8 == null)
+            {
+                var go = new GameObject("arm8over");
+                go.transform.SetParent(transform, false);
+                _armOver8 = go.AddComponent<SpriteRenderer>();
+            }
+            _armOver8.transform.localPosition = _legs8.transform.localPosition;
+            _armOver8.flipX = _legs8.flipX;
+            _armOver8.sprite = s;
+            _armOver8.sortingLayerID = _legs8.sortingLayerID;
+            _armOver8.enabled = true;
         }
 
         /// <summary>LateUpdate, last: every sprite of the rig but the head and the drawn body stays hidden.</summary>
@@ -491,9 +740,8 @@ namespace Convergence.Art.Gear
             int headTop = _legs8.sortingOrder;
             foreach (var l in new[] { RigLayer.Head, RigLayer.HeadBack, RigLayer.HeadArmor })
                 if (_layers.TryGetValue(l, out var hs) && hs != null) headTop = Mathf.Max(headTop, hs.sortingOrder);
-            if (_helm8 != null) _helm8.sortingOrder = headTop + 1;
-            if (_over8 != null) _over8.sortingOrder = headTop + 2;
-            PlaceGlows8(headTop + 3);
+            RankHead8(headTop);
+            PlaceGlows8(headTop + 5);   // over the arm piece laid over a hood (headTop + 4)
             _hidden8 ??= new System.Collections.Generic.HashSet<SpriteRenderer>();
             _srScratch ??= new System.Collections.Generic.List<SpriteRenderer>();
             bool swinging = Swinging8 && !_swing8Drawn;   // a swing drawn into the figure (phase 4) hides today's weapon too
@@ -510,7 +758,7 @@ namespace Convergence.Art.Gear
             GetComponentsInChildren(true, _srScratch);
             foreach (var sr in _srScratch)
             {
-                if (sr == _legs8 || sr == _helm8 || sr == _over8 || sr == _shadow || !sr.enabled || IsStone8(sr)) continue;
+                if (sr == _legs8 || sr == _helm8 || sr == _hood8 || sr == _over8 || sr == _armOver8 || sr == _shadow || !sr.enabled || IsStone8(sr)) continue;
                 if (_layers.TryGetValue(RigLayer.Head, out var h) && sr == h) continue;
                 if (_layers.TryGetValue(RigLayer.HeadBack, out var hb) && sr == hb) continue;
                 if (_layers.TryGetValue(RigLayer.HairBack, out var hr) && sr == hr) continue;
@@ -662,10 +910,19 @@ namespace Convergence.Art.Gear
 
             var held = new Weapon8.Held { Art = cards[0].Art, Kind = Weapon8.Kind.Sword, Live = new Weapon8.Grip { Hand = hands, Cards = cards },
                                           Quiver = bow ? QuiverArt8() : null };
+            SwingFrom8(held);
             Body8.WantGhost = _ghostWanted8;
+            Body8.Cape = _cape8;
+            Body8.WantArmOver = _hood8Piece != null;   // an arm piece sticks out of a hood's cloak too (ShowArmOver8)
             var sprite = Body8.Draw(null, _b8Pose, _b8Gait, _b8Phase, _b8Size, _b8View, _b8Mirrored, _worn8, _worn8Strips,
                                     Palette.Of(Palette.Undersuit), bodyPpu, held, _extras8);
             Body8.WantGhost = false;
+            // where the blend left the weapon is where it is drawn: the element pictures ride that
+            for (int i = 0; i < _redraw8.Count; i++)
+            {
+                var m = _redraw8[i]; var cd = cards[m.Card];
+                m.O = cd.O; m.U3 = cd.U; m.V3 = cd.V; _redraw8[i] = m;
+            }
             if (_ghostWanted8 && Body8.LastGhost != null) _ghostDue8 = Body8.LastGhost;
             DropSwing8();
             _swing8Sprite = sprite;
@@ -690,9 +947,36 @@ namespace Convergence.Art.Gear
                 foreach (var l in new[] { RigLayer.Head, RigLayer.HeadBack, RigLayer.HeadArmor })
                     if (_layers.TryGetValue(l, out var hs) && hs != null) top = Mathf.Max(top, hs.sortingOrder);
                 if (_helm8 != null) top = Mathf.Max(top, _helm8.sortingOrder);
+                if (_hood8 != null) top = Mathf.Max(top, _hood8.sortingOrder);
                 _over8.sortingOrder = top + 1;
                 _over8.enabled = true;
             }
+        }
+
+        // ---- leaving the stance: the first swing of a chain eases out of the greatsword's guard (Weapon8.SwordGuard -
+        // edge-on, fists at the chest) into today's swing (the flat to the camera, fists on the motion's key) over
+        // SwingFromRestSeconds, instead of the picture jumping. Only from the guard (readiness past half): from the slung
+        // stance the swing draws the blade at once, as before (a blend from the back would sweep it through the head).
+
+        /// <summary>How long a swing takes to leave the guard's picture (seconds of the swing).</summary>
+        const float SwingFromRestSeconds = 0.1f;
+        /// <summary>The rest stance's Held while no swing plays; the one a starting swing leaves, and when it started.</summary>
+        Weapon8.Held _restHeld8, _swingFrom8;
+        float _swingFromT8;
+
+        void SwingFrom8(Weapon8.Held swing)
+        {
+            if (_restHeld8 != null)
+            {
+                _swingFrom8 = _restHeld8.Kind == Weapon8.Kind.Sword && _restHeld8.Ready >= 0.5f && !_split ? _restHeld8 : null;
+                _swingFromT8 = 0f;
+                _restHeld8 = null;
+            }
+            else _swingFromT8 += Time.deltaTime;   // the game's clock: a charge (no attack timer yet) eases out too
+            if (_swingFrom8 == null) return;
+            float w = 1f - Mathf.SmoothStep(0f, 1f, _swingFromT8 / SwingFromRestSeconds);
+            if (w <= 0f) { _swingFrom8 = null; return; }
+            swing.From = _swingFrom8; swing.FromW = w;
         }
 
         // ---- the greatsword's sweep: S3, the descending diagonal (the user's pick, 2026-11-11, off
@@ -789,11 +1073,16 @@ namespace Convergence.Art.Gear
             _swing8Sprite = null;
         }
 
-        Sprite _rest8Sprite, _rest8Over;
+        Sprite _rest8Sprite, _rest8Over, _rest8ArmOver;
 
         /// <summary>The last frame-only rest picture (Penumbra's echoes), destroyed once replaced.</summary>
         void DropRest8()
         {
+            if (_rest8ArmOver != null)
+            {
+                if (_armOver8 != null && _armOver8.sprite == _rest8ArmOver) _armOver8.sprite = null;
+                Destroy(_rest8ArmOver.texture); Destroy(_rest8ArmOver); _rest8ArmOver = null;
+            }
             if (_rest8Over != null)
             {
                 if (_over8 != null && _over8.sprite == _rest8Over) _over8.sprite = null;

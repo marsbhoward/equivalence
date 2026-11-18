@@ -40,6 +40,10 @@ namespace Convergence.Art.Gear
         /// CharacterProfile.NewDefault) - held by everyone outside the showcase.</summary>
         public static readonly string[] Starters = { "silver_blade", "silver_plate", "leather_pouch" };
 
+        /// <summary>Whether the character being played owns this Quartz piece (CharacterItems.Quartz).
+        /// Null owns none - the authored catalogue's switch still holds them all in development.</summary>
+        public static Func<string, bool> HoldsQuartz;
+
         /// <summary>Whether this player holds <paramref name="item"/> - a minted instance of this
         /// character's, a starter, or an authored piece when the authored catalogue is held.</summary>
         public static bool Held(GearItem item)
@@ -47,6 +51,8 @@ namespace Convergence.Art.Gear
             if (item == null) return false;
             if (!string.IsNullOrEmpty(item.StackKey)) return HoldsInstance == null || HoldsInstance(item.ItemId);
             if (Core.PerfTest.Build && item.ItemId == Core.PerfTest.Accessory) return true;
+            // A Quartz piece the character owns (GEAR.md "Quartz") - the service's count, off chain.
+            if (item.Tier == LootTier.Quartz && HoldsQuartz != null && HoldsQuartz(item.ItemId)) return true;
             if (AuthoredHeld == null || AuthoredHeld()) return true;
             return (StartersHeld == null || StartersHeld()) && Array.IndexOf(Starters, item.ItemId) >= 0;
         }

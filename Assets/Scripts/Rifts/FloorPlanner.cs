@@ -274,13 +274,45 @@ namespace Convergence.Rifts
         /// run seed, so a restart meets the same puzzle. Never the same kind twice running.</summary>
         public Puzzles.PuzzleKind PickPuzzle(int floor)
         {
-            var rng = new Random(unchecked(Seed * 40503 + floor * 2654435 + 7));
-            int n = Enum.GetValues(typeof(Puzzles.PuzzleKind)).Length;
-            int k = rng.Next(n);
-            if (k == LastPuzzle) k = (k + 1 + rng.Next(n - 1)) % n;
+            int k = DrawPuzzle(floor, LastPuzzle);
             if (DevForcePuzzle >= 0) { k = DevForcePuzzle; DevForcePuzzle = -1; }
             LastPuzzle = k;
             return (Puzzles.PuzzleKind)k;
+        }
+
+        /// <summary>PickPuzzle's draw alone - no counter moved, no dev switch spent.</summary>
+        int DrawPuzzle(int floor, int last)
+        {
+            var rng = new Random(unchecked(Seed * 40503 + floor * 2654435 + 7));
+            int n = Enum.GetValues(typeof(Puzzles.PuzzleKind)).Length;
+            int k = rng.Next(n);
+            if (k == last) k = (k + 1 + rng.Next(n - 1)) % n;
+            return k;
+        }
+
+        /// <summary>
+        /// Whether the floors after <paramref name="from"/> are forecast to hold a LABYRINTH between
+        /// <paramref name="minFloor"/> and <paramref name="maxFloor"/> - PeekAhead's copy, with each
+        /// puzzle floor's kind drawn as PickPuzzle would. A forecast: a Rift reached or collapsed
+        /// later can change it (the Quartz box's band-3 fallback reads this - GEAR.md "Quartz").
+        /// </summary>
+        public bool ForecastsMaze(int from, int minFloor, int maxFloor)
+        {
+            var copy = new FloorPlanner(Seed)
+            {
+                SinceRift = SinceRift, SincePuzzle = SincePuzzle, QuietFloors = QuietFloors,
+                LastPuzzle = LastPuzzle, HadPuzzle = HadPuzzle, HadRift = HadRift,
+            };
+            for (int f = from + 1; f <= Math.Min(Core.RunFormat.EndFloor, maxFloor); f++)
+            {
+                var plan = copy.Plan(f, consumeDevForce: false);
+                if (plan.Rift != RiftKind.None) copy.MarkRiftReached();
+                if (plan.Category != FloorCategory.Puzzle) continue;
+                int k = copy.DrawPuzzle(f, copy.LastPuzzle);
+                copy.LastPuzzle = k;
+                if (k == (int)Puzzles.PuzzleKind.Maze && f >= minFloor) return true;
+            }
+            return false;
         }
         public int LastPuzzle = -1;
 

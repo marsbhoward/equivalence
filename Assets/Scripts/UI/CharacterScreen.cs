@@ -414,6 +414,7 @@ namespace Convergence.UI
             LootTier.Silver       => new Color(0.78f, 0.80f, 0.85f),
             LootTier.Gold         => new Color(0.95f, 0.78f, 0.32f),
             LootTier.Diamond      => new Color(0.55f, 0.85f, 1.00f),
+            LootTier.Quartz       => new Color(0.93f, 0.66f, 0.74f),
             _                     => new Color(0.75f, 0.45f, 1.00f),
         };
 

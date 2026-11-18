@@ -86,14 +86,25 @@ namespace Convergence.EditorTools
             for (int i = 0; i < free.Count; i++)
                 sb.Append($"    {Q(free[i].ItemId)}").Append(i < free.Count - 1 ? ",\n" : "\n");
             sb.Append("  ],\n  \"poses\": [\n");
-            for (int i = 0; i < PoseCatalog.All.Length; i++)
-                sb.Append($"    {{ \"id\": {Q(PoseCatalog.All[i].Id)}, \"name\": {Q(PoseCatalog.All[i].Name)} }}")
-                  .Append(i < PoseCatalog.All.Length - 1 ? ",\n" : "\n");
+            // EARNED poses only: the open ones (Tuning.Cosmetics.OpenPoses) are everyone's, and this
+            // list is only ever rolled - a roll landing on one would pay nothing.
+            var earnable = System.Array.FindAll(PoseCatalog.All,
+                p => System.Array.IndexOf(Core.Tuning.Cosmetics.OpenPoses, p.Id) < 0);
+            for (int i = 0; i < earnable.Length; i++)
+                sb.Append($"    {{ \"id\": {Q(earnable[i].Id)}, \"name\": {Q(earnable[i].Name)} }}")
+                  .Append(i < earnable.Length - 1 ? ",\n" : "\n");
             // The hub themes, every one but the Cloister (everyone's) - on the poses' roll (group 7).
             sb.Append("  ],\n  \"themes\": [\n");
             for (int i = 1; i < Hub.HubThemes.Count; i++)
                 sb.Append($"    {{ \"id\": {Q(Hub.HubThemes.Id((Hub.HubTheme)i))}, \"name\": {Q(Hub.HubThemes.NameOf((Hub.HubTheme)i))} }}")
                   .Append(i < Hub.HubThemes.Count - 1 ? ",\n" : "\n");
+            // QUARTZ (GEAR.md "Quartz"): the capes and accessories a Quartz box draws from, beside the
+            // poses and themes above. Off chain - never minted, so no art keys.
+            sb.Append("  ],\n  \"quartz\": [\n");
+            var quartz = DesignDrops.Pool(LootTier.Quartz);
+            for (int i = 0; i < quartz.Count; i++)
+                sb.Append($"    {{ \"id\": {Q(quartz[i].ItemId)}, \"name\": {Q(quartz[i].DisplayName)}, \"slot\": {Q(quartz[i].Slot.ToString())} }}")
+                  .Append(i < quartz.Count - 1 ? ",\n" : "\n");
             sb.Append("  ]\n}\n");
 
             Directory.CreateDirectory(Path.GetDirectoryName(Path.GetFullPath(path)));

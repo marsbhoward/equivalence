@@ -222,6 +222,13 @@ namespace Convergence.Art.Gear
             item.CapeHingeCells = HellTop + PrimitiveCharacterRig.Proportions.Cells(PixelSprite.OutlineCanvasPadFor(BodyPpu))
                                   - PrimitiveCharacterRig.Proportions.NeckYCells;
             item.CapeSwingScale = 0.45f;
+            // Dyeable since Quartz (the user's call: Quartz capes recolour free, GEAR.md "Quartz"): ONE cloth
+            // channel on its own reds. A ramp on the base 'b' finds the front art's group; its middle tones
+            // are the hand-picked ones, so the eight-direction picture (drawn in exactly these) matches too.
+            var cloth = DyeChannel.Of("Cloth", DyeMaterial.Cloth, new Palette.Ramp(HellspawnPal()['b']));
+            var pal = HellspawnPal();
+            cloth.Tones[1] = pal['s']; cloth.Tones[2] = pal['d']; cloth.Tones[3] = pal['b']; cloth.Tones[4] = pal['l'];
+            item.DyeChannels = new[] { cloth };
             return item;
         }
     }

@@ -149,7 +149,7 @@ namespace Convergence.Chain.Service
         }
 
         [Serializable]
-        class FinalReply { public string tier; public int count; public bool guaranteed; public int week; public string dye; public string pose; public int poseGold; }
+        class FinalReply { public string tier; public int count; public bool guaranteed; public int week; public string dye; public string pose; public int poseGold; public int quartz; }
 
         /// <summary>Floor 100's box, decided by the service (routes/finalFloor.ts) - the run must be
         /// this character's latest run start. Null when there is no answer; the caller asks again
@@ -176,12 +176,12 @@ namespace Convergence.Chain.Service
             return new FinalFloorReward
             {
                 Tier = tier, Count = dye ? 0 : reply.count, Guaranteed = reply.guaranteed, Week = reply.week,
-                Dye = reply.dye, Pose = reply.pose, PoseGold = Math.Max(0, reply.poseGold),
+                Dye = reply.dye, Pose = reply.pose, PoseGold = Math.Max(0, reply.poseGold), Quartz = Math.Max(0, reply.quartz),
             };
         }
 
         [Serializable]
-        class AvatarReply { public int floor; public int diamond; public int blackDiamond; public string dye; public string pose; public int poseGold; }
+        class AvatarReply { public int floor; public int diamond; public int blackDiamond; public string dye; public string pose; public int poseGold; public int quartz; }
 
         /// <summary>An avatar's boxes, decided by the service (routes/avatarBox.ts) - the run must be
         /// this character's latest run start, its snapshots on that floor. Null when there is no
@@ -204,7 +204,7 @@ namespace Convergence.Chain.Service
             return new AvatarBoxes
             {
                 Floor = floor, Diamond = Math.Max(0, reply.diamond), BlackDiamond = Math.Max(0, reply.blackDiamond),
-                Dye = reply.dye, Pose = reply.pose, PoseGold = Math.Max(0, reply.poseGold),
+                Dye = reply.dye, Pose = reply.pose, PoseGold = Math.Max(0, reply.poseGold), Quartz = Math.Max(0, reply.quartz),
             };
         }
 
@@ -243,14 +243,22 @@ namespace Convergence.Chain.Service
             public List<string> themes = new();
             public List<string> milestones = new();
             public int heldDiamond;
+            public List<QuartzRow> quartz = new();
+            public int quartzBoxes;
+            public OpenedRow opened;
             public string error;
         }
+
+        [Serializable] class QuartzRow { public string id; public int count; }
+        [Serializable] class OpenedRow { public string kind; public string id; }
 
         static CharacterItems ToItems(ItemsReply r)
         {
             var items = new CharacterItems { Charges = r.charges, Poses = r.poses ?? new(), Themes = r.themes ?? new(), Milestones = r.milestones ?? new(), HeldDiamond = Math.Max(0, r.heldDiamond) };
             foreach (var d in r.dyes ?? new()) if (d != null && d.count > 0) items.Dyes.Add(new DyeCount { Swatch = d.swatch, Count = d.count });
             foreach (var d in r.dyed ?? new()) if (d != null) items.Dyed.Add(new PieceDye { Piece = d.piece, Swatches = d.swatches ?? new() });
+            foreach (var q in r.quartz ?? new()) if (q != null && q.count > 0) items.Quartz.Add(new QuartzCount { Id = q.id, Count = q.count });
+            items.QuartzBoxes = Math.Max(0, r.quartzBoxes);
             return items;
         }
 
@@ -275,6 +283,7 @@ namespace Convergence.Chain.Service
                         "not_enough_charges" => "not enough charges - break a Diamond box for more",
                         "not_enough_dye" => "not enough of that dye",
                         "no_diamond_box" => "no Diamond box to break",
+                        "no_quartz_box" => "no Quartz box to open",
                         "refused" => string.IsNullOrEmpty(e.reason) ? "refused" : e.reason,
                         _ => e.error.Replace('_', ' '),
                     };
@@ -335,6 +344,51 @@ namespace Convergence.Chain.Service
             // A HELD box was never in the save's count (it lives only on the service).
             if (r.Body.Contains("\"source\":\"save\"") && profile.Boxes.Diamond > 0) profile.Boxes.Diamond--;
             return null;
+        }
+
+        [Serializable] class QuartzFloorReply { public int floor; public int boxes; public string error; }
+
+        public async Task<int> QuartzFloorAsync(CharacterProfile profile, string runId, int floor)
+        {
+            var body = "{\"profileId\":" + ServiceClient.Quote(profile.ProfileId) + ",\"runId\":" + ServiceClient.Quote(runId) +
+                       ",\"floor\":" + floor + "}";
+            var r = await Ask(t => ServiceClient.Post("/saves/quartz-floor", body, t));
+            if (!r.Ok) throw new Exception(r.ToString());
+            var reply = JsonUtility.FromJson<QuartzFloorReply>(r.Body);
+            int boxes = Math.Max(0, reply?.boxes ?? 0);
+            // The box is the character's on the service already; keep the copy in step.
+            if (boxes > 0 && profile.Items != null) profile.Items.QuartzBoxes += boxes;
+            return boxes;
+        }
+
+        [Serializable] class QuartzMazeReply { public int boxes; public bool present; public string error; }
+
+        public async Task<int> QuartzMazeAsync(CharacterProfile profile, string runId, int floor, bool take)
+        {
+            var body = "{\"profileId\":" + ServiceClient.Quote(profile.ProfileId) + ",\"runId\":" + ServiceClient.Quote(runId) +
+                       ",\"floor\":" + floor + ",\"take\":" + (take ? "true" : "false") + "}";
+            var r = await Ask(t => ServiceClient.Post("/saves/quartz-maze", body, t));
+            if (!r.Ok) throw new Exception(r.ToString());
+            var reply = JsonUtility.FromJson<QuartzMazeReply>(r.Body);
+            if (!take) return reply != null && reply.present ? 1 : 0;
+            int boxes = Math.Max(0, reply?.boxes ?? 0);
+            if (boxes > 0 && profile.Items != null) profile.Items.QuartzBoxes += boxes;
+            return boxes;
+        }
+
+        public async Task<(string refusal, string opened)> OpenQuartzAsync(CharacterProfile profile)
+        {
+            _unreadable ??= new HashSet<string>();
+            if (_unreadable.Contains(profile.ProfileId)) return ("this character could not be read this session", null);
+            var r = await Ask(t => ServiceClient.Post(ItemsPath(profile.ProfileId) + "/open-quartz", "{}", t));
+            if (!r.Ok) return (Refusal(r), null);
+            ItemsReply reply = null;
+            try { reply = JsonUtility.FromJson<ItemsReply>(r.Body); }
+            catch (Exception e) { Debug.LogWarning($"[Service] open-quartz unreadable: {e.Message}"); }
+            if (reply == null || !string.IsNullOrEmpty(reply.error) || reply.opened == null)
+                return ("the service's answer was unreadable", null);
+            profile.Items = ToItems(reply);
+            return (null, reply.opened.id);
         }
 
         public async Task UnlockAsync(CharacterProfile profile)

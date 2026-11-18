@@ -622,7 +622,7 @@ namespace Convergence.Art.Gear
                  "runtime, so gear authored separately from the base character still resolves.")]
         public SpriteLibraryAsset GearLibrary;
 
-        public bool IsCosmeticTier => Tier is LootTier.Diamond or LootTier.BlackDiamond;
+        public bool IsCosmeticTier => Tier is LootTier.Diamond or LootTier.BlackDiamond or LootTier.Quartz;
     }
 
     /// <summary>One layer's worth of an item's art.</summary>

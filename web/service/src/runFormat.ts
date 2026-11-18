@@ -56,7 +56,23 @@ export interface RunFormat {
    * clock starts at the first spawn (SHORT-DESCENT.md). An estimate - to check in play.
    */
   walkInSeconds: number;
+  /**
+   * QUARTZ (GEAR.md "Quartz"): the last enemy of a floor rolls a Quartz box at its ENEMY BAND's rate
+   * (bandEdges as the game's Tuning.EnemyBands - one band more past each edge). Empty = no floor roll.
+   */
+  bandEdges: number[];
+  quartzBandRates: number[];
+  /** A rolled avatar's own Quartz box, and the final floor's - every clear (replaced the pose roll). */
+  quartzAvatarChance: number;
+  quartzFinalChance: number;
+  /** The Labyrinth's box (routes/quartz.ts): the lowest enemy band whose maze may hold it (the game
+   *  asks for the last band's, or band 3's when none is forecast there), and how often it does. */
+  quartzMazeMinBand: number;
+  quartzMazeChance: number;
 }
+
+/** The QUARTZ rates by enemy band (the user's ramp, my numbers - GEAR.md "Quartz"): 0.5% to 1.5%. */
+const QUARTZ_BAND_RATES = [0.005, 0.0075, 0.01, 0.0125, 0.015];
 
 /** A test override for every format's plausibility floor (seconds a floor), e.g. 0.1 locally. */
 const MIN_OVERRIDE = process.env.MIN_SECONDS_PER_FLOOR ? Number(process.env.MIN_SECONDS_PER_FLOOR) : null;
@@ -85,6 +101,12 @@ export const FORMATS: Record<FormatId, RunFormat> = {
     minSecondsPerFloor: MIN_OVERRIDE ?? 20,
     guaranteeClockSeconds: 0,
     walkInSeconds: 3,
+    bandEdges: [20, 40, 60, 80],
+    quartzBandRates: QUARTZ_BAND_RATES,
+    quartzAvatarChance: 0.10,
+    quartzFinalChance: 0.20,
+    quartzMazeMinBand: 3,
+    quartzMazeChance: 0.5,
   },
   // Proposed numbers (SHORT-DESCENT.md, "Diamond and Black Diamond") - per HOUR, as Classic pays.
   short: {
@@ -103,6 +125,12 @@ export const FORMATS: Record<FormatId, RunFormat> = {
     minSecondsPerFloor: MIN_OVERRIDE ?? 15,
     guaranteeClockSeconds: SHORT_GUARANTEE_SECONDS,
     walkInSeconds: 3,
+    bandEdges: [10, 20, 30, 40],
+    quartzBandRates: QUARTZ_BAND_RATES,
+    quartzAvatarChance: 0.10,
+    quartzFinalChance: 0.20,
+    quartzMazeMinBand: 3,
+    quartzMazeChance: 0.5,
   },
   // The Short Descent's pace for ten floors, and no box of any kind decided by the service.
   showcase: {
@@ -120,8 +148,22 @@ export const FORMATS: Record<FormatId, RunFormat> = {
     minSecondsPerFloor: MIN_OVERRIDE ?? 15,
     guaranteeClockSeconds: 0,
     walkInSeconds: 3,
+    // No Quartz in the showcase (the user's call, 2026-11-17).
+    bandEdges: [],
+    quartzBandRates: [],
+    quartzAvatarChance: 0,
+    quartzFinalChance: 0,
+    quartzMazeMinBand: 99,
+    quartzMazeChance: 0,
   },
 };
+
+/** A floor's enemy band under a format - one more past each edge (the game's RunFormat.EnemyBand). */
+export const enemyBand = (format: RunFormat, floor: number) => format.bandEdges.filter((e) => floor > e).length;
+
+/** The Quartz chance on a floor's last enemy - 0 where the format rolls none. */
+export const quartzFloorChance = (format: RunFormat, floor: number) =>
+  format.quartzBandRates[Math.min(enemyBand(format, floor), format.quartzBandRates.length - 1)] ?? 0;
 
 /** The format this service plays - the first it accepts (RUN_FORMATS). The game reads it from
  *  /status (switches.ts) and starts its runs under it: the showcase instance names `showcase`. */

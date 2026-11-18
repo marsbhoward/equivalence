@@ -112,7 +112,12 @@ namespace Convergence.Player
         public bool IsLocked => Locked != null && !Locked.IsDead;
 
         /// <summary>Let go of the lock (Wandering Eye; PlayerController on a defensive ability).</summary>
-        public void BreakLock() => Locked = null;
+        public void BreakLock()
+        {
+            if (Core.PerfTest.LockLogging && Locked != null)
+                Core.PerfTest.Lock("\"src\":\"break\",\"result\":\"lock broken (Wandering Eye)\"");
+            Locked = null;
+        }
 
         /// <summary>A body going into a chasm is out of the fight before it is dead: its rim is
         /// not masked with it, and would be left falling outside the hole.</summary>
@@ -155,7 +160,12 @@ namespace Convergence.Player
         void Relock()
         {
             var origin = (Vector2)transform.position;
-            if (Mods.NoLock) { Locked = null; return; }
+            if (Mods.NoLock)
+            {
+                if (Core.PerfTest.LockLogging) foreach (var tap in Controls.WorldTaps) LogTap(tap, "no-lock burden", null);
+                Locked = null;
+                return;
+            }
 
             // A kill moves the lock on to the nearest enemy in range; drifting out of range drops it.
             if (Locked != null)
@@ -167,14 +177,19 @@ namespace Convergence.Player
             }
 
             // Nothing in the world takes input under a screen.
-            if (GamePause.IsPaused) return;
+            if (GamePause.IsPaused)
+            {
+                if (Core.PerfTest.LockLogging) foreach (var tap in Controls.WorldTaps) LogTap(tap, "paused", null);
+                return;
+            }
 
             foreach (var tap in Controls.WorldTaps)
             {
                 var hp = AtScreenPoint(tap);
-                if (hp == null) continue;
-                if (!InReach(hp)) { Refuse(hp); return; }
+                if (hp == null) { if (Core.PerfTest.LockLogging) LogTap(tap, "no enemy under it", null); continue; }
+                if (!InReach(hp)) { Refuse(hp); if (Core.PerfTest.LockLogging) LogTap(tap, "out of reach", hp); return; }
                 Locked = hp == Locked ? null : hp;   // tap it again to let go
+                if (Core.PerfTest.LockLogging) LogTap(tap, Locked != null ? "locked" : "let go", hp);
                 Learned();
                 return;
             }
@@ -202,6 +217,29 @@ namespace Convergence.Player
                                   Tuning.Targeting.FlickConeDegrees, walls: false, skip: Locked, rangeFrom: origin);
                 if (next != null) Locked = next;
             }
+        }
+
+        /// <summary>The perf-test build's lock line for one tap (Core.PerfTest.Lock): where it landed, the
+        /// nearest enemy to it however far, the reach, and the outcome.</summary>
+        void LogTap(Vector2 tap, string result, Health picked)
+        {
+            var cam = Camera.main;
+            Vector2 world = cam != null ? (Vector2)cam.ScreenToWorldPoint(new Vector3(tap.x, tap.y, -cam.transform.position.z)) : Vector2.zero;
+            float nearTap = float.PositiveInfinity, nearMe = float.PositiveInfinity;
+            int live = 0;
+            foreach (var enemy in EnemyRegistry.All)
+            {
+                if (Live(enemy) == null) continue;
+                live++;
+                nearTap = Mathf.Min(nearTap, Vector2.Distance(world, enemy.transform.position));
+                nearMe = Mathf.Min(nearMe, Vector2.Distance(transform.position, enemy.transform.position));
+            }
+            string F(float v) => float.IsInfinity(v) ? "null" : v.ToString("0.00");
+            Core.PerfTest.Lock($"\"src\":\"tap\",\"result\":\"{result}\",\"screen\":[{tap.x:0},{tap.y:0}],\"screenSize\":[{Screen.width},{Screen.height}]," +
+                               $"\"world\":[{world.x:0.00},{world.y:0.00}],\"enemies\":{live},\"nearestToTap\":{F(nearTap)},\"nearestToMe\":{F(nearMe)}," +
+                               $"\"pickRadius\":{Tuning.Targeting.LockPickRadius:0.00},\"reach\":{LockReach:0.00}," +
+                               $"\"pickedAt\":{(picked != null ? F(Vector2.Distance(transform.position, picked.transform.position)) : "null")}," +
+                               $"\"locked\":{(IsLocked ? "true" : "false")},\"weapon\":\"{(Player != null ? Player.Weapon.ToString() : "?")}\"");
         }
 
         /// <summary>The aim when there is one, else the character's facing.</summary>

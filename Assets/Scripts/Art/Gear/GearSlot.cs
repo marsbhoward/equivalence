@@ -55,6 +55,14 @@ namespace Convergence.Art.Gear
         /// Sort order for display is therefore a UI concern, never the declaration order.
         /// </summary>
         Bronze,
+
+        /// <summary>
+        /// Single WORN cosmetics - every cape and back piece, every accessory, and (as collectibles,
+        /// not items) the hub themes and poses. ACCOUNT-ONLY: never minted, never traded, never on
+        /// chain (the user's calls, 2026-11-17; GEAR.md "Quartz"). Diamond keeps the full armour
+        /// sets and the weapons. Appended, like Bronze, for the same saved-ordinal reason.
+        /// </summary>
+        Quartz,
     }
 
     /// <summary>

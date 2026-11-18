@@ -358,6 +358,35 @@ const MIGRATIONS: string[] = [
     PRIMARY KEY (owner, profile_id, shot_id)
   );
   `,
+
+  // 15 - QUARTZ (GEAR.md "Quartz"): a floor's last-enemy roll, decided once per run per floor
+  // (routes/quartz.ts) - a retry gets the same answer. The avatars' and the final floor's decisions
+  // gain the Quartz box that replaced their pose roll.
+  `
+  CREATE TABLE quartz_floors (
+    owner         TEXT NOT NULL,
+    profile_id    TEXT NOT NULL,
+    run_id        TEXT NOT NULL,
+    floor         INTEGER NOT NULL,
+    boxes         INTEGER NOT NULL,
+    decided_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (owner, profile_id, run_id, floor)
+  );
+  ALTER TABLE avatar_boxes ADD COLUMN quartz INTEGER NOT NULL DEFAULT 0;
+  ALTER TABLE final_floor ADD COLUMN quartz INTEGER NOT NULL DEFAULT 0;
+
+  -- The Labyrinth's box: decided ONCE PER RUN, on entering the first eligible maze.
+  CREATE TABLE quartz_maze (
+    owner         TEXT NOT NULL,
+    profile_id    TEXT NOT NULL,
+    run_id        TEXT NOT NULL,
+    floor         INTEGER NOT NULL,
+    present       BOOLEAN NOT NULL,
+    taken         BOOLEAN NOT NULL DEFAULT false,
+    decided_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (owner, profile_id, run_id)
+  );
+  `,
 ];
 
 /** Applies every migration not yet applied. Called once at start-up. */

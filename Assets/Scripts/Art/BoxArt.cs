@@ -22,17 +22,17 @@ namespace Convergence.Art
     /// </summary>
     public static partial class BoxArt
     {
-        public enum Kind { Bronze, Silver, Gold, Diamond, BlackDiamond, Rift }
+        public enum Kind { Bronze, Silver, Gold, Diamond, BlackDiamond, Rift, Quartz }
 
         /// <summary>The shape inlaid in the arch, in the box's light (the user's pairing,
-        /// 2026-10-09): circle - Gold, Black Diamond; triangle - Silver, Rift; square - Bronze,
-        /// Diamond. Shape as well as colour, so two boxes never differ by colour alone.</summary>
+        /// 2026-10-09): circle - Gold, Black Diamond; triangle - Silver, Rift, Quartz (mine, 2026-11-17);
+        /// square - Bronze, Diamond. Shape as well as colour, so two boxes never differ by colour alone.</summary>
         public enum Emblem { Circle, Triangle, Square }
 
         public static Emblem EmblemOf(Kind kind) => kind switch
         {
             Kind.Gold or Kind.BlackDiamond => Emblem.Circle,
-            Kind.Silver or Kind.Rift => Emblem.Triangle,
+            Kind.Silver or Kind.Rift or Kind.Quartz => Emblem.Triangle,
             _ => Emblem.Square,
         };
 
@@ -389,6 +389,7 @@ namespace Convergence.Art
             Kind.Gold => new Color(1.00f, 0.80f, 0.30f),
             Kind.Diamond => new Color(0.55f, 0.88f, 1.00f),
             Kind.BlackDiamond => new Color(0.74f, 0.42f, 1.00f),
+            Kind.Quartz => new Color(1.00f, 0.62f, 0.74f),
             _ => new Color(0.45f, 0.88f, 1.00f),
         };
 

@@ -25,10 +25,20 @@ namespace Convergence.Art.Gear
         public readonly float K;
         public readonly bool Alt;
 
+        /// <summary>A REST pose: no swing frame, the weapon held in a carry (<see cref="Weapon8.Kind.SwordShoulder"/>).</summary>
+        public readonly bool RestCarry;
+
         public PoseDef(string id, string name, AttackMotion motion, float k, string description, bool alt = false)
         {
             Id = id; Name = name; Motion = motion; K = k; Description = description; Alt = alt;
         }
+
+        PoseDef(string id, string name, string description)
+        {
+            Id = id; Name = name; Description = description; RestCarry = true;
+        }
+
+        public static PoseDef Rest(string id, string name, string description) => new(id, name, description);
     }
 
     public static class PoseCatalog
@@ -47,6 +57,9 @@ namespace Convergence.Art.Gear
             new("pose.ready",    "Ready",         AttackMotion.Throw,        0.00f, "The weapon held across the chest."),
             new("pose.wind",     "Wind",          AttackMotion.Cast,         0.00f, "Leaning back, the weapon swung low across the body."),
             new("pose.leap",     "Leap",          AttackMotion.DiscLeap,     0.42f, "At the top of a jump, the weapon swept down."),
+            // the greatsword's rest carry as it stood on 2026-11-17 (the user: "save the arm placement as a pose"),
+            // kept as Weapon8.Kind.SwordShoulder whatever the rest carry becomes; OPEN to everyone (Tuning.Cosmetics.OpenPoses)
+            PoseDef.Rest("pose.shoulder", "Shoulder Carry", "The weapon's hilt by the shoulder, the blade down behind the back."),
         };
 
         static Dictionary<string, PoseDef> _byId;

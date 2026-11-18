@@ -247,7 +247,7 @@ namespace Convergence.Art.Gear
             if (footBin != _footBin)
             {
                 _footBin = footBin;
-                if (MakesSound && _gaitWeight >= Convergence.Core.Tuning.Audio.FootstepGaitWeight)
+                if (MakesSound && !Body8On && _gaitWeight >= Convergence.Core.Tuning.Audio.FootstepGaitWeight)   // the drawn legs land their own (Footfall8)
                     Convergence.Audio.CombatSounds.Footstep(Body != null ? Body.position : (Vector2)transform.position);
             }
 

@@ -5,7 +5,7 @@ import { tx } from '../db.js';
 import { AvatarDecision, rollAvatar } from '../avatarBoxes.js';
 import { currentRunAt, runFormatOf } from '../runProgress.js';
 import { isRolledAvatar } from '../runFormat.js';
-import { AVATAR_RARE_DYE_CHANCE, chance, collectibleKind, credit, posesOwned, rollPose, rollRareDye } from '../cosmetics.js';
+import { AVATAR_RARE_DYE_CHANCE, chance, credit, rollRareDye } from '../cosmetics.js';
 
 /**
  * An avatar's boxes (avatarBoxes.ts has the rules), for every browser player - guest or wallet,
@@ -26,7 +26,7 @@ function fail(res: Response, status: number, error: string, extra: Record<string
 
 const answer = (d: AvatarDecision, repeat: boolean) =>
   ({ floor: d.floor, diamond: d.diamond, blackDiamond: d.black_diamond,
-     dye: d.dye ?? '', pose: d.pose ?? '', poseGold: d.pose_gold ?? 0, repeat });
+     dye: d.dye ?? '', pose: d.pose ?? '', poseGold: d.pose_gold ?? 0, quartz: d.quartz ?? 0, repeat });
 
 export async function claimAvatarBoxes(req: Request, res: Response): Promise<void> {
   const owner = res.locals.owner as string;
@@ -49,7 +49,7 @@ export async function claimAvatarBoxes(req: Request, res: Response): Promise<voi
         return { status: 400, error: 'not_a_rolled_avatar', extra: { format: format.id, avatars: format.rolledAvatars } } as const;
 
       const prior = await c.query<AvatarDecision>(
-        `SELECT floor, diamond, black_diamond, dye, pose, pose_gold FROM avatar_boxes
+        `SELECT floor, diamond, black_diamond, dye, pose, pose_gold, quartz FROM avatar_boxes
           WHERE owner = $1 AND profile_id = $2 AND run_id = $3 AND floor = $4`,
         [owner, profileId, runId, floor]);
       if (prior.rowCount) return { status: 200, decision: prior.rows[0], repeat: true } as const;
@@ -59,25 +59,27 @@ export async function claimAvatarBoxes(req: Request, res: Response): Promise<voi
 
       const decision = rollAvatar(run.format, floor);
       // The cosmetics (cosmetics.ts), decided with the boxes and CREDITED here: database first, so
-      // a rare dye or a pose is the character's from this moment, whatever becomes of the run.
+      // a rare dye or a Quartz box is the character's from this moment, whatever becomes of the run.
+      // The Quartz box replaced the 1% pose roll (GEAR.md "Quartz"): poses are in Quartz boxes now.
       decision.dye = chance(AVATAR_RARE_DYE_CHANCE) ? rollRareDye() : null;
-      const pose = rollPose(await posesOwned(c, owner, profileId));
-      decision.pose = pose.pose;
-      decision.pose_gold = pose.gold;
+      decision.pose = null;
+      decision.pose_gold = 0;
+      decision.quartz = chance(run.format.quartzAvatarChance) ? 1 : 0;
       await c.query(
-        `INSERT INTO avatar_boxes (owner, profile_id, run_id, floor, diamond, black_diamond, dye, pose, pose_gold)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-        [owner, profileId, runId, floor, decision.diamond, decision.black_diamond, decision.dye, decision.pose, decision.pose_gold]);
+        `INSERT INTO avatar_boxes (owner, profile_id, run_id, floor, diamond, black_diamond, dye, pose, pose_gold, quartz)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        [owner, profileId, runId, floor, decision.diamond, decision.black_diamond, decision.dye, decision.pose, decision.pose_gold,
+         decision.quartz]);
       if (decision.dye) await credit(c, owner, profileId, 'dye', decision.dye, 1, `avatar:${runId}:${floor}`);
-      if (decision.pose) await credit(c, owner, profileId, collectibleKind(decision.pose), decision.pose, 1, `avatar:${runId}:${floor}`);
+      if (decision.quartz) await credit(c, owner, profileId, 'quartzbox', '', decision.quartz, `avatar:${runId}:${floor}`);
       return { status: 200, decision, repeat: false } as const;
     });
 
     if (out.status !== 200) return fail(res, out.status, out.error, out.extra ?? {});
-    if (!out.repeat && (out.decision.diamond || out.decision.black_diamond || out.decision.dye || out.decision.pose))
+    if (!out.repeat && (out.decision.diamond || out.decision.black_diamond || out.decision.dye || out.decision.quartz))
       console.log(`[avatar-box] ${profileId} run ${runId} floor ${floor}: ` +
         `${out.decision.diamond} Diamond, ${out.decision.black_diamond} Black Diamond` +
-        (out.decision.dye ? `, dye ${out.decision.dye}` : '') + (out.decision.pose ? `, pose ${out.decision.pose}` : ''));
+        (out.decision.dye ? `, dye ${out.decision.dye}` : '') + (out.decision.quartz ? ', a Quartz box' : ''));
     res.json(answer(out.decision, out.repeat));
   } catch (e) {
     internal(res, e, 'avatar-box');

@@ -720,9 +720,9 @@ namespace Convergence.Art.Gear
         // TORSO-local CELLS, y up from the waist (the Hellspawn Cape's frame): the neck at 22, the
         // shoulders 21, the knee -12, the soles -24. NAVY, from the shoulders to the floor, flaring
         // to about one and a half times the body's width. The lower third is SHREDDED - the
-        // reference's: long tatters dragging to the floor, the side edges ragged, and the cloth
-        // torn through in big holes (the Hellspawn rule: at less than ~4 x 8 cells the outline
-        // closes a hole into a dark rune). Broad fan folds, never crease marks.
+        // reference's: long tatters dragging to the floor and the side edges ragged. NO HOLES (the
+        // user's call, 2026-11-16): torn through is the Hellspawn Cape's look, and with recolouring
+        // the two capes have to differ in outline below the collar. Broad fan folds, never crease marks.
 
         const float TepCapeTop = 25f, TepCapeBottom = -26f, TepCapeHalfW = 22f;
         /// <summary>The solid cloth ends here; below it only the tatters hang.</summary>
@@ -746,13 +746,6 @@ namespace Convergence.Art.Gear
             }
         }
 
-        static readonly (float X, float Y, float Rx, float Ry)[] TepTears =
-        {
-            (-9.5f, -5f, 2.8f, 5.2f),
-            (9f, -8f, 2.8f, 5f),
-            (1.5f, -12f, 2.6f, 4.6f),
-        };
-
         static float TepCapeBottomAt(float x)
         {
             float bottom = TepCapeHemLine;
@@ -768,24 +761,11 @@ namespace Convergence.Art.Gear
             return (Mathf.Abs(p - 0.5f) * 2f - 0.5f) * 2.6f * Mathf.InverseLerp(4f, -6f, y);
         }
 
-        static bool TepTorn(float x, float y)
-        {
-            foreach (var t in TepTears)
-            {
-                float dx = (x - t.X) / t.Rx, dy = (y - t.Y) / t.Ry;
-                float a = Mathf.Atan2(dy, dx);
-                float wobble = 1f + 0.18f * Mathf.Sin(a * 3f + t.X) + 0.12f * Mathf.Sin(a * 7f + t.Y);
-                if (dx * dx + dy * dy < wobble * wobble) return true;
-            }
-            return false;
-        }
-
         static bool TepCapeIn(float x, float y)
         {
             float ax = Mathf.Abs(x);
             if (y > TepCapeTopAt(ax) || y < TepCapeBottomAt(x)) return false;
-            if (ax > TepCapeHalf(y) + TepCapeSideRag(y, x < 0f)) return false;
-            return !TepTorn(x, y);
+            return ax <= TepCapeHalf(y) + TepCapeSideRag(y, x < 0f);
         }
 
         /// <summary>The cape's tone at (x, y), whether or not there is cloth there - the mantle's

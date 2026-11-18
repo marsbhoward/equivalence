@@ -12,8 +12,10 @@ import type { FormatId } from './runFormat.js';
  *   dyed       what each Diamond armour design wears on this character, per channel
  *   poses      portrait poses - UNTRADEABLE, never duplicated, never a token
  *   themes     hub THEMES ("hub.study") - a whole room, floor, wall and every hub item; untradeable like
- *              poses and on the SAME roll (the user's call, group 7: one roll shared with the poses)
+ *              poses. Both come out of QUARTZ boxes since 2026-11-17 (the avatars' 1% pose roll is gone)
  *   milestones once per character, by the floor first cleared
+ *   quartz     QUARTZ pieces - capes and accessories, a COUNT per piece (a repeat is still a piece),
+ *              and Quartz BOXES (kind quartzbox) - account-only, never minted (GEAR.md "Quartz")
  *
  * Tables `character_items` (kind dye / charge / pose), `dyed_pieces`, `milestones` (db.ts 9). Every
  * row is keyed (owner, profile id) like every save, and moves with a graduating guest; it travels
@@ -33,9 +35,6 @@ export const AVATAR_RARE_DYE_CHANCE = 0.03;
 export const FINAL_LATER_RARE_DYE_CHANCE = 0.04;
 const RARE_WEIGHT = 3;
 const VERY_RARE_WEIGHT = 1;
-export const POSE_CHANCE = 0.01;
-const POSE_GOLD_MIN = 2;
-const POSE_GOLD_MAX = 3;
 
 /**
  * MILESTONES by format - the first clear of each floor, once per character. The Short Descent's
@@ -58,6 +57,7 @@ export const swatches = () => designs().swatches ?? [];
 export const isSwatch = (id: string) => swatches().some((s) => s.id === id);
 export const poses = () => designs().poses ?? [];
 export const themes = () => designs().themes ?? [];
+export const quartzPieces = () => designs().quartz ?? [];
 /** What a collectible id is: a hub theme ("hub.*") or a pose. */
 export const collectibleKind = (id: string): 'theme' | 'pose' => (id.startsWith('hub.') ? 'theme' : 'pose');
 export const dyeChannels = (piece: string): number => designs().dyeable?.[piece] ?? 0;
@@ -89,18 +89,21 @@ function dyeOfRarity(rarity: DyeRarity): string | null {
   return s?.id ?? null;
 }
 
-export interface PoseRoll { pose: string | null; gold: number }
-
 /**
- * A COLLECTIBLE roll (POSE_CHANCE) from the poses AND hub themes the character LACKS - one roll shared by
- * both (the user's call, group 7); with every one owned, Gold. The id answered is a pose's or a theme's
- * (collectibleKind tells them apart) - it rides the decision's `pose` field either way.
+ * WHAT A QUARTZ BOX HOLDS (GEAR.md "Quartz"): one draw, every entry equally likely, from the Quartz
+ * pieces (capes and accessories - a repeat still counts, a piece may roll stats one day) and the
+ * poses and hub themes the character LACKS (they carry nothing, so a repeat would be empty). Null
+ * only when the manifest lists nothing at all.
  */
-export function rollPose(owned: Set<string>): PoseRoll {
-  if (draw() >= POSE_CHANCE) return { pose: null, gold: 0 };
-  const lacking = [...poses(), ...themes()].filter((p) => !owned.has(p.id));
-  if (lacking.length === 0) return { pose: null, gold: POSE_GOLD_MIN + randomInt(POSE_GOLD_MAX - POSE_GOLD_MIN + 1) };
-  return { pose: lacking[randomInt(lacking.length)].id, gold: 0 };
+export interface QuartzRoll { kind: 'quartz' | 'pose' | 'theme'; id: string }
+
+export function rollQuartz(collectiblesOwned: Set<string>): QuartzRoll | null {
+  const entries: QuartzRoll[] = [
+    ...quartzPieces().map((p) => ({ kind: 'quartz' as const, id: p.id })),
+    ...[...poses(), ...themes()].filter((p) => !collectiblesOwned.has(p.id))
+      .map((p) => ({ kind: collectibleKind(p.id), id: p.id })),
+  ];
+  return entries.length === 0 ? null : entries[randomInt(entries.length)];
 }
 
 export interface MilestoneRoll { milestone: string; diamond: number; dye: string | null }
@@ -130,6 +133,10 @@ export interface Items {
   milestones: string[];
   /** Diamond boxes the service HOLDS for the character (earned without a PFP) - breakable here. */
   heldDiamond: number;
+  /** Quartz pieces the character owns, with how many of each. */
+  quartz: { id: string; count: number }[];
+  /** Unopened Quartz boxes. */
+  quartzBoxes: number;
 }
 
 type Q = Pick<pg.PoolClient, 'query'>;
@@ -155,11 +162,15 @@ export async function itemsOf(c: Q, owner: string, profileId: string): Promise<I
     poses: rows.filter((r) => r.kind === 'pose').map((r) => r.item),
     themes: rows.filter((r) => r.kind === 'theme').map((r) => r.item),
     milestones: ms.map((m) => m.milestone),
+    quartz: rows.filter((r) => r.kind === 'quartz').map((r) => ({ id: r.item, count: r.count })),
+    quartzBoxes: rows.find((r) => r.kind === 'quartzbox')?.count ?? 0,
   };
 }
 
 /** Adds (or with a negative delta, takes) items, logged. Never below zero - the caller checks first. */
-export async function credit(c: Q, owner: string, profileId: string, kind: 'dye' | 'charge' | 'pose' | 'theme',
+export type ItemKind = 'dye' | 'charge' | 'pose' | 'theme' | 'quartz' | 'quartzbox';
+
+export async function credit(c: Q, owner: string, profileId: string, kind: ItemKind,
                              item: string, delta: number, reason: string) {
   if (!delta) return;
   await c.query(

@@ -26,6 +26,8 @@ export interface AvatarDecision {
    *  every pose is owned (pose_gold boxes, the run's loot like any Gold). */
   pose?: string | null;
   pose_gold?: number;
+  /** A QUARTZ box (GEAR.md "Quartz") - replaced the pose roll 2026-11-17; credited at the decision. */
+  quartz?: number;
 }
 
 /** A uniform draw in [0, 1) from the server's own randomness. */

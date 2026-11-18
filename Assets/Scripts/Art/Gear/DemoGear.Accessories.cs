@@ -50,6 +50,7 @@ namespace Convergence.Art.Gear
             items.Add(Accessory("penumbra_arm", "Penumbra Arm", AccessoryKind.PenumbraArm));
             items.Add(Accessory("homunculus_plated_arm", "Homunculus Arm", AccessoryKind.HomunculusPlatedArm));
             items.Add(Accessory("homunculus_hydraulic_arm", "Hydraulic Homunculus Arm", AccessoryKind.HomunculusHydraulicArm));
+            items.Add(Accessory("glacies_arm", "Glacies Arm", AccessoryKind.GlaciesArm));   // Sanguis in ice (2026-11-17)
         }
 
         static GearItem Accessory(string id, string name, AccessoryKind kind, string look = null)

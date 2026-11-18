@@ -5727,9 +5727,12 @@ namespace Convergence.Art.Gear
         /// hop, dimensions) exactly as it does at that moment of the real motion.</summary>
         public void HoldPose(PoseDef pose)
         {
-            if (pose == null)
+            _poseShoulder8 = false;
+            if (pose == null || pose.RestCarry)
             {
                 if (_frozenK >= 0f) { _frozenK = -1f; _attackTimer = 0f; }
+                // a rest pose holds no swing: the carry it names (the flat rig's own carry is that same placement)
+                _poseShoulder8 = pose != null;
                 return;
             }
             bool sound = MakesSound;
@@ -5819,7 +5822,7 @@ namespace Convergence.Art.Gear
             int footfall = Mathf.FloorToInt(cycle * 2f);
             if (footfall != _lastFootfall)
             {
-                if (_lastFootfall != int.MinValue && speed >= DustSpeed)
+                if (_lastFootfall != int.MinValue && speed >= DustSpeed && !Body8On)   // the drawn legs raise their own (Footfall8)
                 {
                     // Dropped BEHIND the direction of travel, taken from the velocity rather than
                     // from the facing: the facing is the aim, and a player strafing away from
@@ -7817,8 +7820,9 @@ namespace Convergence.Art.Gear
             float lean = (_leanAngle + _walkLean) * (1f - _leanSuppress * LeanSwingSuppression);
             float bodyLean = _poseBody.Lean * LeanShare;   // none aimed straight up or down
             if (_torso) _torso.localRotation = Quaternion.Euler(0f, 0f, lean + waistTurn + bodyLean);
+            // eight directions: the drawn body does not turn with the lean, so a head tilted against it bobbled
             if (_head) _head.localRotation = Quaternion.Euler(0f, 0f,
-                -lean * LeanHeadShare - bodyLean * BodyLeanHeadShare);
+                (Body8On ? 0f : -lean * LeanHeadShare) - bodyLean * BodyLeanHeadShare);
         }
 
         /// <summary>

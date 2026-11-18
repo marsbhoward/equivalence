@@ -25,7 +25,142 @@ namespace Convergence.Art.Gear
             public float Bob, BobPhase, BobOffset, Lean, Base, HipDrop;
             public float Arm, Elbow;               // the arms' swing and the elbow's bend at full stride, degrees (Body8)
             public float Trail;                    // how far a cape's hem trails behind at full stride, texels (Body8)
-            public float Height(float p) => Bob * Mathf.Cos(4f * Mathf.PI * (p - BobPhase)) + BobOffset;
+
+            // PLANTED (the scaled stride, StrideFor): the foot sweeps back at exactly the ground's speed while it is
+            // down (Stance of its cycle, from Reach ahead to Push behind), then swings back along a spline (Swing:
+            // [u, forward, lift] over the swing, ends included) - no key the foot stops at, and no slide.
+            public bool Planted;
+            public float Stance, Reach, Push, Speed, SpeedTex, Cycle;
+            public float[][] Swing, PitchSpline;   // PitchSpline: [phase, degrees], cyclic
+
+            public float Height(float p) => Planted
+                ? -Bob * Mathf.Cos(4f * Mathf.PI * (p - Stance * 0.5f))          // lowest mid-stance, highest mid-flight
+                : Bob * Mathf.Cos(4f * Mathf.PI * (p - BobPhase)) + BobOffset;
+            /// <summary>The arms' swing at <paramref name="p"/>, degrees (Body8: the character's right arm; the left is its
+            /// negative). Planted: forward as its own side's foot leaves the ground.</summary>
+            public float ArmAt(float p) => Planted ? Arm * Mathf.Cos(2f * Mathf.PI * (p - Stance)) : Arm * Mathf.Sin(2f * Mathf.PI * p);
+            /// <summary>A run rather than a walk (the scarf's streaming, Body8.Extras).</summary>
+            public bool Running => Planted ? Speed >= JogSpeed : Name == "run";
+
+            /// <summary>Where the foot is at leg phase <paramref name="p"/>: forward and lift in leg lengths, the sole's pitch.</summary>
+            public void LegAt(float p, out float fw, out float lift, out float pitch)
+            {
+                if (!Planted)
+                {
+                    var foot = Keys(Foot, p); fw = foot[0]; lift = foot[1]; pitch = Keys(Pitch, p)[0];
+                    return;
+                }
+                p = Mathf.Repeat(p, 1f);
+                float sweep = Reach + Push, vStance = -sweep / Stance;
+                if (p < Stance) { fw = Reach - sweep * (p / Stance); lift = 0f; }
+                else
+                {
+                    float u = (p - Stance) / (1f - Stance), du = 1f - Stance;
+                    int i = 0; while (i < Swing.Length - 2 && u > Swing[i + 1][0]) i++;
+                    var a = Swing[i]; var b = Swing[i + 1]; float span = b[0] - a[0], t = (u - a[0]) / span;
+                    fw = Hermite(a[1], b[1], SwingTangent(i, 1, vStance, du) * span, SwingTangent(i + 1, 1, vStance, du) * span, t);
+                    lift = Mathf.Max(0f, Hermite(a[2], b[2], SwingTangent(i, 2, vStance, du) * span, SwingTangent(i + 1, 2, vStance, du) * span, t));
+                }
+                pitch = CyclicSpline(PitchSpline, p);
+            }
+
+            // d(value)/du at swing point k: the ends leave and land at the stance's own speed (the landing at 0.6 of it)
+            float SwingTangent(int k, int j, float vStance, float du)
+            {
+                if (k == 0) return j == 1 ? vStance * du : (Swing[1][j] - Swing[0][j]) / (Swing[1][0] - Swing[0][0]);
+                int n = Swing.Length - 1;
+                if (k == n) return j == 1 ? vStance * du * 0.6f : (Swing[n][j] - Swing[n - 1][j]) / (Swing[n][0] - Swing[n - 1][0]);
+                return (Swing[k + 1][j] - Swing[k - 1][j]) / (Swing[k + 1][0] - Swing[k - 1][0]);
+            }
+        }
+
+        static float Hermite(float p0, float p1, float m0, float m1, float t)
+        {
+            float t2 = t * t, t3 = t2 * t;
+            return (2f * t3 - 3f * t2 + 1f) * p0 + (t3 - 2f * t2 + t) * m0 + (-2f * t3 + 3f * t2) * p1 + (t3 - t2) * m1;
+        }
+
+        /// <summary>A Catmull-Rom through cyclic [phase, value] keys: the value keeps its speed through every key.</summary>
+        static float CyclicSpline(float[][] keys, float p)
+        {
+            p = Mathf.Repeat(p, 1f); int n = keys.Length, i = n - 1;
+            for (int j = 0; j < n; j++) if (keys[j][0] <= p) i = j;
+            float At(int k, out float v) { int w = ((k % n) + n) % n; v = keys[w][1]; return keys[w][0] + Mathf.Floor(k / (float)n); }
+            float pa = At(i - 1, out float va), pb = At(i, out float vb), pc = At(i + 1, out float vc), pd = At(i + 2, out float vd);
+            float span = pc - pb, t = (p - pb) / span;
+            return Hermite(vb, vc, (vc - va) / (pc - pa) * span, (vd - vb) / (pd - pb) * span, t);
+        }
+
+        // ---------------------------------------------------------------- the scaled stride
+        // ONE run for every speed (the user, 2026-11-18, off the Pace Lab https://claude.ai/artifact/PGfExupKu1riKqNFuUHNvG:
+        // "too many or too little steps at any given time looks unpolished"). Three anchor poses - a jog, Long stride
+        // (the user's pick, E) and a sprint - are blended by speed. Steps a second follow ONE smooth rise with speed
+        // (StepRate x (v / 4.6)^StepPower), each anchor sets how far the foot sweeps, and how long it is down FOLLOWS from
+        // keeping it planted - so the steps lengthen far more than they quicken, the way a runner speeds up. Below the
+        // jog (only while starting or stopping) it keeps the jog's rate and shortens every step by v / jog, the hips rising
+        // to standing: short quick steps out of the stand, never slow floating ones.
+
+        /// <summary>Texels a world unit the body is drawn at in the ARENA (150 ppu under ArenaVisualScale 4/3): speeds here
+        /// are arena units a second, and a rig at another scale converts (PrimitiveCharacterRig.PlaceLegs8).</summary>
+        public const float ArenaTexelsPerUnit = 150f / (4f / 3f);
+        public const float StepRate = 3.45f, StepPower = 0.3f, StepRateAt = 4.6f, JogSpeed = 1.4f;
+        /// <summary>Under this (arena units a second) the figure stands.</summary>
+        public const float StandBelow = 0.2f;
+
+        sealed class Anchor
+        {
+            public float V, Reach, Push, Base, Bob, Heel, Toe, Flick, Lean, Arm, Elbow, Trail;
+            public float[] Kick, Pass, Fore;
+        }
+        static Anchor[] _anchors;
+        static Anchor[] Anchors => _anchors ??= new[]
+        {
+            new Anchor { V = 1.4f, Reach = 0.33f, Push = 0.37f, Base = 53.4f, Bob = 1.6f, Kick = new[] { -0.42f, 0.22f }, Pass = new[] { -0.02f, 0.26f }, Fore = new[] { 0.40f, 0.10f },
+                         Heel = 12f, Toe = 30f, Flick = 45f, Lean = 6f, Arm = 24f, Elbow = 70f, Trail = 6f },
+            new Anchor { V = 4.6f, Reach = 0.46f, Push = 0.50f, Base = 50.8f, Bob = 2.4f, Kick = new[] { -0.60f, 0.34f }, Pass = new[] { 0.02f, 0.38f }, Fore = new[] { 0.62f, 0.16f },
+                         Heel = 15f, Toe = 36f, Flick = 62f, Lean = 12f, Arm = 40f, Elbow = 84f, Trail = 13f },
+            new Anchor { V = 7.4f, Reach = 0.48f, Push = 0.52f, Base = 50.2f, Bob = 2.8f, Kick = new[] { -0.66f, 0.42f }, Pass = new[] { 0.04f, 0.44f }, Fore = new[] { 0.66f, 0.18f },
+                         Heel = 15f, Toe = 38f, Flick = 70f, Lean = 15f, Arm = 50f, Elbow = 82f, Trail = 16f },
+        };
+        /// <summary>The speeds a stride is drawn for (arena units a second): a dozen pictures-sets, not one per speed.</summary>
+        public static readonly float[] StrideSpeeds = { 0.35f, 0.7f, 1.05f, 1.4f, 1.8f, 2.3f, 2.9f, 3.6f, 4.6f, 5.6f, 6.6f, 7.4f };
+        static Gait[] _strides;
+
+        /// <summary>The scaled stride nearest <paramref name="v"/> arena units a second.</summary>
+        public static Gait StrideFor(float v)
+        {
+            var speeds = StrideSpeeds;
+            int at = 0;
+            for (int q = 1; q < speeds.Length; q++) if (Mathf.Abs(speeds[q] - v) < Mathf.Abs(speeds[at] - v)) at = q;
+            _strides ??= new Gait[speeds.Length];
+            return _strides[at] ??= BuildStride(at, speeds[at]);
+        }
+
+        static Gait BuildStride(int index, float vb)
+        {
+            var an = Anchors;
+            int i = 0; while (i < an.Length - 2 && vb > an[i + 1].V) i++;
+            Anchor a0 = an[i], a1 = an[i + 1];
+            float t = Mathf.Clamp01((vb - a0.V) / (a1.V - a0.V)), k = Mathf.Min(1f, vb / JogSpeed);
+            float M(float x0, float x1, bool step = true) { float x = Mathf.Lerp(x0, x1, t); return step ? x * k : x; }
+            float[] MA(float[] x0, float[] x1) => new[] { M(x0[0], x1[0]), M(x0[1], x1[1]) };
+            float reach = M(a0.Reach, a1.Reach), push = M(a0.Push, a1.Push), speedTex = vb * ArenaTexelsPerUnit;
+            float cycle = 2f / (StepRate * Mathf.Pow(Mathf.Max(JogSpeed, vb) / StepRateAt, StepPower));
+            float stance = Mathf.Min(0.62f, (reach + push) * (Thigh + Shin) / (speedTex * cycle));
+            float heel = M(a0.Heel, a1.Heel), toe = M(a0.Toe, a1.Toe), flick = M(a0.Flick, a1.Flick);
+            float Sw(float q) => stance + (1f - stance) * q;
+            var kick = MA(a0.Kick, a1.Kick); var pass = MA(a0.Pass, a1.Pass); var fore = MA(a0.Fore, a1.Fore);
+            return new Gait
+            {
+                Name = "s" + index, Frames = Mathf.Max(4, Mathf.RoundToInt(cycle * 25f)), Planted = true,
+                Stance = stance, Reach = reach, Push = push, Speed = vb, SpeedTex = speedTex, Cycle = cycle,
+                Swing = new[] { new[] { 0f, -push, 0f }, new[] { 0.2f, kick[0], kick[1] }, new[] { 0.5f, pass[0], pass[1] }, new[] { 0.8f, fore[0], fore[1] }, new[] { 1f, reach, 0f } },
+                PitchSpline = new[] { new[] { 0f, heel }, new[] { stance * 0.5f, 0f }, new[] { stance, -toe }, new[] { Sw(0.25f), -flick }, new[] { Sw(0.55f), -flick * 0.35f }, new[] { Sw(0.85f), heel * 0.7f } },
+                // the hips rise toward standing as the steps shorten below the jog
+                Base = k < 1f ? Mathf.Lerp(Thigh + Shin - 2.5f, Mathf.Lerp(a0.Base, a1.Base, t), k) : Mathf.Lerp(a0.Base, a1.Base, t),
+                Bob = M(a0.Bob, a1.Bob), Lean = M(a0.Lean, a1.Lean), Arm = M(a0.Arm, a1.Arm), Elbow = Mathf.Lerp(a0.Elbow, a1.Elbow, t),
+                Trail = M(a0.Trail, a1.Trail),
+            };
         }
 
         // Pictures a stride: 25 a second for both (the walk's 0.96 s, the run's 0.64 s), the hand-drawn sprite rate - the
@@ -47,7 +182,7 @@ namespace Convergence.Art.Gear
             Bob = 1.3f, BobPhase = 0.30f, BobOffset = 0f, Lean = 3f, Base = 56.3f, HipDrop = 1f, Arm = 14f, Elbow = 28f, Trail = 4f,
         };
 
-        static float[] Keys(float[][] keys, float p)
+        internal static float[] Keys(float[][] keys, float p)
         {
             p = Mathf.Repeat(p, 1f);
             for (int i = 0; i < keys.Length; i++)
@@ -89,8 +224,8 @@ namespace Convergence.Art.Gear
             {
                 int side = n == 0 ? 1 : -1;
                 float p = phase + (side == 1 ? 0f : 0.5f);
-                var foot = Keys(g.Foot, p); float pitch = Keys(g.Pitch, p)[0] * size;
-                float fw = foot[0] * size, lift = foot[1] * size;
+                g.LegAt(p, out float fw0, out float lift0, out float pitch0);
+                float pitch = pitch0 * size, fw = fw0 * size, lift = lift0 * size;
                 float drop = g.HipDrop * size * Mathf.Max(0f, Mathf.Sin(2f * Mathf.PI * (p - 0.6f)));
                 var hip = new Vector3(0f, hipY - drop, 0f) + r * (side * HipWidth);
                 var ankle = new Vector3(hip.x, Ankle + lift * stand, hip.z) + f * (fw * stand);

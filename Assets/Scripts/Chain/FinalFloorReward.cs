@@ -35,6 +35,8 @@ namespace Convergence.Chain
         public string Pose;
         /// <summary>Gold boxes the pose roll paid instead, the character owning every pose.</summary>
         public int PoseGold;
+        /// <summary>A Quartz box on every final clear (GEAR.md "Quartz") - the character's at once.</summary>
+        public int Quartz;
 
         /// <summary>1970-01-04, the first Sunday after the epoch: week 0 began here.</summary>
         static readonly DateTime FirstSunday = new(1970, 1, 4, 0, 0, 0, DateTimeKind.Utc);

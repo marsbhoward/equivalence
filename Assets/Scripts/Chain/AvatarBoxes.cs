@@ -26,6 +26,9 @@ namespace Convergence.Chain
         public string Pose;
         /// <summary>Gold boxes the pose roll paid instead, the character owning every pose.</summary>
         public int PoseGold;
+        /// <summary>Quartz boxes the avatar paid (GEAR.md "Quartz") - the character's at once, held by the
+        /// store, not the run's loot. Replaced the pose roll.</summary>
+        public int Quartz;
     }
 
     /// <summary>

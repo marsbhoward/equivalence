@@ -4,6 +4,14 @@ using Convergence.Art.Gear;
 
 namespace Convergence.Chain
 {
+    /// <summary>One Quartz piece the character owns and how many (a repeat is still a piece).</summary>
+    [Serializable]
+    public class QuartzCount
+    {
+        public string Id;
+        public int Count;
+    }
+
     /// <summary>One colour of earned dye and how many the character holds.</summary>
     [Serializable]
     public class DyeCount
@@ -48,6 +56,29 @@ namespace Convergence.Chain
         /// <summary>Diamond boxes the SERVICE holds for the character (earned without a PFP) - a
         /// service answer only, breakable for charges like any box.</summary>
         public int HeldDiamond;
+        /// <summary>QUARTZ pieces owned - capes and accessories, account-only, never minted (GEAR.md
+        /// "Quartz"). Poses and themes a Quartz box gives land in <see cref="Poses"/>/<see cref="Themes"/>.</summary>
+        public List<QuartzCount> Quartz = new();
+        /// <summary>Unopened Quartz boxes - the service's count, like everything here.</summary>
+        public int QuartzBoxes;
+
+        public bool OwnsQuartz(string id)
+        {
+            if (string.IsNullOrEmpty(id) || Quartz == null) return false;
+            foreach (var q in Quartz) if (q != null && q.Id == id && q.Count > 0) return true;
+            return false;
+        }
+
+        public void AddQuartz(string id, int n)
+        {
+            if (string.IsNullOrEmpty(id) || n == 0) return;
+            Quartz ??= new List<QuartzCount>();
+            var q = Quartz.Find(x => x != null && x.Id == id);
+            if (q == null) Quartz.Add(q = new QuartzCount { Id = id });
+            q.Count = Math.Max(0, q.Count + n);
+            if (q.Count == 0) Quartz.Remove(q);
+            Quartz.Sort((a, b) => string.CompareOrdinal(a.Id, b.Id));
+        }
 
         public int DyesOf(string swatch)
         {

@@ -86,6 +86,21 @@ namespace Convergence.Chain
         /// Null on success, else why not.</summary>
         Task<string> BreakBoxAsync(CharacterProfile profile);
 
+        /// <summary>One QUARTZ box opened (GEAR.md "Quartz") - the store rolls what is in it. The
+        /// refusal (null on success) and the id that came out: a Quartz piece, a pose or a hub theme
+        /// (Hub.HubThemes ids start "hub.").</summary>
+        Task<(string refusal, string opened)> OpenQuartzAsync(CharacterProfile profile);
+
+        /// <summary>A cleared floor's last-enemy QUARTZ roll (GEAR.md "Quartz") - decided once per run
+        /// per floor by the store, credited to the character at once. The Quartz boxes it paid (0 or 1).
+        /// Never asked on a puzzle floor or in the showcase.</summary>
+        Task<int> QuartzFloorAsync(CharacterProfile profile, string runId, int floor);
+
+        /// <summary>The Labyrinth's QUARTZ box: asked on entering (<paramref name="take"/> false - 1 when
+        /// this maze holds the run's one box, decided once per run) and on taking it (true - 1 when it
+        /// was credited to the character).</summary>
+        Task<int> QuartzMazeAsync(CharacterProfile profile, string runId, int floor, bool take);
+
         /// <summary>
         /// Permanent-unlock checkpoint - the third write point named in the roguelite handoff.
         /// Equipping is permanent, account-level and outside any run, so it is its own

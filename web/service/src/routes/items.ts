@@ -3,7 +3,7 @@ import { internal } from '../errors.js';
 import { tx } from '../db.js';
 import { currentRunAt, runFormatOf } from '../runProgress.js';
 import {
-  CHARGES_PER_BOX, Change, credit, itemsOf, milestoneAt, recolourCost,
+  CHARGES_PER_BOX, Change, countOf, credit, itemsOf, milestoneAt, posesOwned, recolourCost, rollQuartz,
 } from '../cosmetics.js';
 
 /**
@@ -13,6 +13,7 @@ import {
  *   GET  /saves/items/:profileId                  -> Items
  *   POST /saves/items/:profileId/recolour         { changes: [{ piece, swatches }] } -> Items
  *   POST /saves/items/:profileId/break-box        -> Items     a Diamond box into 7 charges
+ *   POST /saves/items/:profileId/open-quartz      -> Items & { opened: { kind, id } }   one Quartz box
  *   POST /saves/milestone   { profileId, runId, floor } -> { milestone, diamond, dye, repeat } | { none }
  *
  * The SAVE never carries any of this with authority - the game's copy (CharacterProfile.Items) is
@@ -147,6 +148,33 @@ export async function breakBox(req: Request, res: Response): Promise<void> {
     });
     if (out.status !== 200) return fail(res, out.status, out.error);
     res.json({ ...out.items, source: out.source });
+  } catch (e) {
+    internal(res, e, 'items');
+  }
+}
+
+/**
+ * ONE QUARTZ BOX OPENED (GEAR.md "Quartz"): spent and rolled here, in one transaction under the
+ * character's row lock - the client never names what comes out. Off chain: the piece, pose or theme
+ * is credited to the character and nothing is minted.
+ */
+export async function openQuartz(req: Request, res: Response): Promise<void> {
+  const owner = res.locals.owner as string;
+  const profileId = String(req.params.profileId ?? '');
+  if (!ID.test(profileId)) return fail(res, 400, 'bad profile id');
+  try {
+    const out = await tx(async (c) => {
+      const ch = await c.query('SELECT 1 FROM characters WHERE owner = $1 AND profile_id = $2 FOR UPDATE', [owner, profileId]);
+      if (!ch.rowCount) return { status: 404, error: 'not_found' } as const;
+      if ((await countOf(c, owner, profileId, 'quartzbox', '')) < 1) return { status: 402, error: 'no_quartz_box' } as const;
+      const roll = rollQuartz(await posesOwned(c, owner, profileId));
+      if (!roll) return { status: 409, error: 'quartz_pool_empty' } as const;
+      await credit(c, owner, profileId, 'quartzbox', '', -1, 'open-quartz');
+      await credit(c, owner, profileId, roll.kind, roll.id, 1, 'open-quartz');
+      return { status: 200, items: await itemsOf(c, owner, profileId), opened: roll } as const;
+    });
+    if (out.status !== 200) return fail(res, out.status, out.error);
+    res.json({ ...out.items, opened: out.opened });
   } catch (e) {
     internal(res, e, 'items');
   }

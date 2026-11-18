@@ -86,8 +86,9 @@ namespace Convergence.Art.Gear
                 Pixels(RigLayer.Back, "gear.back.diamond", CapeRows,
                        Palette.Of(Palette.Tier(LootTier.Diamond)), 0f, 8f)));
 
-            // The same cape body as diamond_cloak, plus a cowl on RigLayer.Hood. One ramp for
-            // both pieces, so the cape and its hood read as one garment rather than two.
+            // diamond_cloak's cape body run down to the floor (HoodCapeRows), plus a cowl on
+            // RigLayer.Hood. One ramp for both pieces, so the cape and its hood read as one
+            // garment rather than two.
             //
             // Black, on purpose - and the ONLY colour hand-authored here. A tier is a rarity, not
             // a palette (see the weapon-class notes), and a cloak's colour carries no identity of
@@ -106,7 +107,7 @@ namespace Convergence.Art.Gear
             var hoodInk = Palette.Of(new Palette.Ramp(hoodColor));
             hoodInk['o'] = Palette.Outline;
             items.Add(Hood(Make("black_hood", "Hooded Cloak", GearSlot.Back, LootTier.Silver, 2f,
-                Pixels(RigLayer.Back, "gear.back.hood.cape", CapeRows, hoodPal, 0f, 8f),
+                Pixels(RigLayer.Back, "gear.back.hood.cape", HoodCapeRows, hoodPal, 0f, 8f - HoodCapeExtra / 2f),
                 // Placed in the head's own frame, where the cowl's field is drawn - its crown sits
                 // where the hand-typed grid's did. Re-render against the composed head after any
                 // change to it: the face it frames was measured, not derived.
@@ -1445,6 +1446,11 @@ namespace Convergence.Art.Gear
 
             // Every bow's quiver and arrow - DemoGear.Quivers.cs.
             AddQuivers(items);
+
+            // Capes and accessories move to Quartz - DemoGear.Quartz.cs. LAST: it re-tiers what
+            // every file above made, set capes included.
+            AddQuartzDrafts(items);
+            QuartzRetier(items);
 
             return items;
         }
@@ -3330,6 +3336,24 @@ namespace Convergence.Art.Gear
                 ".....ssssssssssss.....",
                 ".....ssssssssssss.....",
         };
+
+        // The Hooded Cloak's cape: CapeRows with HoodCapeExtra more rows of plain body above the
+        // shaded hem, so it falls the character's full height (the user's call, 2026-11-16 - the
+        // hood alone set it apart from the plain floor capes, and at knee length it read as the
+        // Sentinel Cape with a hood on). Offset down by half the extra so the top stays put.
+        const int HoodCapeExtra = 14;
+        static string[] _hoodCapeRows;
+        static string[] HoodCapeRows
+        {
+            get
+            {
+                if (_hoodCapeRows != null) return _hoodCapeRows;
+                int hem = System.Array.FindIndex(CapeRows, r => r.Contains('s'));
+                var rows = new List<string>(CapeRows);
+                for (int i = 0; i < HoodCapeExtra; i++) rows.Insert(hem, CapeRows[hem - 1]);
+                return _hoodCapeRows = rows.ToArray();
+            }
+        }
 
         // 58 x 44 at BodyPpu. The poncho's BACK - the same cloth as PonchoYokeRows seen from the
         // other side of the body, so it is exactly the yoke's width with the yoke's own shoulder

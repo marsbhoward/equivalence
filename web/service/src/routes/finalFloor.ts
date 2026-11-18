@@ -3,7 +3,7 @@ import { internal } from '../errors.js';
 import { q, tx } from '../db.js';
 import { FinalDecision, rollFinal, weekOf, weekStarts } from '../finalFloor.js';
 import { currentRunAt, runClock, runFormatOf } from '../runProgress.js';
-import { collectibleKind, credit, posesOwned, rollPose } from '../cosmetics.js';
+import { chance, credit } from '../cosmetics.js';
 
 /**
  * The final floor's box (finalFloor.ts has the rules; the run's format names the floor), for every
@@ -29,7 +29,7 @@ function fail(res: Response, status: number, error: string, extra: Record<string
 
 const answer = (d: FinalDecision, repeat: boolean) =>
   ({ tier: d.tier, count: d.count, guaranteed: d.guaranteed, week: d.week,
-     dye: d.dye ?? '', pose: d.pose ?? '', poseGold: d.pose_gold ?? 0,
+     dye: d.dye ?? '', pose: d.pose ?? '', poseGold: d.pose_gold ?? 0, quartz: d.quartz ?? 0,
      resetsAt: weekStarts(d.week + 1).toISOString(), repeat });
 
 export async function claimFinalFloor(req: Request, res: Response): Promise<void> {
@@ -46,7 +46,7 @@ export async function claimFinalFloor(req: Request, res: Response): Promise<void
       if (!ch.rowCount) return { status: 404, error: 'not_found' } as const;
 
       const prior = await c.query<FinalDecision>(
-        'SELECT tier, count, guaranteed, week, dye, pose, pose_gold FROM final_floor WHERE owner = $1 AND profile_id = $2 AND run_id = $3',
+        'SELECT tier, count, guaranteed, week, dye, pose, pose_gold, quartz FROM final_floor WHERE owner = $1 AND profile_id = $2 AND run_id = $3',
         [owner, profileId, runId]);
       if (prior.rowCount) return { status: 200, decision: prior.rows[0], repeat: true } as const;
 
@@ -69,18 +69,18 @@ export async function claimFinalFloor(req: Request, res: Response): Promise<void
       const clock = format.guaranteeClockSeconds > 0 ? await runClock(c, owner, profileId, runId) : 0;
       const inTime = format.guaranteeClockSeconds <= 0 || clock <= format.guaranteeClockSeconds;
       const decision = rollFinal(format, !used.rowCount && inTime, week);
-      // Every final clear is an avatar kill: a pose roll (cosmetics.ts). Cosmetics are credited
-      // HERE, database first - the character's from this moment, whatever becomes of the run.
-      const pose = rollPose(await posesOwned(c, owner, profileId));
-      decision.pose = pose.pose;
-      decision.pose_gold = pose.gold;
+      // Every final clear is an avatar kill: a QUARTZ box roll (GEAR.md "Quartz" - it replaced the pose
+      // roll). Credited HERE, database first - the character's from this moment, whatever becomes of the run.
+      decision.pose = null;
+      decision.pose_gold = 0;
+      decision.quartz = chance(format.quartzFinalChance) ? 1 : 0;
       await c.query(
-        `INSERT INTO final_floor (profile_id, run_id, owner, week, guaranteed, tier, count, dye, pose, pose_gold)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+        `INSERT INTO final_floor (profile_id, run_id, owner, week, guaranteed, tier, count, dye, pose, pose_gold, quartz)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
         [profileId, runId, owner, week, decision.guaranteed, decision.tier, decision.count,
-         decision.dye ?? null, decision.pose, decision.pose_gold]);
+         decision.dye ?? null, decision.pose, decision.pose_gold, decision.quartz]);
       if (decision.dye) await credit(c, owner, profileId, 'dye', decision.dye, 1, `final:${runId}`);
-      if (decision.pose) await credit(c, owner, profileId, collectibleKind(decision.pose), decision.pose, 1, `final:${runId}`);
+      if (decision.quartz) await credit(c, owner, profileId, 'quartzbox', '', decision.quartz, `final:${runId}`);
       return { status: 200, decision, repeat: false } as const;
     });
 

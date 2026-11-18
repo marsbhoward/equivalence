@@ -503,7 +503,13 @@ namespace Convergence.Art
         /// frame, where src's pivot lands in frame texels). Art whose texture is not readable comes
         /// back unchanged; a src with nothing outside the frame comes back as itself.
         /// </summary>
-        public static Sprite Enclosed(Sprite src, Sprite frame, Matrix4x4 srcToFrame)
+        public static Sprite Enclosed(Sprite src, Sprite frame, Matrix4x4 srcToFrame) => Enclosed(src, frame, srcToFrame, false);
+
+        /// <summary><see cref="Enclosed(Sprite, Sprite, Matrix4x4)"/>, and with <paramref name="underFaint"/> also clear
+        /// what lies under the frame's FAINT texels (alpha 1..8): a hood's unseen seam, which still bounds the cut but
+        /// must not let the head show through it. A hood also keeps nothing below its lowest row (a helm keeps the
+        /// face under its brim; under a hood that was the neck showing beneath it).</summary>
+        public static Sprite Enclosed(Sprite src, Sprite frame, Matrix4x4 srcToFrame, bool underFaint)
         {
             if (src == null || frame == null) return src;
             var ft = frame.texture;
@@ -516,7 +522,7 @@ namespace Convergence.Art
             Vector2 fpivot = frame.pivot;
 
             Vector3 o = srcToFrame.MultiplyPoint3x4(Vector3.zero);
-            var key = (src, frame, new Vector2Int(Mathf.RoundToInt(o.x * fppu * 4f), Mathf.RoundToInt(o.y * fppu * 4f)));
+            var key = (src, frame, new Vector2Int(Mathf.RoundToInt(o.x * fppu * 4f) * 2 + (underFaint ? 1 : 0), Mathf.RoundToInt(o.y * fppu * 4f)));
             if (_enclosed.TryGetValue(key, out var cached) && cached != null) return cached;
 
             // Each frame row's opaque span, and the band of rows that have one.
@@ -564,8 +570,13 @@ namespace Convergence.Art
                                                                     (y + 0.25f + 0.5f * (q >> 1) - spivot.y) / sppu, 0f));
                     int fx = Mathf.FloorToInt(p.x * fppu + fpivot.x);
                     int fy = Mathf.FloorToInt(p.y * fppu + fpivot.y);
-                    inside = fy < bottom                                                 // below the hem
-                             || (fy <= top && fx >= minX[fy] && fx <= maxX[fy]);
+                    inside = (fy < bottom && !underFaint)                                // below the hem (a helm's; a hood's hides it)
+                             || (fy >= 0 && fy <= top && fx >= minX[fy] && fx <= maxX[fy]);
+                    if (inside && underFaint && fy >= 0 && fy < fh && fx >= 0 && fx < fw)
+                    {
+                        byte fa = fpx[((int)fr.y + fy) * ftw + (int)fr.x + fx].a;
+                        if (fa > 0 && fa <= 8) inside = false;
+                    }
                 }
                 if (inside) continue;
                 px[i] = new Color32(0, 0, 0, 0);

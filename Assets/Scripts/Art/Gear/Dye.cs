@@ -483,7 +483,40 @@ namespace Convergence.Art.Gear
                 var c = tones[ch][i];
                 result[kv.Key] = new Color(c.r, c.g, c.b, kv.Value.a);
             }
+            // A RAMP channel's own tones, one by one: an eight-direction picture drawn in exactly the
+            // channel's six colours (Tools/tier-art/quartz8.js exactRamp) has its own letters, which spell
+            // no ramp group - so its colours are matched here, tone for tone. Entries a group above
+            // already repainted are left as they are.
+            foreach (var kv in pal)
+            {
+                if (result != null && result.TryGetValue(kv.Key, out var done) && done != kv.Value) continue;
+                if (!TryMatchRampTone(kv.Value, channels, out int ch, out int t) || tones[ch] == null) continue;
+                result ??= new Dictionary<char, Color>(pal.Count);
+                if (result.Count == 0) foreach (var e in pal) result[e.Key] = e.Value;
+                var c = tones[ch][t];
+                result[kv.Key] = new Color(c.r, c.g, c.b, kv.Value.a);
+            }
             return result;
+        }
+
+        /// <summary>Which ramp channel (and which of its six tones) a palette entry is exactly - within a
+        /// byte, as a baked hex reads back.</summary>
+        static bool TryMatchRampTone(Color colour, DyeChannel[] channels, out int channel, out int tone)
+        {
+            channel = -1; tone = -1;
+            const float byteTol = 1.5f / 255f;
+            for (int c = 0; c < channels.Length; c++)
+            {
+                var ch = channels[c];
+                if (ch == null || ch.Exact != null || ch.Tones == null) continue;
+                for (int t = 0; t < ch.Tones.Length; t++)
+                {
+                    var k = ch.Tones[t];
+                    if (Mathf.Abs(k.r - colour.r) <= byteTol && Mathf.Abs(k.g - colour.g) <= byteTol && Mathf.Abs(k.b - colour.b) <= byteTol)
+                    { channel = c; tone = t; return true; }
+                }
+            }
+            return false;
         }
 
         /// <summary>Which baked channel (and which of its colours) a palette entry is.</summary>

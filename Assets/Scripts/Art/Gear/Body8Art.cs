@@ -57,6 +57,17 @@ namespace Convergence.Art.Gear
             /// <summary>A cape: trails behind the stride (Body8). The bedroll and the pack hang still, as today's do.</summary>
             public bool Trails => Slot == GearSlot.Back && Name == "cape";
 
+            /// <summary>The living cape (Hellspawn): breathes, billows, writhes and answers the fight (Body8.Cape.cs).</summary>
+            public bool Living => Trails && Set == "q_hellspawn";
+
+            /// <summary>A Quartz back piece: what of it lies nearer the camera than the head (a collar, the hilts over the
+            /// shoulders, seen from behind) goes on the overlay over the head, as an accessory's does. The Athanor's
+            /// backpack and its flask, and the Wayfarer's bedroll, too: seen from behind they rise past the nape.</summary>
+            public bool CoversHead => Set != null && (Set.StartsWith("q_") ? Covering.Contains(Name) : Set == "athanor" && (Name == "back" || Name == "flask") || Set == "wayfarer" && Name == "back");
+            /// <summary>The pieces that stand round the head; a cape's cloth at the shoulders laid curls of its outline
+            /// over the jaw and nape, so it stays under the head as before.</summary>
+            static readonly HashSet<string> Covering = new HashSet<string> { "collar", "fan", "katanaL", "katanaR", "bib", "wingL", "wingR", "liripipe" };
+
             /// <summary>This piece drawn <paramref name="back"/> texels further back (<see cref="PushBack"/>).</summary>
             public Piece Pushed(float back)
             {
@@ -147,7 +158,7 @@ namespace Convergence.Art.Gear
         {
             get
             {
-                if (_all == null) { _all = new List<Piece>(); _strips = new List<Strip>(); Bake(); BakeExtras(); }
+                if (_all == null) { _all = new List<Piece>(); _strips = new List<Strip>(); Bake(); BakeExtras(); BakeQuartz(); }
                 return _all;
             }
         }
@@ -166,6 +177,7 @@ namespace Convergence.Art.Gear
             if (string.IsNullOrEmpty(itemId)) return null;
             int at = itemId.IndexOf('@');
             string id = at >= 0 ? itemId.Substring(0, at) : itemId;
+            if (QuartzSetOf(id) is { } quartz) return quartz;
             if (!id.StartsWith("tier_")) id = GearCatalog.Get(id)?.DesignId;
             if (id == null || !id.StartsWith("tier_")) return null;
             int end = id.IndexOf('_', 5);

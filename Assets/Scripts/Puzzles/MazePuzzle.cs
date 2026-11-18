@@ -54,6 +54,18 @@ namespace Convergence.Puzzles
         [SerializeField] List<Vector3> _pieceRest = new();
         [SerializeField] float _collapseT = -1f, _collapseLast;
 
+        // The QUARTZ box (GEAR.md "Quartz"): a dead end chosen at setup - the one farthest from the
+        // start - shown only when the store says this maze holds one (ShowQuartzBox). Taking it
+        // seals the sigil door and brings the walls down: the box costs the puzzle and buys the
+        // side door's fight.
+        [SerializeField] Vector2 _boxSpot;
+        [SerializeField] bool _hasBoxSpot;
+        [SerializeField] SpriteRenderer _box;
+        [SerializeField] bool _tookBox;
+
+        /// <summary>The box was taken this frame or before - GameBootstrap polls it and claims it.</summary>
+        public bool TookQuartzBox => _tookBox;
+
         static MazePuzzle _owner;
 
         static readonly Color Top = new(0.27f, 0.22f, 0.17f), TopLight = new(0.31f, 0.26f, 0.20f),
@@ -84,6 +96,7 @@ namespace Convergence.Puzzles
             get
             {
                 if (State == PuzzleState.Solved) return "Through. The sigil door opens.";
+                if (State == PuzzleState.Failed && _tookBox) return "The box is yours. The sigil door is sealed - the way on is the side door.";
                 if (State == PuzzleState.Failed) return "The walls have come down and the sigil door is sealed - take the side door.";
                 return "Find your way to the sigil door, at the top of the maze.";
             }
@@ -157,6 +170,13 @@ namespace Convergence.Puzzles
             _goal = new Rect(Corner(xs[goal.x], ys[goal.y]), new Vector2(xw[goal.x] * cell.x, yh[goal.y] * cell.y));
             var startRect = new Rect(Corner(xs[start.x], ys[start.y]), new Vector2(xw[start.x] * cell.x, yh[start.y] * cell.y));
 
+            // The dead end farthest from the start, the start and goal excluded - where a Quartz box
+            // would stand (shown later, if the store says this maze holds one).
+            var far = FarthestDeadEnd(n, m, east, north, start, goal);
+            _hasBoxSpot = far.x >= 0;
+            if (_hasBoxSpot)
+                _boxSpot = new Rect(Corner(xs[far.x], ys[far.y]), new Vector2(xw[far.x] * cell.x, yh[far.y] * cell.y)).center;
+
             BuildColliders(cell, Corner);
             Paint(pieces, cell, Corner);
             Publish();
@@ -229,6 +249,52 @@ namespace Convergence.Puzzles
         }
 
         static readonly Vector2Int[] Dirs = { Vector2Int.up, Vector2Int.down, Vector2Int.left, Vector2Int.right };
+
+        /// <summary>The dead end (one way in) farthest from <paramref name="a"/> by walking, not
+        /// <paramref name="a"/> or <paramref name="goal"/>; (-1, -1) when there is none.</summary>
+        static Vector2Int FarthestDeadEnd(int n, int m, bool[] east, bool[] north, Vector2Int a, Vector2Int goal)
+        {
+            var dist = new int[n * m];
+            for (int i = 0; i < dist.Length; i++) dist[i] = -1;
+            var q = new Queue<Vector2Int>();
+            q.Enqueue(a);
+            dist[a.y * n + a.x] = 0;
+            var best = new Vector2Int(-1, -1);
+            int bestD = -1;
+            while (q.Count > 0)
+            {
+                var c = q.Dequeue();
+                int d = dist[c.y * n + c.x];
+                bool e = c.x < n - 1 && east[c.y * n + c.x], w = c.x > 0 && east[c.y * n + c.x - 1];
+                bool no = c.y < m - 1 && north[c.y * n + c.x], s = c.y > 0 && north[(c.y - 1) * n + c.x];
+                int ways = (e ? 1 : 0) + (w ? 1 : 0) + (no ? 1 : 0) + (s ? 1 : 0);
+                if (ways == 1 && c != a && c != goal && d > bestD) { bestD = d; best = c; }
+                void Try(int x, int y, bool open)
+                {
+                    if (!open || dist[y * n + x] >= 0) return;
+                    dist[y * n + x] = d + 1;
+                    q.Enqueue(new Vector2Int(x, y));
+                }
+                if (e) Try(c.x + 1, c.y, true);
+                if (w) Try(c.x - 1, c.y, true);
+                if (no) Try(c.x, c.y + 1, true);
+                if (s) Try(c.x, c.y - 1, true);
+            }
+            return best;
+        }
+
+        /// <summary>Stands the Quartz box in its dead end - the store said this maze holds one.</summary>
+        public void ShowQuartzBox()
+        {
+            if (!_hasBoxSpot || _box != null || State != PuzzleState.Active) return;
+            var go = new GameObject("quartz box");
+            go.transform.SetParent(transform, false);
+            go.transform.position = _boxSpot;
+            _box = go.AddComponent<SpriteRenderer>();
+            _box.sprite = Art.BoxArt.Closed(Art.BoxArt.Kind.Quartz, false);
+            // Stands among bodies like any floor pickup (GearPickup's way).
+            Core.DepthSorted.Attach(go, 0f, isFixed: true, _box);
+        }
 
         static int PathCells(int n, int m, bool[] east, bool[] north, Vector2Int a, Vector2Int b)
         {
@@ -433,6 +499,17 @@ namespace Convergence.Puzzles
             if (_goal.Contains(Player.position))
             {
                 Solve();
+                return;
+            }
+            // Taking the Quartz box: the puzzle is given up for it - the door seals, the walls come down.
+            if (_box != null && _box.enabled &&
+                Vector2.Distance(Player.position, _boxSpot) < Tuning.Puzzle.MazeBoxReach)
+            {
+                _tookBox = true;
+                _box.enabled = false;
+                Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.BoxPickup, _boxSpot);
+                Fail();
+                Collapse();
                 return;
             }
             _left -= Time.deltaTime;

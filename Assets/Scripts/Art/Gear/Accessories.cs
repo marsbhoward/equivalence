@@ -29,6 +29,7 @@ namespace Convergence.Art.Gear
         PenumbraArm,
         HomunculusPlatedArm,
         HomunculusHydraulicArm,
+        GlaciesArm,
     }
 
     /// <summary>What an accessory is drawn from this frame - filled by the rig

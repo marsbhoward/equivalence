@@ -141,7 +141,7 @@ namespace Convergence.UI
 
         string _selectedId;
         string _notice;
-        Text _detailTitle, _detailBody, _detailAction, _totalText, _globalText;
+        Text _detailTitle, _detailAction, _totalText, _globalText;
         readonly Dictionary<string, Image> _nodeImages = new();
         readonly Dictionary<string, Image> _nodeRings = new();
 
@@ -409,8 +409,20 @@ namespace Convergence.UI
 
             var b = UiKit.Rect(panel, "b", new Vector2(0, 0), new Vector2(1, 1),
                 new Vector2(18, 90), new Vector2(-18, -60));
-            _detailBody = UiKit.Label(b, "", 17, new Color(0.6f, 0.63f, 0.7f));
-            _detailBody.horizontalOverflow = HorizontalWrapMode.Wrap;
+            // Three blocks down the panel, each with its own colour every time (2026-11-16): THIS NODE
+            // (gold), its PATH (steel), and the PRINCIPLE chain (the principle's tint) - so a node's own
+            // number is never read as the path's.
+            var column = b.gameObject.AddComponent<VerticalLayoutGroup>();
+            column.spacing = 10f;
+            column.childControlHeight = column.childControlWidth = true;
+            column.childForceExpandHeight = false;
+            column.childForceExpandWidth = true;
+            column.childAlignment = TextAnchor.UpperLeft;
+            _detailIntro = UiKit.Label(b, "", 17, new Color(0.6f, 0.63f, 0.7f));
+            _detailIntro.horizontalOverflow = HorizontalWrapMode.Wrap;
+            (_nodeBlock, _nodeHead, _nodeText) = DetailBlock(b, NodeInk);
+            (_pathBlock, _pathHead, _pathText) = DetailBlock(b, PathInk);
+            (_chainBlock, _chainHead, _chainText) = DetailBlock(b, PathInk);
 
             var a = UiKit.Panel(panel, new Vector2(0, 0), new Vector2(1, 0),
                 new Vector2(18, 24), new Vector2(-18, 78), new Color(0.13f, 0.15f, 0.2f, 1f));
@@ -424,6 +436,46 @@ namespace Convergence.UI
             (_tapButton, _tapLabel) = ReleaseButton(_releaseRow, 0f, 0.5f);
             (_holdButton, _holdLabel) = ReleaseButton(_releaseRow, 0.5f, 1f);
             _releaseRow.gameObject.SetActive(false);
+        }
+
+        static readonly Color NodeInk = new(0.91f, 0.73f, 0.24f), PathInk = new(0.56f, 0.69f, 0.86f);
+
+        RectTransform _nodeBlock, _pathBlock, _chainBlock;
+        Text _detailIntro, _nodeHead, _nodeText, _pathHead, _pathText, _chainHead, _chainText;
+
+        /// <summary>One coloured block of the detail panel: a tinted face with an ink bar down its left
+        /// edge, a small heading in the ink and the body under it. Sized by its text.</summary>
+        static (RectTransform, Text, Text) DetailBlock(RectTransform column, Color ink)
+        {
+            var block = UiKit.Panel(column, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero, BlockFace(ink));
+            block.GetComponent<Image>().raycastTarget = false;
+            var layout = block.gameObject.AddComponent<VerticalLayoutGroup>();
+            layout.padding = new RectOffset(14, 10, 8, 10);
+            layout.spacing = 4f;
+            layout.childControlHeight = layout.childControlWidth = true;
+            layout.childForceExpandHeight = false;
+
+            var bar = UiKit.Panel(block, new Vector2(0, 0), new Vector2(0, 1), Vector2.zero, new Vector2(4, 0), ink);
+            bar.name = "bar";
+            bar.GetComponent<Image>().raycastTarget = false;
+            bar.gameObject.AddComponent<LayoutElement>().ignoreLayout = true;
+
+            // Straight on the block, not on a Rect of their own: a layout group sizes its DIRECT children, and an
+            // empty Rect holding the text measured nothing (2026-11-16).
+            var head = UiKit.Label(block, "THIS NODE", 13, ink);
+            head.fontStyle = FontStyle.Bold;
+            var text = UiKit.Label(block, "", 16, new Color(0.72f, 0.75f, 0.82f));
+            text.horizontalOverflow = HorizontalWrapMode.Wrap;
+            return (block, head, text);
+        }
+
+        static Color BlockFace(Color ink) => Color.Lerp(new Color(0.08f, 0.09f, 0.13f, 1f), ink, 0.10f);
+
+        static void Tint(RectTransform block, Text head, Color ink)
+        {
+            block.GetComponent<Image>().color = BlockFace(ink);
+            block.Find("bar").GetComponent<Image>().color = ink;
+            head.color = ink;
         }
 
         (RectTransform, Text) ReleaseButton(RectTransform row, float from, float to)
@@ -541,14 +593,19 @@ namespace Convergence.UI
         void RefreshDetail()
         {
             var node = MasteryBoard.Get(_selectedId);
+            bool any = node != null;
+            _detailIntro.gameObject.SetActive(!any);
+            _nodeBlock.gameObject.SetActive(any);
             if (node == null)
             {
+                _pathBlock.gameObject.SetActive(false);
+                _chainBlock.gameObject.SetActive(false);
                 _detailTitle.text = "select a node";
-                _detailBody.text = "Each domain forks into branches. A branch's KEYSTONE is the " +
-                                   "decision - taking it closes the domain's other branches on this " +
-                                   "board - then its nodes run out to a TINCTURE (a rule that changes " +
-                                   "how you play) and an OPUS (its capstone). Every node also feeds a " +
-                                   "principle, and enough of one unlocks the next link of its chain.";
+                _detailIntro.text = "Each domain forks into branches. A branch's KEYSTONE is the " +
+                                    "decision - taking it closes the domain's other branches on this " +
+                                    "board - then its nodes run out to a TINCTURE (a rule that changes " +
+                                    "how you play) and an OPUS (its capstone). Every node also feeds a " +
+                                    "principle, and enough of one unlocks the next link of its chain.";
                 _detailAction.text = "";
                 if (_actionRect) _actionRect.gameObject.SetActive(false);
                 return;
@@ -564,6 +621,13 @@ namespace Convergence.UI
             // A lane-following rule reads the lane taken at its fork; until then it lists them.
             var rule = _board.RuleOf(_viewing, node);
             string ruleName = rule != Notable.None ? MasteryBoard.NameOf(rule) : "Follows your lane";
+            string statLine = MasteryBoard.StatLine(node);
+            int plus = statLine.LastIndexOf(" +", System.StringComparison.Ordinal);
+            string statName = plus > 0 ? statLine.Substring(0, plus) : statLine;
+            string statValue = plus > 0 ? statLine.Substring(plus + 1) : "";
+
+            // The title names THIS node: a plain node by what it gives, never by its path's name -
+            // the path's name on top read as the path's bonus (2026-11-16).
             _detailTitle.text = node.Kind switch
             {
                 NodeKind.Rebis => $"THE SIGIL - YOUR RELEASES",
@@ -571,18 +635,20 @@ namespace Convergence.UI
                                        MasteryBoard.DiagonalOf(node.Branch) != null => $"{ruleName} - {branch}",
                 NodeKind.Tincture => $"{ruleName} - CONVERGENCE",
                 NodeKind.Opus => $"{ruleName} - CAPSTONE",
-                _ when rule != Notable.None => $"{branch} - {MasteryBoard.NameOf(rule)}",
+                _ when rule != Notable.None => MasteryBoard.NameOf(rule),
+                _ when statName.Length > 0 => statName,
                 _ => branch,
             };
 
+            // ---- THIS NODE: what it gives, what it costs ----
             var body = new System.Text.StringBuilder();
-            string statLine = MasteryBoard.StatLine(node);
+            _nodeHead.text = owned ? "THIS NODE  ·  OWNED" : "THIS NODE";
             // Every defined word the node's text leans on, explained under it (Core.Glossary).
             string marked = MasteryBoard.StatMeaning(node) + " " +
                             (rule != Notable.None ? MasteryBoard.Describe(rule) : "");
             if (statLine.Length > 0)
             {
-                body.Append(statLine);
+                body.Append($"<size=21><color=#f3ead8>{statValue} {statName}</color></size>");
                 string meaning = MasteryBoard.StatMeaning(node);
                 if (meaning.Length > 0) body.Append("\n").Append(Glossary.Highlight(meaning, TermHex));
             }
@@ -602,27 +668,14 @@ namespace Convergence.UI
                     for (int l = 0; l < spec.Value.Lanes.Length; l++)
                         body.Append($"\n  {spec.Value.Lanes[l].Name}  -  {MasteryBoard.NameOf(MasteryBoard.LaneRule(node, l))}");
             }
-            string notes = Glossary.Footnotes(marked, TermHex);
-            if (notes.Length > 0) body.Append("\n\n<size=15>").Append(notes).Append("</size>");
             if (node.Kind == NodeKind.Filler && node.Stat == Art.Gear.StatKind.None && node.Extra == BoardStat.None)
                 body.Append("Carries its principle point and nothing else.");
-            var principle = _board.PrincipleOf(_viewing, node);
-            if (node.Kind == NodeKind.Rebis) body.Append($"\n\nbelongs to no principle - owned from the start");
-            else
-            {
-                body.Append($"\n\n{branch}  -  {principle}");
-                body.Append($"\n\ncost  {node.Cost} {_viewing} level{(node.Cost == 1 ? "" : "s")}");
-            }
-
-            if (node.Fork.Length > 0 && !owned)
-            {
-                // The one lock on the grid, said before it is taken rather than after.
-                body.Append("\n\nTaking this lane closes this fork's other three lanes on this board " +
-                            "until reincarnation. The fork further out is a choice of its own.");
-            }
+            string notes = Glossary.Footnotes(marked, TermHex);
+            if (notes.Length > 0) body.Append("\n\n<size=14>").Append(notes).Append("</size>");
 
             if (node.Kind == NodeKind.Rebis)
             {
+                body.Append("Owned from the start; belongs to no principle.");
                 // The arsenal: every kind, what it is for this element, and what opens it.
                 body.Append("\n\nTap the release button for one release; hold it for the other. Each opens " +
                             $"with {Tuning.Releases.UnlockPathPoints} levels on its path, free.");
@@ -641,17 +694,54 @@ namespace Convergence.UI
                     _holdLabel.text = $"HOLD  {(hold.HasValue ? ReleaseInfo.Name(_viewing, hold.Value) : "none")}";
                 }
             }
+            else if (!owned) body.Append($"\n\nCosts {node.Cost} {_viewing} level{(node.Cost == 1 ? "" : "s")}.");
+            _nodeText.text = body.ToString();
 
-            if (node.PrincipleWeight > 0)
+            // ---- THE PATH it sits on: where, and what its nodes of this kind add up to ----
+            bool onPath = node.Kind != NodeKind.Rebis && node.Branch != "";
+            _pathBlock.gameObject.SetActive(onPath);
+            if (onPath)
             {
-                body.Append($"\n\ncontributes {node.PrincipleWeight} {principle} - you hold " +
-                            $"{_board.PrinciplePoints(_viewing, principle)}");
+                _pathHead.text = $"{branch.ToUpper()} PATH";
+                body.Clear();
+                body.Append($"Step {StepOf(node)} out from the centre.");
+                if (statLine.Length > 0 && node.Kind == NodeKind.Filler)
+                {
+                    int have = 0, of = 0;
+                    float sum = 0f;
+                    foreach (var other in MasteryBoard.All)
+                    {
+                        if (other.Branch != node.Branch || other.Kind != NodeKind.Filler
+                            || other.Stat != node.Stat || other.Extra != node.Extra) continue;
+                        of++;
+                        if (!_board.IsUnlocked(_viewing, other.Id)) continue;
+                        have++;
+                        sum += other.Value;
+                    }
+                    body.Append($"\n{statName} nodes here: {have} of {of} owned");
+                    if (have > 0) body.Append($", {SumText(node, sum)} in all");
+                    body.Append(".");
+                }
+                if (node.Fork.Length > 0 && !owned)
+                    // The one lock on the grid, said before it is taken rather than after.
+                    body.Append("\n\nTaking this lane closes the fork's other three on this board until reincarnation.");
+                _pathText.text = body.ToString();
+            }
 
+            // ---- THE PRINCIPLE it feeds, and that principle's chain ----
+            var principle = _board.PrincipleOf(_viewing, node);
+            bool feeds = node.PrincipleWeight > 0;
+            _chainBlock.gameObject.SetActive(feeds);
+            if (feeds)
+            {
+                Tint(_chainBlock, _chainHead, PrincipleTint(principle));
+                int links = _board.ChainLinks(_viewing, principle);
+                _chainHead.text = $"{principle.ToString().ToUpper()}  ·  CHAIN {links} OF {MasteryBoard.ChainOf(principle).Length}";
                 // THE CHAIN, spelled out. Points on their own say nothing: a player looking at a
                 // node is deciding what it buys, and for the principle half what it buys is a link.
-                body.Append(ChainSummary(principle));
+                _chainText.text = $"This node adds {node.PrincipleWeight} point{(node.PrincipleWeight == 1 ? "" : "s")}; " +
+                                  $"you hold {_board.PrinciplePoints(_viewing, principle)}." + ChainSummary(principle);
             }
-            _detailBody.text = body.ToString();
 
             if (owned)
             {
@@ -672,6 +762,21 @@ namespace Convergence.UI
             };
         }
 
+        /// <summary>How many steps out from the sigil a node sits - its distance in node steps.</summary>
+        static int StepOf(MasteryNode node) => Mathf.Max(1, Mathf.RoundToInt(node.Position.magnitude / MasteryBoard.NodeStep));
+
+        /// <summary>A path's total of one kind of node, in the same units as MasteryBoard.StatLine.</summary>
+        static string SumText(MasteryNode node, float v)
+        {
+            if (node.Stat != Art.Gear.StatKind.None) return $"+{v:0.##}%";
+            return node.Extra switch
+            {
+                BoardStat.RiftCapacity => $"+{v:0}",
+                BoardStat.Lifesteal => $"+{v * 100f:0.#}%",
+                _ => $"+{v:0.#}%",
+            };
+        }
+
         /// <summary>
         /// A principle's chain, with what is held, what is earned, and what the next link costs.
         ///
@@ -686,7 +791,6 @@ namespace Convergence.UI
             int links = _board.ChainLinks(_viewing, principle);
 
             var sb = new System.Text.StringBuilder();
-            sb.Append($"\n\n{principle.ToString().ToUpper()} CHAIN   {links} of {chain.Length}");
 
             for (int i = 0; i < chain.Length; i++)
             {

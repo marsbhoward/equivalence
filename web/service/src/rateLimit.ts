@@ -157,6 +157,10 @@ export const LIMITS = {
   commit: { burst: 3, perMinute: 6 },
   open: { burst: 6, perMinute: 12 },
   boxes: { burst: 10, perMinute: 30 },
+  /** Quartz boxes opened (routes/items.ts openQuartz) - a held stack opened one at a time. */
+  quartz: { burst: 10, perMinute: 30 },
+  /** A floor's Quartz roll (routes/quartz.ts) - one a floor, floors take 15 s or more. */
+  quartzFloor: { burst: 6, perMinute: 12 },
   // ---- in total
   /** Unauthenticated routes that call Blockfrost, all callers together. */
   blockfrostPublic: { burst: 60, perMinute: 300 },

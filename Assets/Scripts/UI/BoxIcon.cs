@@ -22,6 +22,7 @@ namespace Convergence.UI
             LootTier.Silver => BoxArt.Kind.Silver,
             LootTier.Gold => BoxArt.Kind.Gold,
             LootTier.Diamond => BoxArt.Kind.Diamond,
+            LootTier.Quartz => BoxArt.Kind.Quartz,
             _ => BoxArt.Kind.BlackDiamond,
         };
 

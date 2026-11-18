@@ -783,6 +783,7 @@ namespace Convergence.Core
         {
             Art.Gear.GearOwnership.AuthoredHeld = DevGearHeld;
             Art.Gear.GearOwnership.HoldsInstance = id => _profile != null && _profile.MintedGear.Exists(r => r.InstanceId == id);
+            Art.Gear.GearOwnership.HoldsQuartz = id => _profile?.Items != null && _profile.Items.OwnsQuartz(id);
             Art.Gear.GearOwnership.StartersHeld = () => !RunFormat.Showcase;
         }
 
@@ -2020,7 +2021,30 @@ namespace Convergence.Core
                 OnBreakBox = BreakBoxForChargesAsync,
                 BreakableBoxes = BreakableBoxes,
                 OnWithdraw = StoreFactory.UsingChain ? WithdrawDyesAsync : null,
+                QuartzBoxes = () => _profile?.Items?.QuartzBoxes ?? 0,
+                OnOpenQuartz = OpenQuartzAsync,
             });
+        }
+
+        /// <summary>One Quartz box opened through the store (GEAR.md "Quartz") - the service rolls it for
+        /// a service player. A piece joins the picker at once; a pose or hub room is the character's.</summary>
+        async System.Threading.Tasks.Task<(string refusal, string opened)> OpenQuartzAsync()
+        {
+            if (_profile == null) return ("no character", null);
+            var r = await _store.OpenQuartzAsync(_profile);
+            if (r.refusal == null)
+            {
+                // A hub ROOM waits on the crate as a parcel too, to try every item in it (HUB.md).
+                if (Hub.HubThemes.TryParse(r.opened, out _))
+                {
+                    _profile.Hub ??= new HubLook();
+                    if (!_profile.Hub.Unopened.Contains(r.opened)) _profile.Hub.Unopened.Add(r.opened);
+                }
+                Debug.Log($"[Forge] quartz box opened: {r.opened}");
+                if (CharacterScreen != null) CharacterScreen.Refresh();
+                _hub?.RefreshForge();
+            }
+            return r;
         }
 
         /// <summary>Diamond boxes the character could break for dye charges now: box TOKENS in the
@@ -5584,6 +5608,10 @@ namespace Convergence.Core
             // character (Tuning.Cosmetics): a dye, and for the first a Diamond box.
             if (System.Array.IndexOf(Tuning.Cosmetics.MilestoneFloors, _floor) >= 0) ClaimMilestone(_floor);
 
+            // QUARTZ - the floor's last enemy, at its band's rate (GEAR.md "Quartz"): the store's
+            // decision, once per run per floor. Never a puzzle floor's, never in the showcase.
+            if (Tuning.Quartz.Rolls && _plan.Category != Rifts.FloorCategory.Puzzle) ClaimQuartzFloor(_floor);
+
             // FLOOR 100 SECURES THE RUN'S BOXES (the user's call, 2026-10-09) - the completion
             // floor has no Rift, and the boxes it pays are the point of reaching it. From here a
             // death still banks them, and the run end mints the design boxes to the wallet.
@@ -5647,6 +5675,18 @@ namespace Convergence.Core
         /// once-in-a-character's-life gift a death must not take, and minted at the run's end like an
         /// avatar's (commit-run counts it).
         /// </summary>
+        /// <summary>A floor's Quartz roll, asked of the store; a box is flashed when one comes. A failed
+        /// ask pays nothing - nothing was recorded, and the box is the store's to give.</summary>
+        async void ClaimQuartzFloor(int floor)
+        {
+            int boxes = 0;
+            try { boxes = await _store.QuartzFloorAsync(_profile, _runId, floor); }
+            catch (Exception e) { Debug.LogWarning($"[Rift] floor {floor}'s Quartz roll: {e.Message}"); }
+            if (boxes <= 0) return;
+            _hud?.Flash("QUARTZ BOX");
+            Debug.Log($"[Rift] floor {floor} paid a Quartz box");
+        }
+
         async void ClaimMilestone(int floor)
         {
             (_milestoneAsks ??= new List<int>()).Add(floor);
@@ -5713,6 +5753,15 @@ namespace Convergence.Core
             if (dye != null || pose != null) RefreshItems();
         }
 
+        /// <summary>A Quartz box an avatar or the final floor paid - already the character's (the store
+        /// credited it at the decision), so only named, and the items re-read for the Forge.</summary>
+        void CreditQuartz(int quartz)
+        {
+            if (quartz <= 0) return;
+            _hud?.Flash(quartz > 1 ? $"{quartz} QUARTZ BOXES" : "QUARTZ BOX");
+            RefreshItems();
+        }
+
         /// <summary>Re-reads what the database holds for the character, in the background.</summary>
         async void RefreshItems()
         {
@@ -5748,6 +5797,7 @@ namespace Convergence.Core
             if (boxes.BlackDiamond > 0) _hud?.Flash("BLACK DIAMOND BOX");
             else if (boxes.Diamond > 0) _hud?.Flash("DIAMOND BOX");
             CreditCosmetics(boxes.Dye, boxes.Pose, boxes.PoseGold);
+            CreditQuartz(boxes.Quartz);
             if (boxes.Diamond > 0 || boxes.BlackDiamond > 0 || boxes.PoseGold > 0)
             {
                 ResaveCleared();   // the boxes are the run's now - a resume must not ask for them again
@@ -5779,6 +5829,7 @@ namespace Convergence.Core
             var reward = answered ?? FinalFloorReward.Unanswered;
             if (reward.Count > 0) _loot.FindTieredBoxes(reward.Tier, reward.Count);
             CreditCosmetics(reward.Dye, reward.Pose, reward.PoseGold);
+            CreditQuartz(reward.Quartz);
             _loot.SecureAllBoxes();
             if (reward.Guaranteed) _runGuaranteeWeek = reward.Week;
             string boxes = reward.Count > 1 ? $"{reward.Count} {reward.Tier.ToString().ToUpper()} BOXES"
@@ -5949,7 +6000,9 @@ namespace Convergence.Core
             _puzzle = Puzzles.PuzzleRoom.Build(kind, _enemyRoot, _player.transform, _floor,
                                                _planner.PuzzleSeed(_floor));
             _puzzleSettled = false;
+            _mazeBoxClaimed = false;
             Chain.Service.Telemetry.PuzzleStarted(kind);
+            if (kind == Puzzles.PuzzleKind.Maze) AskMazeBox(_puzzle as Puzzles.MazePuzzle, token);
 
             // A clocked puzzle (the Labyrinth) left part-way is put back as it was: its clock goes on
             // from the seconds spent, plus a moment to find one's feet, and the player stands where
@@ -6109,8 +6162,44 @@ namespace Convergence.Core
         }
 
         /// <summary>Reads the puzzle's state once per frame and answers it ONCE.</summary>
+        bool _mazeBoxClaimed;
+
+        /// <summary>
+        /// Whether this Labyrinth holds the run's QUARTZ box (GEAR.md "Quartz"): one in the LAST band,
+        /// else - when the forecast shows no Labyrinth there - one in band 3. The store decides
+        /// whether it is there (once per run) and the maze stands it in a dead end.
+        /// </summary>
+        async void AskMazeBox(Puzzles.MazePuzzle maze, int token)
+        {
+            if (maze == null || !Tuning.Quartz.Rolls) return;
+            int band = RunFormat.EnemyBand(_floor);
+            bool eligible = band >= Tuning.Quartz.MazeBand ||
+                            (band == Tuning.Quartz.MazeBand - 1 &&
+                             !_planner.ForecastsMaze(_floor, RunFormat.FirstFloorOfBand(Tuning.Quartz.MazeBand), RunFormat.EndFloor));
+            if (!eligible) return;
+            bool present = false;
+            try { present = await _store.QuartzMazeAsync(_profile, _runId, _floor, take: false) > 0; }
+            catch (Exception e) { Debug.LogWarning($"[Puzzle] floor {_floor}'s Quartz box: {e.Message}"); }
+            if (!present || token != _runToken || maze == null || _puzzle != maze) return;
+            maze.ShowQuartzBox();
+            Debug.Log($"[Puzzle] floor {_floor}'s labyrinth holds a Quartz box");
+        }
+
+        async void ClaimMazeBox(int floor)
+        {
+            int boxes = 0;
+            try { boxes = await _store.QuartzMazeAsync(_profile, _runId, floor, take: true); }
+            catch (Exception e) { Debug.LogWarning($"[Puzzle] floor {floor}'s Quartz box, taken: {e.Message}"); }
+            if (boxes > 0) { _hud?.Flash("QUARTZ BOX"); RefreshItems(); }
+        }
+
         void TickPuzzle()
         {
+            if (!_mazeBoxClaimed && _puzzle is Puzzles.MazePuzzle maze && maze.TookQuartzBox)
+            {
+                _mazeBoxClaimed = true;
+                ClaimMazeBox(_floor);
+            }
             _hud?.SetPuzzle(_puzzle.Title, _puzzle.Body);
             _hud?.SetCountdown(_puzzle.Countdown);
             SetCloseView(_puzzle.CloseView, ease: true);

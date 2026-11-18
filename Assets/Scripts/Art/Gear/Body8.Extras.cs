@@ -22,6 +22,10 @@ namespace Convergence.Art.Gear
             public Color[] WrapTones;
             /// <summary>The arm piece worn, or null.</summary>
             public ArmPieces8.Cloud Arm;
+            /// <summary>The arm piece worn and which of its pictures (Fulmen's strike, Sanguis's smoke): drawn as FLAT
+            /// PICTURES of its approved art (<see cref="PictureOn"/>, the user's call 2026-11-17), the cloud only a marker.</summary>
+            public AccessoryKind ArmKind;
+            public int ArmFrame;
             /// <summary>An arm piece's drift (whole texels as the flat art shifts it); zero is the piece as baked.</summary>
             public Vector2Int ArmDrift = Vector2Int.zero;
             /// <summary>The wraps' tails' wobble clock (the mock's t).</summary>
@@ -129,7 +133,7 @@ namespace Convergence.Art.Gear
 
         static void ScarfTail(Extras ex, System.Func<Vector3, Vector3> body, Vector3 left, Vector3 f, Locomotion8.Gait gait, float size, float phase, List<Part> parts)
         {
-            var g = gait == Locomotion8.Run ? ScarfRunGait : ScarfWalkGait;
+            var g = gait.Running ? ScarfRunGait : ScarfWalkGait;
             float k = Mathf.Clamp01(size);
             // standing to the gait by the stride's size: the lift and its hem lag, the wave
             float lift = Mathf.Lerp(ScarfStandGait.Lift, g.Lift, k), lag = Mathf.Lerp(0f, 0.45f * g.Lift, k);
@@ -302,9 +306,115 @@ namespace Convergence.Art.Gear
             var frames = new[] { Of(J, dc, PieceCapY0, 1f), Of(J, d1, PieceUpperY0, k), Of(E, d2, PieceForeY0, k) };
             _drawnArm = frames;
 
+            // the hand raised above the shoulder (the greatsword's rest carry): the piece tucks BEHIND the head - none of
+            // it draws inside the head's outline (the user's pick to try, 2026-11-17; the carry itself lays the fist by the face)
+            _armTuck = ArmTuck && W.y > J.y;
+            if (_armTuck) _tuckC = Locomotion8Screen(body(new Vector3(0f, HeadCentre, 0f)));
             int armFirst = parts.Count;
-            CloudOn(cloud, frames, ex.ArmDrift, 1f, 0f, parts);
+            if (ArmPictures && ex.ArmKind != AccessoryKind.None) PictureOn(ex.ArmKind, ex.ArmFrame, frames, ex.ArmDrift, parts);
+            else CloudOn(cloud, frames, ex.ArmDrift, 1f, 0f, parts);
             for (int j = armFirst; j < parts.Count; j++) parts[j].Ghost = true;   // Penumbra's afterimage lifts it
+        }
+
+        // ------------------------------------------------------------- an arm piece as FLAT PICTURES
+        // The user's call (2026-11-17, after the 3D build lost Crucible's grate, Verdigris's teeth, Fulmen's cage and
+        // Homunculus's panels; mock https://claude.ai/artifact/9tj13JQomomnSpff6cwNnj): the piece is its approved flat art
+        // (ArmPieces.Draw, the flat rig's own), each segment's picture laid on a card through that segment's axis, facing the
+        // camera: front-on exactly as drawn, from behind mirrored, side-on narrowed to the arm's depth (PictureSide of its
+        // width). Swinging, a card shortens along the arm as the arm points at the camera, never across it.
+
+        /// <summary>An arm piece tucks behind the head while its hand is above its shoulder (false: it draws over the head
+        /// where it is nearer, as before 2026-11-17).</summary>
+        public static bool ArmTuck = false;   // off (2026-11-18): arms and weapons draw over the head where nearer (the user's rule)
+        static bool _armTuck;
+        static Vector2 _tuckC;
+        /// <summary>Is a drawn texel inside the head's outline (the helm's ellipsoid as the screen shows it)?</summary>
+        /// <summary>The tucked region against the head's own outline: the head sprite already hides what lies inside
+        /// that, so the tuck reaches past it to the arm round the helm's edge.</summary>
+        public static float TuckReach = 1.5f;
+        static bool OnHead(int x, int y)
+        {
+            float u = (x + 0.5f - _tuckC.x) / (HeadRx * TuckReach), sy = (y + 0.5f - _tuckC.y) / TuckReach, k = Locomotion8.DepthY;
+            float A = (k / HeadRy) * (k / HeadRy) + 1f / (HeadRz * HeadRz), B = -2f * k * sy / (HeadRy * HeadRy), C = (sy / HeadRy) * (sy / HeadRy) + u * u - 1f;
+            return B * B - 4f * A * C >= 0f;
+        }
+
+        /// <summary>Arm pieces drawn as flat pictures (true) or as the baked 3D clouds (false, the build before 2026-11-17).</summary>
+        public static bool ArmPictures = true;
+
+        /// <summary>How wide an arm piece's picture is side-on against front-on (the arm's depth against its width).</summary>
+        const float PictureSide = 0.6f;
+        /// <summary>The card sits this far toward the camera from the segment's axis - on the arm's near surface, so the
+        /// body behind it does not cut through.</summary>
+        const float PictureLift = 4f;
+        /// <summary>A layer's own depth (the flat art's stacking, 12.6 the arm .. 14.3 a shoulder's crystals) to texels toward
+        /// the camera, so the pictures stack as drawn.</summary>
+        const float PictureStack = 0.5f;
+        /// <summary>The flat art at rest (the bake's ARM_ST.t), and how far a picture of Fulmen's strike or Sanguis's smoke steps.</summary>
+        const float PictureRestT = 0.4f;
+
+        static Dictionary<int, List<TexelKit.Layer>> _pictures;
+
+        static List<TexelKit.Layer> PictureLayers(AccessoryKind kind, int frame)
+        {
+            _pictures ??= new Dictionary<int, List<TexelKit.Layer>>();
+            int key = (int)kind * 64 + frame;
+            if (_pictures.TryGetValue(key, out var ls)) return ls;
+            float t = PictureRestT + (kind == AccessoryKind.FulmenArm ? frame / 12f : kind == AccessoryKind.SanguisArm ? frame / (float)ArmPieces8.SanguisFrames : 0f);
+            ls = new List<TexelKit.Layer>();
+            ArmPieces.Draw(kind, new ArmPieceState { T = t }, ls);
+            ls.RemoveAll(l => l.Joint == ArmPieces.JTorso);   // straps and embers ride the torso (Body8Art's arm_crucible)
+            return _pictures[key] = ls;
+        }
+
+        static void PictureOn(AccessoryKind kind, int frame, Frame[] frames, Vector2Int drift, List<Part> parts)
+        {
+            var layers = PictureLayers(kind, frame);
+            var V = Vector3.forward;   // toward the camera in the drawn frame
+            float alpha = ArmPieces.Alpha(kind);
+            var dArm = drift == Vector2Int.zero ? Vector2.zero : (Vector2)(drift - BakedDrift);
+            var dCap = drift == Vector2Int.zero ? Vector2.zero : new Vector2(Mathf.Round(drift.x * 0.5f), Mathf.Round(drift.y * 0.5f)) - (Vector2)BakedDriftCap;
+            // per segment: the card's across (the art's +X as it faces the camera), how narrow, whether mirrored
+            var across = new Vector3[3]; var width = new float[3];
+            for (int s = 0; s < 3; s++)
+            {
+                var F = frames[s];
+                float c = Vector3.Dot(F.N, V), sd = Vector3.Dot(F.X, V), r = Mathf.Sqrt(c * c + sd * sd);
+                float w = r > 0.2f ? Mathf.Sqrt(c * c + PictureSide * PictureSide * sd * sd) / r : 1f;
+                var cr = Vector3.Cross(F.D, V);
+                // the card's across keeps the frame's handedness: front-on it is the art's X, from behind the reverse,
+                // and the picture is mirrored there - so each texel stays on its own side of the arm
+                float hand = Mathf.Sign(Vector3.Dot(Vector3.Cross(F.D, F.N), F.X));
+                across[s] = cr.sqrMagnitude > 1e-3f ? cr.normalized * hand : F.X;
+                width[s] = w * (c < 0f ? -1f : 1f);
+            }
+            foreach (var l in layers)
+            {
+                int id = parts.Count;
+                parts.Add(new Part { OutR = l.Outlined ? l.OutR : 0, Bias = 6f, Alpha = alpha });
+                float lift = PictureLift + (l.Depth - 12f) * PictureStack;
+                bool cap = l.Joint == ArmPieces.JShoulder;
+                var d = cap ? dCap : dArm;
+                foreach (var kv in l.C)
+                {
+                    int ax = TexelKit.KX(kv.Key), ay = TexelKit.KY(kv.Key);
+                    int seg = cap ? 0 : ay + 0.5f < PieceForeY0 ? 1 : 2;
+                    var F = frames[seg];
+                    Color col = kv.Value;
+                    // two by two samples a texel, so a stretched or turned card has no holes
+                    for (int i = 0; i < 2; i++)
+                    for (int j = 0; j < 2; j++)
+                    {
+                        float u = (ax + 0.25f + 0.5f * i + d.x - 5f) * width[seg], v = (ay + 0.25f + 0.5f * j + d.y - F.Y0) * F.Scale;
+                        var p = F.J + across[seg] * u + F.D * v + V * lift;
+                        var sc = Locomotion8Screen(p);
+                        int X = Mathf.FloorToInt(sc.x), Y = Mathf.FloorToInt(sc.y);
+                        if (X < 0 || Y < 0 || X >= _W || Y >= _H) continue;
+                        if (_armTuck && OnHead(X, Y)) continue;
+                        Put(X, Y, p.z, col, id);
+                    }
+                }
+            }
         }
 
         /// <summary>The mock's drift baked into Penumbra's cloud (ARM_ST.t 0.4): the arm's whole-texel shift, the cap half.</summary>
@@ -330,7 +440,9 @@ namespace Convergence.Art.Gear
                 if (X < 0 || Y < 0 || X >= _W || Y >= _H) continue;
                 var Nn = cloud.N[i];
                 var nv = (F.X * Nn.x + F.D * Nn.y + F.N * Nn.z).normalized;
-                Put(X, Y, p.z, cloud.RuleOf[i].At(nv), first + cloud.PrimOf[i]);
+                if (_armTuck && OnHead(X, Y)) continue;
+                if (cloud.Prims[cloud.PrimOf[i]].Under) PutUnder(X, Y, p.z, cloud.RuleOf[i].At(nv), first + cloud.PrimOf[i]);
+                else Put(X, Y, p.z, cloud.RuleOf[i].At(nv), first + cloud.PrimOf[i]);
             }
         }
     

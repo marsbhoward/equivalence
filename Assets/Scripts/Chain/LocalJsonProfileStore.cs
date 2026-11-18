@@ -115,8 +115,9 @@ namespace Convergence.Chain
             if (Decide(profile, $"final:{runId}"))
             {
                 if (!string.IsNullOrEmpty(reward.Dye)) profile.Items.AddDye(reward.Dye, 1);
-                (reward.Pose, reward.PoseGold) = CosmeticRolls.Pose(profile.Items);
-                profile.Items.Grant(reward.Pose);
+                // A Quartz box replaced the pose roll (GEAR.md "Quartz").
+                reward.Quartz = Tuning.Quartz.Rolls && new System.Random().NextDouble() < Tuning.Quartz.FinalChance ? 1 : 0;
+                profile.Items.QuartzBoxes += reward.Quartz;
             }
             else reward.Dye = null;
             Debug.Log($"[ProfileStore] floor {Rifts.RunLoot.FinalFloor,-4}  run={runId} {reward.Count} {reward.Tier}" +
@@ -134,9 +135,10 @@ namespace Convergence.Chain
             {
                 var rng = new System.Random();
                 if (rng.NextDouble() < Tuning.Cosmetics.AvatarRareDyeChance) boxes.Dye = CosmeticRolls.RareDye(rng);
-                (boxes.Pose, boxes.PoseGold) = CosmeticRolls.Pose(profile.Items, rng);
+                // A Quartz box replaced the pose roll (GEAR.md "Quartz").
+                boxes.Quartz = Tuning.Quartz.Rolls && rng.NextDouble() < Tuning.Quartz.AvatarChance ? 1 : 0;
                 if (!string.IsNullOrEmpty(boxes.Dye)) profile.Items.AddDye(boxes.Dye, 1);
-                profile.Items.Grant(boxes.Pose);
+                profile.Items.QuartzBoxes += boxes.Quartz;
             }
             await Task.Yield();
             return boxes;
@@ -184,6 +186,53 @@ namespace Convergence.Chain
             profile.Items.Charges += Tuning.Cosmetics.ChargesPerBox;
             Save(profile);
             return Task.FromResult<string>(null);
+        }
+
+        public async Task<int> QuartzFloorAsync(CharacterProfile profile, string runId, int floor)
+        {
+            await Task.Yield();
+            float p = Tuning.Quartz.FloorChance(floor);
+            if (p <= 0f || !Decide(profile, $"quartz:{runId}:{floor}")) return 0;
+            int boxes = new System.Random().NextDouble() < p ? 1 : 0;
+            profile.Items.QuartzBoxes += boxes;
+            if (boxes > 0) Save(profile);
+            return boxes;
+        }
+
+        public async Task<int> QuartzMazeAsync(CharacterProfile profile, string runId, int floor, bool take)
+        {
+            await Task.Yield();
+            profile.CosmeticsDecided ??= new System.Collections.Generic.List<string>();
+            string present = $"quartz-maze:{runId}:{floor}", taken = $"quartz-maze-taken:{runId}";
+            if (!take)
+            {
+                // One decision a run: a second Labyrinth (or a replay of this one) asks what was decided.
+                if (profile.CosmeticsDecided.Exists(k => k.StartsWith($"quartz-maze-decided:{runId}:")))
+                    return profile.CosmeticsDecided.Contains(present) ? 1 : 0;
+                profile.CosmeticsDecided.Add($"quartz-maze-decided:{runId}:{floor}");
+                if (new System.Random().NextDouble() >= Tuning.Quartz.MazeChance) return 0;
+                profile.CosmeticsDecided.Add(present);
+                return 1;
+            }
+            if (!profile.CosmeticsDecided.Contains(present) || profile.CosmeticsDecided.Contains(taken)) return 0;
+            profile.CosmeticsDecided.Add(taken);
+            profile.Items ??= new CharacterItems();
+            profile.Items.QuartzBoxes += 1;
+            Save(profile);
+            return 1;
+        }
+
+        public Task<(string refusal, string opened)> OpenQuartzAsync(CharacterProfile profile)
+        {
+            profile.Items ??= new CharacterItems();
+            if (profile.Items.QuartzBoxes <= 0) return Task.FromResult<(string, string)>(("no Quartz box to open", null));
+            var entries = QuartzDrops.Entries(profile.Items);
+            if (entries.Count == 0) return Task.FromResult<(string, string)>(("nothing left for a Quartz box to hold", null));
+            string id = entries[new System.Random().Next(entries.Count)];
+            profile.Items.QuartzBoxes--;
+            QuartzDrops.Credit(profile.Items, id);
+            Save(profile);
+            return Task.FromResult<(string, string)>((null, id));
         }
 
         public async Task UnlockAsync(CharacterProfile profile)

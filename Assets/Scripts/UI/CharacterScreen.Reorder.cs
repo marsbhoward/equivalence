@@ -156,10 +156,12 @@ namespace Convergence.UI
 
                 var name = UiKit.Label(UiKit.Rect(face, "name", a, b, new Vector2(100, -104), new Vector2(-16, -62)),
                     m.DisplayName, 30, SwBright);
+                // Sized by hand, not best fit: best fit asks the font for every size it tries, and on a
+                // phone the rebuilt font atlas left the names scrambled after a swap (2026-11-16).
                 name.horizontalOverflow = HorizontalWrapMode.Wrap;
-                name.resizeTextForBestFit = true;
-                name.resizeTextMinSize = 18;
-                name.resizeTextMaxSize = 30;
+                float room = cardW - 116f;
+                float wide = name.preferredWidth;
+                name.fontSize = wide <= room ? 30 : Mathf.Max(18, Mathf.FloorToInt(30f * room / wide));
                 int weight = RotationWheel.WeightOf(m);
                 FloorRewardScreen.Notches(face, weight, a, new Vector2(100, -118), 9f, 16f, 4f);
                 UiKit.Label(UiKit.Rect(face, "weight", a, b, new Vector2(146, -130), new Vector2(-16, -106)),

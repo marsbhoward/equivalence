@@ -20,7 +20,8 @@ import { graduate, loadAccount, loadCharacter, roster, saveAccount, saveCharacte
 import { newGuest, requireIdentity } from './identity.js';
 import { claimFinalFloor, finalFloorStatus } from './routes/finalFloor.js';
 import { claimAvatarBoxes, devDecideAvatarBoxes } from './routes/avatarBox.js';
-import { breakBox, claimMilestone, loadItems, recolour } from './routes/items.js';
+import { breakBox, claimMilestone, loadItems, openQuartz, recolour } from './routes/items.js';
+import { claimQuartzFloor, claimQuartzMaze } from './routes/quartz.js';
 import { listShots, putShot } from './routes/shots.js';
 import { breakBoxTokens, depositDyes, submitBurn, withdrawDyes } from './routes/dyes.js';
 import { mintPortrait, portraitStatus, readPortrait, renewPortrait, submitPortrait, updatePortrait } from './routes/pfp.js';
@@ -232,6 +233,11 @@ app.post('/saves/avatar-box', claimAvatarBoxes);
 app.get('/saves/items/:profileId', loadItems);
 app.post('/saves/items/:profileId/recolour', recolour);
 app.post('/saves/items/:profileId/break-box', breakBox);
+// A Quartz box opened - off chain, rolled here (GEAR.md "Quartz").
+app.post('/saves/items/:profileId/open-quartz', perIdentity('quartz', LIMITS.quartz), openQuartz);
+// A floor's last-enemy Quartz roll, decided once per run per floor (routes/quartz.ts).
+app.post('/saves/quartz-floor', perIdentity('quartz-floor', LIMITS.quartzFloor), claimQuartzFloor);
+app.post('/saves/quartz-maze', perIdentity('quartz-floor', LIMITS.quartzFloor), claimQuartzMaze);
 app.post('/saves/milestone', claimMilestone);
 // Booth shots kept for the hub's frames (routes/shots.ts).
 const shots = perIdentity('shots', LIMITS.shots);

@@ -729,7 +729,8 @@ function armB(make, F, yaw, mirror) {
   const out = [];
   for (const [key, segs] of [['cap', ['cap']], ['arm', ['upper', 'fore']]]) {
     for (const src of pics[key]) {
-      const l = new Layer(0); l.outR = 4; let zs = 0, nz = 0;
+      // the source picture's own outline (none for Sanguis's smoke) and see-through (Penumbra)
+      const l = new Layer(0); l.outR = src.outR ?? 4; l.outline = src.outline !== false; if (src.alpha != null) l.alpha = src.alpha; let zs = 0, nz = 0;
       for (const seg of segs) {
         const f = F[seg], J = P(f.J), D = P(v3(f.J.x + f.d.x, f.J.y + f.d.y, f.J.z + f.d.z)), ax = v3(D.c - J.c, D.r - J.r, 0), L = Math.max(0.12, Math.hypot(ax.x, ax.y)), ux = ax.x / L, uy = ax.y / L;
         const yr = seg === 'upper' ? [0, 49.7] : seg === 'fore' ? [49.7, 200] : [-50, 200];
@@ -897,6 +898,35 @@ ARM3D['sanguis-crystal'] = (F, [arm, sh]) => {
     .map(([P, n0]) => ({ seg: 'cap', sdf: slab(P.map(([x, y]) => [x + 0.5, y + 0.5]), n0, 4.2), color: artColor(sh) }));
   return [armPrim('sgArm', 4, [...latheParts(La).map(q => ({ ...q, color: latheColor(arm) })), shard, ...fingers], F), armPrim('sgCap', 4, plates, F)];
 };
+// SANGUIS (Smoke, 2026-11-17): blood smoke, no outline. The core lathed from the flat art's column, coloured by the
+// flat art's own smoke noise (smokeAt) round it by arc length, not re-lit: the smoke's red is its own light; the talons cones off the knuckles, pale, whiter on the
+// lit side; the shoulder's torn cloud and the flecks and tendrils off the arm small blobs where the flat art has them,
+// spread through the arm's depth by a hash. Baked at 8 points of its one-second loop (bake8x.js), the game cycling them.
+ARM3D['sanguis-smoke'] = (F, [arm, cl, sh]) => {
+  // the clean limb lathed, its surface then torn by the flat art's own edge noise (pushed out where it runs high, eaten
+  // where it runs low), so the ragged edge shows in every view, not only the front's silhouette
+  const limb = new Layer(0); limb.fill(smokeLimb(), '#000000');
+  const La = latheRows(limb, { lo: -1.5, hi: 11, y0: 36, y1: 66 }), core = smokeLimb(), t = ARM_ST.t;
+  const torn = q => ({ ...q, nsdf: q.sdf, sdf: (X, Y, n) => q.sdf(X, Y, n) - (loopFbm(X * 0.45 + n * 0.35, Y * 0.25 + n * 0.1, 1.2, t, 7) - 0.38) * 2.6 });
+  // the colour: the smoke's noise round the arm, each quarter-turn sampling the front's columns again (centre to edge and
+  // back), so a side view shows the front's pattern and not a redder stretch of it; where the surface turns from the camera (the RIM rule,
+  // bake8x.js) the flat art's edge colours - its thin red rim - so every view keeps the black middle between red edges
+  const coreColor = (X, Y, n, nv, q) => { const row = latheRow(q.L, Y), a = Math.atan2(n / (row.h * q.L.dz), (X - row.m) / row.h);
+    return smokeAt(row.m + 0.8 * row.h * Math.sin(2 * a), Y, t, nv.z < SMOKE_RIM); };
+  const talons = SMOKE_TALONS.map(([x, len, hook]) => { const p = smokeTalon(x, 66, len, hook), a = p[0], b = p[p.length - 1];
+    return { seg: 'fore', sdf: (X, Y, n) => sdCone(P3(X, Y, n), P3(a[0] + 0.5, a[1] + 0.5, 1), P3(b[0] + 0.5, b[1] + 0.5, 1.8), 0.8, 0.25),
+      color: (X, Y, n, nv) => Y < 68 ? SMOKE.hot : nv.z < SMOKE_RIM ? SMOKE.pale : SMOKE.white }; });
+  const blob = (x, y, n0, r, c, seg) => ({ seg, sdf: (X, Y, n) => sdEllipsoid(v3(X, Y, n), v3(x + 0.5, y + 0.5, n0), v3(r, r, r)), color: () => c });
+  // flecks and tendrils: every texel of the art clear of the limb's torn edge (2 out; the torn surface is the edge),
+  // single-texel blobs near the art's plane, drawn UNDER everything (depthBias -100, ArmPieces8.Prim.Under): side-on they
+  // stand between the camera and the arm, and in the flat art they only show where the arm is not
+  const near = (x, y) => { for (let d = -2; d <= 2; d++) if (core.has(x + d, y)) return true; return false; };
+  const flecks = []; for (const [k, c] of arm.c) { const x = KX(k), y = KY(k); if (near(x, y)) continue; flecks.push(blob(x, y, (hash2(x, y) - 0.5) * 3, 0.55, c, y < ELBOW_Y ? 'upper' : 'fore')); }
+  // the shoulder's torn cloud: each texel of it a small blob on a dome, so its holes stay holes
+  const cloud = []; for (const [k, c] of sh.c) { const x = KX(k), y = KY(k), dx = (x - 4.5) / 9, dy = (y - 33) / 7, dn = Math.sqrt(Math.max(0, 1 - dx * dx - dy * dy)) * 5;
+    cloud.push(blob(x, y, (hash2(y, x) - 0.5) * 2 * dn, 0.6, c, 'cap')); }
+  return [armPrim('ssArm', 0, [...latheParts(La).map(q => torn({ ...q, color: coreColor })), ...talons], F), Object.assign(armPrim('ssFleck', 0, flecks, F), { depthBias: -100 }), armPrim('ssCap', 0, cloud, F)];
+};
 // the synthetic hand's fingers (arms.js synthHand): four jointed fingers down from the knuckle caps, the outer two
 // shorter and leaning out, curling a little forward
 const synthFingers = (l, top = 61, long = 11) => [[-0.5, long - 2, -0.35], [2.5, long, -0.12], [5.5, long, 0.12], [8.5, long - 2, 0.35]].map(([x0, len, lean], i) => {
@@ -967,9 +997,9 @@ ARM3D['penumbra-echo'] = (F, [arm, sh]) => {
 ARM3D.quicksilver = F => quicksilverA(F);
 ARM3D.salt = F => saltA(F);
 // simpler wraps first, the costly ones (cage, hoses, echo) last
-const ARM3D_ORDER = ['quicksilver', 'rubedo', 'verdigris', 'salamander', 'salt', 'crucible', 'sanguis-crystal', 'homunculus-plated', 'homunculus-hydraulic', 'fulmen-cage', 'penumbra-echo'];
+const ARM3D_ORDER = ['quicksilver', 'rubedo', 'verdigris', 'salamander', 'salt', 'crucible', 'sanguis-crystal', 'sanguis-smoke', 'homunculus-plated', 'homunculus-hydraulic', 'fulmen-cage', 'penumbra-echo'];
 const ARM3D_GLOWS = { quicksilver: 'a faint white sheen on the upper arm', rubedo: 'the Stone in the hand, red, pulsing', verdigris: 'none', salamander: 'the lava seams, the fist and the shoulder (orange); embers rising off the shoulder',
-  salt: 'a pink haze over the shoulder crystals; a glint jumping between crystal tips', crucible: 'the grate and the gauntlet slits (orange, flickering)', 'sanguis-crystal': 'arm and shoulder (red); a glint sweeping the facets',
+  salt: 'a pink haze over the shoulder crystals; a glint jumping between crystal tips', crucible: 'the grate and the gauntlet slits (orange, flickering)', 'sanguis-crystal': 'arm and shoulder (red); a glint sweeping the facets', 'sanguis-smoke': 'arm and shoulder (red); the smoke loops in 8 baked pictures',
   'homunculus-plated': 'none', 'homunculus-hydraulic': 'the status lights (cyan, blinking)', 'fulmen-cage': 'shoulder and arm (blue, flickering); the bolts re-strike every frame', 'penumbra-echo': 'none (alpha and echoes instead)' };
 
 const xcompose = ls => ls.some(l => l.alpha != null && l.alpha < 1) ? composeA(ls) : compose(ls);

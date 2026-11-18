@@ -48,8 +48,15 @@ namespace Convergence.UI
 
         static readonly LootTier[] BoxTiers =
         {
-            LootTier.Bronze, LootTier.Silver, LootTier.Gold, LootTier.Diamond, LootTier.BlackDiamond,
+            LootTier.Bronze, LootTier.Silver, LootTier.Gold, LootTier.Quartz, LootTier.Diamond, LootTier.BlackDiamond,
         };
+
+        /// <summary>Boxes held of a tier. Quartz boxes are the CHARACTER's items (the service's count,
+        /// GEAR.md "Quartz"), never the run's box counts.</summary>
+        int Held(LootTier tier) => tier == LootTier.Quartz ? (_ctx.QuartzBoxes?.Invoke() ?? 0) : (_ctx.Boxes?.Get(tier) ?? 0);
+
+        /// <summary>The tiers that open at random only: the designs (Diamond, Black Diamond) and Quartz.</summary>
+        static bool RandomOnly(LootTier tier) => DesignDrops.IsDesignTier(tier) || tier == LootTier.Quartz;
 
         /// <summary>Everything the screen needs to know about the player's current Forge
         /// standing, and every action it can trigger. Bundled rather than a long parameter list,
@@ -98,6 +105,10 @@ namespace Convergence.UI
             public Func<bool> KitWaiting;
             /// <summary>Wears the kit's weapon of a class and its chest of an ability.</summary>
             public Action<WeaponClass, DefensiveAbility> OnChooseKit;
+            /// <summary>Unopened Quartz boxes (CharacterItems.QuartzBoxes), read live.</summary>
+            public Func<int> QuartzBoxes;
+            /// <summary>Opens one Quartz box through the store: why not, or the id that came out.</summary>
+            public Func<System.Threading.Tasks.Task<(string refusal, string opened)>> OnOpenQuartz;
         }
 
         Context _ctx;
@@ -128,6 +139,7 @@ namespace Convergence.UI
             LootTier.Silver => Hex(0xbfc4cc),
             LootTier.Gold => Hex(0xdbb852),
             LootTier.Diamond => Hex(0xa6d9f2),
+            LootTier.Quartz => Hex(0xeea8bc),
             LootTier.BlackDiamond => Hex(0xb48ae8),
             _ => Color.white,
         };
@@ -149,6 +161,7 @@ namespace Convergence.UI
             IsOpen = true;
             _ctx = ctx;
             _mode = KitWaiting ? Mode.Kit : Mode.Open;
+            _quartzNote = null;
             ResetSteps();
             _scroll = 0f;
             GamePause.Hold(this);
@@ -285,9 +298,9 @@ namespace Convergence.UI
             for (int i = BoxTiers.Length - 1; i >= 0; i--)
             {
                 var tier = BoxTiers[i];
-                int n = _ctx.Boxes?.Get(tier) ?? 0;
-                // Diamond and Black Diamond only when held: most characters never see either.
-                if (n == 0 && DesignDrops.IsDesignTier(tier)) continue;
+                int n = Held(tier);
+                // Diamond, Black Diamond and Quartz only when held: most characters rarely see them.
+                if (n == 0 && RandomOnly(tier)) continue;
                 string text = $"{Label(tier)} {n}";
                 Chip(text, text.Length, TierColor(tier));
             }
@@ -558,7 +571,7 @@ namespace Convergence.UI
             Whole();
             int randomCost = Tuning.GearRoll.ForgeRandomRedeemBoxCost, targetCost = Tuning.GearRoll.ForgeTargetedRedeemBoxCost;
             int cost = _targeted ? targetCost : randomCost;
-            bool Opens(LootTier t) => (_ctx.Boxes?.Get(t) ?? 0) >= cost && (!_targeted || !DesignDrops.IsDesignTier(t));
+            bool Opens(LootTier t) => !_quartzBusy && Held(t) >= (t == LootTier.Quartz ? 1 : cost) && (!_targeted || !RandomOnly(t));
             if (_boxTier == null || !Opens(_boxTier.Value)) _boxTier = BoxTiers.Cast<LootTier?>().FirstOrDefault(t => Opens(t.Value));
 
             // How to open.
@@ -572,12 +585,12 @@ namespace Convergence.UI
                     title, 26, on ? OnInk : Dim, TextAnchor.LowerCenter);
                 Txt(UiKit.Rect(b, "s", Vector2.zero, new Vector2(1f, 0.5f), new Vector2(16f, 6f), new Vector2(-16f, 0f)),
                     sub, SmallSize, on ? Ink : Dim, TextAnchor.UpperCenter);
-                Act(b, () => { _targeted = targeted; _boxSlot = null; Rebuild(); });
+                Act(b, () => { _targeted = targeted; _boxSlot = null; _quartzNote = null; Rebuild(); });
             }
             Way(0, false, "RANDOM SLOT", Plural(randomCost, "box"));
             Way(1, true, "CHOOSE THE SLOT", Plural(targetCost, "box"));
             Txt(UiKit.Rect(how, "n", Vector2.zero, Vector2.one, new Vector2(800f, 0f), Vector2.zero),
-                "Diamond and Black Diamond open at random only", SmallSize, Dim, TextAnchor.MiddleLeft, wrap: true);
+                "Quartz, Diamond and Black Diamond open at random only", SmallSize, Dim, TextAnchor.MiddleLeft, wrap: true);
 
             // Which box.
             var tiles = Stack(200f, 24f);
@@ -590,12 +603,12 @@ namespace Convergence.UI
                     new Vector2(i == BoxTiers.Length - 1 ? 0f : -7f, 0f), on, on ? OnBg : RowBg);
                 var icon = BoxIcon.Add(tile, BoxIcon.KindOf(tier), true, new Vector2(0.5f, 0f), new Vector2(0f, 60f));
                 Txt(UiKit.Rect(tile, "n", Vector2.zero, new Vector2(1f, 0f), new Vector2(6f, 8f), new Vector2(-6f, 56f)),
-                    $"{Label(tier)} ×{_ctx.Boxes?.Get(tier) ?? 0}", SmallSize, TierColor(tier), TextAnchor.MiddleCenter);
+                    $"{Label(tier)} ×{Held(tier)}", SmallSize, TierColor(tier), TextAnchor.MiddleCenter);
                 if (!can) tile.gameObject.AddComponent<CanvasGroup>().alpha = 0.35f;
                 else
                 {
                     var chosen = tier;
-                    Act(tile, () => { _boxTier = chosen; Rebuild(); });
+                    Act(tile, () => { _boxTier = chosen; _quartzNote = null; Rebuild(); });
                 }
                 _ = icon;
             }
@@ -623,22 +636,29 @@ namespace Convergence.UI
             // The verdict and OPEN.
             string note;
             bool ready = _boxTier != null && (!_targeted || _boxSlot != null);
-            if (_boxTier == null)
+            if (_quartzNote != null)
+                note = _quartzNote;
+            else if (_boxTier == LootTier.Quartz)
+                note = $"A cape, an accessory, a pose or a hub room - spends 1 of your {Held(LootTier.Quartz)} Quartz boxes";
+            else if (_boxTier == null)
                 note = _targeted ? $"Choosing the slot takes {targetCost} Bronze, Silver or Gold boxes of one tier"
                                  : "No boxes yet - clear floors to find them";
             else
             {
                 var tier = _boxTier.Value;
-                int held = _ctx.Boxes.Get(tier);
+                int held = Held(tier);
                 string what = !_targeted ? $"A random slot at {Label(tier)}"
                             : _boxSlot == null ? "Pick the slot"
                             : $"{Label(tier)} {(_boxSlot == GearSlot.Weapon ? WeaponName(_boxClass) : _boxSlot.Value.Label())}";
                 note = ready ? $"{what} - spends {(cost == held ? $"all {cost}" : cost.ToString())} of your {held} {Label(tier)} boxes" : what;
                 if (ready && cost == 1) note = $"{what} - spends 1 of your {held} {Label(tier)} boxes";
             }
-            Footer(note, Dim, ("OPEN", true, ready, () =>
+            Footer(note, _quartzNote != null ? Good : Dim, ("OPEN", true, ready, () =>
             {
                 var tier = _boxTier.Value;
+                // Quartz opens HERE: the store rolls it (the service, for a service player), and what
+                // came out is named on this screen - no mint, nothing to wait for on chain.
+                if (tier == LootTier.Quartz) { OpenQuartz(); return; }
                 var slot = _boxSlot;
                 var cls = _boxClass;
                 bool targeted = _targeted;
@@ -646,6 +666,41 @@ namespace Convergence.UI
                 if (targeted) _ctx.OnRedeemTargeted?.Invoke(slot.Value, tier, cls);
                 else _ctx.OnRedeemRandom?.Invoke(tier);
             }));
+        }
+
+        bool _quartzBusy;
+        string _quartzNote;
+
+        async void OpenQuartz()
+        {
+            if (_ctx.OnOpenQuartz == null) return;
+            _quartzBusy = true;
+            _quartzNote = "Opening...";
+            Rebuild();
+            (string refusal, string opened) r;
+            try { r = await _ctx.OnOpenQuartz(); }
+            catch (Exception e) { r = (e.Message, null); }
+            _quartzBusy = false;
+            if (!IsOpen) return;
+            _quartzNote = r.refusal ?? $"Inside: {QuartzName(r.opened)}";
+            Rebuild();
+        }
+
+        /// <summary>What a Quartz box gave, by name: a piece, a pose or a hub room.</summary>
+        static string QuartzName(string id)
+        {
+            if (Chain.QuartzDrops.IsTheme(id))
+            {
+                for (int i = 0; i < Hub.HubThemes.Count; i++)
+                    if (Hub.HubThemes.Id((Hub.HubTheme)i) == id) return $"the {Hub.HubThemes.NameOf((Hub.HubTheme)i)} hub room";
+                return id;
+            }
+            if (Chain.QuartzDrops.IsPose(id))
+            {
+                foreach (var p in PoseCatalog.All) if (p.Id == id) return $"the {p.Name} pose";
+                return id;
+            }
+            return GearCatalog.Get(id)?.DisplayName ?? id;
         }
 
         static string WeaponName(WeaponClass cls) => cls switch

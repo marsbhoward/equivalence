@@ -75,6 +75,7 @@ namespace Convergence.Art.Gear
                 {
                     // the arm piece replaces the near arm, its glove and its pauldron (arms.js stripNearArm; Body8.Draw)
                     ex.Arm = arm;
+                    ex.ArmKind = kind; ex.ArmFrame = 0;   // drawn as flat pictures of its art (Body8.PictureOn)
                     if (kind == AccessoryKind.CrucibleArm) _worn8.AddRange(Body8Art.Of("arm_crucible", GearSlot.Ring));
                     any = true;
                 }
@@ -209,7 +210,16 @@ namespace Convergence.Art.Gear
             {
                 int strike = (size > 0f ? Mathf.FloorToInt(phase * 24f) : Mathf.FloorToInt(_armClock * 12f)) % ArmPieces8.FulmenStrikes;
                 _extras8.Arm = ArmPieces8.For(_acc8Kind, strike) ?? _extras8.Arm;
+                _extras8.ArmFrame = strike;
                 key.Append(".z").Append(strike);
+            }
+            // Sanguis's smoke loops each second in its 8 baked pictures (with the stride moving, twice a stride)
+            if (_acc8Kind == AccessoryKind.SanguisArm)
+            {
+                int k = (size > 0f ? Mathf.FloorToInt(phase * 16f) : Mathf.FloorToInt(_armClock * ArmPieces8.SanguisFrames)) % ArmPieces8.SanguisFrames;
+                _extras8.Arm = ArmPieces8.For(_acc8Kind, k) ?? _extras8.Arm;
+                _extras8.ArmFrame = k;
+                key.Append(".q").Append(k);
             }
             // the wraps' wobble: the mock's t * 3.2 is the angle
             _extras8.WrapT = _acc8Kind == AccessoryKind.WristWraps ? angle / 3.2f : 0.4f;
@@ -349,6 +359,8 @@ namespace Convergence.Art.Gear
 
         /// <summary>A light this far behind the body's middle (texels) is hidden by it, as the mock's would be.</summary>
         const float LightBehind = -5f;
+        /// <summary>How near its spot the arm must show for an arm piece's light to be lit (texels).</summary>
+        const int ArmLightReach = 1;
 
         /// <summary>Hide8's part, after the picture (rest or swing) is final: each light where the drawn figure has its
         /// source - an arm piece's on its posed arm, a stone's on the stone, a drink's on the chest - over the head's
@@ -359,7 +371,14 @@ namespace Convergence.Art.Gear
             _lights8.Clear();
             var arm = Body8.LastArm;
             if (_extras8?.Arm != null && arm != null && _armGlows8 != null)
-                foreach (var g in _armGlows8) if (g.Joint >= 1) _lights8.Add(new Light8(Body8.ArmLight(arm, g.Joint, g.At), g.R, g.C, g.A, g.Ring));
+                foreach (var g in _armGlows8)
+                {
+                    if (g.Joint < 1) continue;
+                    var at = Body8.ArmLight(arm, g.Joint, g.At);
+                    // only where the arm shows: under a cape or behind the body its light is hidden with it
+                    if (!Body8.ArmShowsAt(at.x, at.y - at.z * Locomotion8.DepthY, ArmLightReach)) continue;
+                    _lights8.Add(new Light8(at, g.R, g.C, g.A, g.Ring));
+                }
             if (_acc8Kind == AccessoryKind.OrbitingStones)
             {
                 if (_stones8 != null && _stone8At != null)

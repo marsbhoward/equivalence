@@ -167,8 +167,22 @@ namespace Convergence.Core
             ///
             /// Cut a further 10% on its own (4.55 -> 4.1), enemies untouched - the player still
             /// out-walks every chaser by better than 2x.
+            ///
+            /// RAISED 3.7 -> 4.6 (the user's pick off the Pace Lab, 2026-11-18,
+            /// https://claude.ai/artifact/PGfExupKu1riKqNFuUHNvG): measured in BODY HEIGHTS the walk had
+            /// fallen 58% since the 6.5 baseline (the 4/3 ArenaVisualScale grew the figure a third) while
+            /// attacks fell 20%, so the legs no longer kept pace with the swings or the room. 4.6 is 3.7
+            /// body heights a second, 5.2 s wall to wall. Enemy walks rose with it (<see cref="EnemyPace"/>),
+            /// so every escape ratio below still holds.
             /// </summary>
-            public const float MoveSpeed = 3.7f;
+            public const float MoveSpeed = 4.6f;
+
+            /// <summary>
+            /// Every enemy's WALKING speed (approach, retreat, kite, evade, a boss's walk) is multiplied by
+            /// this: the player's raise from 3.7 (2026-11-18), so chaser-to-player ratios are unchanged.
+            /// Attacks, dashes, lunges and projectiles are not walks and stay as tuned.
+            /// </summary>
+            public const float EnemyPace = MoveSpeed / 3.7f;
 
             /// <summary>
             /// The body's linearDamping on dry ground - about 11% of its velocity gone every
@@ -207,8 +221,9 @@ namespace Convergence.Core
             /// <summary>
             /// Reach of a basic swing, world units. 100%. Finishers add their own RangeBonus.
             ///
-            /// For scale: the character is about 0.9 units tall, so a swing reaches a bit over two
-            /// body-heights. Nothing draws it as a circle any more (strikes are capsules along the
+            /// For scale: the character is about 1.24 units tall on the arena (the eight-direction figure's
+            /// 140 texels under the 4/3 ArenaVisualScale; 0.9 before both), so a swing reaches about one and
+            /// a half body-heights. Nothing draws it as a circle any more (strikes are capsules along the
             /// facing); Player.TargetHighlight shows whether the locked target is inside it.
             /// </summary>
             public const float BaseRange = 1.9f;
@@ -312,7 +327,9 @@ namespace Convergence.Core
             /// attack-speed buffs multiply on top, so a ramped late-run character still climbs
             /// back above 1 - this sets the floor, not the ceiling.
             /// </summary>
-            public const float GlobalTempo = 0.8f;
+            /// 0.8 -> 0.9 with the move speed raise (the user's Pace Lab pick, 2026-11-18): a sword basic
+            /// every 0.467 s instead of 0.525.
+            public const float GlobalTempo = 0.9f;
 
             /// <summary>Seconds between basic swings at a 1.0x interval, before GlobalTempo.</summary>
             public const float BaseInterval = 0.42f;
@@ -2477,7 +2494,7 @@ namespace Convergence.Core
             /// <summary>Band 1 on: 1 to 4 at random (the user's outline).</summary>
             public const int RandomStompsMin = 1, RandomStompsMax = 4;
             /// <summary>Slow on purpose: it is leading the player round the grove, not chasing.</summary>
-            public const float WalkSpeed = 1.4f;
+            public const float WalkSpeed = 1.4f * Player.EnemyPace;
             /// <summary>It walks until the player is this close, or for WalkMaxSeconds.</summary>
             public const float StompReach = 2.6f;
             public const float WalkMaxSeconds = 2.4f;
@@ -2672,7 +2689,7 @@ namespace Convergence.Core
             /// (all the way back to full - the user's pick). A parried or clashed blow heals nothing.</summary>
             public const float HealFraction = 0.02f;
 
-            public const float WalkSpeed = 1.9f;      // the player walks 3.7
+            public const float WalkSpeed = 1.9f * Player.EnemyPace;      // half the player's walk (both raised 2026-11-18)
             public const float PlayerRadius = 0.22f;
 
             // ---- strings ----
@@ -2770,7 +2787,7 @@ namespace Convergence.Core
             public const float EnrageAt = 0.35f;
             /// <summary>Where she deals from: north of the middle, behind the games.</summary>
             public static readonly UnityEngine.Vector2 DealerSpot = new(0f, 2.6f);
-            public const float WalkSpeed = 2.2f;
+            public const float WalkSpeed = 2.2f * Player.EnemyPace;
             public const float BodyRadius = 0.55f;
 
             // ---- the deal: a tarot card flips over her head and names the game ----
@@ -3003,6 +3020,8 @@ namespace Convergence.Core
             /// view is what makes. Shown as a countdown on the HUD (Hud.SetCountdown), urgent
             /// under MazeUrgentSeconds.</summary>
             public const float MazeSeconds = 75f;
+            /// <summary>How near the player must come to take the Labyrinth's Quartz box (world units).</summary>
+            public const float MazeBoxReach = 0.35f;
 
             /// <summary>THE SHORT DESCENT's clocks on the puzzles with none of their own (the user's call:
             /// every puzzle floor has a set timer) - room to read and answer, not to wander. The
@@ -4190,9 +4209,19 @@ namespace Convergence.Core
             public const float AssistRimAlpha = 0.45f;
 
             /// <summary>A touch on the stick's side counts as a tap (a lock) when it lifts within this many
-            /// seconds and travelled less than <see cref="StickTapPixels"/>.</summary>
-            public const float StickTapSeconds = 0.25f;
-            public const float StickTapPixels = 24f;
+            /// seconds and travelled less than <see cref="StickTapShare"/> of the screen's short side.</summary>
+            public const float StickTapSeconds = 0.3f;
+
+            /// <summary>The stick tap's travel allowance as a share of the screen's short side (2026-11-16): it was a
+            /// flat 24 pixels, about 1.5 mm on a phone, and a fingertip's wobble on an enemy over the stick's side
+            /// went past it - the tap was read as a step and never locked. 5% is about 4 mm on a phone.</summary>
+            public const float StickTapShare = 0.05f;
+
+            /// <summary>The allowance never falls under this many pixels (a small window on a desktop).</summary>
+            public const float StickTapMinPixels = 24f;
+
+            public static float StickTapPixels =>
+                UnityEngine.Mathf.Max(StickTapMinPixels, StickTapShare * UnityEngine.Mathf.Min(UnityEngine.Screen.width, UnityEngine.Screen.height));
         }
 
         /// <summary>
@@ -5873,7 +5902,7 @@ namespace Convergence.Core
 
             /// <summary>Bomb enemy chase speed, world units per second (before the jitter below).
             /// Cut 30% alongside every other enemy speed and the player's own - see Player.MoveSpeed.</summary>
-            public const float BombMoveSpeed = 1.82f;
+            public const float BombMoveSpeed = 1.82f * Player.EnemyPace;
 
             /// <summary>Per-enemy random spread added to BombMoveSpeed, so a pack does not move as one blob.</summary>
             public const float BombMoveSpeedJitterMin = -0.21f;
@@ -5881,7 +5910,7 @@ namespace Convergence.Core
 
             /// <summary>Elite chase speed - slower than a bomb, so you can kite it into the pack.
             /// Cut 30% alongside every other enemy speed and the player's own - see Player.MoveSpeed.</summary>
-            public const float ChaserMoveSpeed = 1.47f;
+            public const float ChaserMoveSpeed = 1.47f * Player.EnemyPace;
 
             /// <summary>
             /// Bomb explosion damage, before per-wave scaling. Meaningfully harder than the old
@@ -5926,7 +5955,7 @@ namespace Convergence.Core
             /// </summary>
             public const float BombRecoverSeconds = 1.1f;
             /// <summary>Cut 30% alongside every other enemy speed and the player's own - see Player.MoveSpeed.</summary>
-            public const float BombRetreatSpeed = 2.1f;
+            public const float BombRetreatSpeed = 2.1f * Player.EnemyPace;
 
             // ---- the Brimstone Heart's fireball sweep (the user's design, 2026-10-18) ----
             //
@@ -6039,7 +6068,7 @@ namespace Convergence.Core
 
             /// <summary>Ranged enemy repositioning speed, world units per second.
             /// Cut 30% alongside every other enemy speed and the player's own - see Player.MoveSpeed.</summary>
-            public const float RangedMoveSpeed = 1.61f;
+            public const float RangedMoveSpeed = 1.61f * Player.EnemyPace;
 
             /// <summary>Ranged enemy bolt damage, before per-wave scaling.</summary>
             public const float RangedDamage = 7f;
@@ -6087,7 +6116,7 @@ namespace Convergence.Core
             /// </summary>
             public const float RangedKiteSeconds = 0.85f;
             /// <summary>Cut 30% alongside every other enemy speed and the player's own - see Player.MoveSpeed.</summary>
-            public const float RangedKiteSpeed = 2.38f;
+            public const float RangedKiteSpeed = 2.38f * Player.EnemyPace;
 
             /// <summary>How long the Cinder Stinger's recoil frame holds after a bolt leaves - see
             /// Enemies.RangedVisual.</summary>
@@ -6110,7 +6139,7 @@ namespace Convergence.Core
 
             /// <summary>Retreat speed. Under the player's own, so chasing one down always works -
             /// it just costs the ground the shells are landing on.</summary>
-            public const float MortarMoveSpeed = 1.9f;
+            public const float MortarMoveSpeed = 1.9f * Player.EnemyPace;
 
             /// <summary>The shell's blast damage, before per-wave scaling.</summary>
             public const float MortarDamage = 9f;
@@ -6360,11 +6389,11 @@ namespace Convergence.Core
 
             /// <summary>Normal chase speed, before it commits to a charge.
             /// Cut 30% alongside every other enemy speed and the player's own - see Player.MoveSpeed.</summary>
-            public const float DasherApproachSpeed = 1.96f;
+            public const float DasherApproachSpeed = 1.96f * Player.EnemyPace;
 
             /// <summary>Retreat speed after the attack (landed or missed).
             /// Cut 30% alongside every other enemy speed and the player's own - see Player.MoveSpeed.</summary>
-            public const float DasherEvadeSpeed = 3.15f;
+            public const float DasherEvadeSpeed = 3.15f * Player.EnemyPace;
 
             // THE ATTACK IS AN L (the user's reference clip, 2026-10-18): a short dash SIDEWAYS
             // that lines it up with the player, a beat braced, then a dash straight THROUGH where
@@ -6522,7 +6551,7 @@ namespace Convergence.Core
             ///
             /// Cut 30% alongside every other enemy speed and the player's own - see Player.MoveSpeed.
             /// </summary>
-            public const float GargoyleFlySpeed = 6.3f;
+            public const float GargoyleFlySpeed = 6.3f * Player.EnemyPace;
 
             /// <summary>Safety backstop on the flight itself, sized against the worst case - a
             /// swoop across the full arena diagonal (~27.8 units) at GargoyleFlySpeed, with
@@ -6961,7 +6990,7 @@ namespace Convergence.Core
             public const float MissileFollowUpSeconds = 1.0f;
             /// <summary>World units of flight before it bursts on its own (the user's numbers).</summary>
             public const float MissileReach = 5f, MissileReachElite = 7f;
-            /// <summary>Slow, so it can be outwalked (the player walks 3.7) - and turns slowly, so a
+            /// <summary>Slow, so it can be outwalked (the player walks 4.6) - and turns slowly, so a
             /// sharp sidestep lets it overshoot.</summary>
             public const float MissileSpeed = 2.6f;
             public const float MissileTurnDegPerSec = 110f;
@@ -7658,9 +7687,11 @@ namespace Convergence.Core
 
             /// <summary>
             /// A standing column covers what is behind it: while the player's body is behind its
-            /// shaft it fades to this alpha, over this many (unscaled) seconds each way.
+            /// shaft it fades to this alpha, over this many (unscaled) seconds each way. An enemy
+            /// behind it fades it less, to the second alpha: enough to see the body, not to hide the column.
             /// </summary>
-            public const float ColumnBehindAlpha = 0.55f;
+            public const float ColumnBehindAlpha = 0.7f;
+            public const float ColumnEnemyBehindAlpha = 0.82f;
             public const float ColumnFadeSeconds = 0.15f;
 
             /// <summary>
@@ -8090,7 +8121,7 @@ namespace Convergence.Core
             // ---- the character layer: knee, cap ----
             public const float DamageKnee = 80f, DamageCap = 200f;
             public const float AttackSpeedKnee = 50f, AttackSpeedCap = 120f;
-            public const float MoveSpeedKnee = 20f, MoveSpeedCap = 40f;
+            public const float MoveSpeedKnee = 30f, MoveSpeedCap = 60f;   // was 20 / 40: raised 2026-11-18 so a built character's feet keep up with its +120% swings
             public const float CritDamageKnee = 60f, CritDamageCap = 150f;
             public const float WeaponArtKnee = 60f, WeaponArtCap = 150f;
             public const float RangeKnee = 25f, RangeCap = 50f;
@@ -8341,6 +8372,32 @@ namespace Convergence.Core
             public const int ShotMaxBytes = 96 * 1024;
         }
 
+        /// <summary>
+        /// QUARTZ (GEAR.md "Quartz"; the user's calls 2026-11-17, the numbers mine): off-chain boxes of
+        /// single worn cosmetics. The service decides them (web/service/src/runFormat.ts - keep in step);
+        /// these are what a LOCAL save rolls with. None in the showcase.
+        /// </summary>
+        public static class Quartz
+        {
+            /// <summary>A cleared floor's last enemy, by ENEMY BAND (RunFormat.EnemyBand): 0.5% to 1.5%.</summary>
+            public static readonly float[] BandRates = { 0.005f, 0.0075f, 0.01f, 0.0125f, 0.015f };
+            /// <summary>A rolled avatar's own box (Short: floor 25) - replaced the 1% pose roll.</summary>
+            public const float AvatarChance = 0.10f;
+            /// <summary>Every final-floor clear.</summary>
+            public const float FinalChance = 0.20f;
+
+            /// <summary>The Labyrinth's box: a maze in this ENEMY BAND (the last) holds it - or, with no
+            /// Labyrinth forecast there, one in the band before. Half of them (MazeChance).</summary>
+            public const int MazeBand = 4;
+            public const float MazeChance = 0.5f;
+
+            /// <summary>Whether this run rolls Quartz at all - never in the showcase.</summary>
+            public static bool Rolls => !RunFormat.Showcase;
+
+            public static float FloorChance(int floor)
+                => Rolls ? BandRates[UnityEngine.Mathf.Clamp(RunFormat.EnemyBand(floor), 0, BandRates.Length - 1)] : 0f;
+        }
+
         public static class Cosmetics
         {
             /// <summary>
@@ -8351,7 +8408,9 @@ namespace Convergence.Core
             /// chest. Overhead, Hanging, Coil and Leap tilt the whole body; Planted leaves debris that
             /// never fades while the booth holds the pause.
             /// </summary>
-            public static readonly string[] OpenPoses = { "pose.guard", "pose.vigil", "pose.salute", "pose.ready" };
+            // + Shoulder Carry (2026-11-18): the greatsword's carry until the stances replaced it, so open to everyone rather than
+            // rolled - nobody loses the look they had
+            public static readonly string[] OpenPoses = { "pose.guard", "pose.vigil", "pose.salute", "pose.ready", "pose.shoulder" };
 
             /// <summary>Whether a character may stand in <paramref name="pose"/>: an open pose, or one it earned.</summary>
             public static bool MayPose(Chain.CharacterProfile profile, string pose)

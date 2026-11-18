@@ -475,7 +475,67 @@ function composeA(layers, bg = '#4b4e57') {
   return grid;
 }
 
-ARMS.push(sanguisCrystal, fulmenCage, penumbraEcho, homunculusPlated, homunculusHydraulic);
+// SANGUIS: SMOKE (the user's reference, 2026-11-17: take B "just the arm, no claw") - the arm is blood smoke: a
+// black core with ragged edges, red streaks running down it (bright where they peak), flecks of blood drifting off,
+// thin red tendrils rising, four pale talons hot at the knuckle; the shoulder a torn cloud. NO OUTLINE - the only arm
+// piece without one. Everything loops in one second (the noise cross-faded over the loop), so the eight-direction bake
+// can cycle a few pictures. The crystal above is now the Glacies Arm's shape only (the game recolours it in ice).
+// where a 3D surface has turned this far from the camera (its normal's z) it takes the flat art's edge colours
+const SMOKE_RIM = 0.35;
+const SMOKE = { black: '#120508', core: '#24080e', deep: '#4a0a14', red: '#a8101f', hot: '#e01a30', glow: '#ff5060', pale: '#f0b8b8', white: '#ffe8e8' };
+const smooth3 = t => t * t * (3 - 2 * t);
+function vnoise(x, y, s = 0) {
+  const xi = Math.floor(x), yi = Math.floor(y), fx = smooth3(x - xi), fy = smooth3(y - yi), h = (a, b) => hash2(a * 7 + s * 131, b * 13 - s * 17);
+  return lerp(lerp(h(xi, yi), h(xi + 1, yi), fx), lerp(h(xi, yi + 1), h(xi + 1, yi + 1), fx), fy);
+}
+const fbm = (x, y, s = 0) => vnoise(x, y, s) * 0.55 + vnoise(x * 2.1, y * 2.1, s + 1) * 0.3 + vnoise(x * 4.3, y * 4.3, s + 2) * 0.15;
+// noise drifting down (by `v` a second) that loops each second: the drift and the drift a loop back, cross-faded
+const loopFbm = (x, y, v, t, s) => { const p = ((t % 1) + 1) % 1; return fbm(x, y - p * v, s) * (1 - p) + fbm(x, y - (p - 1) * v, s) * p; };
+const SMOKE_TALONS = [[0.8, 7, -0.6], [3.4, 9, -0.2], [6.0, 9, 0.25], [8.4, 6.5, 0.6]];   // [knuckle x, length, hook]
+function smokeTalon(x0, y0, len, hook) { const pts = []; for (let i = 0; i <= len; i++) { const u = i / len; pts.push([x0 + Math.sin(u * 1.6) * hook * len * 0.45, y0 + u * len, lerp(1.3, 0.35, u)]); } return pts; }
+const smokeLimb = () => U(poly([[-1, 37], [10, 36], [10.5, 43], [9.5, 49], [9, 55], [8.5, 61], [0.5, 61], [0, 55], [-0.5, 49], [-1.5, 43]]), ell(4.6, 64, 4.8, 3.8));
+// the arm's colour at a point from its noise (shared with the eight-direction build)
+function smokeAt(x, y, t, edge) {
+  const n = loopFbm(x * 0.7, y * 0.1, 0.9, t, 11);
+  if (n > 0.74) return SMOKE.glow; if (n > 0.66) return SMOKE.hot; if (n > 0.58) return SMOKE.red;
+  if (edge) return n > 0.48 ? SMOKE.red : SMOKE.deep;
+  return n < 0.42 ? SMOKE.black : n < 0.52 ? SMOKE.core : SMOKE.deep;
+}
+const sanguisSmoke = {
+  id: 'sanguis-smoke', name: 'Sanguis Arm', style: 'Smoke', principle: 'blood',
+  draw(st, glows) {
+    const t = st.t, arm = AL(12.6, 'arm', { outline: false }), sh = AL(14.2, 'shoulder', { rise: true, outline: false }), cl = AL(12.7, 'arm', { outline: false });
+    const base = smokeLimb(), m = new Mask();
+    // ragged edges: the limb grown and eaten by noise along its border
+    for (let y = 30; y < 72; y++) for (let x = -6; x < 16; x++) {
+      let d = 9; for (let dy = -2; dy <= 2; dy++) for (let dx = -2; dx <= 2; dx++) if (base.has(x + dx, y + dy)) d = Math.min(d, Math.hypot(dx, dy));
+      if (base.has(x, y)) d = 0;
+      const n = loopFbm(x * 0.45, y * 0.25, 1.2, t, 7);
+      if (d === 0 ? n > 0.18 : d < 2.3 && n > 0.45 + d * 0.12) m.add(x, y);
+    }
+    arm.fill(m, (x, y) => smokeAt(x, y, t, !m.has(x - 1, y) || !m.has(x + 1, y) || !m.has(x, y - 1)));
+    // flecks of blood drifting off, red and dark
+    for (let k = 0; k < 40; k++) {
+      const ph = (t + hash2(k, 3)) % 1, x = Math.round(-3 + hash2(k, 4) * 15 + (hash2(k, 6) - 0.5) * 10 * ph), y = Math.round(34 + hash2(k, 8) * 32 - ph * 10);
+      if (!m.has(x, y)) arm.set(x, y, hash2(k, 9) > 0.5 ? SMOKE.hot : SMOKE.deep);
+    }
+    // thin tendrils rising off the arm
+    for (let k = 0; k < 22; k++) {
+      const ph = (t * (1 + (k % 2)) + hash2(k, 5)) % 1, x0 = -2 + hash2(k, 7) * 13, y0 = 30 + hash2(k, 9) * 32;
+      const x = x0 + (hash2(k, 11) - 0.5) * 10 * ph, y = y0 - ph * 20;
+      for (let j = 0; j < 4; j++) if (ph + j * 0.1 < 1) arm.set(Math.round(x + Math.sin(ph * 6 + j) * 0.8), Math.round(y + j * 1.5), j === 0 && ph < 0.5 ? SMOKE.hot : ph > 0.6 ? SMOKE.deep : SMOKE.red);
+    }
+    for (const [x, len, hook] of SMOKE_TALONS) for (const [i, [px, py, r]] of smokeTalon(x, 66, len, hook).entries())
+      cl.fill(ell(px + 0.5, py + 0.5, r, r), X => i < 2 ? SMOKE.hot : X < px ? SMOKE.white : SMOKE.pale);
+    // the shoulder: a torn cloud, more hole than mass
+    sh.fill(ell(4.5, 33, 9, 7), (X, Y) => { const n = loopFbm(X * 0.4, Y * 0.4, 1.6, t, 13); return n > 0.5 ? (n > 0.68 ? SMOKE.hot : n > 0.6 ? SMOKE.red : SMOKE.core) : null; });
+    // the lights kept low: over the arm they wash out its black middle (the game lays them over the figure)
+    if (glows) glows.push({ x: 4.5, y: 52, r: 15, a: 0.14, c: '#ff1028', joint: 'arm' }, { x: 4.5, y: 33, r: 11, a: 0.1, c: '#ff1028', joint: 'shoulder' });
+    return [arm, cl, sh];
+  },
+};
+
+ARMS.push(sanguisCrystal, sanguisSmoke, fulmenCage, penumbraEcho, homunculusPlated, homunculusHydraulic);
 
 // ---------------------------------------------------------------- wearing one
 // The near arm's body and the set's near sleeve, glove and pauldron come off while an arm piece is on.

@@ -184,6 +184,7 @@ const LT = v3(LIGHT[0], -LIGHT[1], LIGHT[2]);                       // litTone(n
 const RULE_LIT = { D: LT, T: [0.02, 0.30, 0.62, 0.86] };
 const RULE_CHROME = { D: v3(0.9, -0.35, 0), T: [-0.62, -0.28, 0.02, 0.42, 0.78] };   // arms.js chrome() bands
 const RULE_FACE = { D: v3(0, 0, 1), T: [0.55] };                                       // the cage's white core
+const RULE_RIM = { D: v3(0, 0, 1), T: [SMOKE_RIM] };                                   // Sanguis's red rim where the smoke turns away
 const unit = v => { const l = len3(v) || 1; return v3(v.x / l, v.y / l, v.z / l); };
 const perpOf = D => unit(Math.abs(D.z) < 0.9 ? cross3(D, v3(0, 0, 1)) : cross3(D, v3(1, 0, 0)));
 // normals whose value along the rule's D is mid-band
@@ -204,6 +205,11 @@ function ruleIndex(rule, colors, rim) {
   return RULES.get(key);
 }
 const SEGS = ['cap', 'upper', 'fore'];
+// how deep an arm piece's shoulder is against its width (1 = as built in views-extras.js): only the DOMED caps, which
+// read as balls (0.4 was tried and checked arm by arm: side-on the caps went thinner than the arm and vanished into
+// it). Slabs and plates (Crucible's box, Glacies's plates), Salamander's horns, Verdigris's gear and Fulmen's ring
+// keep their built depth - flattening only turned those into strips.
+const CAP_DEPTH = 0.65, CAP_FLAT = new Set(['quicksilver', 'rubedo', 'salt', 'sanguis-smoke', 'penumbra-echo', 'homunculus-plated', 'homunculus-hydraulic']);
 function armCloud(id) {
   POSE.hands = {}; CARDS = [];
   const piece = ARMS.find(a => a.id === id), F = armFrames(0, 0);
@@ -214,7 +220,10 @@ function armCloud(id) {
     // the mock sorts the arm over the torso's pieces (+6); its own biases kept (Salt's crystals over their rock)
     primInfo.push({ outR: pr.outR, bias: (pr.depthBias || 0) + 6, alpha: pr.alpha ?? 1 });
     for (const seg of SEGS) {
-      const parts = pr._parts.filter(q => q.seg === seg); if (!parts.length) continue;
+      // the shoulder piece FLATTENED front to back (CAP_DEPTH; the user, 2026-11-17: "slim the shoulder so it reads like the
+      // mock"): built as deep as it is wide, the arena's downward look showed its top and every cap read as a ball or a
+      // helmet, taller than the flat art. Its colours are still read at the unflattened depth.
+      const parts = pr._parts.filter(q => q.seg === seg).map(q => seg !== 'cap' || !CAP_FLAT.has(id.split('#')[0]) ? q : { ...q, _flat: CAP_DEPTH, sdf: (X, Y, n) => q.sdf(X, Y, n / CAP_DEPTH) * CAP_DEPTH }); if (!parts.length) continue;
       const D = (X, Y, n) => { let d = 1e9; for (const q of parts) d = Math.min(d, q.sdf(X, Y, n)); return d; };
       // coarse cells that may hold surface, then the half-texel grid in them
       const cand = new Set();
@@ -231,15 +240,18 @@ function armCloud(id) {
           if (Math.abs(best) > 0.4) continue;
           const e = 0.2, g = v3(D(X + e, Y, n) - D(X - e, Y, n), D(X, Y + e, n) - D(X, Y - e, n), D(X, Y, n + e) - D(X, Y, n - e)), nl = len3(g);
           if (!(nl > 1e-6)) continue;
-          const N = v3(g.x / nl, g.y / nl, g.z / nl);
+          let N = v3(g.x / nl, g.y / nl, g.z / nl);
           // the surface point: back along the normal by the distance
           const P = [X - N.x * best, Y - N.y * best, n - N.z * best];
+          // a part may give its normal from a smoother shape (Sanguis's torn smoke takes the rim from the limb under it)
+          if (bq.nsdf) { const h = bq.nsdf, gs = v3(h(X + e, Y, n) - h(X - e, Y, n), h(X, Y + e, n) - h(X, Y - e, n), h(X, Y, n + e) - h(X, Y, n - e)), ls = len3(gs); if (ls > 1e-6) N = v3(gs.x / ls, gs.y / ls, gs.z / ls); }
           const col = bq.color || pr._color;
           // the art frame's (X, Y, n) normal is the view's normal at rest, facing front (x right = art X, y up = -Y)
-          const at = nv => col(P[0], P[1], P[2], v3(nv.x, nv.y, nv.z), bq);
+          const at = nv => col(P[0], P[1], bq._flat ? P[2] / bq._flat : P[2], v3(nv.x, nv.y, nv.z), bq);
           let rule = RULE_LIT, rim = null;
           if (id === 'quicksilver' && bq.drip === undefined) rule = RULE_CHROME;
           if (id === 'fulmen-cage') rule = RULE_FACE;
+          if (id.startsWith('sanguis-smoke')) rule = RULE_RIM;
           let colors;
           if (id === 'penumbra-echo' && bq.L) {
             // the ghost: lit in its ramp, the violet rim at the silhouette's lit side (arms.js ghostColor)
@@ -272,6 +284,12 @@ const clouds = ARM3D_ORDER.map(armCloud);
 for (let k = 1; k < 6; k++) {
   const t0 = ARM_ST.t; ARM_ST.t = t0 + k / 12;
   const c = armCloud('fulmen-cage'); c.id = 'fulmen-cage#' + k; clouds.push(c);
+  ARM_ST.t = t0;
+}
+// SANGUIS's smoke loops in one second: seven more pictures through it, the game cycling the eight (ArmPieces8.SanguisFrames)
+for (let k = 1; k < 8; k++) {
+  const t0 = ARM_ST.t; ARM_ST.t = t0 + k / 8;
+  const c = armCloud('sanguis-smoke'); c.id = 'sanguis-smoke#' + k; clouds.push(c);
   ARM_ST.t = t0;
 }
 if (mismatches) process.stderr.write('arm colours that depend on more than their rule\'s light value: ' + mismatches + ' points\n');

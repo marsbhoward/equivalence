@@ -782,6 +782,9 @@ namespace Convergence.UI
                 }
 
                 var pressed = ButtonAt(pos);
+                if (Core.PerfTest.LockLogging)
+                    Core.PerfTest.Lock($"\"src\":\"finger\",\"result\":\"{(pressed != null ? "button " + pressed.Label.text : _stickFinger < 0 && _mode != Controls.Context.Modal && Inside(_stickZone, pos) ? "stick" : "free")}\"," +
+                                       $"\"screen\":[{pos.x:0},{pos.y:0}],\"screenSize\":[{Screen.width},{Screen.height}]");
                 if (pressed != null)
                 {
                     pressed.Finger = id;
@@ -811,9 +814,14 @@ namespace Convergence.UI
 
             if (!stickStillDown)
             {
-                if (_stickFinger >= 0 && _stickTravel < Tuning.Targeting.StickTapPixels
-                    && Time.unscaledTime - _stickSince < Tuning.Targeting.StickTapSeconds)
-                    Controls.WorldTaps.Add(_stickFrom);
+                bool tap = _stickFinger >= 0 && _stickTravel < Tuning.Targeting.StickTapPixels
+                           && Time.unscaledTime - _stickSince < Tuning.Targeting.StickTapSeconds;
+                if (tap) Controls.WorldTaps.Add(_stickFrom);
+                // The perf-test build's lock line for a short stick touch that was NOT taken for a tap.
+                else if (Core.PerfTest.LockLogging && _stickFinger >= 0 && Time.unscaledTime - _stickSince < 0.8f)
+                    Core.PerfTest.Lock($"\"src\":\"stick\",\"result\":\"read as a step, not a tap\",\"screen\":[{_stickFrom.x:0},{_stickFrom.y:0}]," +
+                                       $"\"travelPx\":{_stickTravel:0},\"maxPx\":{Tuning.Targeting.StickTapPixels:0}," +
+                                       $"\"seconds\":{Time.unscaledTime - _stickSince:0.00},\"maxSeconds\":{Tuning.Targeting.StickTapSeconds:0.00}");
                 DropStick();
             }
             (_seen, _seenNow) = (_seenNow, _seen);

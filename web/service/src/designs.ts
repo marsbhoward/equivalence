@@ -46,6 +46,9 @@ interface Manifest {
   /** The HUB THEMES (Hub.HubThemes) a character can earn - each a whole room: floor, wall and every
    *  hub item. Ids are permanent ("hub.study"); the Cloister is everyone's and never listed. */
   themes?: { id: string; name: string }[];
+  /** The QUARTZ pieces (DesignDrops.Pool(Quartz)): every cape and accessory a Quartz box may hold.
+   *  Off chain - account items, never minted (cosmetics.ts rollQuartz). */
+  quartz?: { id: string; name: string; slot: string }[];
 }
 
 let manifest: Manifest | null = null;

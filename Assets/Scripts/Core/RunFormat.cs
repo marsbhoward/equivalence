@@ -128,6 +128,13 @@ namespace Convergence.Core
             return band;
         }
 
+        /// <summary>The first floor of ENEMY BAND <paramref name="band"/> (band 0 starts at floor 1).</summary>
+        public static int FirstFloorOfBand(int band)
+        {
+            var edges = Short ? Tuning.EnemyBands.ShortEdges : Tuning.EnemyBands.ClassicEdges;
+            return band <= 0 ? 1 : edges[System.Math.Min(band, edges.Length) - 1] + 1;
+        }
+
         /// <summary>An avatar's floor - its own boss, and (below the final floor) its own design boxes.</summary>
         public static bool IsAvatarFloor(int floor)
             => Short ? floor == 25 || floor == 50

@@ -27,6 +27,10 @@ namespace Convergence.Art.Gear
         /// <summary>The head's nearest surface toward the camera (texels; the mock's head is ~14 deep about the neck):
         /// a swing's weapon nearer than this is laid over the head (<see cref="LastOver"/>).</summary>
         const float HeadFront = 9f;
+        /// <summary>How far before the head's middle (texels, toward the camera) a back piece must lie to cover it.</summary>
+        const float CoverMargin = 6f;
+        /// <summary>The ink a piece covering the head draws over it (texels): the head's own line, not the gear's 4.</summary>
+        const int CoverInk = 2;
         /// <summary>The last uncached (swing) Draw's weapon texels in front of the head, or null - the caller's.</summary>
         public static Sprite LastOver;
 
@@ -61,6 +65,37 @@ namespace Convergence.Art.Gear
         /// <summary>A cached picture's arm piece segments (<see cref="LastArm"/>).</summary>
         static Dictionary<string, Frame[]> _cacheArm;
         static Frame[] _drawnArm;
+        /// <summary>The texels where a picture's arm piece shows (<see cref="SeenKey"/>, sorted), cached with it.</summary>
+        static Dictionary<string, int[]> _cacheArmSeen;
+        static int[] _drawnArmSeen;
+        static Dictionary<string, Sprite> _cacheArmOver;
+        static Sprite _drawnArmOver;
+        static Color[] _armOver;
+        /// <summary>The arm piece alone (with its ink) in the last picture drawn or fetched, or null: laid over a hood.</summary>
+        public static Sprite LastArmOver;
+        /// <summary>Set by the caller around a draw that wants <see cref="LastArmOver"/> (a hood is worn).</summary>
+        public static bool WantArmOver;
+        static int _armParts0, _armParts1;
+        static List<int> _seenScratch;
+        /// <summary>The arm piece's visible texels in the last picture drawn or fetched (or null: no arm piece).</summary>
+        public static int[] LastArmSeen;
+        static int SeenKey(int x, int up) => (x + 512) * 1024 + (up + 512);
+
+        /// <summary>Does the arm piece show within <paramref name="r"/> texels of (x across from the ground point, up)
+        /// in the last picture? True when nothing is known.</summary>
+        public static bool ArmShowsAt(float x, float up, int r = 2)
+        {
+            var seen = LastArmSeen;
+            if (seen == null) return true;
+            int cx = Mathf.FloorToInt(x), cy = Mathf.FloorToInt(up);
+            for (int dx = -r; dx <= r; dx++)
+            {
+                int lo = SeenKey(cx + dx, cy - r), hi = SeenKey(cx + dx, cy + r);
+                int i = System.Array.BinarySearch(seen, lo); if (i < 0) i = ~i;
+                if (i < seen.Length && seen[i] <= hi) return true;
+            }
+            return false;
+        }
         static LinkedList<string> _order;
 
         /// <summary>The cached picture for <paramref name="key"/> (and its overlay in <see cref="LastOver"/>), or null.</summary>
@@ -70,6 +105,8 @@ namespace Convergence.Art.Gear
             _order.Remove(key); _order.AddLast(key);
             LastOver = _cacheOver != null && _cacheOver.TryGetValue(key, out var o) ? o : null;
             LastArm = _cacheArm != null && _cacheArm.TryGetValue(key, out var a) ? a : null;
+            LastArmSeen = _cacheArmSeen != null && _cacheArmSeen.TryGetValue(key, out var sn) ? sn : null;
+            LastArmOver = _cacheArmOver != null && _cacheArmOver.TryGetValue(key, out var ao) ? ao : null;
             return s;
         }
 
@@ -78,7 +115,11 @@ namespace Convergence.Art.Gear
             _cache ??= new Dictionary<string, Sprite>();
             _cacheOver ??= new Dictionary<string, Sprite>();
             _cacheArm ??= new Dictionary<string, Frame[]>();
+            _cacheArmSeen ??= new Dictionary<string, int[]>();
             if (arm != null) _cacheArm[key] = arm;
+            if (_drawnArmSeen != null) _cacheArmSeen[key] = _drawnArmSeen;
+            _cacheArmOver ??= new Dictionary<string, Sprite>();
+            if (_drawnArmOver != null) _cacheArmOver[key] = _drawnArmOver;
             _order ??= new LinkedList<string>();
             _cache[key] = sprite; _order.AddLast(key);
             if (over != null) _cacheOver[key] = over;
@@ -87,15 +128,17 @@ namespace Convergence.Art.Gear
                 string old = _order.First.Value; _order.RemoveFirst(); _statEvicted++;
                 if (_cache.TryGetValue(old, out var s) && s != null) { Object.Destroy(s.texture); Object.Destroy(s); }
                 if (_cacheOver.TryGetValue(old, out var o) && o != null) { Object.Destroy(o.texture); Object.Destroy(o); }
-                _cache.Remove(old); _cacheOver.Remove(old); _cacheArm.Remove(old);
+                if (_cacheArmOver.TryGetValue(old, out var ao) && ao != null) { Object.Destroy(ao.texture); Object.Destroy(ao); }
+                _cache.Remove(old); _cacheOver.Remove(old); _cacheArm.Remove(old); _cacheArmSeen.Remove(old); _cacheArmOver.Remove(old);
             }
         }
 
         // ------------------------------------------------------------- drawing
-        sealed class Part { public int OutR; public double DepthSum; public int Count; public float Bias, Alpha = 1f; public bool OverHead, Ghost; public List<int> Won; }
+        sealed class Part { public int OutR; public double DepthSum; public int Count; public float Bias, Alpha = 1f; public bool OverHead, Covers, NoInk, Ghost, Lines, Cloth, Fronts; public List<int> Won; }
 
         static float[] _z;
         static int[] _owner;
+        static bool[] _under;   // texels that give way to any other part (PutUnder)
         static Color[] _col;
         /// <summary>The composed picture and its over-the-head overlay, reused draw to draw (FromPixels copies them).</summary>
         static Color[] _out, _over;
@@ -117,14 +160,14 @@ namespace Convergence.Art.Gear
             if (hit != null) { _statReused++; return hit; }
             if (key != null) _statDrawn++; else _statFrames++;
             LastOver = null;
-            _drawnArm = null;
+            _drawnArm = null; _drawnArmSeen = null; _armParts0 = _armParts1 = 0;
 
-            bool big = held?.Art != null;
+            bool big = held?.Art != null || CapeSwung;   // a dash's swung cape reaches past the small canvas
             _W = big ? HeldW : CanvasW; _H = big ? HeldH : CanvasH; _GX = big ? HeldGX : GroundX; _GY = big ? HeldGY : GroundY;
 
             int n = _W * _H;
-            if (_z == null || _z.Length != n) { _z = new float[n]; _owner = new int[n]; _col = new Color[n]; }
-            for (int i = 0; i < n; i++) { _z[i] = float.NegativeInfinity; _owner[i] = -1; }
+            if (_z == null || _z.Length != n) { _z = new float[n]; _owner = new int[n]; _col = new Color[n]; _under = new bool[n]; }
+            for (int i = 0; i < n; i++) { _z[i] = float.NegativeInfinity; _owner[i] = -1; _under[i] = false; }
             var parts = _parts ??= new List<Part>(); parts.Clear();
 
             // ---- the worn pieces, leaning and bobbing with the gait
@@ -142,13 +185,17 @@ namespace Convergence.Art.Gear
                     && piece.Name == (!mirrored || piece.Mirror != null ? "pauldronR" : "pauldronL")) continue;
                 var v = piece.For(view, mirrored);
                 if (v == null || v.Depth == null) continue;
-                int id = parts.Count; parts.Add(new Part { OutR = piece.OutR, Bias = piece.DepthBias, OverHead = piece.OverHead });
+                int id = parts.Count; parts.Add(new Part { OutR = piece.OutR, Bias = piece.DepthBias, OverHead = piece.OverHead || piece.CoversHead, Covers = piece.CoversHead, NoInk = piece.Name == "bib", Lines = piece.Name == "collar" || piece.Living, Cloth = piece.Slot == GearSlot.Back });
                 bool trails = piece.Trails && size > 0f;
+                bool living = piece.Living && Cape.On;
                 float hTop = Body8Art.Top - v.Y0, hBot = Body8Art.Top - (v.Y0 + v.H);
+                float capeBottom = hBot;
                 if (trails) hBot -= 6f;   // room for the hem to swing down into (trailing toward the camera)
+                if (living) hBot -= LiveRoom;   // and for its points to reach
                 float push = piece.PushBack * Mathf.Abs(f.z) * Locomotion8.DepthY;
                 hTop += push; hBot -= push;   // and the rows a pushed piece moves into
                 float Map(float hb) => hb + lift + (hb > Pelvis ? c * (hb - Pelvis) : 0f);
+                if (living && CapeSwung) { LiveSwung(piece, v, id, lift, c, lean, f, suit); continue; }   // a dash: drawn forward, tethered at the shoulders
                 int rTop = Mathf.FloorToInt(_GY - Map(hTop)) - 1, rBot = Mathf.CeilToInt(_GY - Map(hBot)) + 1;
                 for (int R = Mathf.Max(0, rTop); R <= Mathf.Min(_H - 1, rBot); R++)
                 {
@@ -163,7 +210,10 @@ namespace Convergence.Art.Gear
                         trail = trailAt(hb - f.z * Locomotion8.DepthY * trail);
                     }
                     trail += piece.PushBack;   // hung on a pack: back along the facing, as the cape's trail goes
+                    float liveTrail = 0f;
+                    if (living) { var lv = LiveRow(hb, pose.Right.x); trail += lv.trail; liveTrail = lv.trail; hb -= lv.lift; }
                     hb -= f.z * Locomotion8.DepthY * trail;
+                    if (living) { LiveSpan(piece, v, id, R, hb, hd, trail, liveTrail, lean, f, pose.Right.x, capeBottom, suit); continue; }
                     int r = Mathf.FloorToInt(Body8Art.Top - hb) - v.Y0;
                     if (r < 0 || r >= v.H) continue;
                     float s = hb > Pelvis ? (hb - Pelvis) * lean : 0f;
@@ -187,9 +237,9 @@ namespace Convergence.Art.Gear
             // ---- the limbs on the skeleton (the undersuit)
             char Tone(int i) => "ksdblh"[Mathf.Clamp(i, 0, 5)];
             int Shade(float s) => s < -0.45f ? 4 : s > 0.5f ? 2 : 3;
-            void Limb(Vector3 a, Vector3 b, float rad, System.Func<float, float, char> tone)
+            void Limb(Vector3 a, Vector3 b, float rad, System.Func<float, float, char> tone, bool fronts = false)
             {
-                int id = parts.Count; parts.Add(new Part { OutR = LimbOutline });
+                int id = parts.Count; parts.Add(new Part { OutR = LimbOutline, Fronts = fronts });
                 Capsule(a, b, rad, (u, s) => suit.TryGetValue(tone(u, s), out var col) ? col : Color.magenta, id);
             }
             foreach (var leg in new[] { pose.A, pose.B })
@@ -201,18 +251,21 @@ namespace Convergence.Art.Gear
             var r3 = pose.Right; var up = Vector3.up;
             var pelvis = new Vector3(0f, pose.HipY + 4f, 0f);
             Vector3 Up(float h) => pelvis + up * h + f * (h * lean);
-            float swing = gait.Arm * size * Mathf.Sin(2f * Mathf.PI * phase);
+            float swing = gait.ArmAt(phase) * size;
             var fore = new (Vector3, Vector3)[2];
 
             // ---- the weapon at rest (phase 3c): the mock's body frame (x the character's LEFT) into the drawn frame,
             // riding the lean and bob like the torso; mirrored, the left hand is the drawn figure's right
             Weapon8.Grip grip = default;
-            if (big)
+            if (held?.Art != null)
             {
                 var left = mirrored ? r3 : -r3;
                 Vector3 Body(Vector3 q) => Up(q.y - Pelvis) + left * q.x + f * q.z;
                 Vector3 Vec(Vector3 q) => left * q.x + (up + f * lean) * q.y + f * q.z;   // sheared with the lean, as Up() is
                 grip = held.Live ?? Weapon8.Pose(held, Body, Vec, mirrored ? 0 : 1);
+                // a swing just leaving the stance: eased from the stance's grip, built here in the same frame
+                if (held.Live.HasValue && held.From?.Art != null && held.FromW > 0f)
+                    Weapon8.Blend(grip, Weapon8.Pose(held.From, Body, Vec, mirrored ? 0 : 1), held.FromW);
                 if (held.Quiver != null) grip.Cards.Add(Weapon8.QuiverCard(held.Quiver, Body, Vec, mirrored));
             }
 
@@ -226,6 +279,17 @@ namespace Convergence.Art.Gear
                 var sh = Up(ShoulderUp - 4f) + r3 * (side * ShoulderOut);
                 Vector3 el, wr, d2;
                 var target = grip.Hand?[side > 0 ? 0 : 1];
+                float reach = grip.HandW?[side > 0 ? 0 : 1] ?? 1f;
+                Vector3 hel = default;
+                if (target.HasValue && reach < 1f)
+                {
+                    // part way from its hang (a hand going to the hilt): from where the hanging wrist would be
+                    var hd1 = -up * Mathf.Cos(sw) + f * Mathf.Sin(sw);
+                    hel = sh + hd1 * UpperArm + r3 * (side * 1.5f);
+                    float hb = sw + gait.Elbow * size * Mathf.Deg2Rad;
+                    var hang = hel + (-up * Mathf.Cos(hb) + f * Mathf.Sin(hb)) * ForeArm + r3 * (-side * 2.5f);
+                    target = Vector3.Lerp(hang, target.Value, reach);
+                }
                 if (target.HasValue)
                 {
                     // the arm reaches the hand's place, the elbow out and back (views.js arm())
@@ -238,6 +302,9 @@ namespace Convergence.Art.Gear
                     var hint = r3 * (side * 0.6f) - up * 0.1f - f;
                     var pole = (hint - dn * Vector3.Dot(hint, dn)).normalized;
                     el = sh + dn * a + pole * h;
+                    // ...and the elbow with it: the reach's own elbow (out and back) would poke a hand near the hip
+                    // out through the cape behind
+                    if (reach < 1f) el = Vector3.Lerp(hel, el, reach);
                     d2 = (wr - el).normalized;
                 }
                 else
@@ -250,8 +317,8 @@ namespace Convergence.Art.Gear
                 }
                 if (pieceArm != (side > 0 ? 0 : 1))
                 {
-                    Limb(sh, el, 4.2f, (u, s) => Tone(Shade(s)));
-                    Limb(el, wr + d2 * 2f, 3.9f, (u, s) => Tone(Shade(s) + (u > 0.85f ? -1 : 0)));
+                    Limb(sh, el, 4.2f, (u, s) => Tone(Shade(s)), fronts: true);
+                    Limb(el, wr + d2 * 2f, 3.9f, (u, s) => Tone(Shade(s) + (u > 0.85f ? -1 : 0)), fronts: true);
                 }
                 fore[side > 0 ? 0 : 1] = (el, wr);
                 shoulders[side > 0 ? 0 : 1] = sh;
@@ -267,7 +334,7 @@ namespace Convergence.Art.Gear
                     {
                         case Limb8.Thigh: foreach (var leg in new[] { pose.A, pose.B }) Sweep(st, sv, leg.Hip, leg.Knee, null, parts); break;
                         case Limb8.Shin: foreach (var leg in new[] { pose.A, pose.B }) Sweep(st, sv, leg.Knee, leg.AnkleJoint, null, parts); break;
-                        case Limb8.Fore: for (int k = 0; k < 2; k++) if (k != pieceArm) Sweep(st, sv, fore[k].Item1, fore[k].Item2, null, parts); break;
+                        case Limb8.Fore: for (int k = 0; k < 2; k++) if (k != pieceArm) { Sweep(st, sv, fore[k].Item1, fore[k].Item2, null, parts); parts[parts.Count - 1].Fronts = true; } break;
                         case Limb8.Foot:
                             foreach (var leg in new[] { pose.A, pose.B })
                             {
@@ -288,7 +355,13 @@ namespace Convergence.Art.Gear
                 if (extras.ScarfTones != null) ScarfTail(extras, BodyX, leftV, f, gait, size, size > 0f ? phase : extras.ScarfStand, parts);
                 if (extras.WrapTones != null) WrapTails(extras, fore, r3, leftV, f, parts);
                 if (extras.Live != null) DrawLive(extras.Live, BodyX, leftV, f, parts);
-                if (extras.Arm != null) ArmPiece(extras, BodyX, leftV, f, shoulders[pieceArm], fore[pieceArm].Item1, fore[pieceArm].Item2, parts);
+                if (extras.Arm != null)
+                {
+                    _armParts0 = parts.Count; _armParts1 = int.MaxValue;   // open while it draws (Put: over the cloth)
+                    ArmPiece(extras, BodyX, leftV, f, shoulders[pieceArm], fore[pieceArm].Item1, fore[pieceArm].Item2, parts);
+                    _armParts1 = parts.Count;
+                    for (int j = _armParts0; j < _armParts1; j++) parts[j].Fronts = true;
+                }
             }
 
             // ---- the weapon cards: a part of their own, laid on LAST (the mock's z 999) with no outline of their own -
@@ -296,7 +369,7 @@ namespace Convergence.Art.Gear
             Part cardPart = null;
             if (grip.Cards != null && grip.Cards.Count > 0)
             {
-                cardPart = new Part { OutR = 0, Ghost = true };
+                cardPart = new Part { OutR = 0, Ghost = true, Fronts = true };
                 int id = parts.Count; parts.Add(cardPart);
                 foreach (var cd in grip.Cards)
                 {
@@ -326,6 +399,7 @@ namespace Convergence.Art.Gear
             // the picture's buffers are kept between draws (a swing draws one a frame): cleared, not reallocated
             if (_out == null || _out.Length != n) _out = new Color[n]; else System.Array.Clear(_out, 0, n);
             var outCol = _out;
+            var neck = Locomotion8Screen(Up(HeadCentre - Pelvis));
             foreach (var p in order)
             {
                 // a part's own texels are those it owns on the canvas (its Won)
@@ -341,6 +415,11 @@ namespace Convergence.Art.Gear
                         int X = x + dx, Y = y + dy;
                         if (X < 0 || Y < 0 || X >= _W || Y >= _H) continue;
                         int k = Y * _W + X;
+                        // a collar's ring falling on nothing under the head's lower half (the neck the head's picture
+                        // stops short of) is the collar's inside in shade, not ink: inked it showed as a black notch
+                        // between the hair and the collar
+                        if (p.Lines && _owner[k] < 0 && Y > neck.y + NeckBelow && Mathf.Abs(X + 0.5f - neck.x) < NeckHalf)
+                        { if (outCol[k].a == 0f || outCol[k] == Outline) outCol[k] = _col[i] * InsideShade + Color.black * (1f - InsideShade); continue; }
                         if (_owner[k] != own) outCol[k] = p.Alpha < 1f ? Over(outCol[k], Outline, p.Alpha) : Outline;
                     }
                 }
@@ -348,6 +427,43 @@ namespace Convergence.Art.Gear
                 else foreach (int i in p.Won) outCol[i] = _col[i];
             }
 
+            // where the arm piece shows in the picture (its own texels that won), for its lights: one under a cape or
+            // behind the body is not lit (PlaceGlows8)
+            int[] armSeen = null;
+            if (_drawnArm != null && _armParts1 > _armParts0)
+            {
+                var seen = _seenScratch ??= new List<int>(); seen.Clear();
+                for (int i = 0; i < n; i++)
+                {
+                    int o = _owner[i];
+                    if (o >= _armParts0 && o < _armParts1 && outCol[i] != Outline) seen.Add(SeenKey(i % _W - _GX, _GY - i / _W));
+                }
+                seen.Sort(); armSeen = seen.ToArray();
+            }
+            _drawnArmSeen = armSeen;
+            // the arm piece again, alone with its ink: laid over a hood (whose picture carries its cloak's top over the
+            // shoulders) so the arm sticks out of the cloak there too (the user's call, 2026-11-17)
+            _drawnArmOver = null;
+            if (WantArmOver && armSeen != null && armSeen.Length > 0)
+            {
+                if (_armOver == null || _armOver.Length != n) _armOver = new Color[n]; else System.Array.Clear(_armOver, 0, n);
+                for (int i = 0; i < n; i++)
+                {
+                    int o = _owner[i];
+                    if (o < _armParts0 || o >= _armParts1 || outCol[i] == Outline) continue;
+                    _armOver[i] = outCol[i];
+                    int x = i % _W, y = i / _W;
+                    for (int dy = -2; dy <= 2; dy++)
+                    for (int dx = -2; dx <= 2; dx++)
+                    {
+                        int X = x + dx, Y = y + dy;
+                        if (X < 0 || Y < 0 || X >= _W || Y >= _H) continue;
+                        int k = Y * _W + X;
+                        if (outCol[k] == Outline && _armOver[k].a == 0f) _armOver[k] = Outline;
+                    }
+                }
+                _drawnArmOver = PixelSprite.FromPixels(_armOver, _W, _H, new Vector2Int(_GX, _GY), ppu, crop: true);
+            }
             var sprite = PixelSprite.FromPixels(outCol, _W, _H, new Vector2Int(_GX, _GY), ppu, crop: true);
 
             // Penumbra's afterimage: the arm and weapon texels as they show in the picture, violet
@@ -380,30 +496,43 @@ namespace Convergence.Art.Gear
                 foreach (int i in cardPart.Won) if (_z[i] > HeadFront) { OverPx(); overPx[i] = outCol[i]; }
             var headC = Locomotion8Screen(Up(HeadCentre - Pelvis));
             float headCz = Up(HeadCentre - Pelvis).z;
+            // ARMS AND WEAPONS IN FRONT OF THE HEAD (the user, 2026-11-17: "arms and swords on top when appropriate"):
+            // the head is its own sprite above this picture, so an arm, a glove's forearm, an arm piece or the held weapon
+            // lying nearer the camera than the head's surface goes on the overlay too - at rest as in a swing (a guard's
+            // fists before the face were hidden behind it)
             foreach (var p in order)
             {
-                if (!p.OverHead) continue;
+                if (!p.OverHead && !p.Fronts) continue;
                 foreach (int i in p.Won)
                 {
                     int x = i % _W, y = i / _W;
-                    if (!InFrontOfHead(x, y, _z[i], headC, headCz)) continue;
+                    // a back piece round the head (a collar, the hilts) covers it wherever it is well nearer than the head's
+                    // middle (CoverMargin): the surface test lets the head's lower edge show through a collar standing
+                    // close round it, and the bare middle took a cape's shoulders over the jaw's corners from the front
+                    if (p.Covers ? _z[i] <= headCz + CoverMargin : !InFrontOfHead(x, y, _z[i], headC, headCz)) continue;
                     OverPx();
-                    int R = p.OutR, R2 = R * R + 2;
+                    int R = p.Covers ? Mathf.Min(p.OutR, CoverInk) : p.OutR, R2 = R * R + 2;   // over the face a fine line, as the head's own
                     overPx[i] = outCol[i];
+                    if (p.NoInk) continue;   // a bib meets the face as cloth on skin: no ink between them (the hood's rule)
                     for (int dy = -R; dy <= R; dy++)
                     for (int dx = -R; dx <= R; dx++)
                     {
                         if (dx * dx + dy * dy > R2) continue;
+                        if (p.Covers && dy > 0) continue;   // nor under its lower edge: there it meets the head, cloth on hair (the bib's rule)
                         int X = x + dx, Y = y + dy;
                         if (X < 0 || Y < 0 || X >= _W || Y >= _H) continue;
                         int k = Y * _W + X;
-                        if (outCol[k] == Outline && _owner[k] != _owner[i]) overPx[k] = Outline;
+                        // a collar's ring only where it lies on nothing (where the head is): its ink on the body
+                        // below is the neckline's, and laid over the head it was a black tick on the chin
+                        if (outCol[k] == Outline && _owner[k] != _owner[i] && (!p.Covers || _owner[k] < 0)) overPx[k] = Outline;
                     }
                 }
             }
             Sprite overSprite = overPx != null ? PixelSprite.FromPixels(overPx, _W, _H, new Vector2Int(_GX, _GY), ppu, crop: true) : null;
             if (key != null) Keep(key, sprite, overSprite, _drawnArm);
             LastArm = _drawnArm;   // a swing's frames (key null) are the caller's, not cached
+            LastArmSeen = _drawnArmSeen;
+            LastArmOver = _drawnArmOver;
             LastOver = overSprite;
             return sprite;
         }
@@ -498,6 +627,9 @@ namespace Convergence.Art.Gear
         /// than the head's centre: the helm's picture is wider than this ellipsoid, and would hide the hourglass's posts
         /// standing beside it seen from behind, which the mock's depth shows.</summary>
         const float HeadCentre = 122f, HeadRx = 20f, HeadRy = 17f, HeadRz = 18f;
+        /// <summary>Under the head (screen texels below its centre, half across): where a collar's inside shows round the
+        /// neck, and how dark it is there.</summary>
+        const float NeckBelow = 4f, NeckHalf = 15f, InsideShade = 0.6f;
         static bool InFrontOfHead(int x, int y, float z, Vector2 c, float cz)
         {
             // the ray through the texel: drawn (px, py, pz) with py = DepthY * pz - sy (sy the screen offset, down)
@@ -521,8 +653,25 @@ namespace Convergence.Art.Gear
         static void Put(int x, int y, float z, Color col, int id)
         {
             int k = y * _W + x;
+            if (_under[k] && _owner[k] != id) { _under[k] = false; _z[k] = z; _col[k] = col; _owner[k] = id; return; }
+            // an arm piece sticks out OVER a back piece's cloth (the user's call, 2026-11-17), whatever the depth
+            if (_armParts1 > _armParts0 && id >= _armParts0 && id < _armParts1)
+            {
+                int o = _owner[k];
+                if (o >= 0 && (o < _armParts0 || o >= _armParts1) && _parts[o].Cloth) { _z[k] = z; _col[k] = col; _owner[k] = id; return; }
+            }
             if (z <= _z[k]) return;
             _z[k] = z; _col[k] = col; _owner[k] = id;
+        }
+
+        /// <summary>A texel that gives way to everything else (a dash's swung cape carried across the body): drawn only
+        /// on nothing, and any other part's texel later takes its place whatever the depth.</summary>
+        static void PutUnder(int x, int y, float z, Color col, int id)
+        {
+            int k = y * _W + x;
+            if (_owner[k] >= 0 && _owner[k] != id && !_under[k]) return;
+            if (_owner[k] == id && z <= _z[k]) return;
+            _z[k] = z; _col[k] = col; _owner[k] = id; _under[k] = true;
         }
 
         /// <summary>A limb from <paramref name="a"/> to <paramref name="b"/> (3D, texels), its depth the axis's plus the

@@ -234,7 +234,7 @@ namespace Convergence.Hazards
         //
         // A column now stands up off the floor, so it covers whatever is behind it. While the
         // player's body is behind the drawn shaft it goes see-through (Tuning.Hazards.ColumnBehind*),
-        // the usual answer in a 3/4 view; enemies are not looked for.
+        // the usual answer in a 3/4 view; an enemy behind it, by its feet, fades it a little less.
 
         static Player.PlayerController _player;
         static DepthSorted _playerDepth;
@@ -271,6 +271,20 @@ namespace Convergence.Hazards
             return _hasBody;
         }
 
+        /// <summary>An enemy's feet above this column's foot, within its shaft (and a body's half
+        /// width) and under its top: the column stands over it.</summary>
+        bool EnemyBehind()
+        {
+            float x = transform.position.x, y = transform.position.y, top = _art.bounds.max.y, half = _shaftHalf + 0.3f;
+            foreach (var e in Enemies.EnemyRegistry.All)
+            {
+                if (e == null) continue;
+                var p = e.transform.position;
+                if (p.y > y && p.y < top && p.x > x - half && p.x < x + half) return true;
+            }
+            return false;
+        }
+
         void LateUpdate()
         {
             if (_art == null) return;
@@ -281,7 +295,7 @@ namespace Convergence.Hazards
                 behind = body.max.x > x - _shaftHalf && body.min.x < x + _shaftHalf && body.min.y < top
                          && body.max.y > transform.position.y;
             }
-            float target = behind ? Tuning.Hazards.ColumnBehindAlpha : 1f;
+            float target = behind ? Tuning.Hazards.ColumnBehindAlpha : EnemyBehind() ? Tuning.Hazards.ColumnEnemyBehindAlpha : 1f;
             if (_glass > 0f) target = Mathf.Min(target, Mathf.Lerp(1f, Tuning.Medusa.GlassAlpha, _glass));
             _alpha = Mathf.MoveTowards(_alpha, target, Time.unscaledDeltaTime / Tuning.Hazards.ColumnFadeSeconds);
             // Written whenever it differs: a hit flash lerps the colour back to opaque.

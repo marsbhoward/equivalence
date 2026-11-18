@@ -69,6 +69,22 @@ namespace Convergence.Art.Gear
         /// <summary>The torso layers of these sit OVER the arm and head (embers) rather than under them (a strap).</summary>
         public static bool TorsoOver(AccessoryKind k) => k == AccessoryKind.SalamanderArm;
 
+        /// <summary>Sanguis's colour in ice (Glacies): the nearest tone of its two ramps, Blood and BloodGlass, swapped
+        /// for the same tone of Ice and IceGlass - so the eight-direction bake of Sanguis (its ramps mixed by the mock,
+        /// a shade off these) recolours without a bake of its own.</summary>
+        public static Color32 SanguisToIce(Color32 c)
+        {
+            Color32 best = c; int bd = int.MaxValue;
+            foreach (var (from, to) in new[] { (Blood, Ice), (BloodGlass, IceGlass) })
+                for (int i = 0; i < 6; i++)
+                {
+                    int dr = from[i].r - c.r, dg = from[i].g - c.g, db = from[i].b - c.b, d = dr * dr + dg * dg + db * db;
+                    if (d < bd) { bd = d; best = to[i]; }
+                }
+            best.a = c.a;
+            return best;
+        }
+
         // ---------------------------------------------------------------- palette (the mock's AR)
 
         static readonly Tones Obsidian = Ramp("#2e2632", "#a898c0", 0.36f), Lava = Ramp("#ff6418", "#fff2a0", 0.55f, 0.4f),
@@ -82,7 +98,8 @@ namespace Convergence.Art.Gear
             Violet = Ramp("#7a52d8", "#e4d8ff", 0.45f), Blood = Ramp("#7c0c1c", "#ff7070", 0.45f, 0.42f),
             BloodGlass = Ramp("#b8142c", "#ffc8c8", 0.5f), Volt = Ramp("#2e62e0", "#eefaff", 0.58f),
             Ghost = Ramp("#1c1828", "#7a6aa8", 0.36f), Steel = Ramp("#9aa6b4", "#ffffff", 0.52f, 0.36f),
-            Cable = Ramp("#2a2a32", "#9c9cb4", 0.5f), Synth = Ramp("#2c2c34", "#9a9ab0", 0.42f);
+            Cable = Ramp("#2a2a32", "#9c9cb4", 0.5f), Synth = Ramp("#2c2c34", "#9a9ab0", 0.42f),
+            Ice = Ramp("#3f86c4", "#e8f8ff", 0.45f, 0.42f), IceGlass = Ramp("#7cc4ec", "#ffffff", 0.5f);
         static readonly Color32 White = Hex("#ffffff"), Cyan = Hex("#7af0ff");
 
         // ---------------------------------------------------------------- helpers
@@ -203,7 +220,8 @@ namespace Convergence.Art.Gear
                 case AccessoryKind.CrucibleArm: Crucible(st, layers); break;
                 case AccessoryKind.VerdigrisArm: Verdigris(st, layers); break;
                 case AccessoryKind.RubedoArm: Rubedo(st, layers); break;
-                case AccessoryKind.SanguisArm: SanguisCrystal(st, layers); break;
+                case AccessoryKind.SanguisArm: SanguisSmoke(st, layers); break;
+                case AccessoryKind.GlaciesArm: SanguisCrystal(st, layers, Ice, IceGlass, "#5ab8ff", "#8ad4ff"); break;
                 case AccessoryKind.FulmenArm: FulmenCage(st, layers); break;
                 case AccessoryKind.PenumbraArm: PenumbraEchoArm(st, layers); break;
                 case AccessoryKind.HomunculusPlatedArm: HomunculusPlated(st, layers); break;
@@ -442,9 +460,10 @@ namespace Convergence.Art.Gear
             o.AddRange(new[] { arm, fist, sh });
         }
 
-        // 7. SANGUIS (Crystal): blood frozen hard - dark ruby in irregular facets with bright cracks, a shard off
-        // the elbow, shard fingers, broad crystal plates on the shoulder; a glint sweeps across.
-        static void SanguisCrystal(ArmPieceState st, List<Layer> o)
+        // GLACIES (Crystal; Sanguis's first shape, which it wore until 2026-11-17): blood frozen hard - dark ruby in irregular facets with bright cracks, a shard off
+        // the elbow, shard fingers, broad crystal plates on the shoulder; a glint sweeps across. GLACIES is the same
+        // arm in ice (the user, 2026-11-17): <paramref name="body"/> and <paramref name="glass"/> are its two ramps.
+        static void SanguisCrystal(ArmPieceState st, List<Layer> o, Tones body, Tones glass, string glowArm, string glowShoulder)
         {
             float t = st.T;
             Layer arm = AL(12.6f, JArm), sh = AL(14.2f, JShoulder, rise: true);
@@ -461,8 +480,8 @@ namespace Convergence.Art.Gear
             {
                 int k = Own(x, y);
                 bool edge = Own(x + 1, y) != k || Own(x, y + 1) != k;
-                if (Mathf.Abs(x + y - glint - 40f) < 1.2f && seeds[k].z > 0.4f) return BloodGlass[5];
-                return edge ? BloodGlass[4] : Blood[seeds[k].z > 0.66f ? 4 : seeds[k].z > 0.33f ? 3 : 2];
+                if (Mathf.Abs(x + y - glint - 40f) < 1.2f && seeds[k].z > 0.4f) return glass[5];
+                return edge ? glass[4] : body[seeds[k].z > 0.66f ? 4 : seeds[k].z > 0.33f ? 3 : 2];
             }
             var m = U(Poly(V(-1, 37), V(10, 36), V(11, 43), V(10, 49), V(11, 56), V(9.5f, 61), V(-1, 61), V(-1.5f, 55), V(-0.5f, 49), V(-1.5f, 43)),
                       Poly(V(0, 61), V(9.5f, 61), V(10, 68), V(5, 70), V(0, 68)), Poly(V(-1, 48), V(-7, 44), V(-1, 52)));
@@ -470,9 +489,100 @@ namespace Convergence.Art.Gear
             arm.Fill(m, Facet);
             sh.Fill(U(Poly(V(-5, 38), V(-3, 30), V(3, 27), V(5, 33), V(0, 40)), Poly(V(2, 33), V(5, 25), V(10, 27), V(12, 34), V(6, 38)),
                       Poly(V(-2, 36), V(4, 31), V(11, 33), V(10, 40), V(1, 41))), Facet);
-            Glow(4.5f, 48, 11, "#ff2a3a", 0.12f, JArm);
-            Glow(3, 31, 9, "#ff4a5a", 0.14f, JShoulder);
+            Glow(4.5f, 48, 11, glowArm, 0.12f, JArm);
+            Glow(3, 31, 9, glowShoulder, 0.14f, JShoulder);
             o.AddRange(new[] { arm, sh });
+        }
+
+        // 7. SANGUIS (Smoke, the user's reference, 2026-11-17): the arm is blood smoke - a black core with ragged edges,
+        // red streaks running down it, flecks of blood drifting off, thin tendrils rising, four pale talons hot at the
+        // knuckle, the shoulder a torn cloud. No outline. It loops each second (the noise cross-faded over the loop).
+        static readonly Color32 SmBlack = Hex("#120508"), SmCore = Hex("#24080e"), SmDeep = Hex("#4a0a14"), SmRed = Hex("#a8101f"),
+            SmHot = Hex("#e01a30"), SmGlow = Hex("#ff5060"), SmPale = Hex("#f0b8b8"), SmWhite = Hex("#ffe8e8");
+        static readonly Vector3[] SmokeTalons = { new(0.8f, 7f, -0.6f), new(3.4f, 9f, -0.2f), new(6.0f, 9f, 0.25f), new(8.4f, 6.5f, 0.6f) };
+        static float VNoise(float x, float y, int s)
+        {
+            int xi = Mathf.FloorToInt(x), yi = Mathf.FloorToInt(y);
+            float fx = x - xi, fy = y - yi; fx = fx * fx * (3f - 2f * fx); fy = fy * fy * (3f - 2f * fy);
+            float Hs(int a, int b) => H2(a * 7 + s * 131, b * 13 - s * 17);
+            return Lerp(Lerp(Hs(xi, yi), Hs(xi + 1, yi), fx), Lerp(Hs(xi, yi + 1), Hs(xi + 1, yi + 1), fx), fy);
+        }
+        static float Fbm(float x, float y, int s) => VNoise(x, y, s) * 0.55f + VNoise(x * 2.1f, y * 2.1f, s + 1) * 0.3f + VNoise(x * 4.3f, y * 4.3f, s + 2) * 0.15f;
+        static float LoopFbm(float x, float y, float v, float t, int s)
+        {
+            float p = Mathf.Repeat(t, 1f);
+            return Fbm(x, y - p * v, s) * (1f - p) + Fbm(x, y - (p - 1f) * v, s) * p;
+        }
+        /// <summary>Each texel's distance (to 2) from the limb, rows 30..71 by x -6..15 - the same every picture, so worked once.</summary>
+        static float[] SmokeDist => _smokeDist ??= MakeSmokeDist();
+        static float[] _smokeDist;
+        static float[] MakeSmokeDist()
+        {
+            var core = U(Poly(V(-1, 37), V(10, 36), V(10.5f, 43), V(9.5f, 49), V(9, 55), V(8.5f, 61), V(0.5f, 61), V(0, 55), V(-0.5f, 49), V(-1.5f, 43)), Ell(4.6f, 64, 4.8f, 3.8f));
+            var dist = new float[42 * 22];
+            for (int y = 30; y < 72; y++)
+                for (int x = -6; x < 16; x++)
+                {
+                    float d = 9f;
+                    if (core.Has(x, y)) d = 0f;
+                    else for (int dy = -2; dy <= 2; dy++) for (int dx = -2; dx <= 2; dx++) if (core.Has(x + dx, y + dy)) d = Mathf.Min(d, Hypot(dx, dy));
+                    dist[(y - 30) * 22 + x + 6] = d;
+                }
+            return dist;
+        }
+        static void SanguisSmoke(ArmPieceState st, List<Layer> o)
+        {
+            float t = st.T;
+            Layer arm = AL(12.6f, JArm, outlined: false), cl = AL(12.7f, JArm, outlined: false), sh = AL(14.2f, JShoulder, rise: true, outlined: false);
+            // ragged edges: the limb grown and eaten by noise along its border
+            var dist = SmokeDist;
+            var m = new Mask();
+            for (int y = 30; y < 72; y++)
+                for (int x = -6; x < 16; x++)
+                {
+                    float d = dist[(y - 30) * 22 + x + 6];
+                    if (d > 2.3f) continue;
+                    float n = LoopFbm(x * 0.45f, y * 0.25f, 1.2f, t, 7);
+                    if (d == 0f ? n > 0.18f : d < 2.3f && n > 0.45f + d * 0.12f) m.Add(x, y);
+                }
+            foreach (var (x, y) in m.Pts())
+            {
+                bool edge = !m.Has(x - 1, y) || !m.Has(x + 1, y) || !m.Has(x, y - 1);
+                float n = LoopFbm(x * 0.7f, y * 0.1f, 0.9f, t, 11);
+                arm.Set(x, y, n > 0.74f ? SmGlow : n > 0.66f ? SmHot : n > 0.58f ? SmRed
+                    : edge ? (n > 0.48f ? SmRed : SmDeep) : n < 0.42f ? SmBlack : n < 0.52f ? SmCore : SmDeep);
+            }
+            // flecks of blood drifting off, red and dark
+            for (int k = 0; k < 40; k++)
+            {
+                float ph = Mathf.Repeat(t + H2(k, 3), 1f);
+                int x = R(-3f + H2(k, 4) * 15f + (H2(k, 6) - 0.5f) * 10f * ph), y = R(34f + H2(k, 8) * 32f - ph * 10f);
+                if (!m.Has(x, y)) arm.Set(x, y, H2(k, 9) > 0.5f ? SmHot : SmDeep);
+            }
+            // thin tendrils rising off the arm
+            for (int k = 0; k < 22; k++)
+            {
+                float ph = Mathf.Repeat(t * (1 + k % 2) + H2(k, 5), 1f), x = -2f + H2(k, 7) * 13f + (H2(k, 11) - 0.5f) * 10f * ph, y = 30f + H2(k, 9) * 32f - ph * 20f;
+                for (int j = 0; j < 4; j++)
+                    if (ph + j * 0.1f < 1f) arm.Set(R(x + Mathf.Sin(ph * 6f + j) * 0.8f), R(y + j * 1.5f), j == 0 && ph < 0.5f ? SmHot : ph > 0.6f ? SmDeep : SmRed);
+            }
+            foreach (var tl in SmokeTalons)
+                for (int i = 0; i <= tl.y; i++)
+                {
+                    float u = i / tl.y, px = tl.x + Mathf.Sin(u * 1.6f) * tl.z * tl.y * 0.45f, py = 66f + u * tl.y, r = Lerp(1.3f, 0.35f, u);
+                    int ii = i;
+                    cl.Fill(Ell(px + 0.5f, py + 0.5f, r, r), (X, Y, _) => ii < 2 ? SmHot : X < px ? SmWhite : SmPale);
+                }
+            // the shoulder: a torn cloud, more hole than mass
+            foreach (var (x, y) in Ell(4.5f, 33, 9, 7).Pts())
+            {
+                float n = LoopFbm(x * 0.4f, y * 0.4f, 1.6f, t, 13);
+                if (n > 0.5f) sh.Set(x, y, n > 0.68f ? SmHot : n > 0.6f ? SmRed : SmCore);
+            }
+            // the lights kept low: over the arm they wash out its black middle
+            Glow(4.5f, 52, 15, "#ff1028", 0.14f, JArm);
+            Glow(4.5f, 33, 11, "#ff1028", 0.1f, JShoulder);
+            o.AddRange(new[] { arm, cl, sh });
         }
 
         // 8. FULMEN (Cage): no body - the arm is only lightning in its shape, bolts down both edges with zigzags

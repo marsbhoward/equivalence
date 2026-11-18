@@ -36,6 +36,8 @@ export interface FinalDecision {
    *  boxes it pays once every pose is owned. */
   pose?: string | null;
   pose_gold?: number;
+  /** A QUARTZ box on every final clear (GEAR.md "Quartz") - replaced the pose roll; credited here. */
+  quartz?: number;
 }
 
 const DAY_MS = 86_400_000;
