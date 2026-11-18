@@ -59,22 +59,27 @@ namespace Convergence.Hazards
         }
 
         public static FirePit Spawn(Rect rect, Transform player, Transform parent)
+            => Spawn(PitShape.FromRect(rect), player, parent);
+
+        public static FirePit Spawn(PitShape shape, Transform player, Transform parent)
         {
             var go = new GameObject("pit.fire");
             go.transform.SetParent(parent, false);
             var pit = go.AddComponent<FirePit>();
-            pit.Init(rect, player);
-            pit.Build(rect.size);
+            pit.Init(shape, player);
+            pit.Build();
             // It lights the room by its own heat (set each frame in Update).
-            pit._glow = Convergence.Art.Lighting.Glow.Attach(go, Mathf.Max(rect.width, rect.height) * 0.5f + Tuning.Lighting.FirePitReach,
+            var b = shape.Bounds;
+            pit._glow = Convergence.Art.Lighting.Glow.Attach(go, Mathf.Max(b.width, b.height) * 0.5f + Tuning.Lighting.FirePitReach,
                                                        Tuning.Lighting.FireColor, 0f, 0.2f);
             return pit;
         }
 
         Convergence.Art.Lighting.Glow _glow;
 
-        void Build(Vector2 size)
+        void Build()
         {
+            var size = Shape.Bounds.size;
             // Every pit its own cadence AND its own start, so several pits on one floor never
             // flare in lockstep - everything breathing on the same beat reads as one hazard
             // wearing several skins. A shared period with random starts was not enough: the gaps
@@ -86,28 +91,28 @@ namespace Convergence.Hazards
 
             // The bottom of the hole, under everything: near-black, so a crack in the crust with
             // no live coal behind it still reads as depth rather than as a gap onto the floor.
-            PitArt.Quad(gameObject, Spr.Square, new Color(0.07f, 0.05f, 0.05f), size, OrderFloor, "floor");
+            Layer(PitArt.Solid, new Color(0.07f, 0.05f, 0.05f), OrderFloor, "floor");
 
-            _bed = PitArt.Tiled(gameObject, PitArt.EmberBed, Color.white, size, OrderMaterial, "coals");
-            _crust = PitArt.Tiled(gameObject, PitArt.Crust(seed), Color.white, size, OrderDetail, "ash");
+            _bed = Layer(PitArt.EmberBedAt, Color.white, OrderMaterial, "coals");
+            _crust = Layer(PitArt.CrustAt(seed), Color.white, OrderDetail, "ash");
 
-            BuildRecess(size);
+            BuildRecess();
 
-            // A tongue per unit of pit area, within reason. Scaled to the footprint rather than a
-            // fixed count, or a Large pit would be the same handful of flames spread thin and
-            // would read as a smaller fire in a bigger hole.
-            int count = Mathf.Clamp(Mathf.RoundToInt(size.x * size.y * Tuning.Hazards.FireTonguesPerSquareUnit),
+            // A tongue per unit of pit AREA (the shape's, not its bounds'), within reason - or a
+            // big pit would be the same handful of flames spread thin and read as a smaller fire.
+            int count = Mathf.Clamp(Mathf.RoundToInt(Shape.Area * Tuning.Hazards.FireTonguesPerSquareUnit),
                                     Tuning.Hazards.FireMinTongues, Tuning.Hazards.FireMaxTongues);
-            for (int i = 0; i < count; i++) _tongues.Add(MakeTongue(size));
+            for (int i = 0; i < count; i++) _tongues.Add(MakeTongue());
 
             // Embers rising off it while it burns (the user's pick, group 4); no soft bloom - the
             // pit's Glow lights the room round it. Inside the pit band, under every body.
             int hw = Mathf.CeilToInt(size.x * 0.5f * Combat.TexelFx.Body) + 3, hh = Mathf.CeilToInt(size.y * 0.5f * Combat.TexelFx.Body);
             _embers = Combat.TexelPicture.Attach<PitEmbers>(transform, "embers", Vector2.zero, hw, hh + 2, hh + 40, OrderAbove);
             _embers.Size = size;
+            _embers.Shape = Shape;
         }
 
-        Tongue MakeTongue(Vector2 size)
+        Tongue MakeTongue()
         {
             var go = new GameObject("tongue");
             go.transform.SetParent(transform, false);
@@ -118,15 +123,19 @@ namespace Convergence.Hazards
             float w = Random.Range(Tuning.Hazards.FireTongueWidthMin, Tuning.Hazards.FireTongueWidthMax);
             float h = w * Random.Range(1.9f, 3.1f);
 
-            // Spread across the WHOLE footprint rather than along one edge - a row of flames is a
-            // hearth, and this is a pit the player walks into the middle of.
+            // Spread across the WHOLE shape rather than along one edge - a row of flames is a
+            // hearth, and this is a pit the player walks into the middle of. Rooted where the
+            // tip stays inside too: the sprite grows UPWARD off a base pivot, so a tongue rooted
+            // under a top edge would put its tip outside the pit it belongs to.
             float margin = Tuning.Hazards.PitStandInset;
-            float baseX = Random.Range(-size.x * 0.5f + margin, size.x * 0.5f - margin);
-            // Rooted low in its own band: the sprite grows UPWARD off a base pivot, so a tongue
-            // placed near the top edge would put its tip outside the pit it belongs to.
-            float lowY = -size.y * 0.5f + margin;
-            float baseY = Random.Range(lowY, Mathf.Max(lowY, size.y * 0.5f - margin - h * 0.55f));
-            go.transform.localPosition = new Vector3(baseX, baseY, 0f);
+            Vector2 root = Vector2.zero, centre = transform.position;
+            for (int tries = 0; tries < 12; tries++)
+            {
+                root = PointInside(margin, () => Random.value);
+                if (Shape.Sample(centre + root + Vector2.up * h * 0.55f) > 0f) break;
+            }
+            float baseX = root.x;
+            go.transform.localPosition = new Vector3(root.x, root.y, 0f);
 
             // Half of them mirrored, so the tongue sprite's own built-in curl leans both ways and
             // a pit does not read as every flame bending the same direction in a wind.
@@ -344,6 +353,8 @@ namespace Convergence.Hazards
     {
         [SerializeField] public Vector2 Size;
         [SerializeField] public float Heat;
+        /// <summary>The pit's shape: an ember is only born over the fire, never over the floor round it.</summary>
+        [SerializeField] public PitShape Shape;
 
         protected override bool Draw()
         {
@@ -356,7 +367,10 @@ namespace Convergence.Hazards
                 float age = Mathf.Repeat(cyc, 1f);
                 if (Combat.FireArt.Hash(k, Mathf.FloorToInt(cyc)) > Heat) continue;   // fewer as it cools
                 float x = (Combat.FireArt.Hash(k, 2, Mathf.FloorToInt(cyc)) * 2f - 1f) * hw + Mathf.Sin(age * 5f + k) * 1.5f;
-                float y = (Combat.FireArt.Hash(k, 3, Mathf.FloorToInt(cyc)) * 2f - 1f) * hh + age * 34f;
+                float y0 = (Combat.FireArt.Hash(k, 3, Mathf.FloorToInt(cyc)) * 2f - 1f) * hh;
+                if (Shape != null && Shape.Sdf != null && Shape.Sdf.Length > 0
+                    && Shape.Sample((Vector2)transform.position + new Vector2(x, y0) / Ppu) <= 0f) continue;
+                float y = y0 + age * 34f;
                 Over(Mathf.RoundToInt(x), Mathf.RoundToInt(y), Combat.FireArt.At(0.1f + age * 0.8f), 1f - age);
             }
             return true;

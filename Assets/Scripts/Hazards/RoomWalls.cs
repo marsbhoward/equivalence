@@ -29,6 +29,8 @@ namespace Convergence.Hazards
         [SerializeField] bool[] _wall;
         [SerializeField] bool[] _chasm;
         [SerializeField] bool[] _edge;
+        /// <summary>Islands the chasm stones laid (RoomShape.IslandAt) - Arena.OnIsland.</summary>
+        [SerializeField] bool[] _island;
         [SerializeField] int _cols, _rows;
         [SerializeField] string _shapeName;
         [SerializeField] bool _lake;
@@ -83,7 +85,7 @@ namespace Convergence.Hazards
         {
             if (_wall == null || _wall.Length == 0) return;
             _current = this;
-            Arena.SetWalls(_wall, _chasm, _cols, _rows, _lake, _edge);
+            Arena.SetWalls(_wall, _chasm, _cols, _rows, _lake, _edge, _island);
             Arena.SetTiers(_height != null && _height.Length > 0 ? _height : null, _tierBarriers, _tierStairs, _tierSteps);
         }
 
@@ -118,6 +120,7 @@ namespace Convergence.Hazards
             _rows = RoomShape.Rows;
             _wall = new bool[_cols * _rows];
             _chasm = new bool[_cols * _rows];
+            _island = new bool[_cols * _rows];
 
             var half = Arena.HalfExtents;
             var cell = new Vector2(half.x * 2f / _cols, half.y * 2f / _rows);
@@ -135,6 +138,7 @@ namespace Convergence.Hazards
                 bool edge = _edge[y * _cols + x];
                 _wall[y * _cols + x] = Solid(x, y) && !edge;
                 _chasm[y * _cols + x] = At(x, y) == '~';
+                _island[y * _cols + x] = At(x, y) == 's';
             }
             bool Edge(int x, int y) => x >= 0 && y >= 0 && x < _cols && y < _rows && _edge[y * _cols + x];
             // A permanent wall that still STANDS ('#', not opened into the void).
@@ -143,12 +147,15 @@ namespace Convergence.Hazards
             Vector2 Corner(int x, int y) => new Vector2(x * cell.x, y * cell.y) - half;
 
             // ---- permanent walls: one collider per horizontal run ----
+            // The cell size FIRST: ColliderRuns measures every box by it, and set after, every
+            // interior wall got a zero-size collider in the room's corner - drawn, refused to
+            // placement, and walked straight through (the user's report, 2026-11-18).
+            _cell = cell;
             Runs(this.gameObject, Stands);
 
             // ---- the opened edge: a BARRIER, one collider per run, felt by bodies alone ----
             // On its own object, marked, so sight (HazardQuery.Query) passes over it as it passes
             // over the void - an open edge never cuts a line.
-            _cell = cell;
             BuildEdgeBarrier();
 
             void Runs(GameObject owner, System.Func<int, int, bool> take) => ColliderRuns(owner, take);
@@ -233,7 +240,7 @@ namespace Convergence.Hazards
 
             // Published HERE, not only in OnEnable: AddComponent runs OnEnable before Build has
             // filled the mask, so the first floor in a shape was placed as if it were open.
-            Arena.SetWalls(_wall, _chasm, _cols, _rows, _lake, _edge);
+            Arena.SetWalls(_wall, _chasm, _cols, _rows, _lake, _edge, _island);
             // After the mask: the tiers ask which cells are floor.
             BuildTiers();
         }
@@ -329,7 +336,7 @@ namespace Convergence.Hazards
                 Combat.TexelFx.Puff(c + w._cell * 0.5f, Combat.TexelFx.Stone, 10, 5f, 0.45f, Combat.TexelFx.Ground);
             }
             w.DrawChasms();
-            Arena.SetWalls(w._wall, w._chasm, w._cols, w._rows, w._lake, w._edge);
+            Arena.SetWalls(w._wall, w._chasm, w._cols, w._rows, w._lake, w._edge, w._island);
             Enemies.NavField.MarkDirty();
         }
 
@@ -374,7 +381,7 @@ namespace Convergence.Hazards
             for (int i = 0; i < w._edge.Length; i++)
                 if (w._edge[i]) { w._edge[i] = false; w._wall[i] = false; }
             w.BuildEdgeBarrier();
-            Arena.SetWalls(w._wall, w._chasm, w._cols, w._rows, w._lake, w._edge);
+            Arena.SetWalls(w._wall, w._chasm, w._cols, w._rows, w._lake, w._edge, w._island);
             Enemies.NavField.MarkDirty();
             Art.Biomes.Parallax.Rise = 0f;
             Art.Biomes.Ground.Build();

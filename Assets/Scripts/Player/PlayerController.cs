@@ -1527,24 +1527,40 @@ namespace Convergence.Player
         /// <summary>
         /// A basic that landed while the stick points away from the swing: the body springs back
         /// along the stick (Tuning.Combo.HopBack*), kept on the floor. LOCKED ON only - unlocked,
-        /// the swing turns to the stick. Not while dashing, leaping or stone; never on a weapon
-        /// art or a bow.
+        /// the swing turns to the stick - judged as the hit lands (<paramref name="locked"/>), so the
+        /// blow that KILLS the locked target hops too. Not while dashing, leaping or stone; never on
+        /// a weapon art or a bow. True when it sprang.
         /// </summary>
-        void HopBack(Vector2 swingDir)
+        bool HopBack(Vector2 swingDir, bool locked)
         {
-            if (_dashSeconds > 0f || Airborne || Statue || Petrified) return;
-            if (Weapon == Art.Gear.WeaponClass.Bow) return;
-            if (Targeting == null || !Targeting.IsLocked) return;   // a lock-on move: unlocked, a held stick turns the swing
+            if (!locked) return false;   // a lock-on move: unlocked, a held stick turns the swing
+            if (_dashSeconds > 0f || Airborne || Statue || Petrified) return false;
+            if (Weapon == Art.Gear.WeaponClass.Bow) return false;
             var input = Core.Controls.Move;
             if (Effects != null && Effects.InputsInverted) input = -input;   // Retrograde, as the walk
-            if (input.magnitude < Tuning.Combo.HopBackMinTilt) return;
+            if (input.magnitude < Tuning.Combo.HopBackMinTilt) return false;
             var dir = input.normalized;
-            if (Vector2.Dot(dir, swingDir.normalized) > -Tuning.Combo.HopBackMinAway) return;
+            if (Vector2.Dot(dir, swingDir.normalized) > -Tuning.Combo.HopBackMinAway) return false;
             float distance = LungeReach(dir, Tuning.Combo.HopBackDistance, stopAtTarget: false);
-            if (distance <= 0.05f) return;
+            if (distance <= 0.05f) return false;
             float seconds = Tuning.Combo.HopBackSeconds * distance / Tuning.Combo.HopBackDistance;
             Dash(dir, distance / seconds, seconds);
             _hopBack = true;
+            return true;
+        }
+
+        /// <summary>The hop back's late window (Tuning.Combo.HopBackWindow): a locked-on basic landed with
+        /// the stick not yet pulled back - pulling it back before this time, and before the next swing,
+        /// still hops (the user, 2026-11-18: "if a successful hit occurred while locked on I should be
+        /// able to step back to create space"). 0 when shut.</summary>
+        float _hopBackUntil;
+        Vector2 _hopBackSwing;
+
+        void TickHopBackWindow()
+        {
+            if (_hopBackUntil <= 0f) return;
+            if (Time.time > _hopBackUntil) { _hopBackUntil = 0f; return; }
+            if (HopBack(_hopBackSwing, true)) _hopBackUntil = 0f;
         }
 
         /// <summary>
@@ -1991,6 +2007,7 @@ namespace Convergence.Player
             // it, so a chain or a cooldown resumes where it was when the stone lets go.
             SyncStatue();
             if (Statue) return;
+            TickHopBackWindow();   // a locked-on hit's late hop back, the stick pulled after it landed
 
             // Facing is frozen while a finisher commits. Without this the auto-targeter keeps
             // steering the character mid-swing, so a 360 spin or a committed thrust would quietly
@@ -2872,6 +2889,7 @@ namespace Convergence.Player
             var step = NextStep;          // captured before the chain advances
             bool isFinisher = FinisherNext;
             AttackStarted?.Invoke(isFinisher);
+            _hopBackUntil = 0f;   // the next swing shuts the hop back's late window
             _basicSwing = !isFinisher;
             _artUnstruck = isFinisher;
             _artActing = false;
@@ -7739,7 +7757,11 @@ namespace Convergence.Player
             // weapon art (Cohobation); an AREA weapon art draws the crowd in and salts the ground
             // (Borax, Fermentation) round its blast.
             // The hop back: a basic that landed, with the stick pulled away from the swing.
-            if (landed && !isFinisher && !_echoing && !_arcRepeat) HopBack(ArcFacing);
+            if (landed && !isFinisher && !_echoing && !_arcRepeat)
+            {
+                bool locked = Targeting != null && Targeting.HeldLock;
+                if (!HopBack(ArcFacing, locked) && locked) { _hopBackUntil = Time.time + Tuning.Combo.HopBackWindow; _hopBackSwing = ArcFacing; }
+            }
 
             if (landed && !_echoing && !_arcRepeat && Board != null)
             {

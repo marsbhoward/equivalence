@@ -33,12 +33,15 @@ namespace Convergence.Hazards
         public override float RouteCost => Tuning.Steering.SandRouteCost;
 
         public static SandPit Spawn(Rect rect, Transform player, Transform parent)
+            => Spawn(PitShape.FromRect(rect), player, parent);
+
+        public static SandPit Spawn(PitShape shape, Transform player, Transform parent)
         {
             var go = new GameObject("pit.sand");
             go.transform.SetParent(parent, false);
             var pit = go.AddComponent<SandPit>();
-            pit.Init(rect, player);
-            pit.Build(rect.size);
+            pit.Init(shape, player);
+            pit.Build();
             return pit;
         }
 
@@ -46,7 +49,7 @@ namespace Convergence.Hazards
         static Color SandDune => Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.SaltFlats) ? new(0.90f, 0.87f, 0.85f) : Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.SkyRuin) ? new(0.70f, 0.67f, 0.60f) : Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.Forest) ? new(0.30f, 0.22f, 0.13f) : new(0.70f, 0.59f, 0.38f);   // the forest's own (Art.Biomes)
         static Color SandLit => Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.SaltFlats) ? new(0.99f, 0.98f, 0.97f) : Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.SkyRuin) ? new(0.86f, 0.84f, 0.78f) : Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.Forest) ? new(0.40f, 0.31f, 0.19f) : new(0.93f, 0.85f, 0.64f);   // the forest's own (Art.Biomes)
 
-        void Build(Vector2 size)
+        void Build()
         {
             int seed = Random.Range(1, 9999);
 
@@ -59,11 +62,11 @@ namespace Convergence.Hazards
             //           speckle sits on a flat sheet and reads as noise laid over a colour.
             //   grain   per-texel hash, point-sampled: the individual lit grains. This is the
             //           layer the word "granular" is actually about.
-            PitArt.Quad(gameObject, Spr.Square, SandDeep, size, OrderFloor, "floor");
-            PitArt.Tiled(gameObject, PitArt.Mottle(seed), WithAlpha(SandDune, 0.85f), size, OrderMaterial, "dune");
-            PitArt.Tiled(gameObject, PitArt.Grain(seed), WithAlpha(SandLit, 0.9f), size, OrderDetail, "grain");
+            Layer(PitArt.Solid, SandDeep, OrderFloor, "floor");
+            Layer(PitArt.MottleAt(seed), WithAlpha(SandDune, 0.85f), OrderMaterial, "dune");
+            Layer(PitArt.GrainAt(seed), WithAlpha(SandLit, 0.9f), OrderDetail, "grain");
 
-            BuildRecess(size);
+            BuildRecess();
         }
 
         static Color WithAlpha(Color c, float a) { c.a = a; return c; }

@@ -23,7 +23,8 @@ namespace Convergence.Hazards
 
         public static Spire Populate(int floor, Vector2 halfExtents, Transform player, Transform parent,
                                      bool spireAllowed = false, bool hurt = false, bool worn = false,
-                                     bool stormAllowed = false, bool circle = false, bool needsCover = false)
+                                     bool stormAllowed = false, bool circle = false, bool needsCover = false,
+                                     PitPieces.Plan pitPlan = null)
         {
             LastRing = null;
             var playerPos = player != null ? (Vector2)player.position : Vector2.zero;
@@ -38,13 +39,10 @@ namespace Convergence.Hazards
 
             // ---- Floor pits FIRST, because the columns have to give way to them ----
             //
-            // Ordering, not preference. Pits sit on the CELLS of the same lattice the columns sit
-            // on the POINTS of, so a pit swallows the points inside its own footprint - and the
-            // only way for that to be structural rather than a clearance check is for the pits to
-            // exist before a single column is placed. Done the other way round the builder would
-            // be back to retrying placements against each other, which is exactly what the old
-            // free-placed lava tile needed and what the grid exists to delete.
-            var pits = PlacePits(floor, halfExtents, playerPos, player, parent);
+            // The pits were laid with the room (Hazards.PitPieces - the plan comes in with it), so
+            // they only need spawning here; every lattice point a pit covers is dropped from the
+            // column pool before a single column is placed (BuildColumnGrid).
+            var pits = SpawnPits(floor, pitPlan, player, parent);
 
             // ---- The spire, second, so the columns give way to its ring. Pits do NOT - a
             // spire may stand in one, and the pit's hazard is one more price of the capture ----
@@ -290,85 +288,45 @@ namespace Convergence.Hazards
         // ---- floor pits ----
 
         /// <summary>
-        /// The floor's pit layout: ONE size tier for the whole floor, laid into that tier's own
-        /// regions.
-        ///
-        /// SIZE IS ROLLED ONCE FOR THE FLOOR AND THE REGIONS COME WITH IT, which is what turns
-        /// "at most one large, or two medium, or four small" from a set of caps into an actual
-        /// layout. Rolled per pit instead, a floor could land four Larges or one Small, and
-        /// nothing would be distributing them - two Mediums that both rolled into the west half
-        /// is the failure that makes "one per half" a requirement rather than a count.
-        ///
-        /// KIND IS THE SEPARATE ROLL, and the floor-25 rule lives entirely in how it is made.
-        /// Below that floor one kind is drawn and every pit takes it, so a floor is a fire floor
-        /// or a sand floor - a player meets each hazard on its own before meeting it in company.
-        /// At and above it each pit rolls independently, so a room can hold all three at once.
+        /// The floor's pits, from the plan its room was laid with (Hazards.PitPieces): each
+        /// planned piece is one pit, shaped to its cells. Kinds were rolled there - one kind for
+        /// the floor below PitMixedKindsFromFloor, each piece its own from it. Pits that hurt hurt
+        /// like the floor's enemies do, scaled by its depth.
         /// </summary>
-        static List<Rect> PlacePits(int floor, Vector2 halfExtents, Vector2 playerPos,
-                                    Transform player, Transform parent)
+        static List<FloorPit> SpawnPits(int floor, PitPieces.Plan plan, Transform player, Transform parent)
         {
-            var rects = new List<Rect>();
-            if (Random.value > Tuning.Hazards.PitsFloorChance) return rects;
-
-            var size = RollLayoutSize();
-            var regions = PitGrid.RegionsFor(size);
-
-            bool mixed = Core.RunFormat.Depth(floor) >= Tuning.Hazards.PitMixedKindsFromFloor;
-            var floorKind = RollKind();
-
-            foreach (var region in regions)
+            var pits = new List<FloorPit>();
+            if (plan == null) return pits;
+            foreach (var p in plan.Pits)
             {
-                // Player clearance is PitGrid's own job, checked against every candidate cell
-                // rather than against one already-chosen rect - see TryRect for why doing it here
-                // instead meant the Large layout never appeared at all.
-                if (!PitGrid.TryRect(region, size, halfExtents, playerPos, out var rect)) continue;
-
-                // Overlapping the one already placed cannot happen within a tier - the regions
-                // are disjoint - so there is nothing to check here, which is the point of having
-                // regions at all.
-                var kind = mixed ? RollKind() : floorKind;
-                switch (kind)
+                if (p.Cells.Count == 0) continue;
+                var shape = PitShape.FromCells(p.Cells, p.Spills);
+                FloorPit pit = p.Kind switch
                 {
-                    case PitKind.Sand: SandPit.Spawn(rect, player, parent); break;
-                    // Pits that hurt hurt like the floor's enemies do - scaled by its depth.
-                    case PitKind.Spike: SpikePit.Spawn(rect, player, parent).ScaleDamage(Enemies.FloorDifficulty.Damage(floor)); break;
-                    case PitKind.Water: WaterPit.Spawn(rect, player, parent); break;
-                    default: FirePit.Spawn(rect, player, parent).ScaleDamage(Enemies.FloorDifficulty.Damage(floor)); break;
-                }
-                rects.Add(rect);
+                    PitKind.Sand => SandPit.Spawn(shape, player, parent),
+                    PitKind.Spike => SpikePit.Spawn(shape, player, parent).ScaleDamage(Enemies.FloorDifficulty.Damage(floor)),
+                    PitKind.Water => WaterPit.Spawn(shape, player, parent),
+                    _ => FirePit.Spawn(shape, player, parent).ScaleDamage(Enemies.FloorDifficulty.Damage(floor)),
+                };
+                pits.Add(pit);
             }
-
-            return rects;
+            if (plan.Pits.Count > 0) Debug.Log($"[Pits] floor {floor}: {plan.Cells} cells - {plan.Describe}");
+            return pits;
         }
-
-        static PitSize RollLayoutSize()
-        {
-            float wl = Tuning.Hazards.PitLayoutWeightLarge;
-            float wm = Tuning.Hazards.PitLayoutWeightMedium;
-            float ws = Tuning.Hazards.PitLayoutWeightSmall;
-            float r = Random.value * (wl + wm + ws);
-            if (r < wl) return PitSize.Large;
-            return r < wl + wm ? PitSize.Medium : PitSize.Small;
-        }
-
-        static PitKind RollKind() => (PitKind)Random.Range(0, PitKinds);
 
         const int PitKinds = 4;
 
         /// <summary>
-        /// The chance a floor holds at least one pit of a GIVEN kind, from the same rules that place
-        /// them: one kind per floor below PitMixedKindsFromFloor, each pit rolling its own after.
-        /// A tornado floor is matched to it (TornadoStorm.Rolls), so Air's hazard turns up exactly as
-        /// often as Fire's, Earth's and Water's.
+        /// The chance a floor holds at least one pit of a GIVEN kind, from the same rules that lay
+        /// them: one kind per floor below PitMixedKindsFromFloor, each piece rolling its own after
+        /// (priced at the pieces a floor lays on average). A tornado floor is matched to it
+        /// (TornadoStorm.Rolls), so Air's hazard turns up as often as Fire's, Earth's and Water's.
         /// </summary>
         public static float PitKindChance(int floor)
         {
             if (Core.RunFormat.Depth(floor) < Tuning.Hazards.PitMixedKindsFromFloor) return Tuning.Hazards.PitsFloorChance / PitKinds;
             float miss = 1f - 1f / PitKinds;
-            float wl = Tuning.Hazards.PitLayoutWeightLarge, wm = Tuning.Hazards.PitLayoutWeightMedium,
-                  ws = Tuning.Hazards.PitLayoutWeightSmall;
-            float any = (wl * (1f - miss) + wm * (1f - miss * miss) + ws * (1f - Mathf.Pow(miss, 4f))) / (wl + wm + ws);
-            return Tuning.Hazards.PitsFloorChance * any;
+            return Tuning.Hazards.PitsFloorChance * (1f - Mathf.Pow(miss, Tuning.Hazards.PitPiecesPerFloor));
         }
 
         static bool RollCracked() => Random.value < Tuning.Hazards.ColumnCrackedChance;
@@ -376,7 +334,7 @@ namespace Convergence.Hazards
         /// <summary>
         /// Every lattice point a column is allowed to occupy this floor, centered on the arena's
         /// own origin and already filtered to clear the player, the fixed north/south doorway
-        /// spots, AND every pit already placed. Spacing is Tuning.Hazards.ColumnGridSpacing - see
+        /// spots, AND every pit already spawned. Spacing is Tuning.Hazards.ColumnGridSpacing - see
         /// that constant for why it composes with the force-field span without retuning either.
         ///
         /// Filtering the pits out HERE, once, rather than checking per column, is what makes
@@ -391,7 +349,7 @@ namespace Convergence.Hazards
         /// points explicitly means the guarantee holds even if arrival logic ever changes, and it
         /// reads as the actual rule rather than a side effect of where the player happens to spawn.
         /// </summary>
-        static List<Vector2> BuildColumnGrid(Vector2 halfExtents, Vector2 playerPos, List<Rect> pits, Spire spire,
+        static List<Vector2> BuildColumnGrid(Vector2 halfExtents, Vector2 playerPos, List<FloorPit> pits, Spire spire,
                                              TransmutationRing ring)
         {
             var points = new List<Vector2>();
@@ -416,9 +374,11 @@ namespace Convergence.Hazards
                 if (!Arena.OnFloor(p, Tuning.Hazards.ColumnRadiusLarge + 0.6f)
                     || Arena.NearTierEdge(p, Tuning.Hazards.ColumnRadiusLarge + 0.6f)) continue;
 
+                // Measured from the column's RIM: a large column merely outside a pit could still
+                // overhang most of its body into it.
                 bool blocked = false;
                 for (int k = 0; k < pits.Count && !blocked; k++)
-                    blocked = PitGrid.Blocks(pits[k], p);
+                    blocked = pits[k] != null && pits[k].Covers(p, Tuning.Hazards.ColumnRadiusLarge + Tuning.Hazards.PitColumnMargin);
                 if (blocked) continue;
 
                 // Measured from the column's RIM, as the pits are: no column inside the ring.

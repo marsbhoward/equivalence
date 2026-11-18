@@ -158,8 +158,8 @@ namespace Convergence.Enemies
                 float cost = pit.RouteCost;
                 if (cost <= 0f) continue;
 
-                // The FULL footprint, not the inset stand-test: a body whose centre is just outside
-                // still has half of itself in the pit.
+                // The FULL shape, not the inset stand-test: a body whose centre is just outside
+                // still has half of itself in the pit. The bounds only narrow the cells asked.
                 var r = pit.Footprint;
                 int x0 = Mathf.Max(0, Mathf.FloorToInt((r.xMin - _origin.x) / Cell));
                 int x1 = Mathf.Min(_w - 1, Mathf.FloorToInt((r.xMax - _origin.x) / Cell));
@@ -167,7 +167,7 @@ namespace Convergence.Enemies
                 int y1 = Mathf.Min(_h - 1, Mathf.FloorToInt((r.yMax - _origin.y) / Cell));
                 for (int y = y0; y <= y1; y++)
                 for (int x = x0; x <= x1; x++)
-                    if (r.Contains(Center(x, y)))
+                    if (pit.Covers(Center(x, y), 0f))
                     {
                         int i = y * _w + x;
                         _terrain[i] = Mathf.Max(_terrain[i], cost);

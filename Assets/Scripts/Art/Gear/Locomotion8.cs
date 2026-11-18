@@ -32,10 +32,18 @@ namespace Convergence.Art.Gear
             public bool Planted;
             public float Stance, Reach, Push, Speed, SpeedTex, Cycle;
             public float[][] Swing, PitchSpline;   // PitchSpline: [phase, degrees], cyclic
+            // THE ANIME TIMING (the Dash lean, the user's pick 2026-11-18): Hold, the swing's time curve (u -> u, slow on
+            // the two flight drawings, quick between: KeyedSwing), or null for an even swing; Hang, the body's rise and
+            // fall shaped to float through the flight and drop sharply onto the contact (1 is an even wave).
+            public float[] Hold;
+            public float Hang = 1f;
 
-            public float Height(float p) => Planted
-                ? -Bob * Mathf.Cos(4f * Mathf.PI * (p - Stance * 0.5f))          // lowest mid-stance, highest mid-flight
-                : Bob * Mathf.Cos(4f * Mathf.PI * (p - BobPhase)) + BobOffset;
+            public float Height(float p)
+            {
+                if (!Planted) return Bob * Mathf.Cos(4f * Mathf.PI * (p - BobPhase)) + BobOffset;
+                float d = 0.5f * (1f + Mathf.Cos(4f * Mathf.PI * (p - Stance * 0.5f)));   // 1 mid-stance, 0 mid-flight
+                return Bob - 2f * Bob * (Hang == 1f ? d : Mathf.Pow(d, Hang));        // Hang 1: -Bob cos, lowest mid-stance
+            }
             /// <summary>The arms' swing at <paramref name="p"/>, degrees (Body8: the character's right arm; the left is its
             /// negative). Planted: forward as its own side's foot leaves the ground.</summary>
             public float ArmAt(float p) => Planted ? Arm * Mathf.Cos(2f * Mathf.PI * (p - Stance)) : Arm * Mathf.Sin(2f * Mathf.PI * p);
@@ -56,6 +64,7 @@ namespace Convergence.Art.Gear
                 else
                 {
                     float u = (p - Stance) / (1f - Stance), du = 1f - Stance;
+                    if (Hold != null) { float x = u * (Hold.Length - 1); int j = Mathf.Min(Hold.Length - 2, (int)x); u = Mathf.Lerp(Hold[j], Hold[j + 1], x - j); }
                     int i = 0; while (i < Swing.Length - 2 && u > Swing[i + 1][0]) i++;
                     var a = Swing[i]; var b = Swing[i + 1]; float span = b[0] - a[0], t = (u - a[0]) / span;
                     fw = Hermite(a[1], b[1], SwingTangent(i, 1, vStance, du) * span, SwingTangent(i + 1, 1, vStance, du) * span, t);
@@ -93,9 +102,9 @@ namespace Convergence.Art.Gear
 
         // ---------------------------------------------------------------- the scaled stride
         // ONE run for every speed (the user, 2026-11-18, off the Pace Lab https://claude.ai/artifact/PGfExupKu1riKqNFuUHNvG:
-        // "too many or too little steps at any given time looks unpolished"). Three anchor poses - a jog, Long stride
-        // (the user's pick, E) and a sprint - are blended by speed. Steps a second follow ONE smooth rise with speed
-        // (StepRate x (v / 4.6)^StepPower), each anchor sets how far the foot sweeps, and how long it is down FOLLOWS from
+        // "too many or too little steps at any given time looks unpolished"). Three anchor poses - a jog, a run and a
+        // sprint, the Dash lean's since 2026-11-18 (Long stride's, E, before) - are blended by speed. Steps a second
+        // follow ONE smooth rise with speed (StepRate x DashRate x (v / 4.6)^StepPower), each anchor sets how far the foot sweeps, and how long it is down FOLLOWS from
         // keeping it planted - so the steps lengthen far more than they quicken, the way a runner speeds up. Below the
         // jog (only while starting or stopping) it keeps the jog's rate and shortens every step by v / jog, the hips rising
         // to standing: short quick steps out of the stand, never slow floating ones.
@@ -104,23 +113,51 @@ namespace Convergence.Art.Gear
         /// are arena units a second, and a rig at another scale converts (PrimitiveCharacterRig.PlaceLegs8).</summary>
         public const float ArenaTexelsPerUnit = 150f / (4f / 3f);
         public const float StepRate = 3.45f, StepPower = 0.3f, StepRateAt = 4.6f, JogSpeed = 1.4f;
+        /// <summary>THE DASH LEAN (the user's pick, 2026-11-18, off the Anime Run Lab
+        /// https://claude.ai/artifact/R1P8e13PfTyBazrw3b3QH2; it replaced Long stride's anchors): pitched forward on low
+        /// hips, the rear leg flicked long and high behind, the front foot skimming. Its steps come 15% quicker than the
+        /// Pace Lab's rate; the swing eases into two held flight drawings and snaps between them (Keyed); the body hangs
+        /// through the flight and drops onto the contact (Hang). Both fade out below the jog, toward a stand.</summary>
+        public const float DashRate = 1.15f, Keyed = 0.45f, DashHang = 1.6f;
+        /// <summary>Where the swing slows to a hold (share of the swing): the rear leg kicked up behind, the front reaching
+        /// for the ground - both in flight - and how wide each hold is.</summary>
+        static readonly float[] Holds = { 0.25f, 0.86f };
+        const float HoldWidth = 0.18f;
+
+        /// <summary>The swing's time curve for hold strength <paramref name="k"/>: a density with a dip at each hold,
+        /// integrated and normalised (slow 1-k at a hold, quicker between).</summary>
+        static float[] KeyedSwing(float k)
+        {
+            const int N = 64;
+            var t = new float[N + 1];
+            for (int i = 0; i < N; i++)
+            {
+                float x = (i + 0.5f) / N, b = 0f;
+                foreach (float h in Holds) { float q = Mathf.Abs(x - h) / HoldWidth; if (q < 1f) b += 0.5f * (1f + Mathf.Cos(Mathf.PI * q)); }
+                t[i + 1] = t[i] + 1f - k * Mathf.Min(1f, b);
+            }
+            for (int i = 0; i <= N; i++) t[i] /= t[N];
+            return t;
+        }
         /// <summary>Under this (arena units a second) the figure stands.</summary>
         public const float StandBelow = 0.2f;
 
         sealed class Anchor
         {
             public float V, Reach, Push, Base, Bob, Heel, Toe, Flick, Lean, Arm, Elbow, Trail;
-            public float[] Kick, Pass, Fore;
+            public float[] Kick, Pass, Knee, Fore;   // the swing's keys at 0.25, 0.5, 0.66 and 0.86 of it
         }
         static Anchor[] _anchors;
+        // the knee drive (Knee) comes while the OTHER foot is down: in the flights the legs are split, the rear folded up
+        // behind and the front reaching low - a high front foot there read as a tucked jump (the mock's first try)
         static Anchor[] Anchors => _anchors ??= new[]
         {
-            new Anchor { V = 1.4f, Reach = 0.33f, Push = 0.37f, Base = 53.4f, Bob = 1.6f, Kick = new[] { -0.42f, 0.22f }, Pass = new[] { -0.02f, 0.26f }, Fore = new[] { 0.40f, 0.10f },
-                         Heel = 12f, Toe = 30f, Flick = 45f, Lean = 6f, Arm = 24f, Elbow = 70f, Trail = 6f },
-            new Anchor { V = 4.6f, Reach = 0.46f, Push = 0.50f, Base = 50.8f, Bob = 2.4f, Kick = new[] { -0.60f, 0.34f }, Pass = new[] { 0.02f, 0.38f }, Fore = new[] { 0.62f, 0.16f },
-                         Heel = 15f, Toe = 36f, Flick = 62f, Lean = 12f, Arm = 40f, Elbow = 84f, Trail = 13f },
-            new Anchor { V = 7.4f, Reach = 0.48f, Push = 0.52f, Base = 50.2f, Bob = 2.8f, Kick = new[] { -0.66f, 0.42f }, Pass = new[] { 0.04f, 0.44f }, Fore = new[] { 0.66f, 0.18f },
-                         Heel = 15f, Toe = 38f, Flick = 70f, Lean = 15f, Arm = 50f, Elbow = 82f, Trail = 16f },
+            new Anchor { V = 1.4f, Reach = 0.30f, Push = 0.42f, Base = 51.0f, Bob = 1.4f, Kick = new[] { -0.52f, 0.32f }, Pass = new[] { -0.14f, 0.34f }, Knee = new[] { 0.12f, 0.20f }, Fore = new[] { 0.32f, 0.06f },
+                         Heel = 10f, Toe = 32f, Flick = 58f, Lean = 14f, Arm = 22f, Elbow = 92f, Trail = 10f },
+            new Anchor { V = 4.6f, Reach = 0.40f, Push = 0.60f, Base = 46.4f, Bob = 1.6f, Kick = new[] { -0.74f, 0.50f }, Pass = new[] { -0.20f, 0.52f }, Knee = new[] { 0.18f, 0.30f }, Fore = new[] { 0.46f, 0.08f },
+                         Heel = 12f, Toe = 40f, Flick = 84f, Lean = 28f, Arm = 30f, Elbow = 100f, Trail = 18f },
+            new Anchor { V = 7.4f, Reach = 0.42f, Push = 0.64f, Base = 45.4f, Bob = 1.8f, Kick = new[] { -0.78f, 0.56f }, Pass = new[] { -0.18f, 0.58f }, Knee = new[] { 0.20f, 0.32f }, Fore = new[] { 0.48f, 0.08f },
+                         Heel = 12f, Toe = 42f, Flick = 90f, Lean = 32f, Arm = 34f, Elbow = 104f, Trail = 22f },
         };
         /// <summary>The speeds a stride is drawn for (arena units a second): a dozen pictures-sets, not one per speed.</summary>
         public static readonly float[] StrideSpeeds = { 0.35f, 0.7f, 1.05f, 1.4f, 1.8f, 2.3f, 2.9f, 3.6f, 4.6f, 5.6f, 6.6f, 7.4f };
@@ -145,17 +182,20 @@ namespace Convergence.Art.Gear
             float M(float x0, float x1, bool step = true) { float x = Mathf.Lerp(x0, x1, t); return step ? x * k : x; }
             float[] MA(float[] x0, float[] x1) => new[] { M(x0[0], x1[0]), M(x0[1], x1[1]) };
             float reach = M(a0.Reach, a1.Reach), push = M(a0.Push, a1.Push), speedTex = vb * ArenaTexelsPerUnit;
-            float cycle = 2f / (StepRate * Mathf.Pow(Mathf.Max(JogSpeed, vb) / StepRateAt, StepPower));
+            float cycle = 2f / (StepRate * DashRate * Mathf.Pow(Mathf.Max(JogSpeed, vb) / StepRateAt, StepPower));
             float stance = Mathf.Min(0.62f, (reach + push) * (Thigh + Shin) / (speedTex * cycle));
             float heel = M(a0.Heel, a1.Heel), toe = M(a0.Toe, a1.Toe), flick = M(a0.Flick, a1.Flick);
             float Sw(float q) => stance + (1f - stance) * q;
-            var kick = MA(a0.Kick, a1.Kick); var pass = MA(a0.Pass, a1.Pass); var fore = MA(a0.Fore, a1.Fore);
+            var kick = MA(a0.Kick, a1.Kick); var pass = MA(a0.Pass, a1.Pass); var knee = MA(a0.Knee, a1.Knee); var fore = MA(a0.Fore, a1.Fore);
             return new Gait
             {
                 Name = "s" + index, Frames = Mathf.Max(4, Mathf.RoundToInt(cycle * 25f)), Planted = true,
                 Stance = stance, Reach = reach, Push = push, Speed = vb, SpeedTex = speedTex, Cycle = cycle,
-                Swing = new[] { new[] { 0f, -push, 0f }, new[] { 0.2f, kick[0], kick[1] }, new[] { 0.5f, pass[0], pass[1] }, new[] { 0.8f, fore[0], fore[1] }, new[] { 1f, reach, 0f } },
-                PitchSpline = new[] { new[] { 0f, heel }, new[] { stance * 0.5f, 0f }, new[] { stance, -toe }, new[] { Sw(0.25f), -flick }, new[] { Sw(0.55f), -flick * 0.35f }, new[] { Sw(0.85f), heel * 0.7f } },
+                Swing = new[] { new[] { 0f, -push, 0f }, new[] { 0.25f, kick[0], kick[1] }, new[] { 0.5f, pass[0], pass[1] }, new[] { 0.66f, knee[0], knee[1] },
+                                new[] { 0.86f, fore[0], fore[1] }, new[] { 1f, reach, 0f } },
+                PitchSpline = new[] { new[] { 0f, heel }, new[] { stance * 0.5f, 0f }, new[] { stance, -toe }, new[] { Sw(0.25f), -flick }, new[] { Sw(0.55f), -flick * 0.3f }, new[] { Sw(0.86f), heel * 0.8f } },
+                // the holds and the hang fade toward a stand below the jog, as the steps shorten
+                Hold = KeyedSwing(Keyed * k), Hang = 1f + (DashHang - 1f) * k,
                 // the hips rise toward standing as the steps shorten below the jog
                 Base = k < 1f ? Mathf.Lerp(Thigh + Shin - 2.5f, Mathf.Lerp(a0.Base, a1.Base, t), k) : Mathf.Lerp(a0.Base, a1.Base, t),
                 Bob = M(a0.Bob, a1.Bob), Lean = M(a0.Lean, a1.Lean), Arm = M(a0.Arm, a1.Arm), Elbow = Mathf.Lerp(a0.Elbow, a1.Elbow, t),

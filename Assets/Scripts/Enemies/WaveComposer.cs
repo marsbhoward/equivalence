@@ -50,6 +50,27 @@ namespace Convergence.Enemies
             return false;
         }
 
+        /// <summary>
+        /// The share of the wave's real effective HP held by the kinds that attack across open
+        /// space - Ranged, Turret, Mortar (the Brimstone Heart does not count; the user's call,
+        /// 2026-11-18). What the chasm stones ask (Hazards.PitPieces): islands only a dash reaches
+        /// are fair only when the wave can answer a bow standing on one.
+        /// </summary>
+        public float RangedShare
+        {
+            get
+            {
+                float all = 0f, ranged = 0f;
+                foreach (var s in Spawns)
+                {
+                    float e = WaveComposer.Ehp(s.Kind, s.Elite, Floor, s.Dross);
+                    all += e;
+                    if (s.Kind == EnemyKind.Ranged || s.Kind == EnemyKind.Turret || s.Kind == EnemyKind.Mortar) ranged += e;
+                }
+                return all > 0f ? ranged / all : 0f;
+            }
+        }
+
         public int Elites => Spawns.Count(s => s.Elite);
         public int DrossCount => Spawns.Count(s => s.Dross);
 

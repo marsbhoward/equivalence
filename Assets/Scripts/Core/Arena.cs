@@ -234,9 +234,10 @@ namespace Convergence.Core
         /// <summary>Install a shape (each array cols x rows, bottom row first; chasm may be null),
         /// or clear it with null.</summary>
         public static void SetWalls(bool[] wall, bool[] chasm, int cols, int rows, bool chasmIsWater = false,
-                                    bool[] edge = null)
+                                    bool[] edge = null, bool[] island = null)
         {
             _wall = wall;
+            _island = wall != null ? island : null;
             ChasmIsWater = wall != null && chasmIsWater;
             _chasm = wall != null ? chasm : null;
             _edge = wall != null ? edge : null;
@@ -245,6 +246,15 @@ namespace Convergence.Core
             HasChasms = false;
             if (_chasm != null) foreach (bool c in _chasm) if (c) { HasChasms = true; break; }
         }
+
+        /// <summary>ISLANDS: floor the chasm stones laid that only a dash reaches (Hazards.PitPieces,
+        /// the user's call 2026-11-18 - only against a mostly ranged wave). Standing room for the
+        /// player; never an arrival point, or a melee body would arrive where it can never leave.</summary>
+        static bool[] _island;
+
+        /// <summary>Is <paramref name="p"/> on an island (or within <paramref name="margin"/> of one)?</summary>
+        public static bool OnIsland(Vector2 p, float margin = 0f)
+            => _island != null && Near(p, margin, (x, y) => x >= 0 && y >= 0 && x < _cols && y < _rows && _island[y * _cols + x]);
 
         /// <summary>A cracked segment broke: its cells are floor from now on.</summary>
         public static void OpenCell(int x, int y)

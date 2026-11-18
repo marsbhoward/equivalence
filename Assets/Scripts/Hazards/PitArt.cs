@@ -5,7 +5,7 @@ using Convergence.Core;
 namespace Convergence.Hazards
 {
     /// <summary>
-    /// The procedural sprites and layer helpers the three floor pits are drawn from.
+    /// The procedural sprites and layer helpers the four floor pits are drawn from.
     ///
     /// KEPT OUT OF <see cref="Spr"/> DELIBERATELY. Everything in Spr is a general primitive used
     /// from several unrelated systems, and its own notes are full of the cost of sharing one
@@ -13,128 +13,24 @@ namespace Convergence.Hazards
     /// are used by exactly one hazard each; putting them beside Circle and Capsule would invite
     /// the next caller to reach for them and start the same argument.
     ///
-    /// TWO THINGS HERE DIFFER FROM Spr AND BOTH ARE THE POINT:
+    /// THREE THINGS HERE DIFFER FROM Spr AND ALL ARE THE POINT:
     ///
     /// - <b>POINT FILTERING.</b> Spr.Build is Bilinear, which is right for soft blobs and fatal
-    ///   for grain: bilinear resolves a per-texel speckle into flat mush at any size a pit is
-    ///   actually drawn, so "sand coloured" is exactly what you get back. Grain has to be
-    ///   point-sampled or it is not grain.
-    /// - <b>TILED, NOT STRETCHED.</b> These are built at one sprite per world unit and drawn
-    ///   through <c>SpriteDrawMode.Tiled</c>, so a grain on a 2.3-unit Small pit is the same SIZE
-    ///   of grain as on a 5-unit Large one. Stretched, the same texture would make a big pit look
-    ///   like coarse gravel and a small one like dust - the material would change with the
-    ///   footprint, which is the one thing a material must not do.
-    ///
-    /// Seamlessness is by construction rather than by blending: the fine layer is a pure per-texel
-    /// hash (no spatial correlation to break at an edge) and the coarse layer's value-noise
-    /// lattice is indexed MODULO its own cell count, so the left column of cells is literally the
-    /// same row of hashes as the right.
+    ///   for grain: bilinear resolves a per-texel speckle into flat mush, so "sand coloured" is
+    ///   exactly what you get back. Grain has to be point-sampled or it is not grain.
+    /// - <b>WORLD-SPACE MATERIALS, NOT STRETCHED ONES.</b> A pit's materials are sampled at world
+    ///   texels and units (<see cref="Pattern"/>), so a grain on a small pit is the same SIZE of
+    ///   grain as on a large one - stretched, a big pit looks like gravel and a small one like
+    ///   dust, and the material would change with the footprint, which a material must not do.
+    /// - <b>SHAPED, BAKED ONCE.</b> A pit is any shape the pieces lay (Hazards.PitShape), so its
+    ///   layers are baked to it at the floor's own density (<see cref="Shaped"/>), its recess
+    ///   followed round the outline (<see cref="Recess"/>).
     /// </summary>
     public static class PitArt
     {
         // ---- sprites ----
 
-        static readonly Dictionary<int, Sprite> _grain = new();
-        static readonly Dictionary<int, Sprite> _crust = new();
-        static readonly Dictionary<int, Sprite> _mottle = new();
-        static readonly Dictionary<int, Sprite> _glints = new();
-        static Sprite _flame, _jack, _edgeFade, _emberBed;
-
-        /// <summary>
-        /// Per-texel speckle - the fine half of sand. Pure hash, so every texel is independent and
-        /// the field has no structure at any scale above one texel, which is what granular
-        /// actually means.
-        /// </summary>
-        public static Sprite Grain(int seed)
-        {
-            if (_grain.TryGetValue(seed, out var cached) && cached != null) return cached;
-            var built = Build(64, FilterMode.Point, TextureWrapMode.Repeat, (x, y) =>
-            {
-                float h = Hash(x, y, seed);
-                // Weighted to the low end: most grains sit near the base tone and only a minority
-                // catch the light. An even spread reads as television static rather than as sand.
-                return h * h * h;
-            });
-            _grain[seed] = built;
-            return built;
-        }
-
-        /// <summary>
-        /// Smooth two-octave value noise - the coarse half of sand, and the dune shading that
-        /// stops a speckle field from reading as a flat sheet with dots on it.
-        /// </summary>
-        public static Sprite Mottle(int seed)
-        {
-            if (_mottle.TryGetValue(seed, out var cached) && cached != null) return cached;
-            var built = Build(64, FilterMode.Bilinear, TextureWrapMode.Repeat, (x, y) =>
-            {
-                float n = ValueNoise(x / 64f, y / 64f, 4, seed) * 0.65f
-                        + ValueNoise(x / 64f, y / 64f, 8, seed + 17) * 0.35f;
-                return Mathf.Clamp01((n - 0.35f) * 1.6f);
-            });
-            _mottle[seed] = built;
-            return built;
-        }
-
-        /// <summary>
-        /// Sparse lit points on a water surface - sky caught on the tops of small waves. Short
-        /// horizontal dashes rather than single texels: a lone texel reads as grain (sand's job),
-        /// a dash reads as light lying on a surface. Point-sampled for the same reason as grain.
-        /// </summary>
-        public static Sprite Glints(int seed)
-        {
-            if (_glints.TryGetValue(seed, out var cached) && cached != null) return cached;
-            var built = Build(64, FilterMode.Point, TextureWrapMode.Repeat, (x, y) =>
-            {
-                // A dash is lit when the texel at its LEFT end hashes high, and runs 2-3 texels
-                // right of it - wrapped, so the tile still has no seam.
-                for (int k = 0; k < 3; k++)
-                {
-                    int sx = Wrap(x - k, 64);
-                    float h = Hash(sx, y, seed);
-                    if (h > 0.985f && (k < 2 || h > 0.993f)) return k == 0 ? 1f : 0.7f;
-                }
-                return 0f;
-            });
-            _glints[seed] = built;
-            return built;
-        }
-
-        /// <summary>
-        /// Ash PLATES with dark cracks between them, not a grey wash. A cooled fire pit is a crust
-        /// that has broken as it shrank, and the cracks are what tell you there is something under
-        /// it - a flat grey rectangle is a paving slab.
-        /// </summary>
-        public static Sprite Crust(int seed)
-        {
-            if (_crust.TryGetValue(seed, out var cached) && cached != null) return cached;
-            var built = Build(96, FilterMode.Point, TextureWrapMode.Repeat, (x, y) =>
-            {
-                float n = ValueNoise(x / 96f, y / 96f, 6, seed);
-                // Distance from the noise field's own mid level IS the plate: the level set
-                // n == 0.5 traces a closed contour network, so thresholding how far a texel sits
-                // from it gives solid plates separated by continuous cracks rather than the
-                // disconnected blobs a plain threshold produces.
-                float edge = Mathf.Abs(n - 0.5f);
-                float plate = Mathf.Clamp01((edge - 0.045f) * 14f);
-                // A little per-texel tooth so the plates themselves read as ash rather than paint.
-                return plate * Mathf.Lerp(0.78f, 1f, Hash(x, y, seed + 3));
-            });
-            _crust[seed] = built;
-            return built;
-        }
-
-        /// <summary>
-        /// The bed under the flames: coals, drawn as hot cells separated by cooler gaps. Shares
-        /// <see cref="Crust"/>'s contour trick INVERTED - here the network between plates is what
-        /// glows, because a coal bed is lit through its own cracks.
-        /// </summary>
-        public static Sprite EmberBed => _emberBed ??= Build(96, FilterMode.Point, TextureWrapMode.Repeat, (x, y) =>
-        {
-            float n = ValueNoise(x / 96f, y / 96f, 7, 991);
-            float edge = Mathf.Abs(n - 0.5f);
-            return Mathf.Clamp01(1f - edge * 9f) * Mathf.Lerp(0.6f, 1f, Hash(x, y, 77));
-        });
+        static Sprite _flame, _jack;
 
         /// <summary>
         /// One flame tongue: broad and soft at the base, tapering to a point, curling as it rises.
@@ -196,18 +92,6 @@ namespace Convergence.Hazards
             return a;
         });
 
-        /// <summary>
-        /// A square whose alpha runs from solid along its BOTTOM edge to nothing at the top - one
-        /// inner wall of a recess. Rotated to serve all four sides, so the pit's own lip is one
-        /// sprite used four ways rather than four bespoke gradients that could disagree.
-        /// </summary>
-        public static Sprite EdgeFade => _edgeFade ??= Build(64, FilterMode.Bilinear, TextureWrapMode.Clamp, (x, y) =>
-        {
-            float t = y / 64f;
-            float f = 1f - t;
-            return f * f;      // squared, so the wall is dark right at the lip and gone quickly
-        });
-
         // ---- layer helpers ----
 
         /// <summary>
@@ -228,24 +112,184 @@ namespace Convergence.Hazards
             return sr;
         }
 
-        /// <summary>
-        /// A material layer REPEATED across <paramref name="size"/> rather than stretched to it.
-        /// Scale stays at one, because Tiled draw mode sizes off <c>sr.size</c> and a scaled tile
-        /// would scale the tiling with it - which is the stretch this exists to avoid, arriving
-        /// by a different route.
-        /// </summary>
-        public static SpriteRenderer Tiled(GameObject parent, Sprite sprite, Color color,
-                                           Vector2 size, int order, string name = "material")
+        // ---- shaped layers (Hazards.PitShape) ----
+        //
+        // A pit laid by the pieces is any shape, so its layers cannot be tiled quads: each is
+        // BAKED once, at the floor's own density (Art.Scenery.Ppu - floors stay 37.5,
+        // ENGINEERING.md) and on the world's texel grid, cut to the shape. The materials are the
+        // same patterns the tiles were made of, sampled in WORLD units, so grain and mottle sit
+        // still across a pit and a big pit's grain is a small one's. White with the pattern in
+        // alpha: the renderer's colour tints it, so the fire's paint-by-heat still works.
+
+        /// <summary>A world-space material pattern: texel x, y on the world grid and the same
+        /// point in units.</summary>
+        public delegate float Pattern(int tx, int ty, float u, float v);
+
+        public static Pattern Solid => (tx, ty, u, v) => 1f;
+        public static Pattern GrainAt(int seed) => (tx, ty, u, v) => { float h = Hash(tx, ty, seed); return h * h * h; };
+        public static Pattern MottleAt(int seed) => (tx, ty, u, v) =>
         {
+            float n = ValueNoise(u, v, 4, seed) * 0.65f + ValueNoise(u, v, 8, seed + 17) * 0.35f;
+            return Mathf.Clamp01((n - 0.35f) * 1.6f);
+        };
+        public static Pattern CrustAt(int seed) => (tx, ty, u, v) =>
+        {
+            float edge = Mathf.Abs(ValueNoise(u, v, 6, seed) - 0.5f);
+            return Mathf.Clamp01((edge - 0.045f) * 14f) * Mathf.Lerp(0.78f, 1f, Hash(tx, ty, seed + 3));
+        };
+        public static Pattern EmberBedAt => (tx, ty, u, v) =>
+        {
+            float edge = Mathf.Abs(ValueNoise(u, v, 7, 991) - 0.5f);
+            return Mathf.Clamp01(1f - edge * 9f) * Mathf.Lerp(0.6f, 1f, Hash(tx, ty, 77));
+        };
+        public static Pattern GlintsAt(int seed) => (tx, ty, u, v) =>
+        {
+            for (int k = 0; k < 3; k++)
+            {
+                float h = Hash(tx - k, ty, seed);
+                if (h > 0.985f && (k < 2 || h > 0.993f)) return k == 0 ? 1f : 0.7f;
+            }
+            return 0f;
+        };
+
+        static float Ppu => Art.Scenery.Ppu;   // the floor's own density (37.5)
+
+        /// <summary>The texel rect a shape's layers are baked over, on the world grid.</summary>
+        static RectInt TexelRect(PitShape shape)
+        {
+            var r = shape.DrawRect;
+            int x0 = Mathf.FloorToInt(r.xMin * Ppu) - 1, y0 = Mathf.FloorToInt(r.yMin * Ppu) - 1;
+            int x1 = Mathf.CeilToInt(r.xMax * Ppu) + 1, y1 = Mathf.CeilToInt(r.yMax * Ppu) + 1;
+            return new RectInt(x0, y0, x1 - x0, y1 - y0);
+        }
+
+        static Vector2 TexelCentre(int tx, int ty) => new((tx + 0.5f) / Ppu, (ty + 0.5f) / Ppu);
+
+        /// <summary>
+        /// Whether a texel is drawn as the pit: inside the field (by a hashed wobble of a fraction
+        /// of a texel, so the cut edge is a hand's edge rather than a ruled curve) and inside the
+        /// room - a spill past the room is the shelf's, never the pit's.
+        /// </summary>
+        public static bool InsideTexel(PitShape shape, int tx, int ty)
+        {
+            var p = TexelCentre(tx, ty);
+            if (shape.PastSpill(p, out _)) return false;
+            float wobble = (Hash(tx >> 1, ty >> 1, 4441) - 0.5f) * Tuning.Hazards.PitEdgeWobble;
+            return shape.Sample(p) > wobble;
+        }
+
+        /// <summary>
+        /// One material layer of a shaped pit, baked: the shape's texels carry
+        /// <paramref name="pattern"/> in alpha, the rest are clear. Positioned in world space under
+        /// <paramref name="parent"/>; the texture and sprite are added to <paramref name="owned"/>
+        /// for the pit to free.
+        /// </summary>
+        public static SpriteRenderer Shaped(GameObject parent, PitShape shape, Pattern pattern, Color color,
+                                            int order, string name, List<Object> owned)
+        {
+            var rect = TexelRect(shape);
+            var px = new Color32[rect.width * rect.height];
+            for (int j = 0; j < rect.height; j++)
+            for (int i = 0; i < rect.width; i++)
+            {
+                int tx = rect.x + i, ty = rect.y + j;
+                if (!InsideTexel(shape, tx, ty)) continue;
+                var p = TexelCentre(tx, ty);
+                float a = Mathf.Clamp01(pattern(tx, ty, p.x, p.y));
+                px[j * rect.width + i] = new Color32(255, 255, 255, (byte)(a * 255f));
+            }
+            return Place(parent, rect, px, color, order, name, owned);
+        }
+
+        /// <summary>
+        /// The RECESS for a shaped pit, baked as one coloured layer: the far wall (a top edge,
+        /// which a top-down camera sees the inside of) in the deepest shadow, the side walls
+        /// weaker, the near wall catching a little light, and a hairline of broken stone along
+        /// every top edge - FloorPit's four gradient walls, followed round any outline. Edges
+        /// where a spill runs on into the lake have no wall: the field never closes there.
+        /// </summary>
+        public static SpriteRenderer Recess(GameObject parent, PitShape shape, float depthScale, int order, List<Object> owned)
+        {
+            var rect = TexelRect(shape);
+            int w = rect.width, h = rect.height;
+            var inside = new bool[w * h];
+            for (int j = 0; j < h; j++)
+            for (int i = 0; i < w; i++)
+            {
+                // The walls are measured against the FIELD (unclipped), so a spill's mouth has none.
+                var p = TexelCentre(rect.x + i, rect.y + j);
+                float wobble = (Hash((rect.x + i) >> 1, (rect.y + j) >> 1, 4441) - 0.5f) * Tuning.Hazards.PitEdgeWobble;
+                inside[j * w + i] = shape.Sample(p) > wobble;
+            }
+            bool In(int i, int j) => i < 0 || j < 0 || i >= w || j >= h ? false : inside[j * w + i];
+
+            float depth = Tuning.Hazards.PitWallDepth * depthScale * Ppu;   // texels
+            int far = Mathf.CeilToInt(depth * 1.6f), side = Mathf.CeilToInt(depth), near = Mathf.CeilToInt(depth * 0.7f);
+            int Run(int i, int j, int di, int dj, int max)
+            {
+                for (int k = 1; k <= max; k++) if (!In(i + di * k, j + dj * k)) return k;
+                return max + 1;
+            }
+            static float Fall(int d, int max) { if (d > max) return 0f; float t = (d - 1f) / Mathf.Max(1f, max); float f = 1f - t; return f * f; }
+
+            var px = new Color32[w * h];
+            var lip = new Color(0.72f, 0.70f, 0.66f, 0.55f);
+            for (int j = 0; j < h; j++)
+            for (int i = 0; i < w; i++)
+            {
+                if (!In(i, j) || !InsideTexel(shape, rect.x + i, rect.y + j)) continue;
+                int up = Run(i, j, 0, 1, far);
+                if (up == 1) { px[j * w + i] = lip; continue; }
+                float shade = Mathf.Max(0.62f * Fall(up, far),
+                                        0.34f * Mathf.Max(Fall(Run(i, j, -1, 0, side), side), Fall(Run(i, j, 1, 0, side), side)));
+                float light = 0.10f * Fall(Run(i, j, 0, -1, near), near);
+                px[j * w + i] = light > shade ? new Color(1f, 0.96f, 0.88f, light) : new Color(0f, 0f, 0f, shade);
+            }
+            return Place(parent, rect, px, Color.white, order, "recess", owned);
+        }
+
+        /// <summary>
+        /// The SHELF where wading water meets the lake past an open side (edge water): a dark
+        /// drop-off line along the room's edge, then the lake's own shallows running on under the
+        /// ground's bank, so the inlet and the lake read as one water with a step down between.
+        /// </summary>
+        public static SpriteRenderer Shelf(GameObject parent, PitShape shape, Color drop, Color lake, int order, List<Object> owned)
+        {
+            var rect = TexelRect(shape);
+            var px = new Color32[rect.width * rect.height];
+            float line = 2f / Ppu;
+            for (int j = 0; j < rect.height; j++)
+            for (int i = 0; i < rect.width; i++)
+            {
+                var p = TexelCentre(rect.x + i, rect.y + j);
+                if (!shape.PastSpill(p, out float past) || shape.Sample(p) <= 0f) continue;
+                px[j * rect.width + i] = past <= line ? drop : lake;
+            }
+            return Place(parent, rect, px, Color.white, order, "shelf", owned);
+        }
+
+        static SpriteRenderer Place(GameObject parent, RectInt rect, Color32[] px, Color color, int order, string name, List<Object> owned)
+        {
+            var tex = new Texture2D(rect.width, rect.height, TextureFormat.RGBA32, false)
+            {
+                filterMode = FilterMode.Point,
+                wrapMode = TextureWrapMode.Clamp,
+                hideFlags = HideFlags.HideAndDontSave,
+            };
+            tex.SetPixels32(px);
+            tex.Apply(false, true);
+            var spr = Sprite.Create(tex, new Rect(0, 0, rect.width, rect.height), Vector2.zero, Ppu, 0, SpriteMeshType.FullRect);
+            spr.hideFlags = HideFlags.HideAndDontSave;
+            owned?.Add(tex);
+            owned?.Add(spr);
+
             var go = new GameObject(name);
             go.transform.SetParent(parent.transform, false);
+            go.transform.position = new Vector3(rect.x / Ppu, rect.y / Ppu, 0f);
             var sr = go.AddComponent<SpriteRenderer>();
-            sr.sprite = sprite;
+            sr.sprite = spr;
             sr.color = color;
             sr.sortingOrder = order;
-            sr.drawMode = SpriteDrawMode.Tiled;
-            sr.tileMode = SpriteTileMode.Continuous;
-            sr.size = size;
             return sr;
         }
 

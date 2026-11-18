@@ -24,6 +24,12 @@ namespace Convergence.Hazards
     /// GROUND, so it is ASKED FOR (<see cref="FloorPits.GripAt"/>) rather than written onto the
     /// body, for every reason speed is. Surefooted (the boon promising "no slide") ignores it.
     ///
+    /// WADING WATER, NOT A LAKE (the user's flag, 2026-11-18). The floor shows through it - a
+    /// tint over the ground, not an opaque deep body - because a LAKE is a chasm (dash only) and
+    /// the two must never be mistaken. Laid against an open side where the place's void is water
+    /// (Hazards.PitPieces' edge water), it runs out to the room's edge with no lip and a dark
+    /// drop-off into the lake past it (<see cref="PitArt.Shelf"/>).
+    ///
     /// ITS RIPPLES ARE THE READOUT. A body moving through throws a wake at its feet, so the slide
     /// is visible while it happens rather than only felt; the surface ripples on its own too, so
     /// a still puddle never reads as a blue rug.
@@ -56,36 +62,56 @@ namespace Convergence.Hazards
         public override float RouteCost => Tuning.Steering.WaterRouteCost;
 
         public static WaterPit Spawn(Rect rect, Transform player, Transform parent)
+            => Spawn(PitShape.FromRect(rect), player, parent);
+
+        public static WaterPit Spawn(PitShape shape, Transform player, Transform parent)
         {
             var go = new GameObject("pit.water");
             go.transform.SetParent(parent, false);
             var pit = go.AddComponent<WaterPit>();
-            pit.Init(rect, player);
-            pit.Build(rect.size);
+            pit.Init(shape, player);
+            pit.Build();
             return pit;
         }
 
         static Color WaterDeep => Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.SaltFlats) ? new(0.10f, 0.36f, 0.40f) : Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.SkyRuin) ? new(0.30f, 0.46f, 0.68f) : Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.Forest) ? new(0.05f, 0.12f, 0.09f) : new(0.08f, 0.19f, 0.31f);   // the forest's own (Art.Biomes)
         static Color WaterShallow => Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.SaltFlats) ? new(0.30f, 0.62f, 0.62f) : Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.SkyRuin) ? new(0.52f, 0.68f, 0.86f) : Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.Forest) ? new(0.16f, 0.30f, 0.20f) : new(0.24f, 0.48f, 0.64f);   // the forest's own (Art.Biomes)
         static Color WaterLight => Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.SaltFlats) ? new(0.95f, 0.97f, 0.97f) : Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.SkyRuin) ? new(0.92f, 0.96f, 1f) : Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.Forest) ? new(0.70f, 0.85f, 0.70f) : new(0.84f, 0.95f, 1f);   // the forest's own (Art.Biomes)
+        /// <summary>WADING water's tint over the floor: lighter and cooler than the place's ground
+        /// and than its lake, so it reads as shallow water standing ON the floor - never as the
+        /// lake's dark (a chasm). The forest's moss is dark green, so its wading water is pale.</summary>
+        static Color WadeTint => Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.SaltFlats) ? new(0.42f, 0.74f, 0.80f) : Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.SkyRuin) ? new(0.56f, 0.74f, 0.96f) : Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.Forest) ? new(0.40f, 0.62f, 0.56f) : new(0.34f, 0.60f, 0.76f);
+        /// <summary>The waterline: a pale line just inside the edge, where shallow water meets the stone.</summary>
+        static Color Waterline => Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.Forest) ? new(0.70f, 0.84f, 0.72f, 0.75f) : new(0.86f, 0.95f, 1f, 0.75f);
         static Color RippleColor => Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.Forest) ? new(0.65f, 0.80f, 0.66f) : new(0.78f, 0.92f, 1f);   // the forest's own (Art.Biomes)
 
-        void Build(Vector2 size)
+        void Build()
         {
-            _size = size;
+            _size = Shape.Bounds.size;
             int seed = Random.Range(1, 9999);
             _clock = Random.value * 10f;
 
-            // Three layers, as sand: the deep body, a slow mottle of shallower water over it (the
-            // bottom showing through unevenly), and the lit glints on the surface - which shimmer,
-            // being the one part of still water that moves.
-            PitArt.Quad(gameObject, Spr.Square, WaterDeep, size, OrderFloor, "floor");
-            // Kept LOW-contrast: at full strength the mottle's one-unit tile repeats visibly and
-            // the basin reads as a patterned blue rug rather than as depth.
-            PitArt.Tiled(gameObject, PitArt.Mottle(seed), WithAlpha(WaterShallow, 0.35f), size, OrderMaterial, "shallows");
-            _glints = PitArt.Tiled(gameObject, PitArt.Glints(seed), WithAlpha(WaterLight, 0.6f), size, OrderDetail, "glints");
+            // Three layers: a TINT of shallow water over the floor (which shows through - wading
+            // water, not a lake), a slow mottle of deeper water in it, and the lit glints on the
+            // surface, which shimmer, being the one part of still water that moves.
+            Layer(PitArt.Solid, WithAlpha(WadeTint, Tuning.Hazards.WaterTint), OrderFloor, "floor");
+            // Kept LOW-contrast: at full strength the mottle reads as a patterned blue rug.
+            Layer(PitArt.MottleAt(seed), WithAlpha(WaterShallow, 0.22f), OrderMaterial, "shallows");
+            _glints = Layer(PitArt.GlintsAt(seed), WithAlpha(WaterLight, 0.8f), OrderDetail, "glints");
+            // The waterline: a pale band a texel or two inside the edge, broken by a hash so it
+            // reads as water lapping rather than a drawn outline.
+            var shape = Shape;
+            Layer((tx, ty, u, v) =>
+            {
+                float d = shape.Sample(new Vector2(u, v));
+                return d < 2.2f / Art.Scenery.Ppu && PitArt.Hash(tx >> 1, ty, 919) > 0.25f ? 1f : 0f;
+            }, Waterline, OrderDetail, "waterline");
 
-            BuildRecess(size, Tuning.Hazards.WaterRecessDepth);
+            BuildRecess(Tuning.Hazards.WaterRecessDepth);
+            // Edge water: the step down into the lake past the room's edge.
+            if (Shape.Spills != 0)
+                PitArt.Shelf(gameObject, Shape, LakeSurface.Deep * 0.7f + new Color(0f, 0f, 0f, 0.3f), LakeSurface.Mid,
+                             OrderWalls, Owned ??= new List<Object>());
 
             for (int i = 0; i < RipplePool; i++)
             {
@@ -102,7 +128,7 @@ namespace Convergence.Hazards
 
             if (_glints != null)
             {
-                float a = 0.45f + 0.2f * Mathf.Sin(_clock * 2.3f) + 0.1f * Mathf.Sin(_clock * 5.1f + 1.3f);
+                float a = 0.6f + 0.2f * Mathf.Sin(_clock * 2.3f) + 0.1f * Mathf.Sin(_clock * 5.1f + 1.3f);
                 _glints.color = WithAlpha(WaterLight, a);
             }
 
@@ -111,8 +137,7 @@ namespace Convergence.Hazards
             if (_nextRipple <= 0f)
             {
                 _nextRipple = Random.Range(Tuning.Hazards.WaterRippleIntervalMin, Tuning.Hazards.WaterRippleIntervalMax);
-                var local = new Vector2(Random.Range(-0.5f, 0.5f) * _size.x, Random.Range(-0.5f, 0.5f) * _size.y);
-                Emit(local, 0.75f);
+                Emit(PointInside(0.2f, () => Random.value), 0.75f);
             }
 
             // The wake: measured off the BODY's velocity, not the stick - a player sliding with
@@ -140,10 +165,8 @@ namespace Convergence.Hazards
         void Emit(Vector2 local, float sizeScale)
         {
             if (_ripples == null || _ripples.Count == 0) return;
-            float hx = _size.x * 0.5f - 0.08f, hy = _size.y * 0.5f - 0.08f;
-            local.x = Mathf.Clamp(local.x, -hx, hx);
-            local.y = Mathf.Clamp(local.y, -hy, hy);
-            float room = Mathf.Min(hx - Mathf.Abs(local.x), hy - Mathf.Abs(local.y)) * 2f;
+            // As big as the water round it allows - the shape's own distance to its edge.
+            float room = (Shape.Sample((Vector2)transform.position + local) - 0.08f) * 2f;
             float size = Mathf.Min(Tuning.Hazards.WaterRippleSize * sizeScale, room);
             if (size < 0.12f) return;
 

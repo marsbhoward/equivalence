@@ -95,7 +95,8 @@ namespace Convergence.Player
             get => _locked;
             private set
             {
-                if (value == _locked) return;
+                // by reference: a body destroyed the frame it died is Unity's null, and == would keep it held
+                if (ReferenceEquals(value, _locked)) return;
                 _locked = value;
                 // Taken, moved or let go: two notes up, or down (Sound.LockOn / LockOff).
                 Convergence.Audio.Sfx.Play(value != null ? Convergence.Audio.Sound.LockOn : Convergence.Audio.Sound.LockOff);
@@ -110,6 +111,9 @@ namespace Convergence.Player
         public Health Target => Locked != null ? Locked : Assist;
         public bool HasTarget => Target != null && !Target.IsDead;
         public bool IsLocked => Locked != null && !Locked.IsDead;
+        /// <summary>A lock is held, though its target may have died this frame (the lock moves on in the next
+        /// Update): the hit that kills a locked target was still made locked on (PlayerController.HopBack).</summary>
+        public bool HeldLock => !ReferenceEquals(_locked, null);
 
         /// <summary>Let go of the lock (Wandering Eye; PlayerController on a defensive ability).</summary>
         public void BreakLock()
@@ -167,10 +171,12 @@ namespace Convergence.Player
                 return;
             }
 
-            // A kill moves the lock on to the nearest enemy in range; drifting out of range drops it.
-            if (Locked != null)
+            // A kill moves the lock on to the nearest enemy in range; drifting out of range drops it. Tested by
+            // reference: a body destroyed as it died reads as Unity's null, which skipped the move on (the user,
+            // 2026-11-18: "if locked on target dies and there is another target in range lock should transfer").
+            if (!ReferenceEquals(_locked, null))
             {
-                if (Locked.IsDead || Gone(Locked))
+                if (_locked == null || Locked.IsDead || Gone(Locked))
                     Locked = Nearest(origin, LockReach, null);
                 else if (Vector2.Distance(origin, Locked.transform.position) > Drop)
                     Locked = null;

@@ -41,6 +41,19 @@ namespace Convergence.Art.Gear
         /// <summary>The last draw's afterimage of the arm and weapon, or null.</summary>
         public static Sprite LastGhost;
         static Color[] _ghostPx;
+        /// <summary>THE FREE-RUN ARMS (out of combat, the user's pick "Tucked", 2026-11-18, off the Anime Run Lab
+        /// https://claude.ai/artifact/R1P8e13PfTyBazrw3b3QH2): 0..1, set by the rig before a draw. An empty hand goes to a
+        /// fist held in before the stomach, pumping a little from the elbow, keeping a fifth of the body's bounce.</summary>
+        public static float Tuck;
+        /// <summary>The tucked fist: out from the middle, up from the soles (standing texels), forward; its pump fore and
+        /// aft at full stride, and the share of the bounce it keeps (lagging by a tenth of a cycle).</summary>
+        public const float TuckOut = 10f, TuckUp = 82f, TuckFwd = 14f, TuckPump = 4f, TuckKeep = 0.2f, TuckLag = 0.1f;
+        /// <summary>Set by the rig before a draw: the stride's smear (the anime run) - where the swinging boot travels more
+        /// than <see cref="SmearFrom"/> texels between two pictures, a pale ghost of its shin and boot at three moments
+        /// between them, under everything else.</summary>
+        public static bool Smear;
+        const float SmearFrom = 16f;
+
         /// <summary>The cape at rest: its top and its hem (texels above the soles), and its flutter at the hem.</summary>
         const float CapeTop = 104f, CapeHem = 30f, CapeFlutter = 1.5f;
         /// <summary>Pictures kept. Was 192: walking every way needs more than that (8 directions x the stride's frames x
@@ -248,10 +261,12 @@ namespace Convergence.Art.Gear
                 Limb(leg.Knee, leg.AnkleJoint, 4.6f, (u, s) => Tone(Shade(s)));
                 Limb(leg.Heel, leg.Toe, 2.6f, (u, s) => Tone(1 + (s < 0f ? 0 : 1)));
             }
+            if (Smear && size > 0f && gait.Planted) SmearLegs(pose, gait, phase, size, suit, parts);
             var r3 = pose.Right; var up = Vector3.up;
             var pelvis = new Vector3(0f, pose.HipY + 4f, 0f);
             Vector3 Up(float h) => pelvis + up * h + f * (h * lean);
             float swing = gait.ArmAt(phase) * size;
+            float steady = Tuck > 0f ? TuckKeep * gait.Height(phase - TuckLag) * size - gait.Height(phase) * size : 0f;
             var fore = new (Vector3, Vector3)[2];
 
             // ---- the weapon at rest (phase 3c): the mock's body frame (x the character's LEFT) into the drawn frame,
@@ -280,6 +295,12 @@ namespace Convergence.Art.Gear
                 Vector3 el, wr, d2;
                 var target = grip.Hand?[side > 0 ? 0 : 1];
                 float reach = grip.HandW?[side > 0 ? 0 : 1] ?? 1f;
+                if (!target.HasValue && Tuck > 0f)
+                {
+                    // tucked: an empty hand eased from its hang to the fist before the stomach
+                    target = Up(TuckUp - Pelvis + steady) + r3 * (side * TuckOut) + f * (TuckFwd + TuckPump * side * swing / TuckArm);
+                    reach = Tuck;
+                }
                 Vector3 hel = default;
                 if (target.HasValue && reach < 1f)
                 {
@@ -676,6 +697,49 @@ namespace Convergence.Art.Gear
 
         /// <summary>A limb from <paramref name="a"/> to <paramref name="b"/> (3D, texels), its depth the axis's plus the
         /// round of the limb; coloured by (along 0..1, across -1..1 lit from the left).</summary>
+        /// <summary>The swing a tucked fist's pump is measured against (degrees, the Dash lean's arm at 4.6).</summary>
+        public const float TuckArm = 30f;
+
+        /// <summary>The smear: each swinging leg whose boot moved far since the last picture leaves its shin and boot,
+        /// dithered pale, at three moments between - thinner the older - drawn under every other part.</summary>
+        static void SmearLegs(Locomotion8.Pose pose, Locomotion8.Gait gait, float phase, float size, Dictionary<char, Color> suit, List<Part> parts)
+        {
+            float step = 1f / Mathf.Max(1, gait.Frames), facing = Mathf.Atan2(-pose.Forward.z, pose.Forward.x) * Mathf.Rad2Deg;
+            var was = Locomotion8.PoseAt(facing, gait, phase - step, size);
+            suit.TryGetValue('l', out var light); suit.TryGetValue('h', out var bright);
+            for (int n = 0; n < 2; n++)
+            {
+                if (Mathf.Repeat(phase + n * 0.5f, 1f) < gait.Stance) continue;   // planted: no smear
+                var now = n == 0 ? pose.A : pose.B; var then = n == 0 ? was.A : was.B;
+                if ((Locomotion8Screen(now.Toe) - Locomotion8Screen(then.Toe)).magnitude < SmearFrom) continue;
+                int id = parts.Count; parts.Add(new Part { OutR = 0, Bias = -1000f });
+                foreach (float q in new[] { 0.25f, 0.5f, 0.75f })
+                {
+                    var g = Locomotion8.PoseAt(facing, gait, phase - step * q, size);
+                    var leg = n == 0 ? g.A : g.B;
+                    float thin = 1f - 0.4f * q;
+                    GhostCapsule(leg.Knee, leg.AnkleJoint, 3.6f * thin, light, bright, id);
+                    GhostCapsule(leg.Heel, leg.Toe, 2.4f * thin, light, bright, id);
+                }
+            }
+        }
+
+        static void GhostCapsule(Vector3 a, Vector3 b, float rad, Color c0, Color c1, int id)
+        {
+            var A = Locomotion8Screen(a); var B = Locomotion8Screen(b);
+            float dx = B.x - A.x, dy = B.y - A.y, l2 = Mathf.Max(1e-6f, dx * dx + dy * dy);
+            for (int y = Mathf.FloorToInt(Mathf.Min(A.y, B.y) - rad); y <= Mathf.CeilToInt(Mathf.Max(A.y, B.y) + rad); y++)
+            for (int x = Mathf.FloorToInt(Mathf.Min(A.x, B.x) - rad); x <= Mathf.CeilToInt(Mathf.Max(A.x, B.x) + rad); x++)
+            {
+                if (x < 0 || y < 0 || x >= _W || y >= _H) continue;
+                float px = x + 0.5f - A.x, py = y + 0.5f - A.y;
+                float u = Mathf.Clamp01((px * dx + py * dy) / l2);
+                float qx = px - u * dx, qy = py - u * dy;
+                if (qx * qx + qy * qy > rad * rad) continue;
+                PutUnder(x, y, -1000f, ((x + y) & 1) == 0 ? c0 : c1, id);   // a checker of the two light tones
+            }
+        }
+
         static void Capsule(Vector3 a, Vector3 b, float rad, System.Func<float, float, Color> col, int id)
         {
             var A = Locomotion8Screen(a); var B = Locomotion8Screen(b);

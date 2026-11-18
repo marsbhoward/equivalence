@@ -45,12 +45,15 @@ namespace Convergence.Hazards
         public override float RouteCost => Tuning.Steering.SpikeRouteCost;
 
         public static SpikePit Spawn(Rect rect, Transform player, Transform parent)
+            => Spawn(PitShape.FromRect(rect), player, parent);
+
+        public static SpikePit Spawn(PitShape shape, Transform player, Transform parent)
         {
             var go = new GameObject("pit.spike");
             go.transform.SetParent(parent, false);
             var pit = go.AddComponent<SpikePit>();
-            pit.Init(rect, player);
-            pit.Build(rect.size);
+            pit.Init(shape, player);
+            pit.Build();
             return pit;
         }
 
@@ -58,16 +61,16 @@ namespace Convergence.Hazards
         static Color JackSteel => Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.SaltFlats) ? new(0.97f, 0.88f, 0.90f) : Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.SkyRuin) ? new(0.82f, 0.79f, 0.72f) : Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.Forest) ? new(0.36f, 0.20f, 0.26f) : new(0.74f, 0.75f, 0.80f);   // the forest's own (Art.Biomes)
         static readonly Color JackShadow = new(0f, 0f, 0f, 0.45f);
 
-        void Build(Vector2 size)
+        void Build()
         {
             // The floor keeps the arena's own stone, just darker for sitting in shadow at the
             // bottom of a hole - the recess is what says "sunken", not a different material.
-            PitArt.Quad(gameObject, Spr.Square, PitFloor, size, OrderFloor, "floor");
-            PitArt.Tiled(gameObject, PitArt.Mottle(Random.Range(1, 9999)),
-                         Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.Forest) ? new Color(0.22f, 0.15f, 0.12f, 0.7f) : new Color(0.30f, 0.29f, 0.32f, 0.7f), size, OrderMaterial, "grit");
+            Layer(PitArt.Solid, PitFloor, OrderFloor, "floor");
+            Layer(PitArt.MottleAt(Random.Range(1, 9999)),
+                  Art.Biomes.Biome.Is(Art.Biomes.BiomeKind.Forest) ? new Color(0.22f, 0.15f, 0.12f, 0.7f) : new Color(0.30f, 0.29f, 0.32f, 0.7f), OrderMaterial, "grit");
 
-            BuildRecess(size);
-            ScatterJacks(size);
+            BuildRecess();
+            ScatterJacks();
         }
 
         /// <summary>
@@ -77,8 +80,10 @@ namespace Convergence.Hazards
         /// covers the bed evenly while still looking strewn, which is what "spread about"
         /// actually needs: no two in the same place, and no visible rows either.
         /// </summary>
-        void ScatterJacks(Vector2 size)
+        void ScatterJacks()
         {
+            var size = Shape.Bounds.size;
+            Vector2 centre = transform.position;
             float step = Tuning.Hazards.SpikeJackSpacing;
             int nx = Mathf.Max(1, Mathf.RoundToInt(size.x / step));
             int ny = Mathf.Max(1, Mathf.RoundToInt(size.y / step));
@@ -105,6 +110,8 @@ namespace Convergence.Hazards
                 p.y = Mathf.Clamp(p.y, -size.y * 0.5f + margin, size.y * 0.5f - margin);
 
                 float s = Random.Range(Tuning.Hazards.SpikeJackSizeMin, Tuning.Hazards.SpikeJackSizeMax);
+                // Only inside the shape, far enough in that the jack lies in the hole, not on the rim.
+                if (Shape.Sample(centre + p) < margin + s * 0.3f) continue;
                 // Rotation is free: a jack lands however it lands, and identical orientations
                 // would give the bed a grain it should not have.
                 float rot = Random.Range(0f, 360f);

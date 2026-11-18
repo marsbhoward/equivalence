@@ -99,11 +99,16 @@ namespace Convergence.Art.Gear
             /// stride's bounce and step the carry follows.</summary>
             public float Run, RunPhase;
             public Locomotion8.Gait RunGait;
+            /// <summary>The free-run arms tucked (Body8.Tuck, out of combat, 0..1): the bow's hand is the tucked left fist,
+            /// riding <see cref="RunGait"/> at <see cref="RunPhase"/> as the empty hand does.</summary>
+            public float Tuck;
         }
 
         // ---------------------------------------------------------------- the run stances
         /// <summary>How a run carry rides the stride: the hands lag the body's rise and fall (lifted by <paramref name="k"/>
         /// of the bounce <paramref name="lag"/> of a cycle late, against the body's own), texels.</summary>
+        /// <summary>How far the tucked bow's lower limb stays off the floor at the least (texels).</summary>
+        const float BowClear = 6f;
         static float RunLift(Held h, float k, float lag) =>
             h.RunGait == null || !h.RunGait.Planted ? 0f : k * h.RunGait.Height(h.RunPhase - lag) - h.RunGait.Height(h.RunPhase);
         /// <summary>The step's rock, -1..1, <paramref name="lag"/> of a cycle late.</summary>
@@ -312,6 +317,22 @@ namespace Convergence.Art.Gear
                     // by about 4 texels instead of reaching below the soles, the bow kept at its size
                     var restHand = new Vector3(18f, 74f, 3f) + new Vector3(1.5f, 0f, 0f);
                     var restDown = -Norm(new Vector3(0f, 1f, 0.65f));
+                    if (held.Tuck > 0f)
+                    {
+                        // running out of combat (the free-run arms tucked, the user's pick 2026-11-18): the bow in the
+                        // tucked left fist, pumping with it, tipped forward from the WORLD's upright (not the lean's) just
+                        // enough for the lower limb to clear the floor - upright at the tucked fist's height
+                        int drawnSide = leftArm == 0 ? 1 : -1;
+                        float sw = held.RunGait != null ? held.RunGait.ArmAt(held.RunPhase) : 0f;
+                        var tuckGrip = new Vector3(Body8.TuckOut, Body8.TuckUp + RunLift(held, Body8.TuckKeep, Body8.TuckLag),
+                                                   Body8.TuckFwd + Body8.TuckPump * drawnSide * sw / Body8.TuckArm);
+                        float lean = Vector3.Dot(vec(Vector3.up), vec(Vector3.forward));   // the shear Vec carries
+                        float c = Mathf.Clamp((body(tuckGrip).y - BowClear) / Mathf.Max(1f, art.H * k * 0.5f), 0.3f, 0.95f);
+                        float tip = Mathf.Sqrt(1f / (c * c) - 1f);                          // forward per unit down, in the world
+                        float w = Mathf.SmoothStep(0f, 1f, held.Tuck);
+                        restHand = Vector3.Lerp(restHand, tuckGrip, w);
+                        restDown = Norm(Vector3.Slerp(restDown, -Norm(new Vector3(0f, 1f, tip - lean)), w));
+                    }
                     float o = 25f * Mathf.Deg2Rad;
                     var restU = new Vector3(Mathf.Sin(o), 0f, Mathf.Cos(o)); restU = Norm(restU - restDown * Vector3.Dot(restU, restDown));
                     var readyGrip = new Vector3(4f, 72f, 15f);

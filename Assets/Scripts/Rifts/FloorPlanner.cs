@@ -333,6 +333,10 @@ namespace Convergence.Rifts
         /// restart, and a shape a preview can name without building it.</summary>
         public int ShapeSeed(int floor) => unchecked(Seed * 6151 + floor * 92821 + 5);
 
+        /// <summary>Seeds the floor's PIT PIECES (Hazards.PitPieces) - the same pits on a restart,
+        /// on their own stream so laying them moves no other draw.</summary>
+        public int PitSeed(int floor) => unchecked(Seed * 4153 + floor * 71171 + 23);
+
         /// <summary>Seeds the floor's SCENERY (Art.Scenery.Roll) - masonry, stone, windows - so a
         /// restart meets the same-looking rooms. Its own stream: dressing a room moves no draw.</summary>
         public int SceneSeed(int floor) => unchecked(Seed * 2909 + floor * 50021 + 19);

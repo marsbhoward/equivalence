@@ -6,14 +6,15 @@ using Convergence.Core;
 namespace Convergence.Hazards
 {
     /// <summary>
-    /// The shared half of the three floor pits: a rectangular footprint on the grid, the recess
-    /// that makes it read as a HOLE rather than as a mark, and the per-frame "is the player in
-    /// this" test every kind needs.
+    /// The shared half of the four floor pits: a SHAPE (<see cref="PitShape"/> - the cells a pit
+    /// piece was laid on, rounded, or a rect the exchange lays), the recess that makes it read as
+    /// a HOLE rather than as a mark, and the per-frame "is the player in this" test every kind
+    /// needs.
     ///
-    /// RECTANGULAR, AND THAT IS NOT A STYLE CHOICE. The old lava tile was a free-placed circle,
-    /// so nothing could be said about where it sat relative to the columns and the two overlapped
-    /// whenever the retry loop happened to allow it. A rect on the column grid's own cells cannot
-    /// - see <see cref="PitGrid"/>.
+    /// SHAPED, ON THE ROOM'S OWN CELLS (the user's call 2026-11-18, Hazards.PitPieces): pits are
+    /// laid with the room rather than dropped into regions of it, so a trough runs along the foot
+    /// of its wall and a spill pours out from under its crack. Columns keep clear by their rim
+    /// (HazardBuilder.BuildColumnGrid asks <see cref="Covers"/>).
     ///
     /// SUNKEN IS SHARED, THE FILL IS NOT. Every one of these is a hole in the floor, so the lip,
     /// the four inner walls and the shadow they cast belong here; what is at the bottom of the
@@ -37,9 +38,17 @@ namespace Convergence.Hazards
         /// hazard's real area to the world origin while the art stayed where it was drawn.
         /// Nothing on screen would say so.
         /// </summary>
-        [SerializeField] Rect _footprint;
+        [SerializeField] PitShape _shape;
 
-        public Rect Footprint => _footprint;
+        /// <summary>The pit's shape - what every damage, slow and route test is measured against.</summary>
+        public PitShape Shape => _shape;
+
+        /// <summary>The cells' world rect - a bound, never the test itself (ask <see cref="Contains"/>).</summary>
+        public Rect Footprint => _shape != null ? _shape.Bounds : default;
+
+        /// <summary>Textures and sprites baked for this pit alone, freed with it. Not readonly: a
+        /// domain reload brings it back null (the textures then outlive it in the Editor only).</summary>
+        protected List<Object> Owned = new();
 
         [SerializeField] protected Transform Player;
         [SerializeField] protected Health PlayerHealth;
@@ -75,17 +84,38 @@ namespace Convergence.Hazards
 
         public FloorPit ScaleDamage(float scale) { DamageScale = Mathf.Max(0f, scale); return this; }
 
-        protected void Init(Rect rect, Transform player)
+        protected void Init(PitShape shape, Transform player)
         {
-            _footprint = rect;
+            _shape = shape;
             Player = player;
             PlayerHealth = player != null ? player.GetComponent<Health>() : null;
             PlayerBody = player != null ? player.GetComponent<Rigidbody2D>() : null;
-            transform.position = rect.center;
+            transform.position = shape.Bounds.center;
             FloorPits.Register(this);
         }
 
-        void OnDestroy() => FloorPits.Unregister(this);
+        void OnDestroy()
+        {
+            FloorPits.Unregister(this);
+            if (Owned != null) foreach (var o in Owned) if (o != null) Destroy(o);
+        }
+
+        /// <summary>One material layer, baked to the shape (PitArt.Shaped).</summary>
+        protected SpriteRenderer Layer(PitArt.Pattern pattern, Color color, int order, string name)
+            => PitArt.Shaped(gameObject, _shape, pattern, color, order, name, Owned ??= new List<Object>());
+
+        /// <summary>A point inside the pit at least <paramref name="margin"/> in from its edge, in
+        /// the pit's LOCAL space - for flames, jacks and ripples. Falls back to the centre.</summary>
+        protected Vector2 PointInside(float margin, System.Func<float> rand01)
+        {
+            var b = _shape.Bounds;
+            for (int i = 0; i < 24; i++)
+            {
+                var p = new Vector2(Mathf.Lerp(b.xMin, b.xMax, rand01()), Mathf.Lerp(b.yMin, b.yMax, rand01()));
+                if (_shape.Sample(p) > margin && !_shape.PastSpill(p, out _)) return p - (Vector2)transform.position;
+            }
+            return Vector2.zero;
+        }
 
         /// <summary>
         /// Is the player standing in this pit? Measured against the footprint shrunk by
@@ -100,12 +130,10 @@ namespace Convergence.Hazards
             return Contains(Player.position);
         }
 
-        public bool Contains(Vector2 p)
-        {
-            float inset = Tuning.Hazards.PitStandInset;
-            return p.x > Footprint.xMin + inset && p.x < Footprint.xMax - inset
-                && p.y > Footprint.yMin + inset && p.y < Footprint.yMax - inset;
-        }
+        public bool Contains(Vector2 p) => _shape != null && _shape.Contains(p);
+
+        /// <summary>Within <paramref name="pad"/> of the pit - a body's whole circle, a route's cell.</summary>
+        public bool Covers(Vector2 p, float pad) => _shape != null && _shape.Covers(p, pad);
 
         /// <summary>Which of the four kinds this pit is - what the element trap boons ask.</summary>
         public abstract PitKind Kind { get; }
@@ -138,55 +166,14 @@ namespace Convergence.Hazards
         // ---- the recess ----
 
         /// <summary>
-        /// Four inner walls and a lip, lit from above so the FAR wall (the top edge, which a
+        /// The four inner walls and the lip, lit from above so the FAR wall (a top edge, which a
         /// top-down camera sees the inside of) is the one in shadow and the NEAR wall catches the
-        /// light. Getting those the wrong way round is what turns a hole into a plateau - the
-        /// same read the loft's own skirt line depends on.
-        ///
-        /// Drawn as gradients rather than as flat bands: a hard-edged dark stripe inside a rect
-        /// is a painted border, and the whole reason this exists is that a painted border is
-        /// exactly what these three hazards must not look like.
+        /// light - getting those the wrong way round is what turns a hole into a plateau. Followed
+        /// round the shape's whole outline (PitArt.Recess); drawn as falls rather than bands,
+        /// because a hard dark stripe inside an outline is a painted border.
         /// </summary>
-        protected void BuildRecess(Vector2 size, float depthScale = 1f)
-        {
-            float depth = Mathf.Min(Tuning.Hazards.PitWallDepth, Mathf.Min(size.x, size.y) * 0.3f) * depthScale;
-
-            // Far wall: the deepest shadow in the pit, and the tallest, because it is the one the
-            // camera is actually looking into.
-            Wall(size, depth * 1.6f, 0f, new Color(0f, 0f, 0f, 0.62f));
-            // The two side walls, seen nearly edge-on from above, so shallow and weaker.
-            Wall(size, depth, 90f, new Color(0f, 0f, 0f, 0.34f));
-            Wall(size, depth, 270f, new Color(0f, 0f, 0f, 0.34f));
-            // Near wall: the underside of the floor the player is standing on, catching light.
-            Wall(size, depth * 0.7f, 180f, new Color(1f, 0.96f, 0.88f, 0.10f));
-
-            // A hairline of bare broken stone along the top edge only - the floor's own cut face,
-            // which is the one part of a hole that is lighter than everything around it.
-            var lip = PitArt.Quad(gameObject, Spr.Square, new Color(0.72f, 0.70f, 0.66f, 0.55f),
-                                  new Vector2(size.x, Tuning.Hazards.PitLipThickness), OrderLip, "lip");
-            lip.transform.localPosition = new Vector3(0f, size.y * 0.5f - Tuning.Hazards.PitLipThickness * 0.5f, 0f);
-        }
-
-        /// <summary>
-        /// One inner wall. <paramref name="rotation"/> names which edge it lines: 0 is the top
-        /// (far) edge, and the gradient's solid end always sits against that edge because
-        /// <see cref="PitArt.EdgeFade"/> is authored solid-at-the-bottom and rotated into place.
-        /// </summary>
-        void Wall(Vector2 size, float depth, float rotation, Color color)
-        {
-            bool vertical = Mathf.Approximately(rotation % 180f, 0f);
-            float span = vertical ? size.x : size.y;
-
-            var sr = PitArt.Quad(gameObject, PitArt.EdgeFade, color, new Vector2(span, depth), OrderWalls, "wall");
-            // Rotated about the pit's own centre, then pushed out to its edge along the rotated
-            // axis - so one authored gradient serves all four sides and none of them can drift
-            // from the others.
-            var t = sr.transform;
-            t.localRotation = Quaternion.Euler(0f, 0f, -rotation);
-            float half = (vertical ? size.y : size.x) * 0.5f;
-            var outward = t.localRotation * Vector3.up;
-            t.localPosition = outward * (half - depth * 0.5f);
-        }
+        protected void BuildRecess(float depthScale = 1f)
+            => PitArt.Recess(gameObject, _shape, depthScale, OrderWalls, Owned ??= new List<Object>());
     }
 
     /// <summary>

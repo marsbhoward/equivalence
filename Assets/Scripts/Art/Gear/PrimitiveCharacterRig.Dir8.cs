@@ -195,6 +195,9 @@ namespace Convergence.Art.Gear
         /// <summary>The run stance (Weapon8.Held.Run): from this speed (arena units a second), eased in over this long.</summary>
         const float RunStanceFrom = 1f, RunStanceSeconds = 0.2f;
         float _run8, _run8Phase;
+        /// <summary>The free-run arms tucked (Body8.Tuck): running out of combat, eased over this long.</summary>
+        const float TuckSeconds = 0.2f;
+        float _tuck8;
         Locomotion8.Gait _run8Gait;
         /// <summary>The neck, texels above the soles (the baked torso's top): the head leans as it does.</summary>
         const float Neck8 = 106f;
@@ -244,19 +247,25 @@ namespace Convergence.Art.Gear
             bool runStance = _inCombat && moving && arenaSpeed >= RunStanceFrom && !Swinging8 && _sinceSwing >= CarryReturnDelay;
             _run8 = Mathf.MoveTowards(_run8, runStance ? 1f : 0f, dt / RunStanceSeconds);
             _run8Gait = gait; _run8Phase = phase;
+            _tuck8 = Mathf.MoveTowards(_tuck8, !fighting8 && moving ? 1f : 0f, dt / TuckSeconds);
+            float tuck = Mathf.Round(_tuck8 * 4f) / 4f;   // quarters: each a cached picture
+            // the anime run's smear, on the stride as drawn (not through a swing's stance)
+            bool smear = moving && stance.Crouch == 0f && stance.Front == 0f && stance.Lean == 0f && stance.Hold == Vector3.zero;
             _bowReady8 = Mathf.MoveTowards(_bowReady8, fighting8 ? 1f : 0f, dt / BowReadySeconds);
             _b8Pose = pose; _b8Gait = gait; _b8Phase = phase; _b8Size = size; _b8View = view; _b8Mirrored = mirrored;
             _b8Flip = flip; _b8Dir = dir; _b8Sole = HipsRest.y - LegLength;
             var held = Held8();
             if (!Swinging8) _restHeld8 = held;   // the stance a swing will leave (SwingFrom8)
-            string key = $"b8.{_worn8Key}.{gait.Name}.{dir}.{(mirrored ? "m" : "r")}.{frame}.{size:0.00}{(held != null ? "." + held.Key : "")}{StanceKey8(stance)}{ExtrasFrame8(dt, size, phase)}";
+            string key = $"b8.{_worn8Key}.{gait.Name}.{dir}.{(mirrored ? "m" : "r")}.{frame}.{size:0.00}{(held != null ? "." + held.Key : "")}{StanceKey8(stance)}{(tuck > 0f ? $".t{tuck:0.00}" : "")}{(smear ? ".sm" : "")}{ExtrasFrame8(dt, size, phase)}";
             // Penumbra's afterimage due (a weapon art): a picture for this frame alone, the arm and weapon lifted out
             bool once = Body8.WantGhost = Afterimage8Due();
             string cape = LiveCape8(dt, size, phase);
             bool alone = once || cape == null;   // a living cape's one-shot: this frame's picture only
             Body8.Cape = _cape8;
             Body8.WantArmOver = _hood8Piece != null;   // an arm piece sticks out of a hood's cloak too (ShowArmOver8)
+            Body8.Tuck = tuck; Body8.Smear = smear;
             var sprite = Body8.Draw(alone ? null : key + cape, pose, gait, phase, size, view, mirrored, _worn8, _worn8Strips, Palette.Of(Palette.Undersuit), bodyPpu, held, _extras8);
+            Body8.Tuck = 0f; Body8.Smear = false;
             Body8.WantGhost = false;
             _ghostDue8 = once ? Body8.LastGhost : null;
             _ghostWanted8 = once;   // a swing redrawing the picture this frame lifts it again, with its blade
@@ -431,10 +440,13 @@ namespace Convergence.Art.Gear
             float ready = bow || kind == Weapon8.Kind.Sword ? Mathf.Round(_bowReady8 * 8f) / 8f : kind == Weapon8.Kind.DiscDraw ? Mathf.Round(_discDraw * 16f) / 16f : 0f;
             float stowZ = Weapon8.StowDepthFor(Body8Art.SetOf(_lastLoadout.Get(GearSlot.Back)));
             // the run stance in quarters (each a cached picture), riding this frame of the stride
-            float run = Mathf.Round(_run8 * 4f) / 4f, runPhase = run > 0f ? _run8Phase : 0f;
-            var runGait = run > 0f ? _run8Gait : null;
+            float run = Mathf.Round(_run8 * 4f) / 4f;
+            // and the bow in the tucked free-run fist (out of combat), on the same stride
+            float tuck = bow ? Mathf.Round(_tuck8 * 4f) / 4f : 0f;
+            float runPhase = run > 0f || tuck > 0f ? _run8Phase : 0f;
+            var runGait = run > 0f || tuck > 0f ? _run8Gait : null;
             if (_held8 != null && _held8Sprite == ls.Sprite && _held8Kind == kind && _held8.StowZ == stowZ && _held8.Ready == ready && _held8Draft == Weapon8.SwordDraft
-                && _held8.Run == run && _held8.RunPhase == runPhase && _held8.RunGait == runGait
+                && _held8.Run == run && _held8.Tuck == tuck && _held8.RunPhase == runPhase && _held8.RunGait == runGait
                 && (_held8.Quiver != null) == (QuiverArt8() != null) && (_held8.Arrow != null) == (_arrowSprite != null)) return _held8;
             // the art at the size the rig draws it: body texels per texture texel
             float scale = ls.Size.x / Mathf.Max(1f, ls.Sprite.rect.width) * bodyPpu;
@@ -443,8 +455,9 @@ namespace Convergence.Art.Gear
             art.Shape = FormOf8(item.Class);
             _held8Sprite = ls.Sprite; _held8Kind = kind; _held8Draft = Weapon8.SwordDraft;
             _held8 = new Weapon8.Held { Art = art, Kind = kind, StowZ = stowZ, Ready = ready, Key = $"{item.ItemId}.{kind}.{stowZ:0.0}.{ready:0.000}",
-                                        Run = run, RunPhase = runPhase, RunGait = runGait };
+                                        Run = run, RunPhase = runPhase, RunGait = runGait, Tuck = tuck };
             if (run > 0f) _held8.Key += $".r{run:0.00}.{runGait?.Name}.{runPhase:0.000}";
+            else if (tuck > 0f) _held8.Key += $".t{tuck:0.00}.{runGait?.Name}.{runPhase:0.000}";
             if (kind == Weapon8.Kind.Sword && Weapon8.SwordDraft != null) _held8.Key += "." + Weapon8.SwordDraft;   // a draft stance (dev)
             if (bow)
             {

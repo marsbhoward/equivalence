@@ -3612,6 +3612,10 @@ namespace Convergence.Core
             /// </summary>
             public const float HopBackDistance = 0.7f, HopBackSeconds = 0.14f;
             public const float HopBackMinTilt = 0.3f, HopBackMinAway = 0.5f;
+            /// <summary>The hop back's late window (2026-11-18): a locked-on basic that landed before the
+            /// stick was pulled back still hops if it is pulled back within this long, before the next
+            /// swing. Seconds.</summary>
+            public const float HopBackWindow = 0.3f;
 
             /// <summary>
             /// How long a fresh press on a banked weapon art must be HELD before it aims (the
@@ -7753,20 +7757,29 @@ namespace Convergence.Core
 
             // ---- Floor pits: shared geometry ----
             //
-            // Pits occupy CELLS of the column lattice rather than points on it, which is what
-            // makes "a pit can never overlap a column" structural instead of a clearance check.
-            // See Hazards.PitGrid.
+            // Pits lie on the ROOM's own cells (Hazards.PitPieces), shaped and rounded
+            // (Hazards.PitShape); columns stay on their lattice and keep clear by their rim.
 
-            /// <summary>
-            /// How far a pit's drawn edge pulls in from its cell block's own boundary. Small, but
-            /// not zero: at zero the pit's edge lands exactly on the lattice line a corner column
-            /// is centred on, and the two read as one clipping the other rather than as adjacent.
-            /// </summary>
-            public const float PitCellInset = 0.18f;
+            /// <summary>How far a pit's cells are rounded (units): blurred twice by this and cut at
+            /// half, so corners round off and inside corners fill by the same radius.</summary>
+            public const float PitRoundRadius = 0.45f;
+
+            /// <summary>How far a pit's drawn edge wanders either side of the true curve (units) -
+            /// a hand's edge rather than a ruled one. Kept well under the stand inset.</summary>
+            public const float PitEdgeWobble = 0.06f;
+
+            /// <summary>How far edge water's field runs on past the room's edge (units), so it never
+            /// closes there - no lip, no recess wall where it meets the lake.</summary>
+            public const float PitSpillReach = 1.5f;
+
+            /// <summary>How much of the lake past the edge an edge-water pit draws (units): the
+            /// drop-off line and the lake's own colour over the ground's bank, so the two read as
+            /// one water.</summary>
+            public const float PitShelfDrawn = 0.35f;
 
             /// <summary>
             /// Extra clearance, on top of ColumnRadiusLarge, that a lattice point must have from a
-            /// pit's rect to still be usable for a column. A large column is 1.05 across the
+            /// pit's edge to still be usable for a column. A large column is 1.05 across the
             /// radius against a 2.5 grid spacing, so a column merely OUTSIDE a pit can still
             /// overhang most of its own body into it - the exclusion has to be measured from the
             /// column's rim, not its centre.
@@ -7786,17 +7799,31 @@ namespace Convergence.Core
             /// <summary>The bare broken-stone hairline along a pit's top edge.</summary>
             public const float PitLipThickness = 0.06f;
 
-            // ---- Floor pits: layout ----
+            // ---- Floor pits: the pieces (Hazards.PitPieces; the user's calls, 2026-11-18) ----
 
-            /// <summary>
-            /// Relative weights for the floor's layout roll: one Large pit, two Mediums (one per
-            /// half), or four Smalls (one per quadrant). Small is weighted up because more, smaller
-            /// pits leave more routes through the room, and a floor whose centre is one large
-            /// hazard is a statement that should stay occasional.
-            /// </summary>
-            public const float PitLayoutWeightLarge = 1f;
-            public const float PitLayoutWeightMedium = 2f;
-            public const float PitLayoutWeightSmall = 3f;
+            /// <summary>A floor's pit budget in room cells (square units), rolled between these -
+            /// today's layouts were 25 square units however they were cut.</summary>
+            public const int PitCellsMin = 20, PitCellsMax = 30;
+            /// <summary>A piece that would overshoot the budget by more than this is passed over.</summary>
+            public const int PitOvershoot = 8;
+            /// <summary>Draws per floor before the pieces give up on the budget.</summary>
+            public const int PitTries = 16;
+            /// <summary>Spots one piece tries before it is passed over.</summary>
+            public const int PitSpotTries = 6;
+            /// <summary>Chance a free shape is laid with its east-west twin at the mirrored spot.</summary>
+            public const float PitTwinChance = 0.3f;
+            /// <summary>Edge water (inlet, creek, the ford) against a free shape's weight, on a floor
+            /// where it may be laid at all - water rolled and the place's void is water.</summary>
+            public const float EdgeWaterWeight = 3f;
+            /// <summary>Pieces a pitted floor lays on average (measured, PitPieces.Measure) - what
+            /// <see cref="Convergence.Hazards.HazardBuilder.PitKindChance"/> prices a mixed floor by.</summary>
+            public const float PitPiecesPerFloor = 2.5f;
+
+            /// <summary>Chance the CHASM STONES are laid on a floor whose wave is mostly ranged.</summary>
+            public const float StonesChance = 0.5f;
+            /// <summary>"Mostly ranged": Ranged, Turret and Mortar hold more than this share of the
+            /// wave's effective HP (Enemies.Wave.RangedShare).</summary>
+            public const float StonesRangedShare = 0.5f;
 
             /// <summary>
             /// Chance a floor has any pits at all, rolled before size or kind - the same "a room
@@ -7923,6 +7950,9 @@ namespace Convergence.Core
             /// <summary>The recess under water reads shallower than a dry pit's - it is a basin
             /// that filled, not a hole.</summary>
             public const float WaterRecessDepth = 0.55f;
+            /// <summary>How much shallow water tints the floor under it - wading water shows the
+            /// floor through it, so it never reads as a lake (a chasm).</summary>
+            public const float WaterTint = 0.6f;
         }
 
         /// <summary>

@@ -4198,7 +4198,25 @@ namespace Convergence.Core
             // The room's SHAPE first: everything placed after this - pits, columns, the spire, the
             // wave's arrival points, a Rift - asks Arena.OnFloor, so the walls must already be in
             // the mask. Never on a boss floor: every boss is built round the open rectangle.
-            Hazards.RoomWalls.Apply(IsBossFloor(_floor) ? null : platformRoom ?? _planner?.ShapeFor(_floor), _hazardRoot);
+            // The PIT PIECES are laid into it before it is built (Hazards.PitPieces): a piece may
+            // bring its own wall, crack or chasm, and the chasm stones come only against a wave
+            // that is mostly ranged - which is why the wave is composed first.
+            var room = IsBossFloor(_floor) ? null : platformRoom ?? _planner?.ShapeFor(_floor);
+            Hazards.PitPieces.Plan pitPlan = null;
+            if (!IsBossFloor(_floor))
+            {
+                pitPlan = Hazards.PitPieces.Lay(room, new Hazards.PitPieces.Context
+                {
+                    Floor = _floor,
+                    Seed = _planner != null ? _planner.PitSeed(_floor) : UnityEngine.Random.Range(int.MinValue, int.MaxValue),
+                    RangedWave = wave != null && wave.RangedShare > Tuning.Hazards.StonesRangedShare,
+                    EdgeWater = Art.Biomes.Biome.EdgeIsWater,
+                    Lift = _platform == PlatformKind.Lift,
+                    Bridge = _platform == PlatformKind.Bridge,
+                });
+                room = pitPlan.Shape;
+            }
+            Hazards.RoomWalls.Apply(room, _hazardRoot);
 
             bool needsCover = wave != null && (_plan.Rift == Rifts.RiftKind.Red || wave.Fields(EnemyKind.Turret));
 
@@ -4212,7 +4230,7 @@ namespace Convergence.Core
                 _spire = HazardBuilder.Populate(_floor, Arena.HalfExtents, _player.transform, _hazardRoot,
                                                 spireAllowed: !IsBossFloor(_floor) && _platform == PlatformKind.None, hurt, worn,
                                                 stormAllowed: !IsBossFloor(_floor), circle: circle,
-                                                needsCover: needsCover);
+                                                needsCover: needsCover, pitPlan: pitPlan);
                 _circle = HazardBuilder.LastRing;
                 // Set dressing last, round everything placed - a picture only (Art.Biomes.Decor).
                 Art.Biomes.Nigredo.PlaceCrystals(_arenaRoot, _planner != null ? _planner.SceneSeed(_floor) : _floor);
@@ -6619,14 +6637,15 @@ namespace Convergence.Core
             var angle = UnityEngine.Random.value * Mathf.PI * 2f;
             var p = new Vector2(Mathf.Cos(angle) * (HalfWidth - 1.4f),
                                 Mathf.Sin(angle) * (HalfHeight - 1.4f));
-            if (Arena.OnFloor(p, 0.6f)) return p;
+            // Never on an island (the chasm stones): a body arriving there could never leave.
+            if (Arena.OnFloor(p, 0.6f) && !Arena.OnIsland(p, 0.6f)) return p;
             // The room's shape walled this stretch of edge (a corner block, a hall's flank):
             // walk in toward the middle until there is floor - the pack still arrives from that
             // side of the room, just from the inside face of the wall.
             for (float t = 0.1f; t < 1f; t += 0.1f)
             {
                 var q = Vector2.Lerp(p, Vector2.zero, t);
-                if (Arena.OnFloor(q, 0.6f)) return q;
+                if (Arena.OnFloor(q, 0.6f) && !Arena.OnIsland(q, 0.6f)) return q;
             }
             return Arena.NearestFloor(p, 0.6f);
         }
@@ -6645,7 +6664,7 @@ namespace Convergence.Core
                 var p = new Vector2(
                     UnityEngine.Random.Range(-HalfWidth + 1.4f, HalfWidth - 1.4f),
                     UnityEngine.Random.Range(-HalfHeight + 1.4f, HalfHeight - 1.4f));
-                if (!Arena.OnFloor(p, 0.6f)) continue;
+                if (!Arena.OnFloor(p, 0.6f) || Arena.OnIsland(p, 0.6f)) continue;
                 if (_player == null ||
                     Vector2.Distance(p, _player.transform.position) >= minDistanceFromPlayer)
                     return p;

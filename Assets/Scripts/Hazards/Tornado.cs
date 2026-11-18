@@ -229,10 +229,7 @@ namespace Convergence.Hazards
             {
                 var pit = pits[i];
                 if (pit == null) continue;
-                var f = pit.Footprint;
-                float dx = Mathf.Max(f.xMin - p.x, 0f, p.x - f.xMax);
-                float dy = Mathf.Max(f.yMin - p.y, 0f, p.y - f.yMax);
-                if (dx * dx + dy * dy < r * r) return false;
+                if (pit.Covers(p, r)) return false;
             }
 
             _hits ??= new List<Collider2D>();
