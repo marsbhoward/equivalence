@@ -5662,6 +5662,7 @@ namespace Convergence.Art.Gear
         public void PlayAttack(AttackMotion motion, float duration, bool alt)
         {
             _frozenK = -1f;   // a real swing lets a held portrait pose go (HoldPose re-pins it after)
+            _guardLeft = 0f;   // ...and a parry guard (the Guard partial; RaiseGuard re-pins it after)
             _chargeTimer = 0f;
             _attackHold = 0f;
             _holdElapsed = 0f;
@@ -5906,6 +5907,7 @@ namespace Convergence.Art.Gear
             _hopHeight = 0f;
             bool wantWeaponBehind = false;
             bool reachPosed = false;   // a live swing wrote _reach; otherwise it eases home
+            TickGuard(dt);   // a parry guard whose window closed lets go first (the Guard partial)
 
             if (_chargeTimer > 0f)
             {
@@ -5982,7 +5984,7 @@ namespace Convergence.Art.Gear
                 // what the player sees is the arm TRAVELLING into the wind-up - which is the
                 // anticipation every swing except chop 3 was missing, because only that one
                 // happened to begin where the previous swing ended.
-                float elapsed = _attackLength - _attackTimer + _holdElapsed;
+                float elapsed = GuardUp ? _guardElapsed : _attackLength - _attackTimer + _holdElapsed;
                 float entry = Mathf.Clamp01(elapsed / EntryBlendSeconds);
                 if (entry < 1f)
                 {

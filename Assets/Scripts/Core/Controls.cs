@@ -337,6 +337,7 @@ namespace Convergence.Core
         static bool _guard, _guardPrev;
         static bool _phial, _phialPrev;
         static bool _pagePrev, _pagePrevPrev, _pageNext, _pageNextPrev;
+        static bool _tabPrev, _tabPrevPrev, _tabNext, _tabNextPrev;
         static bool _menu, _menuPrev;
         static bool _lock, _lockPrev, _flickArmed = true;
         static Vector2? _lockPoint, _flick;
@@ -721,21 +722,22 @@ namespace Convergence.Core
                  || (cancelBtn != null && cancelBtn.isPressed)
                  || VirtualCancel);
 
-            // Start is fixed, like Select below: the loadout in the hub, and (through MenuTapped)
-            // the pause menu in a run.
+            // Start is fixed, like Select below: the loadout in the hub, and (through MenuTapped,
+            // read first) the pause menu in a run. C and the GEAR pill open the sheet in a run too.
             // Not Tab since 2026-11-12: Tab is the lock (below).
             Edge(ref _loadout, ref _loadoutPrev,
                  (kb != null && kb.cKey.isPressed)
                  || (pad != null && pad.startButton.isPressed)
                  || VirtualLoadout);
 
-            // The run's pause menu: Escape, the loadout keys, Start, or the overlay's MENU/GEAR.
-            // Not the pad's Cancel - B is the defensive ability in a fight, and backing out of a
-            // menu must not be the same button that opens one.
+            // The run's pause menu: Escape, Start, or the overlay's MENU. Not C or GEAR since
+            // 2026-11-18 - they open the run's sheet straight away (the user's call). Not the pad's
+            // Cancel - B is the defensive ability in a fight, and backing out of a menu must not be
+            // the same button that opens one.
             Edge(ref _menu, ref _menuPrev,
-                 (kb != null && (kb.escapeKey.isPressed || kb.cKey.isPressed))
+                 (kb != null && kb.escapeKey.isPressed)
                  || (pad != null && pad.startButton.isPressed)
-                 || VirtualCancel || VirtualLoadout);
+                 || VirtualCancel);
 
             // THE LOCK (the user's call, 2026-11-12): Tab, or R3 - fixed, like Start. The cursor names
             // the enemy (LockPointScreen); with none, PlayerTargeting takes the one nearest the aim.
@@ -788,6 +790,10 @@ namespace Convergence.Core
             // mastery board stays shut while one is up (GameBootstrap), so LB's default bind cannot double.
             Edge(ref _pagePrev, ref _pagePrevPrev, pad != null && pad.leftShoulder.isPressed);
             Edge(ref _pageNext, ref _pageNextPrev, pad != null && pad.rightShoulder.isPressed);
+            // A sheet's tabs: Q and E, or the bumpers. Only the run's sheet reads them (CharacterScreen),
+            // and the game is paused under it, so Q's guard and E's use never see them.
+            Edge(ref _tabPrev, ref _tabPrevPrev, (kb != null && kb.qKey.isPressed) || (pad != null && pad.leftShoulder.isPressed));
+            Edge(ref _tabNext, ref _tabNextPrev, (kb != null && kb.eKey.isPressed) || (pad != null && pad.rightShoulder.isPressed));
 
             Edge(ref _guard, ref _guardPrev,
                  (kb != null && kb.qKey.isPressed) || World(guardBtn)
@@ -1088,6 +1094,8 @@ namespace Convergence.Core
         /// <summary>The previous / next page of a menu with pages: LB and RB.</summary>
         public static bool PagePrevTapped { get { Sync(); return _pagePrev && !_pagePrevPrev; } }
         public static bool PageNextTapped { get { Sync(); return _pageNext && !_pageNextPrev; } }
+        public static bool TabPrevTapped { get { Sync(); return _tabPrev && !_tabPrevPrev; } }
+        public static bool TabNextTapped { get { Sync(); return _tabNext && !_tabNextPrev; } }
 
         /// <summary>The chest's defensive ability, in a run. Q on keyboard, as Alt is.</summary>
         public static bool GuardTapped { get { Sync(); return _guard && !_guardPrev; } }

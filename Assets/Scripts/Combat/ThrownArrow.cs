@@ -38,6 +38,9 @@ namespace Convergence.Combat
         /// <summary>CLASH (Combat.Clash): whether this arrow beats an enemy's strike, and where it
         /// was last frame - the line it cuts enemy shots along.</summary>
         bool _wins;
+
+        /// <summary>This arrow wins any clash it meets - a parry's counter (PlayerController.Counter).</summary>
+        public void WinClashes() => _wins = true;
         Vector2 _last;
 
         /// <summary>Gear's Splash and (bow-only) Pierce, as fractions of this arrow's hit.</summary>

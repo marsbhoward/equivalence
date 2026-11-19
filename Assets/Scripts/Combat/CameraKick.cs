@@ -22,6 +22,7 @@ namespace Convergence.Combat
     public static class CameraKick
     {
         static GameObject _player;
+        static int _discArtKicked = -1;   // the disc art that has had its one kick
 
         /// <summary>
         /// Non-readonly plain fields, deliberately: a domain reload restores both, and a reload
@@ -51,6 +52,13 @@ namespace Convergence.Combat
             if (!info.IsFinisher) return;
             if (info.SuppressHitstop) return;
             if (victim == null) return;
+            // A disc art kicks once, with its one freeze (Hitstop.DiscArtNow).
+            int discArt = Hitstop.DiscArtNow != null ? Hitstop.DiscArtNow() : -1;
+            if (discArt >= 0)
+            {
+                if (discArt == _discArtKicked) return;
+                _discArtKicked = discArt;
+            }
 
             // Toward what was hit, not along the player's facing. The two are usually close, but
             // when they differ it is because the blow landed off to one side - which is the case
@@ -106,6 +114,7 @@ namespace Convergence.Combat
             _player = null;
             _offset = Vector2.zero;
             _velocity = Vector2.zero;
+            _discArtKicked = -1;
         }
     }
 }

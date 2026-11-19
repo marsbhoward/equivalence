@@ -8909,9 +8909,18 @@ namespace Convergence.Core
             public const float ParryBurstRadius = 1.25f;
             public const float ParryBurstSeconds = 0.14f;
 
-            /// <summary>The counter-strike's damage and knockback, whichever ability triggered it.</summary>
-            public const float CounterDamage = 20f;
-            public const float CounterKnockback = 8f;
+            /// <summary>
+            /// THE PARRY COUNTER (the user's calls, 2026-11-18; Player.PlayerController.Counter): the weapon's
+            /// own move at a basic's full damage, so it has no number of its own. When a blow names no attacker,
+            /// the counter goes at the living enemy nearest it within this many units.
+            /// </summary>
+            public const float CounterFindRadius = 2.5f;
+            /// <summary>The longest the discs' counter holds the next swing for its disc's catch (seconds) -
+            /// a disc lost on a wall lands at once, so this only guards against one that never returns.</summary>
+            public const float CounterCatchLimit = 3f;
+            /// <summary>The parry guard (PlayerController.RaiseParryGuard) stays up this long past the parry
+            /// window, so a guard that took nothing still reads before it drops (seconds).</summary>
+            public const float GuardLingerSeconds = 0.1f;
         }
 
         /// <summary>
@@ -8992,15 +9001,15 @@ namespace Convergence.Core
             public const float ParrySeconds = 0.2f;
 
             /// <summary>
-            /// THE PLAYER TAKING A BIG HIT (the user's go-ahead, 2026-11-02): a freeze shorter than
-            /// a clash's - taking a blow never weighs more than landing one - on a single enemy
-            /// blow of at least <see cref="PlayerHitShare"/> of max health, or the one that breaks
-            /// the floor's last plate. Never on chip damage, a tick or a price: in a crowd or a
-            /// bullet hell every hit freezing was the stutter basics lost their freeze for. At most
-            /// one per <see cref="PlayerHitCooldown"/> (unscaled), and never over a freeze running.
+            /// THE PLAYER TAKING A HIT (the user's go-ahead, 2026-11-02; every blow, the user's call
+            /// 2026-11-18 - it had needed <see cref="PlayerHitShare"/> 0.12 of max health, so it
+            /// rarely fired): a freeze shorter than a clash's - taking a blow never weighs more than
+            /// landing one - on any enemy blow, or the one that breaks the floor's last plate. Never
+            /// a tick, a price or a hazard. At most one per <see cref="PlayerHitCooldown"/>
+            /// (unscaled), so a crowd or a bullet hell does not stutter, and never over a freeze running.
             /// </summary>
             public const float PlayerHitSeconds = 0.055f;
-            public const float PlayerHitShare = 0.12f;
+            public const float PlayerHitShare = 0f;
             public const float PlayerHitCooldown = 0.6f;
 
             /// <summary>The camera's shove with it, along the blow (source to player), world units

@@ -1893,6 +1893,10 @@ namespace Convergence.Hub
             // beside the room's own furniture.
             _rig.SetVisualScale(Tuning.Player.ArenaVisualScale);
             CharacterRigFactory.Paint(_rig, profile);
+            // Out of combat: the weapon stowed (slung sword, discs on the back, bow at rest). A rig
+            // starts drawn - previews want that - and only the arena's player is told otherwise
+            // each frame (GameBootstrap.FightOn), so the hub must say so itself.
+            _rig.SetInCombat(false);
 
             var col = _avatarGo.AddComponent<CircleCollider2D>();
             col.radius = Tuning.Hub.AvatarRadius;

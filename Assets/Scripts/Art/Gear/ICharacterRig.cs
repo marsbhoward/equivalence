@@ -218,6 +218,13 @@ namespace Convergence.Art.Gear
         void HoldPose(PoseDef pose);
 
         /// <summary>
+        /// The PARRY GUARD: one frame of a motion (at k), travelled into and held for this many
+        /// seconds, then let go - the parry window's pose. A real swing ends it early. No-op on a rig
+        /// whose poses are authored art.
+        /// </summary>
+        void RaiseGuard(AttackMotion motion, float k, bool alt, float seconds);
+
+        /// <summary>
         /// Paint the higher-detail menu art where a piece has any. Set once when the rig is
         /// built, not per equip - it changes which sprites Apply reaches for.
         /// </summary>

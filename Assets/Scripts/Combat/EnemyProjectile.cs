@@ -239,7 +239,7 @@ namespace Convergence.Combat
             if (_target == null || _targetHealth == null || _targetHealth.IsDead) return;
             if (Vector2.Distance(transform.position, _target.position) > HitRadius) return;
 
-            if (_targetController != null && _targetController.TryParry(transform.position))
+            if (_targetController != null && _targetController.TryParry(transform.position, _owner))
             {
                 // A missile hurts only the player (the user's call): parried, it bursts, harmless.
                 if (_explodes) { Burst(); Destroy(gameObject); return; }

@@ -329,6 +329,10 @@ namespace Convergence.Combat
         /// </summary>
         public bool AreaOfEffect;
 
+        /// <summary>A parry's counter (Player.PlayerController.Counter), not a step of any moveset: its
+        /// bow shot goes at the parried enemy at full damage. Built in code, never authored.</summary>
+        public bool ParryCounter;
+
         /// <summary>
         /// Tria Prima's Separatio: hold the blade up, then come apart into three figures - one per
         /// principle, each holding one of the three swords the fused blade is made of - that each

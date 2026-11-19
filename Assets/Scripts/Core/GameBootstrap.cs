@@ -480,6 +480,14 @@ namespace Convergence.Core
             CharacterScreen.Init(() => _profile, ToggleHelmHidden,
                                  () => _state == State.Playing ? Modifiers : null,
                                  () => _player, () => ReorderOpen, ScreenCharacter);
+            // The run sheet's header: where the run stands.
+            CharacterScreen.RunLine = () =>
+            {
+                int t = Mathf.FloorToInt(Clock.Seconds);
+                string weapon = _player != null ? Art.Gear.WeaponClasses.Name(_player.Weapon) : "";
+                return $"FLOOR {_floor} / {RunFormat.EndFloor}        TIME {t / 60}:{t % 60:00}        "
+                     + $"{ScreenElement().ToString().ToUpperInvariant()}  -  {weapon.ToUpperInvariant()}";
+            };
             FloorRewardScreen = gameObject.AddComponent<UI.FloorRewardScreen>();
             MasteryScreen = gameObject.AddComponent<UI.MasteryScreen>();
             TransmutationScreen = gameObject.AddComponent<UI.TransmutationScreen>();
@@ -2602,9 +2610,9 @@ namespace Convergence.Core
                 PauseScreen.IsOpen || SettingsScreen.IsOpen || ControlsScreen.IsOpen ||
                 HudSettingsScreen.IsOpen || InventoryScreen.IsOpen) return;
 
-            // Loadout screen. From the HUB it opens on its own key. MID-RUN it lives behind the
-            // pause menu (opened in the Playing branch below), so the same key there only closes
-            // it - and closing it hands back to that menu via CharacterScreen's onClosed.
+            // Loadout screen. From the HUB it opens on its own key. MID-RUN it opens on its own key
+            // too (C, the GEAR pill - the Playing branch below) and from the pause menu's CHARACTER
+            // ring; the key closes it, and closing hands back to whichever opened it (onClosed).
             if (_state == State.Hub)
             {
                 bool toggle = Controls.LoadoutTapped
@@ -2656,13 +2664,21 @@ namespace Convergence.Core
             }
             else if (_state == State.Playing)
             {
-                // Esc / Start, and the loadout key too, open the paused radial menu (not the pad's
-                // B, which guards in a fight - Controls.MenuTapped). The loadout
-                // sheet, the carried-loot screen and abandoning the run are its three points -
-                // abandoning is one option among them rather than a bare keystroke. Returning
-                // here matters for the same reason it always did: the floor-clear check below
-                // must not run on the frame a menu goes up.
+                // Esc / Start open the paused radial menu (not the pad's B, which guards in a fight -
+                // Controls.MenuTapped). The loadout sheet, the carried-loot screen and abandoning
+                // the run are its points - abandoning is one option among them rather than a bare
+                // keystroke. Returning here matters for the same reason it always did: the
+                // floor-clear check below must not run on the frame a menu goes up.
                 if (Controls.MenuTapped) { OpenPauseMenu(); return; }
+
+                // C and the GEAR pill open the run's sheet straight away (the user's call,
+                // 2026-11-18), and closing it goes back to the fight. Start sets this edge too, but
+                // MenuTapped above has already taken it.
+                if (Controls.LoadoutTapped)
+                {
+                    CharacterScreen.Open(_canvas.transform, ScreenElement());
+                    return;
+                }
 
                 // Select (I) goes straight to the carried loot, and closing it returns to play
                 // rather than to the pause menu it was never opened from.
@@ -3574,7 +3590,7 @@ namespace Convergence.Core
             float baseHp = BaseHp(element);
             var hp = go.AddComponent<Health>();
             Convergence.Audio.CombatSounds.AttachPlayer(hp);
-            Hitstop.AttachPlayer(hp, info => Exchange.RunEffects.FromEnemy(info, go));   // a big blow freezes
+            Hitstop.AttachPlayer(hp, info => Exchange.RunEffects.FromEnemy(info, go));   // a blow freezes
             if (DevImmune) hp.Immune = true;   // DEV: a test harness walks deep floors without dying
 
             // The stat block is built HERE, before Health, because max health needs it and the
@@ -3637,6 +3653,8 @@ namespace Convergence.Core
             // The weapon class is read ONCE, here, from what is equipped as the run begins. See
             // PlayerController.Weapon for why it does not track later swaps.
             pc.LockWeaponClass(WeaponClassOf(_profile));
+            // A disc art freezes on its first hit only (Hitstop.DiscArtNow).
+            Hitstop.DiscArtNow = () => pc != null && pc.Weapon == Art.Gear.WeaponClass.Disc ? pc.ArtSerial : -1;
 
             // Same reasoning, same moment: the chest's defensive ability is a run-long commitment,
             // not something a loadout swap should be able to change mid-fight.

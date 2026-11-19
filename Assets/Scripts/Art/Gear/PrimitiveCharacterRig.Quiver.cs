@@ -131,6 +131,9 @@ namespace Convergence.Art.Gear
 
         /// <summary>How fast the bow arm relaxes after the release.</summary>
         const float BowSquareRelease = 4f;
+        /// <summary>How fast the parry guard brings the bow up square (per second, eased) - most of the way
+        /// inside the swings' entry blend.</summary>
+        const float BowGuardRaise = 30f;
         /// <summary>How much of the arrow is drawn back past the bow at full draw - the head is
         /// left this share of the arrow's length ahead of the grip.</summary>
         const float BowHeadPastGrip = 0.14f;
@@ -194,7 +197,9 @@ namespace Convergence.Art.Gear
                 bool connectorHeld = (_motion == AttackMotion.LobDraw || _motion == AttackMotion.CantedDraw
                                       || _motion == AttackMotion.TwinDraw)
                                      && _sinceSwing <= 0f && _attackTimer <= 0f;
-                if (!connectorHeld) _bowHold = Mathf.Lerp(_bowHold, 0f, 1f - Mathf.Exp(-BowSquareRelease * Dt));
+                // The PARRY GUARD (the Guard partial) raises the bow square before the body and holds it.
+                if (GuardUp) _bowHold = Mathf.Lerp(_bowHold, 1f, 1f - Mathf.Exp(-BowGuardRaise * Dt));
+                else if (!connectorHeld) _bowHold = Mathf.Lerp(_bowHold, 0f, 1f - Mathf.Exp(-BowSquareRelease * Dt));
                 if (_bowHold > 0.002f && weapon != null && _armBack != null && _bowGrip && !_stone)
                     HoldBowArm(weapon, DrawLine(), _bowHold);
                 else

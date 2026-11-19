@@ -99,7 +99,7 @@ namespace Convergence.Art.Gear
         {
             get
             {
-                if (_attackTimer <= 0f || _attackHold > 0f) return false;
+                if (_attackTimer <= 0f || _attackHold > 0f || GuardUp) return false;
                 StrikePhases(_motion, _attackLength, out float cockEnd, out float strikeEnd);
                 float k = SwingKNow;
                 return k >= cockEnd && k < strikeEnd;
@@ -110,7 +110,7 @@ namespace Convergence.Art.Gear
         {
             get
             {
-                if (_attackTimer <= 0f || _attackHold > 0f) return 0f;
+                if (_attackTimer <= 0f || _attackHold > 0f || GuardUp) return 0f;
                 StrikePhases(_motion, _attackLength, out _, out float strikeEnd);
                 return Mathf.Max(0f, (SwingKNow - strikeEnd) * _attackLength);
             }
@@ -118,7 +118,7 @@ namespace Convergence.Art.Gear
 
         public void ReleaseSettle()
         {
-            if (_attackTimer <= 0f || _attackHold > 0f || !PastStrike) return;
+            if (_attackTimer <= 0f || _attackHold > 0f || GuardUp || !PastStrike) return;
             _attackTimer = 0f;
             // Past the follow-through hold, so the grip starts back for the carry at once - and
             // past Sunder's linger, so a planted blade comes out of the ground with the step.

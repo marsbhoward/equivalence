@@ -9,7 +9,7 @@ using Convergence.Hazards;
 namespace Convergence.Player
 {
     [RequireComponent(typeof(Rigidbody2D), typeof(Health))]
-    public class PlayerController : MonoBehaviour
+    public partial class PlayerController : MonoBehaviour
     {
         // Defaults for every field below live in Core/Tuning.cs - the one file to tweak for feel.
         // The fields stay here so a scene/prefab could still override one, and so the tooltips
@@ -523,6 +523,10 @@ namespace Convergence.Player
             // line that cannot fall out of step with a fifth ability added later.
             _defenseCooldownTotal = _defenseCooldown;
 
+            // The weapon comes up into its guard for the parry window (the Counter partial); the dash
+            // keeps its own pose.
+            if (EquippedDefensiveAbility != Art.Gear.DefensiveAbility.Dash) RaiseParryGuard();
+
             // A Guard release's charge (Player.ReleaseArsenal): the element thrown round the body -
             // an effect added on top, the window and the cooldown above untouched.
             Resource?.Arsenal.OnDefence();
@@ -540,7 +544,7 @@ namespace Convergence.Player
         /// business knowing about. Returns whether it actually consumed the window, so a caller
         /// that already checked ParryWindowOpen a frame ago cannot double-fire.
         /// </summary>
-        public bool TryParry(Vector2 attackerPosition)
+        public bool TryParry(Vector2 attackerPosition, GameObject attacker = null)
         {
             // Riposte's guard turns every hit for as long as it is up; the art's own strike is
             // the answer, so no counter here.
@@ -559,7 +563,7 @@ namespace Convergence.Player
             ParryTell(attackerPosition);
             Resource?.OnParried();
 
-            FireCounterStrike();
+            FireCounterStrike(attackerPosition, attacker);   // the weapon's own counter (PlayerController.Counter)
             Effects?.OnParried(attackerPosition);   // the Guard kind's parry forms, the Concords
 
             // The board's Volatilization: a parry hands the ability straight back.
@@ -592,43 +596,6 @@ namespace Convergence.Player
             Vector2 away = (Vector2)transform.position - attackerPosition;
             if (away.sqrMagnitude > 0.0001f)
                 Combat.CameraKick.Kick(away.normalized, Tuning.Defense.ParryCameraKick);
-        }
-
-        /// <summary>
-        /// Nearest enemy within whichever range circle is currently furthest out (a disc's throw
-        /// band beats its melee reach). Damage negation already happened unconditionally in
-        /// TryParry - this can whiff with nothing in range, which is deliberate: parrying a
-        /// distant ranged attacker should not be a guaranteed free hit on somebody else entirely.
-        /// </summary>
-        void FireCounterStrike()
-        {
-            Enemies.EnemyRegistry.Prune();
-
-            Health nearest = null;
-            float bestDist = float.MaxValue;
-            float reach = AcquireReach;
-            foreach (var e in Enemies.EnemyRegistry.All)
-            {
-                if (e == null) continue;
-                var hp = e.GetComponent<Health>();
-                if (hp == null || hp.IsDead) continue;
-                float d = Vector2.Distance(transform.position, e.transform.position);
-                if (d > reach || d >= bestDist) continue;
-                bestDist = d;
-                nearest = hp;
-            }
-
-            // The parry's own sparks (ParryTell) said the negation happened, whiff or not.
-
-            if (nearest == null) return;
-
-            var dir = ((Vector2)nearest.transform.position - (Vector2)transform.position).normalized;
-            nearest.Take(new DamageInfo(Tuning.Defense.CounterDamage, ElementType.Earth, gameObject)
-            {
-                Knockback = dir * Tuning.Defense.CounterKnockback,
-                Displaces = true,
-            });
-            TexelFx.Star(nearest.transform.position, TexelFx.Gold, 3);
         }
 
         /// <summary>
@@ -6747,7 +6714,8 @@ namespace Convergence.Player
             if (isFinisher) SettleStrike();
 
             var loose = GetComponent<Combat.HiveLoose>();
-            var target = Targeting != null ? Targeting.Target : null;
+            var target = step.ParryCounter ? _counterTarget : Targeting != null ? Targeting.Target : null;
+            if (step.ParryCounter) _counterTarget = null;
             if (target == null || target.IsDead
                 || Vector2.Distance(transform.position, target.transform.position) > CurrentRange)
             {
@@ -6761,7 +6729,7 @@ namespace Convergence.Player
             dmg *= DamageRoll();
             dmg *= RollCritFor(isFinisher, out bool crit);
             if (isFinisher) dmg *= Mods.FinisherDamageMul * FinisherPowerMul * _strikeMul;
-            dmg *= watch.DamageMul;   // plant to fire
+            if (!step.ParryCounter) dmg *= watch.DamageMul;   // plant to fire (a parry's counter shot is full damage)
 
             var arrow = ThrownArrow.Fire(gameObject, target, Facing, dmg,
                              Resource?.Element ?? ElementType.Fire,
@@ -6771,6 +6739,7 @@ namespace Convergence.Player
             arrow.PierceFraction = PierceFraction;   // Fletching and Broadhead add run Pierce
             arrow.Knockback = HeavyKnockback(step, isFinisher);
             arrow.BasicsWorth = step.BasicsWorth;
+            if (step.ParryCounter) arrow.WinClashes();   // a parry's counter always wins its clash
             bool planted = watch.Moving <= 0.02f;
             if (!isFinisher) Effects?.ArmArrow(arrow, planted);   // Patient String, Long Ember
             if (step.LobArc > 0f)
@@ -7527,7 +7496,8 @@ namespace Convergence.Player
 
                 // CLASH: this body's own strike is about to land. The two cancel - it takes
                 // nothing and its blow is void - unless this is a Heavy art, which lands anyway.
-                if (Combat.Clash.AtBody(hp, origin, Combat.Clash.Wins(isFinisher, step.Weight)))
+                // A parry's counter always wins: the parry earned the opening (PlayerController.Counter).
+                if (Combat.Clash.AtBody(hp, origin, Combat.Clash.Wins(isFinisher, step.Weight) || step.ParryCounter))
                 {
                     clashed = true;
                     if (!step.CleavesAll) break;

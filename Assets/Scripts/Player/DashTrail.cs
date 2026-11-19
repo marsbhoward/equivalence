@@ -88,6 +88,23 @@ namespace Convergence.Player
             Drop(here);
         }
 
+        /// <summary>
+        /// The dash's parry counter (PlayerController.AfterimageStrike): a figure left where the parry
+        /// landed, lingering longer than the trail's own, while the dash carries on - the afterimage that
+        /// strikes the attacker.
+        /// </summary>
+        public void Strike()
+        {
+            if (_pc == null) return;
+            var f = Take();
+            if (f == null) return;
+            var at = _pc.transform.position;
+            f.Sil.SetVisible(true);
+            f.Sil.SetOrder(SortingOrders.ForDepth(at.y));
+            f.Sil.Sync();
+            f.LifeMax = f.Life = Tuning.Defense.DashTrailFadeSeconds * 2f;
+        }
+
         void Fade()
         {
             if (_figures == null) return;

@@ -1621,7 +1621,7 @@ namespace Convergence.Enemies
             // Checked BEFORE Take, not inside it - a parry's counter-strike is the attacker's
             // problem to trigger, not Health's, and a melee hit has nothing further to do
             // once negated (unlike a projectile, which also reflects).
-            if (_targetController != null && _targetController.TryParry(transform.position))
+            if (_targetController != null && _targetController.TryParry(transform.position, gameObject))
                 return;
 
             var dir = ((Vector2)_target.position - (Vector2)transform.position).normalized;
@@ -2339,7 +2339,7 @@ namespace Convergence.Enemies
                 float dist = Vector2.Distance(b.At, b.Target.position);
                 if (dist <= b.Range &&
                     !Spire.BubbleSeparates(b.At, b.Target.position) &&
-                    (b.TargetController == null || !b.TargetController.TryParry(b.At)))
+                    (b.TargetController == null || !b.TargetController.TryParry(b.At, b.Source)))
                 {
                     var dir = ((Vector2)b.Target.position - b.At).normalized;
                     b.TargetHealth.Take(new DamageInfo(b.Damage, ElementType.Fire, b.Source)
@@ -2437,7 +2437,7 @@ namespace Convergence.Enemies
 
             // Checked before Take, same as the elite melee hit above - a parry answers the beam
             // by negating this tick, not by reflecting a continuous effect back down the line.
-            if (_targetController != null && _targetController.TryParry(transform.position)) return;
+            if (_targetController != null && _targetController.TryParry(transform.position, gameObject)) return;
 
             // Damage is carried as a per-second RATE for this kind (see EnemyFactory), the same
             // way StatusEffects carries burn/bleed as dps rather than a per-tick amount - so the
@@ -2731,7 +2731,7 @@ namespace Convergence.Enemies
             if (Spire.BubbleSeparates(to, player)) return;
 
             // Checked before Take, as every other melee hit in this file - a parry answers it.
-            if (_targetController != null && _targetController.TryParry(transform.position)) return;
+            if (_targetController != null && _targetController.TryParry(transform.position, gameObject)) return;
 
             var dir = (player - from).sqrMagnitude > 1e-4f ? (player - from).normalized : _dasherDashDir;
             _targetHealth.Take(new DamageInfo(Damage, ElementType.Air, gameObject)
@@ -2839,7 +2839,7 @@ namespace Convergence.Enemies
                 {
                     float dist = Vector2.Distance(transform.position, _target.position);
                     if (dist <= Tuning.Enemy.GargoyleAoeRadius &&
-                        (_targetController == null || !_targetController.TryParry(transform.position)))
+                        (_targetController == null || !_targetController.TryParry(transform.position, gameObject)))
                     {
                         _targetHealth.Take(new DamageInfo(Damage, ElementType.Earth, gameObject));
                         RootTarget();
@@ -2861,7 +2861,7 @@ namespace Convergence.Enemies
             // Damage (never spent before) with the root. Outside it, the root alone. No extra root.
             float toTarget = _target != null ? Vector2.Distance(transform.position, _target.position) : float.MaxValue;
             if (_targetHealth != null && !_targetHealth.IsDead && toTarget <= AttackRange &&
-                (_targetController == null || !_targetController.TryParry(transform.position)))
+                (_targetController == null || !_targetController.TryParry(transform.position, gameObject)))
             {
                 if (Veteran && toTarget <= Tuning.Enemy.GargoyleAoeRadius)
                     _targetHealth.Take(new DamageInfo(Damage, ElementType.Earth, gameObject));

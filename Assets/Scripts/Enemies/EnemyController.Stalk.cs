@@ -123,7 +123,7 @@ namespace Convergence.Enemies
             var d = (Vector2)_target.position - (Vector2)transform.position;
             if (d.magnitude > Tuning.EnemyAi.ShoveRange + Tuning.EnemyAi.ShoveReachSlack) return;
             if (Spire.BubbleSeparates(transform.position, _target.position)) return;
-            if (_targetController != null && _targetController.TryParry(transform.position)) return;
+            if (_targetController != null && _targetController.TryParry(transform.position, gameObject)) return;
 
             var dir = d.sqrMagnitude > 1e-4f ? d.normalized : (Vector2)(transform.right);
             _targetHealth.Take(new DamageInfo(Damage * Tuning.EnemyAi.ShoveDamageMul, ElementType.Earth, gameObject));

@@ -20,6 +20,15 @@ namespace Convergence.Combat
         static GameObject _player;
         static float _remaining;
         static float _playerHitAt = -999f;   // unscaled; the player-hit freeze's cooldown
+        static int _discArtFrozen = -1;      // the disc art that has had its one freeze
+
+        /// <summary>
+        /// The weapon art now (PlayerController.ArtSerial) when the player fights with DISCS, else -1 - set
+        /// by GameBootstrap, so Combat stays ignorant of the player. A disc art freezes on its FIRST hit
+        /// only (the user, 2026-11-18): its pair, its return and every other body it passes through are
+        /// the same art, and freezing on each stuttered the game the way basics once did.
+        /// </summary>
+        public static System.Func<int> DiscArtNow;
 
         /// <summary>True while a freeze is still running - read by GamePause.Release so a screen
         /// closing under a hitstop doesn't cut it short.</summary>
@@ -45,12 +54,18 @@ namespace Convergence.Combat
             if (_player == null || info.Source != _player) return;
             if (!info.IsFinisher) return;   // basics carry no hitstop - see Tuning.Hitstop
             if (info.SuppressHitstop) return;   // e.g. the katana sequence's pre-cuts
+            int discArt = DiscArtNow != null ? DiscArtNow() : -1;
+            if (discArt >= 0)
+            {
+                if (discArt == _discArtFrozen) return;   // this disc art has had its freeze
+                _discArtFrozen = discArt;
+            }
             Trigger(info.Crit ? Tuning.Hitstop.CritFinisherSeconds : Tuning.Hitstop.FinisherSeconds);
         }
 
         /// <summary>
-        /// Subscribe the PLAYER's body: a big enough blow from an enemy freezes the game (see
-        /// Tuning.Hitstop.PlayerHitSeconds). <paramref name="fromEnemy"/> is the ledger's own test
+        /// Subscribe the PLAYER's body: a blow from an enemy freezes the game (see
+        /// Tuning.Hitstop.PlayerHitSeconds) - every blow since 2026-11-18, the cooldown keeping a crowd from stuttering. <paramref name="fromEnemy"/> is the ledger's own test
         /// (Exchange.RunEffects.FromEnemy), passed in so Combat stays ignorant of the ledger.
         /// </summary>
         public static void AttachPlayer(Health hp, System.Func<DamageInfo, bool> fromEnemy)
@@ -115,6 +130,8 @@ namespace Convergence.Combat
             _player = null;
             _remaining = 0f;
             _playerHitAt = -999f;
+            _discArtFrozen = -1;
+            DiscArtNow = null;
         }
     }
 }

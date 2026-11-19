@@ -88,6 +88,9 @@ namespace Convergence.Combat
         /// <summary>CLASH (Combat.Clash): whether this disc beats an enemy's strike, and where it
         /// was last frame - the line it cuts enemy shots along.</summary>
         bool _wins;
+
+        /// <summary>This disc wins any clash it meets - a parry's counter (PlayerController.Counter).</summary>
+        public void WinClashes() => _wins = true;
         Vector2 _last;
 
         Vector2 _target;

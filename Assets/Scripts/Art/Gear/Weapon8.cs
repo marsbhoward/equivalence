@@ -265,15 +265,19 @@ namespace Convergence.Art.Gear
                 {
                     // the fists up before the chest, a disc standing behind each side of the body, facing out; running in
                     // combat, SWEPT BACK - the arms back and out, the discs trailing at the hips like fins, face to the side
+                    // The pair STAGGERED (the user, 2026-11-18: side on, the two fins lay one over the other and read as
+                    // one disc drawn twice): the left fin rides higher and closer, the right lower and further back, both
+                    // canted out at the top, so from any side the two read as two.
                     float run = Mathf.SmoothStep(0f, 1f, held.Run), lift = RunLift(held, 1.3f, 0.08f), rock = RunRock(held, 0.05f);
                     foreach (int s in new[] { 1, -1 })
                     {
-                        var swept = new Vector3(s * 21f, 72f + lift, -18f + s * 3f * rock);
+                        var swept = new Vector3(s * 21f, 72f + lift + s * FinStaggerUp, -18f + s * 3f * rock + (s > 0 ? 0f : -FinStaggerBack));
                         var hand = Vector3.Lerp(new Vector3(s * 8.5f, 95f, 10f), swept, run);
                         var centre = Vector3.Lerp(new Vector3(s * 29f, 84f, -7f), swept + new Vector3(s * 6f, 2f, -24f), run);
                         var u = Vector3.Slerp(Vector3.right, Vector3.forward, run);
+                        var v = Vector3.Slerp(Vector3.down, Norm(new Vector3(-s * FinCant, -1f, 0f)), run);
                         g.Hand[s > 0 ? leftArm : 1 - leftArm] = body(hand);
-                        g.Cards.Add(new Card { Art = art, O = body(centre), U = vec(u) * k, V = vec(Vector3.down) * k });
+                        g.Cards.Add(new Card { Art = art, O = body(centre), U = vec(u) * k, V = vec(v) * k });
                     }
                     break;
                 }
@@ -383,6 +387,9 @@ namespace Convergence.Art.Gear
         public static float StowX = 5f, StowY = 92f;
         /// <summary>Where on the draw clock the discs leave the back and reach the fists (the flat rig's DiscGrabFrom / To).</summary>
         const float DiscGrabFrom = 0.35f, DiscGrabTo = 0.6f;
+        /// <summary>The disc run stance's stagger (texels): the left fin this much higher, the right this much further
+        /// back - and both canted out at the top by this much a unit down.</summary>
+        const float FinStaggerUp = 7f, FinStaggerBack = 10f, FinCant = 0.3f;
         /// <summary>How far behind the bow's grip its string runs (texels), where the right hand holds it at the ready.</summary>
         public static float BowStringOff = 13f;
         const float StowZ0 = -13f;

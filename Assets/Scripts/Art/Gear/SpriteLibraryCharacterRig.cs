@@ -195,6 +195,7 @@ namespace Convergence.Art.Gear
 
         public void SetShowcasePose(bool on) { }
         public void HoldPose(PoseDef pose) { }
+        public void RaiseGuard(Convergence.Combat.AttackMotion motion, float k, bool alt, float seconds) { }
 
         /// <summary>No-op: an authored rig faces where its animator says it does.</summary>
         public void SetFacing(Vector2 aim) { }

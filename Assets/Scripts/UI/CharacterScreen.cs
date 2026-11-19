@@ -10,7 +10,8 @@ namespace Convergence.UI
 {
     /// <summary>
     /// The loadout screen. Opens with C, pauses the game, and shows the character large
-    /// alongside all twelve slots.
+    /// alongside all twelve slots. MID-RUN it is the run's own sheet instead - tabs, no figure, the
+    /// weapon arts and the ledger first (CharacterScreen.Run.cs).
     ///
     /// INSPECT ONLY, in the hub and mid-run alike (2026-11-12): the stats panel reads the
     /// CHARACTER by default; pressing a slot reads that piece instead, and pressing it again goes
@@ -90,11 +91,10 @@ namespace Convergence.UI
 
         readonly List<RectTransform> _focusRects = new();
 
-        // The button on the ordinary sheet that opens the reorder window, and the window's own
+        // The run sheet's lit REORDER plate (CharacterScreen.Run.cs), and the reorder window's own
         // panel. Built once (only when ReorderAvailable), toggled by SetActive rather than
         // rebuilt.
         RectTransform _reorderButtonRect;
-        Text _reorderButtonText;
         RectTransform _reorderPanel;
 
         class SlotRow
@@ -139,13 +139,15 @@ namespace Convergence.UI
             _reorderOnly = false;
             _picked = -1;
             _inspected = null;
+            _inspectedEntry = null;
+            _inspectedArt = -1;
             _noteStat = null;
 
             // Never capture a paused scale: if Open() is reached while time is already stopped,
             // saving 0 means Close() restores the freeze and the game soft-locks with no UI up.
             Core.GamePause.Hold(this);
 
-            BuildPreview();
+            if (!Locked) BuildPreview();   // the run's sheet has no figure (CharacterScreen.Run.cs)
             BuildUi(canvas);
             Refresh();
         }
@@ -177,13 +179,14 @@ namespace Convergence.UI
             _helmToggleText = null;
             _statsPanel = null;
             _statTiles.Clear();
+            _ledgerChips.Clear();
+            CloseRun();
             _swap.Clear();
             _origin.Clear();
             _swapCards = _undoRect = _doneRect = null;
             _swapStatus = _undoText = _doneText = null;
             _picked = -1;
             _reorderButtonRect = null;
-            _reorderButtonText = null;
             _reorderPanel = null;
             ReorderPanelOpen = false;
             _reorderOnly = false;
@@ -210,6 +213,20 @@ namespace Convergence.UI
             UiKit.Panel(full, Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero,
                 new Color(0.03f, 0.035f, 0.05f, 1f));
 
+            // Mid-run: the run's own sheet - tabs, no figure (CharacterScreen.Run.cs).
+            if (Locked)
+            {
+                BuildRunUi(full);
+                // The reorder window takes the whole screen over the sheet (CharacterScreen.Reorder.cs).
+                // Built now but INACTIVE - opened by the plate rather than rebuilt each time.
+                if (ReorderAvailable)
+                {
+                    BuildReorderOverlay(full);
+                    _reorderPanel.gameObject.SetActive(false);
+                }
+                return;
+            }
+
             var title = UiKit.Rect(full, "title", new Vector2(0, 1), new Vector2(1, 1),
                 new Vector2(0, -110), new Vector2(0, -46));
             UiKit.Label(title, "LOADOUT", 44, new Color(0.93f, 0.94f, 0.97f), TextAnchor.MiddleCenter);
@@ -217,13 +234,12 @@ namespace Convergence.UI
             var sub = UiKit.Rect(full, "sub", new Vector2(0, 1), new Vector2(1, 1),
                 new Vector2(0, -146), new Vector2(0, -110));
             // Says where gear DOES change, so inspect-only reads as a rule rather than a fault.
-            string why = Locked ? "loadout locked for this run" : "change gear at the circle";
             UiKit.Hint(sub,
-                "click a slot for its stats, again for yours    -    " + why + "    -    [C] to close",
-                "tap a slot for its stats, again for yours    -    " + why + "    -    BACK to close",
+                "click a slot for its stats, again for yours    -    change gear at the circle    -    [C] to close",
+                "tap a slot for its stats, again for yours    -    change gear at the circle    -    BACK to close",
                 18, new Color(0.5f, 0.53f, 0.6f), TextAnchor.MiddleCenter,
-                UI.GamepadGlyphs.Navigate + " to a slot, " + UI.GamepadGlyphs.Confirm + " for its stats    -    "
-                + why + "    -    " + UI.GamepadGlyphs.Loadout + " to close");
+                UI.GamepadGlyphs.Navigate + " to a slot, " + UI.GamepadGlyphs.Confirm + " to read it    -    "
+                + "change gear at the circle    -    " + UI.GamepadGlyphs.Loadout + " to close");
 
             // Character preview, left.
             var frame = UiKit.Panel(full, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
@@ -262,29 +278,7 @@ namespace Convergence.UI
                 float x = -510 + col * 300;
                 float y = top - row * stepY;
 
-                var cardColor = new Color(0.09f, 0.10f, 0.14f, 1f);
-                var card = UiKit.Panel(full, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
-                    new Vector2(x, y - cardH), new Vector2(x + cardW, y), cardColor);
-
-                var swatchRt = UiKit.Rect(card, "swatch", new Vector2(0, 0), new Vector2(0, 1),
-                    new Vector2(0, 0), new Vector2(6, 0));
-                var swatch = swatchRt.gameObject.AddComponent<Image>();
-
-                var nameRt = UiKit.Rect(card, "slot", new Vector2(0, 1), new Vector2(1, 1),
-                    new Vector2(18, -46), new Vector2(-12, -14));
-                var nameTxt = UiKit.Label(nameRt, slots[i].Label().ToUpperInvariant(), 17,
-                    new Color(0.5f, 0.53f, 0.6f));
-
-                var itemRt = UiKit.Rect(card, "item", new Vector2(0, 0), new Vector2(1, 1),
-                    new Vector2(18, 14), new Vector2(-12, -46));
-                var itemTxt = UiKit.Label(itemRt, "-", 22, new Color(0.85f, 0.87f, 0.92f));
-
-                // Top-right, beside the slot name - filled per item in Refresh.
-                var starsRt = UiKit.Rect(card, "stars", new Vector2(1, 1), new Vector2(1, 1),
-                    new Vector2(-92, -42), new Vector2(-12, -16));
-
-                _rows.Add(new SlotRow { Slot = slots[i], Rect = card, Name = nameTxt, Item = itemTxt,
-                                        Swatch = swatch, Stars = starsRt });
+                _rows.Add(SlotCard(full, slots[i], new Vector2(0.5f, 0.5f), new Vector2(x, y - cardH), new Vector2(x + cardW, y)));
             }
 
             // Above the grid now - the bottom row of cards took the space it used to sit in.
@@ -300,66 +294,38 @@ namespace Convergence.UI
             _helmToggleText = UiKit.Label(_helmToggleRect, "", 18,
                 new Color(0.85f, 0.87f, 0.92f), TextAnchor.MiddleCenter);
 
-            // Only exists at all while the door window is open - the crack in Locked is still
-            // scoped to that window, this just stops the sheet from jumping straight into it.
-            // A button rather than anything automatic: pressing it OPENS the reorder window,
-            // which itself opens inspect-only - see BuildReorderOverlay.
-            //
-            // Top right, beside the title (2026-11-12: under the helmet toggle it was buried). Shown
-            // all run long - dimmed and inert outside the door window, saying when it opens - so
-            // a player learns it exists before the one moment it works.
-            if (ReorderAvailable)
-            {
-                _reorderButtonRect = UiKit.Panel(full, new Vector2(1, 1), new Vector2(1, 1),
-                    new Vector2(-440, -46 - UiKit.TouchTarget), new Vector2(-60, -46),
-                    new Color(0.22f, 0.18f, 0.08f, 1f));
-                _reorderButtonText = UiKit.Label(_reorderButtonRect, "", 20,
-                    new Color(1f, 0.85f, 0.35f), TextAnchor.MiddleCenter);
-                _reorderButtonText.fontStyle = FontStyle.Bold;
-            }
-            else if (Locked)
-            {
-                var idle = UiKit.Panel(full, new Vector2(1, 1), new Vector2(1, 1),
-                    new Vector2(-440, -46 - UiKit.TouchTarget), new Vector2(-60, -46),
-                    new Color(0.07f, 0.075f, 0.09f, 1f));
-                UiKit.Label(idle, "REORDER WEAPON ARTS\nafter a floor's reward", 15,
-                    new Color(0.42f, 0.44f, 0.5f), TextAnchor.MiddleCenter);
-            }
-
             // The stats panel, right of the slots: the character by default, a pressed slot's piece
             // while one is pressed (the user's call, 2026-11-12). Down to the helmet toggle's foot.
             // Filled by BuildStats (CharacterScreen.Stats.cs) on every Refresh.
             _statsPanel = UiKit.Panel(full, new Vector2(0.5f, 0.5f), new Vector2(0.5f, 0.5f),
                 new Vector2(408, -310), new Vector2(900, 330), new Color(0.07f, 0.075f, 0.1f, 1f));
 
-            BuildLedger(full);
-
-            // The reorder window (CharacterScreen.Reorder.cs) takes the whole screen over the sheet.
-            // Built now but INACTIVE - toggled by the button above rather than rebuilt each time.
-            if (ReorderAvailable)
-            {
-                BuildReorderOverlay(full);
-                _reorderPanel.gameObject.SetActive(false);
-            }
         }
 
-        /// <summary>
-        /// What the run is carrying, along the bottom. Same strip as the exchange row, with names
-        /// - this is the screen you come to in order to actually read the ledger, rather than to
-        /// glance at it mid-decision.
-        /// </summary>
-        void BuildLedger(RectTransform full)
+        /// <summary>One slot's card: a tier swatch, the slot's name, the piece and its stars (filled in Refresh).</summary>
+        SlotRow SlotCard(RectTransform parent, GearSlot slot, Vector2 anchor, Vector2 min, Vector2 max)
         {
-            var mods = _mods?.Invoke();
-            if (mods == null || mods.Held.Count == 0) return;
+            var card = UiKit.Panel(parent, anchor, anchor, min, max, new Color(0.09f, 0.10f, 0.14f, 1f));
 
-            UiKit.Label(UiKit.Rect(full, "ledger-l", new Vector2(0, 0), new Vector2(0, 0),
-                new Vector2(60, 132), new Vector2(420, 158)),
-                "EQUIVALENT EXCHANGE", 14, new Color(0.86f, 0.72f, 0.38f));
+            var swatchRt = UiKit.Rect(card, "swatch", new Vector2(0, 0), new Vector2(0, 1),
+                new Vector2(0, 0), new Vector2(6, 0));
+            var swatch = swatchRt.gameObject.AddComponent<Image>();
 
-            var row = UiKit.Rect(full, "ledger", new Vector2(0, 0), new Vector2(1, 0),
-                new Vector2(60, 44), new Vector2(-60, 124));
-            LedgerStrip.Build(row, mods, withNames: true, size: 52f, gap: 12f);
+            var nameRt = UiKit.Rect(card, "slot", new Vector2(0, 1), new Vector2(1, 1),
+                new Vector2(18, -46), new Vector2(-12, -14));
+            var nameTxt = UiKit.Label(nameRt, slot.Label().ToUpperInvariant(), 17,
+                new Color(0.5f, 0.53f, 0.6f));
+
+            var itemRt = UiKit.Rect(card, "item", new Vector2(0, 0), new Vector2(1, 1),
+                new Vector2(18, 14), new Vector2(-12, -46));
+            var itemTxt = UiKit.Label(itemRt, "-", 22, new Color(0.85f, 0.87f, 0.92f));
+            itemTxt.horizontalOverflow = HorizontalWrapMode.Wrap;   // the torso's name carries its ability
+
+            // Top-right, beside the slot name - filled per item in Refresh.
+            var starsRt = UiKit.Rect(card, "stars", new Vector2(1, 1), new Vector2(1, 1),
+                new Vector2(-92, -42), new Vector2(-12, -16));
+
+            return new SlotRow { Slot = slot, Rect = card, Name = nameTxt, Item = itemTxt, Swatch = swatch, Stars = starsRt };
         }
 
         // ------------------------------------------------------------------ state
@@ -396,7 +362,7 @@ namespace Convergence.UI
                 }
             }
 
-            _preview.Refresh(_profile());
+            if (!Locked) _preview.Refresh(_profile());
             bool helmHidden = _profile().HelmHidden;
             if (_powerText)
                 _powerText.text = $"GEAR POWER  {loadout.TotalPower():0}        "
@@ -404,7 +370,7 @@ namespace Convergence.UI
             if (_helmToggleText)
                 _helmToggleText.text = helmHidden ? "HELMET: HIDDEN (click to show)" : "HELMET: SHOWN (click to hide)";
 
-            if (_reorderButtonText) _reorderButtonText.text = "REORDER WEAPON ARTS";
+            PaintLedgerChips();
             BuildStats();
         }
 
@@ -491,12 +457,13 @@ namespace Convergence.UI
                 return;
             }
 
+            if (Locked) { RunUpdate(); return; }   // the run's sheet (CharacterScreen.Run.cs)
+
             // D-pad navigation - registered BEFORE the preview's gesture, which returns early.
             // Slots first: they are what a gamepad lands on as the screen opens.
             foreach (var r in _rows) _focusRects.Add(r.Rect);
             foreach (var t in _statTiles) _focusRects.Add(t.Rect);
             if (_helmToggleRect != null) _focusRects.Add(_helmToggleRect);
-            if (_reorderButtonRect != null) _focusRects.Add(_reorderButtonRect);
             Core.Controls.SetFocusCandidates(_focusRects);
 
             // The footnote follows the pointer or the pad across the tiles.
@@ -514,23 +481,8 @@ namespace Convergence.UI
                 return;
             }
 
-            if (_reorderButtonRect != null &&
-                RectTransformUtility.RectangleContainsScreenPoint(_reorderButtonRect, p, null))
-            {
-                OpenReorderPanel();
-                return;
-            }
-
             if (TapStats(p)) return;
-
-            foreach (var row in _rows)
-            {
-                if (!RectTransformUtility.RectangleContainsScreenPoint(row.Rect, p, null)) continue;
-                _inspected = _inspected == row.Slot ? null : row.Slot;
-                _noteStat = null;   // the footnote opens on the new read's own first stat
-                Refresh();
-                return;
-            }
+            TapSlot(p);
         }
     }
 }

@@ -61,6 +61,8 @@ namespace Convergence.UI
             if (_statsBody != null) Destroy(_statsBody.gameObject);
             _statTiles.Clear();
             _statsBody = UiKit.Rect(_statsPanel, "stats", Vector2.zero, Vector2.one, Vector2.zero, Vector2.zero);
+            if (BuildEntryStats()) return;   // a pressed benefit or burden (CharacterScreen.Ledger.cs)
+            if (BuildArtStats()) return;     // a pressed weapon art (CharacterScreen.Run.cs)
 
             var p = _profile();
             GearItem item = _inspected is GearSlot slot ? GearCatalog.Get(p.Gear.Get(slot)) : null;
