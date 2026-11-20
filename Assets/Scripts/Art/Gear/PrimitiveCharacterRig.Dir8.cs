@@ -204,6 +204,12 @@ namespace Convergence.Art.Gear
 
         bool Body8On => DevEightDir && _aimViews && !TopDown && _hips != null;
 
+        /// <summary>The view last drawn (0..7, -1 none), its mirror, and how far past a border the angle must go
+        /// (degrees) before the view changes - so a heading near a border does not flicker between two views.</summary>
+        int _dir8Held = -1;
+        bool _dir8HeldLeft;
+        const float DirHold8Degrees = 8f;
+
         void PlaceLegs8(float dt, float speed)
         {
             if (!Body8On)
@@ -215,6 +221,12 @@ namespace Convergence.Art.Gear
             float angle = HeldBow ? Mathf.Atan2(_travelDir.y, _travelDir.x) * Mathf.Rad2Deg : _aimAngle;
             if (_facingLeft) angle = 180f - angle;                      // drawn into the mirrored frame
             int dir = Mathf.RoundToInt(Mathf.Repeat(angle, 360f) / 45f) % 8;
+            // HELD until the angle is clearly past the border (the user's report, 2026-11-20: running near a
+            // diagonal on the phone's stick, the figure flipped side <-> quarter every few frames and the stowed
+            // discs, hidden side on, flashed round the head). Reset when the mirror flips: the angle's frame changes.
+            if (_dir8Held >= 0 && _dir8HeldLeft == _facingLeft
+                && Mathf.Abs(Mathf.DeltaAngle(angle, _dir8Held * 45f)) < 22.5f + DirHold8Degrees) dir = _dir8Held;
+            _dir8Held = dir; _dir8HeldLeft = _facingLeft;
             bool flip = dir >= 3 && dir <= 5;                           // pointing back across: draw it turned and flip
             if (flip) dir = (12 - dir) % 8;
             int view = dir switch { 0 => Body8Art.Side, 1 => Body8Art.BackQuarter, 2 => Body8Art.Back, 6 => Body8Art.Front, _ => Body8Art.FrontQuarter };
