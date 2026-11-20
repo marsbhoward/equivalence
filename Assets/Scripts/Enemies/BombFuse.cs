@@ -46,6 +46,7 @@ namespace Convergence.Enemies
             }
 
             f._tell = BlastTell.Circle(go.transform, Vector2.zero, blast.Range, BombTellColour);
+            f._tell.Pincer(Tuning.Enemy.BombTellMeet);
             f._tell.Progress = f._from;
             Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Hissing, blast.At);
         }

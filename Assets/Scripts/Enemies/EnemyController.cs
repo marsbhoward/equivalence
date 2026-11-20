@@ -2010,6 +2010,7 @@ namespace Convergence.Enemies
                 if (_flame == null) _flame = MortarFlame.Create(FlameReach);
                 _flame.Tell = true;
                 _groundTell = BlastTell.Cone(transform, Vector2.zero, FlameReach, Tuning.Enemy.MortarFlameHalfAngle, MortarArt.Accent[2]);
+                _groundTell.Pincer(Tuning.Enemy.MortarFlameTellMeet);
                 _groundTell.Aim(_flameDir);
             }
             UpdateMortarTelegraphVisual();
@@ -2027,6 +2028,8 @@ namespace Convergence.Enemies
         void ResolveMortarWindup()
         {
             var action = _mortarAction;
+            // The flame's cone stays on the floor while it burns, lit (BlastTell.Burn) - the ground still dangerous.
+            if (action == MortarAction.Flame && _groundTell != null) { _flameTell = _groundTell; _groundTell = null; _flameTell.Burn(); }
             CancelTelegraph();
 
             switch (action)
@@ -2163,7 +2166,12 @@ namespace Convergence.Enemies
             _flameTimer = 0f;
             if (_flame != null) Destroy(_flame.gameObject);
             _flame = null;
+            if (_flameTell != null) Destroy(_flameTell.gameObject);
+            _flameTell = null;
         }
+
+        /// <summary>The flame's cone, kept lit on the floor while it burns.</summary>
+        BlastTell _flameTell;
 
         // ---- Bomb: chase, arm within AttackRange, telegraph, then go off ----
 
@@ -2266,6 +2274,7 @@ namespace Convergence.Enemies
             _telegraphTimer = TelegraphDuration;
             // The blast on the floor: a point under the heart filling out to its dotted edge.
             _groundTell = BlastTell.Circle(transform, Vector2.zero, AttackRange, BombFuse.BombTellColour);
+            _groundTell.Pincer(Tuning.Enemy.BombTellMeet);
         }
 
         void BeginBombSweep()
@@ -2447,7 +2456,7 @@ namespace Convergence.Enemies
         /// 2026-11-12): it used to go off on the frame it died, with no tell at all. The body is
         /// gone this frame, so the fuse is its own object (<see cref="BombFuse"/>) - the heart
         /// white-hot where it died and the blast's ring filling - and the blast comes from it.
-        /// An arming cut short carries on from where its ring had got to.
+        /// An arming cut short starts the fuse again from empty (the user's pick, 2026-11-20).
         /// </summary>
         void DoExplosion()
         {
@@ -2459,9 +2468,10 @@ namespace Convergence.Enemies
             };
             if (_bombBlowing) { Blast(blast); return; }
 
-            bool arming = BombArming;
-            float from = arming ? TelegraphProgress01 : 0f;
-            float seconds = arming ? TelegraphRemaining : Tuning.Enemy.BombDeathFuseSeconds;
+            // The fuse STARTS AGAIN from empty, its own BombDeathFuseSeconds, whatever an arming had reached
+            // (the user's pick, 2026-11-20 - it used to carry on from where the ring had got to).
+            float from = 0f;
+            float seconds = Tuning.Enemy.BombDeathFuseSeconds;
             var visual = GetComponentInChildren<BombVisual>();
             BombFuse.Light(blast, visual, from, seconds);
         }
@@ -2971,7 +2981,7 @@ namespace Convergence.Enemies
             Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Grind, transform.position);
             // No glow drawn round it: the Watcher's own face is the tell (GargoyleVisual - its eyes
             // kindle and its cracks fill with light; the user's pick over a drawn line of sight).
-            // An elite's slam edge is cracked into the floor beside it (GargoyleCracks).
+            // An elite's slam edge is drawn on the floor round it (GargoyleVisual: a BlastTell ring).
             _telegraphTimer = TelegraphDuration;
         }
 
@@ -2998,7 +3008,7 @@ namespace Convergence.Enemies
                         RootTarget();
                     }
                 }
-                // The slam's own picture is its cracks bursting white-hot (GargoyleCracks).
+                // The slam's own picture is its ring flashing as it lands (GargoyleVisual).
                 return;
             }
 
@@ -3009,7 +3019,7 @@ namespace Convergence.Enemies
             // cancel it" reasoning - sight, not distance, is what this kind's telegraph commits to.
             //
             // A VETERAN (band 3) also SLAMS where it stands - its elite's move without the flight
-            // (the user's call, 2026-10-25): the cracks round its plinth (GargoyleCracks) show the
+            // (the user's call, 2026-10-25): the ring round its plinth (GargoyleVisual) shows the
             // ring through the tell, and a player inside it as the tell ends takes the basic's
             // Damage (never spent before) with the root. Outside it, the root alone. No extra root.
             float toTarget = _target != null ? Vector2.Distance(transform.position, _target.position) : float.MaxValue;

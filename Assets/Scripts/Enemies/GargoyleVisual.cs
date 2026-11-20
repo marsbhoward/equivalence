@@ -9,7 +9,7 @@ namespace Convergence.Enemies
     /// elite's slam the moment it lands, resting through the recover beat, a jolt when flinched,
     /// and an elite's wings in flight - lifted off the floor by the drawing alone, the body's
     /// position staying where the game measures it. An elite's gaze cracks the floor out to its
-    /// slam's edge (<see cref="GargoyleCracks"/>).
+    /// slam's edge (a <see cref="BlastTell"/> ring, filling from both ends).
     /// </summary>
     public class GargoyleVisual : TexelVisual
     {
@@ -19,7 +19,8 @@ namespace Convergence.Enemies
         const float FlightLift = 0.9f;
 
         [SerializeField] Rigidbody2D _rb;
-        [SerializeField] GargoyleCracks _cracks;
+        /// <summary>The slam's ring on the floor (the Brute's tell language, 2026-11-20: it replaced the cracks).</summary>
+        BlastTell _cracks;
         [System.NonSerialized] float _flinchedAt = -10f;
         bool _wasFlinched;
 
@@ -80,20 +81,25 @@ namespace Convergence.Enemies
             if (!_elite && !_enemy.Veteran) return;
             if (t > 0f && !_enemy.GargoyleFlying)
             {
-                if (_cracks == null) _cracks = GargoyleCracks.Create(_enemy.transform.parent, _enemy.transform.position);
-                _cracks.Grow(t);
+                if (_cracks == null)
+                {
+                    // on the floor where it stands - the slam measures from there - not riding the body
+                    _cracks = BlastTell.Circle(null, _enemy.transform.position, Tuning.Enemy.GargoyleAoeRadius, GargoyleArt.Accent[2]);
+                    _cracks.Pincer(Tuning.Enemy.GargoyleTellMeet);
+                }
+                _cracks.Progress = t;
                 return;
             }
             if (_cracks == null) return;
-            if (Time.time - _enemy.GargoyleStruckAt < StrikeFrameSeconds) _cracks.Burst();
-            else _cracks.Cancel();
+            if (Time.time - _enemy.GargoyleStruckAt < StrikeFrameSeconds) _cracks.Spend(Tuning.Enemy.TellFlashSeconds);
+            else Destroy(_cracks.gameObject);
             _cracks = null;
         }
 
         void OnDisable()
         {
             transform.localPosition = Vector3.zero;
-            if (_cracks != null) { _cracks.Cancel(); _cracks = null; }
+            if (_cracks != null) { Destroy(_cracks.gameObject); _cracks = null; }
         }
     }
 }

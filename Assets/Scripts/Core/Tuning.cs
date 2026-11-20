@@ -2502,6 +2502,9 @@ namespace Convergence.Core
             /// LOCKED for the last AimLockSeconds - so stepping out is possible.</summary>
             public const float ConeLength = 3.8f;
             public const float ConeHalfAngleDegrees = 34f;
+            /// <summary>The cone fills from both ends, meeting this share of the way out as it stomps; its dotted edge
+            /// turns SOLID once the aim locks (the user's picks 2026-11-20, mock UR8MF7MKmfCamVdgX6mGp3).</summary>
+            public const float ConeMeet = 0.65f;
             public const float StompTellSeconds = 0.95f;
             public const float AimLockSeconds = 0.35f;
             public const float StompFraction = 0.12f;
@@ -5752,8 +5755,13 @@ namespace Convergence.Core
             /// shape; the CONTENT of that beat still belongs to the kind. A chaser that gave
             /// ground after every landed hit would stop being the thing that presses you, and the
             /// crowd would stop being a positioning problem.
+            ///
+            /// It is also the OPENING (the user's call, 2026-11-20, raised 0.45 -> 0.8: "slightly too fast"):
+            /// dodge a swing, step back in and land your chain, then read the next wind-up and step out -
+            /// the clean way, slower; or stay in and trade a hit to kill it sooner. The cooldown runs only
+            /// after this, so the whole cycle is this + AttackInterval + the wind-up (~2.6 s early, ~2.2 s deep).
             /// </summary>
-            public const float ChaserRecoverSeconds = 0.45f;
+            public const float ChaserRecoverSeconds = 0.8f;
 
             /// <summary>How long the Grave Brute's STRIKE frame (and the riposte's backhand) holds
             /// after the hit lands, before the planted recovery pose - see Enemies.ChaserVisual.</summary>
@@ -5949,6 +5957,10 @@ namespace Convergence.Core
             /// filling on the floor (the user's call, 2026-11-12 - it used to go off on the frame it
             /// died). An arming cut short keeps its own remaining time instead.</summary>
             public const float BombDeathFuseSeconds = 0.5f;
+            /// <summary>The blast's ring fills from both ends - out from the heart, in from the edge - meeting halfway
+            /// (a circle's outer band is far bigger than its middle). The death fuse STARTS AGAIN from empty, whatever the
+            /// arming had reached (the user's picks 2026-11-20, mock UR8MF7MKmfCamVdgX6mGp3).</summary>
+            public const float BombTellMeet = 0.5f;
 
             /// <summary>
             /// How long a DENIED bomb backs off before it may arm again, and how fast.
@@ -6266,6 +6278,12 @@ namespace Convergence.Core
             public const float MortarFlameSeconds = 2f;
             public const float MortarFlameRange = 3f;
             public const float MortarFlameHalfAngle = 28f;
+            /// <summary>The flame's cone fills from both ends - out from the jaws, in from the far edge - meeting this
+            /// share of the way out as it ignites, then stays lit while it burns (the user's picks 2026-11-20, mock
+            /// UR8MF7MKmfCamVdgX6mGp3: the Brute's tell language).</summary>
+            public const float MortarFlameTellMeet = 0.65f;
+            /// <summary>How long a landing blow's flash takes to fade off a floor tell (BlastTell).</summary>
+            public const float TellFlashSeconds = 0.22f;
 
             // The flame does NOT turn (the user's call, 2026-10-25): it holds the line it was aimed
             // along when the wind-up began, and the player escapes by stepping out of the side.
@@ -6573,6 +6591,9 @@ namespace Convergence.Core
             /// <summary>Radius of the elite's landing slam, world units - meaningfully wider than
             /// the basic's implied point-target root, since this is the pattern's whole point.</summary>
             public const float GargoyleAoeRadius = 2.2f;
+            /// <summary>The slam's ring fills from both ends, meeting this share of the way out as it lands; it
+            /// replaced the creeping cracks (the user's picks 2026-11-20, mock UR8MF7MKmfCamVdgX6mGp3).</summary>
+            public const float GargoyleTellMeet = 0.65f;
 
             /// <summary>
             /// Flight speed during the elite's swoop - a flat constant read directly rather than

@@ -67,6 +67,17 @@ namespace Convergence.Enemies
         /// far edge, meeting <paramref name="meet"/> of the way out at Progress 1.</summary>
         public void Pincer(float meet) => _meet = Mathf.Clamp01(meet);
 
+        /// <summary>The edge and sides drawn SOLID instead of dotted - an aim that has locked (Viriditas's stomp).</summary>
+        public bool Solid;
+
+        float _burnAt = -1f;
+        /// <summary>How long a landing blow's flash takes to fade off the shape.</summary>
+        static float FlashSeconds => Tuning.Enemy.TellFlashSeconds;
+
+        /// <summary>The attack has begun and LASTS (the Salamander's flame): flash as a blow lands, then stay
+        /// faintly lit, flickering, until the owner spends or destroys it - the ground still burning.</summary>
+        public void Burn() { Progress = 1f; _burnAt = Time.time; }
+
         /// <summary>The blow has landed: unparent, flash the whole shape and fade over
         /// <paramref name="seconds"/>, then go.</summary>
         public void Spend(float seconds)
@@ -87,6 +98,13 @@ namespace Convergence.Enemies
             float p = Mathf.Clamp01(Progress), R = _radius;
             float fill = Mathf.Max(1f, R * p);
             float flash = _flashUntil > 0f ? Mathf.Clamp01((_flashUntil - Time.time) / _flashFor) : 0f;
+            float burning = 0f;
+            if (_burnAt >= 0f)
+            {
+                float since = Time.time - _burnAt;
+                flash = Mathf.Max(flash, 1f - Mathf.Clamp01(since / FlashSeconds));
+                burning = 1f;
+            }
             bool pincer = _meet < 1f;
             float near = Mathf.Max(1f, R * p * _meet), far = R - R * p * (1f - _meet);
             float aim = Mathf.Atan2(_dir.y, _dir.x), half = _halfAngle * Mathf.Deg2Rad;
@@ -117,7 +135,14 @@ namespace Convergence.Enemies
             {
                 if (_cone && d > 1.5f && Mathf.Abs(Mathf.DeltaAngle(aim * Mathf.Rad2Deg, a * Mathf.Rad2Deg)) > _halfAngle + 0.01f)
                     return;
-                if (flash > 0f) { Over(x, y, hot, strength * (0.25f + 0.5f * flash)); return; }
+                if (flash > 0f && burning <= 0f) { Over(x, y, hot, strength * (0.25f + 0.5f * flash)); return; }
+                if (burning > 0f)
+                {
+                    // the ground still burning: a faint flicker over the whole shape, the blow's flash fading off it
+                    float flicker = 0.18f + 0.06f * Mathf.Sin(Time.time * 18f + d * 0.6f);
+                    Over(x, y, flash > 0f ? hot : line, strength * Mathf.Max(flicker, 0.25f + 0.5f * flash));
+                }
+                else
                 if (pincer)
                 {
                     // Two fills: out from the body, in from the far edge, each with a firm front.
@@ -142,7 +167,7 @@ namespace Convergence.Enemies
                 if (d > R - 1f)
                 {
                     int step = Mathf.FloorToInt(a * R);   // texels along the arc
-                    if ((step & 3) < 2) Over(x, y, line, strength * Mathf.Lerp(0.6f, 0.9f, p));
+                    if (Solid || (step & 3) < 2) Over(x, y, line, strength * (Solid ? 0.95f : Mathf.Lerp(0.6f, 0.9f, p)));
                 }
             });
 
@@ -154,7 +179,7 @@ namespace Convergence.Enemies
                     Line(0f, 0f, Mathf.Cos(a) * R, Mathf.Sin(a) * R, (x, y, f) =>
                     {
                         int step = Mathf.RoundToInt(f * R);
-                        if (step > 1 && (step & 3) < 2) Over(x, y, line, strength * Mathf.Lerp(0.6f, 0.9f, p));
+                        if (step > 1 && (Solid || (step & 3) < 2)) Over(x, y, line, strength * (Solid ? 0.95f : Mathf.Lerp(0.6f, 0.9f, p)));
                     });
                 }
             return true;

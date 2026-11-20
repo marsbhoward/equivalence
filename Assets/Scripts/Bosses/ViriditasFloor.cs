@@ -13,6 +13,8 @@ namespace Convergence.Bosses
     {
         [SerializeField] public float Aim;       // radians, 0 east
         [SerializeField] public float Fill = -1f;
+        /// <summary>The aim has locked (the tell's last AimLockSeconds): the dotted edge turns solid.</summary>
+        [SerializeField] public bool Locked;
         [SerializeField] float _slamAt = -9f;
         [SerializeField] int _seed;
 
@@ -43,20 +45,41 @@ namespace Convergence.Bosses
             float len = Tuning.Viriditas.ConeLength * TexelFx.Body, half = Tuning.Viriditas.ConeHalfAngleDegrees;
             int r = Mathf.CeilToInt(len) + 1;
             var red = MedusaCanvas.Red;
-            if (Fill >= 0f)
+            // THE BRUTE'S TELL LANGUAGE (the user's picks 2026-11-20, mock UR8MF7MKmfCamVdgX6mGp3): the edge DOTTED from
+            // the start (SOLID once the aim locks), and two fills - out from its feet, in from the far edge - meeting
+            // ConeMeet of the way out as it stomps; a flash as it lands, then the roots.
+            float since = Fill >= 0f ? -1f : Age - _slamAt;
+            if (Fill >= 0f || since < Tuning.Enemy.TellFlashSeconds)
             {
+                float p = Fill >= 0f ? Mathf.Clamp01(Fill) : 1f, meet = Tuning.Viriditas.ConeMeet;
+                float flash = Fill >= 0f ? 0f : 1f - Mathf.Clamp01(since / Tuning.Enemy.TellFlashSeconds);
+                float near = Mathf.Max(1f, len * p * meet), far = len - len * p * (1f - meet);
+                Color32 line = red[2], hot = Color32.Lerp(red[2], red[0], p * 0.45f);
+                float aimDeg = Aim * Mathf.Rad2Deg;
                 for (int y = -r; y <= r; y++)
                     for (int x = -r; x <= r; x++)
                     {
                         if (!Inside(x, y, len, half)) continue;
-                        bool edge = !Inside(x + 1, y, len, half) || !Inside(x - 1, y, len, half) || !Inside(x, y + 1, len, half) || !Inside(x, y - 1, len, half);
-                        if (edge) { Over(x, y, red[2], 1f); continue; }
                         float d = Mathf.Sqrt(x * x + y * y);
-                        if (d >= len * (1f - Fill)) Over(x, y, red[3], 0.42f);
+                        if (flash > 0f) { Over(x, y, red[1], 0.25f + 0.5f * flash); continue; }
+                        if (d <= near) { bool f = d > near - 1.6f; Over(x, y, f ? hot : line, f ? Mathf.Lerp(0.55f, 0.95f, p) : Mathf.Lerp(0.08f, 0.2f, p)); }
+                        else if (p > 0f && d >= far) { bool f = d < far + 1.6f; Over(x, y, f ? hot : line, f ? Mathf.Lerp(0.55f, 0.95f, p) : Mathf.Lerp(0.08f, 0.2f, p)); }
+                        // the edge round the far end: dotted two on two off, solid once locked
+                        if (d > len - 1f)
+                        {
+                            int step = Mathf.FloorToInt(Mathf.DeltaAngle(aimDeg - half, Mathf.Atan2(y, x) * Mathf.Rad2Deg) * Mathf.Deg2Rad * len);
+                            if (Locked || (step & 3) < 2) Over(x, y, line, Locked ? 0.95f : Mathf.Lerp(0.6f, 0.9f, p));
+                        }
                     }
-                return true;
+                if (flash <= 0f)
+                    for (int sgn = -1; sgn <= 1; sgn += 2)
+                    {
+                        float a = (aimDeg + sgn * half) * Mathf.Deg2Rad;
+                        for (int k = 2; k <= len; k++)
+                            if (Locked || (k & 3) < 2) Over(Mathf.RoundToInt(Mathf.Cos(a) * k), Mathf.RoundToInt(Mathf.Sin(a) * k), line, Locked ? 0.95f : Mathf.Lerp(0.6f, 0.9f, p));
+                    }
+                if (Fill >= 0f) return true;
             }
-            float since = Age - _slamAt;
             if (since > 0.95f) return false;
             // the roots, cracking out from its feet along the cone, then fading
             float reach = Mathf.Clamp01(since / 0.18f) * len, fade = 1f - Mathf.Clamp01((since - 0.4f) / 0.55f);

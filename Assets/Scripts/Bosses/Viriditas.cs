@@ -267,7 +267,7 @@ namespace Convergence.Bosses
                     var d = PlayerAt - _at;
                     if (d.sqrMagnitude > 1e-4f) aim = d.normalized;
                 }
-                if (cone != null) { cone.Aim = Mathf.Atan2(aim.y, aim.x); cone.Fill = Mathf.Clamp01(t / tell); }
+                if (cone != null) { cone.Aim = Mathf.Atan2(aim.y, aim.x); cone.Fill = Mathf.Clamp01(t / tell); cone.Locked = t >= tell - Tuning.Viriditas.AimLockSeconds; }
                 if (_figure != null) _figure.Look.Rear = Mathf.SmoothStep(0f, 1f, Mathf.Clamp01(t / (tell * 0.8f)));
                 yield return null;
                 if (token != Token) { if (cone != null) Destroy(cone.gameObject); yield break; }
