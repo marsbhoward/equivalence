@@ -5996,6 +5996,33 @@ namespace Convergence.Core
             public const float BombFightRangeMin = 2.2f;
             public const float BombFightRangeMax = 3.0f;
             public const float BombSweepTriggerRange = 3.3f;
+
+            /// <summary>
+            /// THE CROSS SHOT (the user's design, 2026-11-20, the Heart Cross Shot mock
+            /// https://claude.ai/artifact/TJvY1feNWf5gE76WkcHtnB): past the sweep's trigger and within
+            /// BombCrossRange, the heart swells (the sweep's wind-up) and throws one fireball at the
+            /// player's spot. Where it lands - or on the first wall or body it meets - it BURSTS into
+            /// arms (north, south, east, west) that fly on until a wall stops them. One hit per throw:
+            /// the fireball and its arms share it. Bands add to it (Tuning.EnemyBands.HeartCross*).
+            /// </summary>
+            public const float BombCrossRange = 7f;
+            public const float BombCrossCooldown = 3.5f;
+            public const float BombCrossSpeed = 5f;
+            public const float BombCrossRadius = 0.32f;
+            /// <summary>The thrown fireball's damage, as a share of the Heart's blast (a sweep fireball's).</summary>
+            public const float BombCrossDamageFraction = 0.5f;
+            /// <summary>The arms: speed, hit radius, drawn size (of the fireball's art), the longest they
+            /// fly (they stop at a wall long before), and their damage share - four arms, or eight.</summary>
+            public const float BombCrossArmSpeed = 6f;
+            public const float BombCrossArmRadius = 0.16f;
+            public const float BombCrossArmScale = 0.6f;
+            public const float BombCrossArmLife = 4f;
+            public const float BombCrossArmDamage4 = 0.35f;
+            public const float BombCrossArmDamage8 = 0.25f;
+            /// <summary>The floor's cross where it will burst: its arms this long (world), filling as it flies.</summary>
+            public const float BombCrossTellArm = 1f;
+            /// <summary>How long the heart gutters after a cross shot (a sweep's is BombSpentSeconds).</summary>
+            public const float BombCrossSpentSeconds = 0.4f;
             /// <summary>Seconds the THROW frame (the heart's pulse) holds after each fireball.</summary>
             public const float BombThrowFrameSeconds = 0.08f;
             /// <summary>Seconds a frame of the hover (and the critical flicker) holds - it bobs in
@@ -6824,6 +6851,23 @@ namespace Convergence.Core
             /// tell has to clear its reach plus this. The band-1 lunge is the long version.</summary>
             public const float BruteStepReach = 0.45f;
 
+            /// <summary>Band 0 (and Dross, which fights as band 0): the Brute's wind-up this many times as long
+            /// (the user's call, 2026-11-19: melee was punished for even closing in to swing).</summary>
+            public const float BruteTellBandZeroMul = 1.25f;
+
+            /// <summary>The Brute's swing covers a CONE, drawn on the floor through the wind-up (the user's
+            /// design, 2026-11-20; mock 63aV8dvHryYHutgPKGCKad): this many degrees either side of its aim, out
+            /// to its whole reach, step-in included. The aim LOCKS where the player stood at the growl (the
+            /// user's pick; BruteConeTurnRate, degrees a second, would turn it toward them instead), so a
+            /// step to the side gets out where backing off used to be the only way. Two fills close on each
+            /// other - out from the body, in from the far edge - meeting BruteConeMeet of the way out as the
+            /// blow lands; then the cone flashes for BruteConeFlashSeconds. The user's picks: 90° wide,
+            /// locked, meeting two thirds out.</summary>
+            public const float BruteConeHalfAngle = 45f;
+            public const float BruteConeTurnRate = 0f;
+            public const float BruteConeMeet = 0.65f;
+            public const float BruteConeFlashSeconds = 0.22f;
+
             /// <summary>A lunge stops this far short of the player (fraction of the Brute's plain
             /// reach) - it closes the gap, it never carries the body through them.</summary>
             public const float BruteLungeStopShare = 0.5f;
@@ -6833,6 +6877,20 @@ namespace Convergence.Core
             /// <summary>The Heart's sweep takes any of the four patterns (there and back too) - an
             /// elite's, until here.</summary>
             public const int HeartPatternsFromBand = 2;
+            /// <summary>The cross shot by band (Tuning.Enemy.BombCross*, the user's ladder 2026-11-20): from 1 it
+            /// LEADS the throw; from 2 eight arms (the diagonals too); from 3 two throws HeartCrossThrowGap apart,
+            /// a cross then a diagonal X; from 4 an arm stopped by a wall bursts once more into a small cross.
+            /// The cooldown stretches from 3 and again at 4.</summary>
+            public const int HeartCrossLeadFromBand = 1;
+            public const int HeartCrossEightFromBand = 2;
+            public const int HeartCrossTwoThrowsFromBand = 3;
+            public const int HeartCrossReboundFromBand = 4;
+            public const float HeartCrossThrowGap = 0.45f;
+            public const float HeartCrossCooldownBand3 = 4.2f;
+            public const float HeartCrossCooldownBand4 = 4.5f;
+            public const float HeartCrossReboundDamage = 0.15f;
+            public const float HeartCrossReboundSpeed = 4.5f;
+            public const float HeartCrossReboundReach = 1.2f;
             /// <summary>The Watcher COMMITS: in the last <see cref="WatcherCommitSeconds"/> of its
             /// tell (its eyes fully lit), breaking its sight no longer saves you - the root lands. Its
             /// reach is its sight (40 units), so a wider root meant nothing (measured 2026-10-25).</summary>

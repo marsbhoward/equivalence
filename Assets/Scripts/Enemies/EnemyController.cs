@@ -1513,13 +1513,13 @@ namespace Convergence.Enemies
 
             if (_telegraphTimer > 0f)
             {
-                // Unlike the ranged bolt this does NOT freeze its aim: a melee swing lands where
-                // the body is, and a chaser that committed to a stale point would whiff every time
-                // the player stepped aside - which is the ranged enemy's job, not this one's.
+                // The swing covers a cone (Tuning.EnemyBands.BruteCone*), aimed where the player stood
+                // at the growl (a turn rate can make it follow) - a step to the side gets out of it.
                 if (_targetHealth == null || _targetHealth.IsDead) { CancelTelegraph(); return; }
 
                 _telegraphTimer -= dt;
                 if (_rubbleTell) UpdateRubbleTell();
+                else if (!_shoveTell) UpdateChaserCone(dt);
                 if (_telegraphTimer <= 0f)
                 {
                     if (_rubbleTell) ThrowRubble();
@@ -1568,13 +1568,50 @@ namespace Convergence.Enemies
         void BeginChaserTelegraph()
         {
             Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Growl, transform.position);
-            // The floor-scaled wind-up (EnemyFactory, FloorDifficulty.Telegraph), as every kind's.
+            // The floor-scaled wind-up (EnemyFactory, FloorDifficulty.Telegraph), as every kind's - longer in
+            // band 0 (Tuning.EnemyBands.BruteTellBandZeroMul). Stretched once, on the field the tell's readout
+            // divides by, so the tell still runs its whole course.
+            if (!_bandZeroTell && !AtBand(1))
+            {
+                TelegraphDuration *= Tuning.EnemyBands.BruteTellBandZeroMul;
+                _bandZeroTell = true;
+            }
             _telegraphTimer = TelegraphDuration;
+
+            // The cone it will cover, on the floor: two fills closing on each other, meeting as it lands.
+            _chaserAim = ((Vector2)_target.position - (Vector2)transform.position).normalized;
+            if (_chaserAim.sqrMagnitude < 0.0001f) _chaserAim = Vector2.right;
+            _groundTell = BlastTell.Cone(transform, Vector2.zero, ChaserReach, Tuning.EnemyBands.BruteConeHalfAngle, ChaserArt.Reserved[2]);
+            _groundTell.Pincer(Tuning.EnemyBands.BruteConeMeet);
+            _groundTell.Aim(_chaserAim);
+        }
+
+        /// <summary>The band-0 wind-up stretch is in (BeginChaserTelegraph).</summary>
+        bool _bandZeroTell;
+
+        /// <summary>Where the Brute's cone points (world, unit): set as the wind-up starts (turned toward
+        /// the player at BruteConeTurnRate through it - 0, locked), and held for the swing and an elite's riposte.</summary>
+        Vector2 _chaserAim = Vector2.right;
+
+        void UpdateChaserCone(float dt)
+        {
+            Vector2 to = (Vector2)_target.position - (Vector2)transform.position;
+            if (to.sqrMagnitude > 0.0001f)
+            {
+                float from = Mathf.Atan2(_chaserAim.y, _chaserAim.x) * Mathf.Rad2Deg;
+                float a = Mathf.MoveTowardsAngle(from, Mathf.Atan2(to.y, to.x) * Mathf.Rad2Deg, Tuning.EnemyBands.BruteConeTurnRate * dt) * Mathf.Deg2Rad;
+                _chaserAim = new Vector2(Mathf.Cos(a), Mathf.Sin(a));
+            }
+            if (_groundTell == null) return;
+            _groundTell.Aim(_chaserAim);
+            _groundTell.Progress = TelegraphProgress01;
         }
 
         void SwingChaser()
         {
             Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Swipe, transform.position);
+            // The two fills have met: the cone flashes and fades where it lay.
+            if (_groundTell != null) { _groundTell.Spend(Tuning.EnemyBands.BruteConeFlashSeconds); _groundTell = null; }
             CancelTelegraph();
             _cooldown = AttackInterval;
             SwungAt = Time.time;
@@ -1595,8 +1632,8 @@ namespace Convergence.Enemies
             // "it attacked" rather than "it hit you".
             BeginRecover(Tuning.Enemy.ChaserRecoverSeconds);
 
-            // The swing steps in to a player past its plain reach (further from band 1).
-            BeginLunge();
+            // The swing steps in to a player past its plain reach (further from band 1), along its cone.
+            BeginLunge(_chaserAim);
             LandMelee(1f);
         }
 
@@ -1614,7 +1651,10 @@ namespace Convergence.Enemies
         void LandMelee(float damageMul)
         {
             if (_targetHealth == null || _targetHealth.IsDead || _target == null) return;
-            if (Vector2.Distance(transform.position, _target.position) > ChaserReach) return;
+            Vector2 off = (Vector2)_target.position - (Vector2)transform.position;
+            if (off.magnitude > ChaserReach) return;
+            // Only inside the cone the wind-up drew (a body on top of the Brute is always inside).
+            if (off.sqrMagnitude > 0.0001f && Vector2.Angle(_chaserAim, off) > Tuning.EnemyBands.BruteConeHalfAngle) return;
             // A spire's bubble wall stops a strike across it, as it stops the player's own.
             if (Spire.BubbleSeparates(transform.position, _target.position)) return;
 
@@ -2150,8 +2190,9 @@ namespace Convergence.Enemies
             if (_bombSpent > 0f) _bombSpent -= dt;
 
             // A sweep under way always finishes - even one the health just dropped under the
-            // fraction during (the user's call).
+            // fraction during (the user's call). So does a cross shot's second throw.
             if (_bombShotsLeft > 0) { TickBombSweep(dt); return; }
+            if (_crossThrowsLeft > 0) { TickBombCross(dt); return; }
 
             if (_telegraphTimer > 0f)
             {
@@ -2166,6 +2207,7 @@ namespace Convergence.Enemies
                 if (_telegraphTimer <= 0f)
                 {
                     if (_bombArming) Explode();
+                    else if (_bombCross) BeginBombCross();
                     else BeginBombSweep();
                 }
                 return;
@@ -2187,14 +2229,21 @@ namespace Convergence.Enemies
             }
 
             _cooldown -= dt * AttackTempo;
-            if (_cooldown > 0f || dist > Tuning.Enemy.BombSweepTriggerRange) return;
+            _crossCooldown -= dt * AttackTempo;
+            // Inside the sweep's trigger it sweeps; past it, out to BombCrossRange, it throws the cross shot.
+            bool sweep = _cooldown <= 0f && dist <= Tuning.Enemy.BombSweepTriggerRange;
+            bool cross = !sweep && _crossCooldown <= 0f && dist > Tuning.Enemy.BombSweepTriggerRange
+                         && dist <= Tuning.Enemy.BombCrossRange;
+            if (!sweep && !cross) return;
             if (HazardQuery.Query(transform.position, _target.position, gameObject, _target.gameObject) == SightResult.Blocked)
                 return;
             if (!TryTakeToken()) return;
 
             // The wind-up: the heart swelling. Scaled with depth the way the arming is (the
             // factory scaled TelegraphDuration off the arming's own base), never under the floor.
+            // The cross shot swells the same.
             _bombArming = false;
+            _bombCross = cross;
             _telegraphTimer = Mathf.Max(Tuning.Enemy.TelegraphMinSeconds,
                 TelegraphDuration * (Tuning.Enemy.BombSweepWindup / Tuning.Enemy.BombTelegraphDuration));
         }
@@ -2268,6 +2317,99 @@ namespace Convergence.Enemies
                     Damage * Tuning.Enemy.BombFireballDamageFraction, AttackKnockback,
                     Tuning.Enemy.BombFireballSpeed, life)
                 .Dress(BombArt.Fireball(), Tuning.Enemy.BombFireballRadius + 0.16f, ElementType.Fire);
+            BombThrewAt = Time.time;
+        }
+
+        // ---- the cross shot (the user's design, 2026-11-20; Tuning.Enemy.BombCross*, EnemyBands.HeartCross*) ----
+        //
+        // Past the sweep's trigger, within BombCrossRange: the same swell, then one fireball thrown at the
+        // player's spot (from band 1 where they are heading), bursting there - or on the first wall or body
+        // it meets - into arms that fly on to the walls. From band 2 eight arms; from 3 two throws, a cross
+        // then a diagonal X; from 4 an arm a wall stops bursts once more. Dross fights as band 0 (AtBand).
+
+        bool _bombCross;
+        int _crossThrowsLeft, _crossThrow;
+        float _crossThrowTimer, _crossCooldown;
+
+        static readonly Vector2[] CrossArms = { Vector2.up, Vector2.down, Vector2.right, Vector2.left };
+        static readonly Vector2[] DiagonalArms =
+        {
+            new Vector2(1f, 1f).normalized, new Vector2(1f, -1f).normalized, new Vector2(-1f, 1f).normalized, new Vector2(-1f, -1f).normalized,
+        };
+        static Vector2[] _eightArms;
+        static Vector2[] EightArms
+        {
+            get
+            {
+                if (_eightArms == null)
+                {
+                    _eightArms = new Vector2[8];
+                    CrossArms.CopyTo(_eightArms, 0);
+                    DiagonalArms.CopyTo(_eightArms, 4);
+                }
+                return _eightArms;
+            }
+        }
+
+        void BeginBombCross()
+        {
+            Convergence.Audio.Sfx.Play(Convergence.Audio.Sound.Flame, transform.position);
+            CancelTelegraph();
+            _bombCross = false;
+            _crossThrowsLeft = AtBand(Tuning.EnemyBands.HeartCrossTwoThrowsFromBand) ? 2 : 1;
+            _crossThrow = 0;
+            _crossThrowTimer = 0f;
+        }
+
+        void TickBombCross(float dt)
+        {
+            _crossThrowTimer -= dt;
+            while (_crossThrowTimer <= 0f && _crossThrowsLeft > 0)
+            {
+                if (_targetHealth != null && !_targetHealth.IsDead) ThrowBombCross(_crossThrow);
+                _crossThrow++;
+                _crossThrowsLeft--;
+                _crossThrowTimer += Tuning.EnemyBands.HeartCrossThrowGap;
+            }
+            if (_crossThrowsLeft > 0) return;
+            _crossCooldown = AtBand(Tuning.EnemyBands.HeartCrossReboundFromBand) ? Tuning.EnemyBands.HeartCrossCooldownBand4
+                           : AtBand(Tuning.EnemyBands.HeartCrossTwoThrowsFromBand) ? Tuning.EnemyBands.HeartCrossCooldownBand3
+                           : Tuning.Enemy.BombCrossCooldown;
+            _bombSpent = Tuning.Enemy.BombCrossSpentSeconds;
+            ReleaseToken();
+        }
+
+        void ThrowBombCross(int throwIndex)
+        {
+            Vector2 from = transform.position;
+            Vector2 at = AtBand(Tuning.EnemyBands.HeartCrossLeadFromBand)
+                ? LeadPoint(from, 0f, Tuning.Enemy.BombCrossSpeed) : (Vector2)_target.position;
+            var to = at - from;
+            float dist = Mathf.Max(0.5f, to.magnitude);
+            var dir = to.sqrMagnitude > 1e-4f ? to.normalized : Vector2.left;
+            _bombAimsLeft = dir.x < 0f;
+
+            var arms = AtBand(Tuning.EnemyBands.HeartCrossTwoThrowsFromBand) ? (throwIndex == 0 ? CrossArms : DiagonalArms)
+                     : AtBand(Tuning.EnemyBands.HeartCrossEightFromBand) ? EightArms : CrossArms;
+            var burst = new EnemyProjectile.CrossBurst
+            {
+                Arms = arms,
+                ArmDamage = Damage * (arms.Length > 4 ? Tuning.Enemy.BombCrossArmDamage8 : Tuning.Enemy.BombCrossArmDamage4),
+                ArmSpeed = Tuning.Enemy.BombCrossArmSpeed,
+                ArmRadius = Tuning.Enemy.BombCrossArmRadius,
+                ArmScale = Tuning.Enemy.BombCrossArmScale,
+                ArmLife = Tuning.Enemy.BombCrossArmLife,
+                Rebounds = AtBand(Tuning.EnemyBands.HeartCrossReboundFromBand),
+                ReboundDamage = Damage * Tuning.EnemyBands.HeartCrossReboundDamage,
+                ReboundSpeed = Tuning.EnemyBands.HeartCrossReboundSpeed,
+                ReboundReach = Tuning.EnemyBands.HeartCrossReboundReach,
+            };
+            var tell = BlastTell.Cross(from + dir * dist, Tuning.Enemy.BombCrossTellArm, arms, BombFuse.BombTellColour);
+            EnemyProjectile.Launch(gameObject, _target, _targetHealth, from, dir,
+                    Damage * Tuning.Enemy.BombCrossDamageFraction, AttackKnockback,
+                    Tuning.Enemy.BombCrossSpeed, dist / Tuning.Enemy.BombCrossSpeed)
+                .Dress(BombArt.Fireball(), Tuning.Enemy.BombCrossRadius, ElementType.Fire)
+                .Bursts(burst, tell);
             BombThrewAt = Time.time;
         }
 

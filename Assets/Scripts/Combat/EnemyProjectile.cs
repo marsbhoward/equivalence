@@ -68,6 +68,7 @@ namespace Convergence.Combat
         {
             if (_cut) return;
             _cut = true;
+            _burst = null;   // cut out of the air: no arms
             if (_explodes) Burst();
             else SmokePuff.At(transform.position);
             Destroy(gameObject);
@@ -116,6 +117,85 @@ namespace Convergence.Combat
             Destroy(gameObject);
         }
 
+        // ---- the Brimstone Heart's cross shot (2026-11-20; Tuning.Enemy.BombCross*) ----
+
+        /// <summary>One throw's shared hit: the fireball and every arm it bursts into land on the player
+        /// once between them - more to dodge, never more damage per mistake.</summary>
+        public sealed class Volley { public bool Landed; }
+
+        /// <summary>What a cross shot bursts into: its arms' ways, damage, speed, size and how long they
+        /// may fly; and whether an arm a wall stops bursts once more (band 4) into a small cross.</summary>
+        public sealed class CrossBurst
+        {
+            public Vector2[] Arms;
+            public float ArmDamage, ArmSpeed, ArmRadius, ArmScale, ArmLife;
+            public bool Rebounds;
+            public float ReboundDamage, ReboundSpeed, ReboundReach;
+            public Volley Volley = new();
+        }
+
+        CrossBurst _burst;           // the thrown fireball's: bursts where it ends
+        CrossBurst _rebound;         // an arm's: bursts once more where a wall stops it
+        Volley _volley;
+        Enemies.BlastTell _tell;     // the floor's cross where it will burst, filling as it flies, gone when it does
+        float _lifeTotal;
+        bool _unparryable;
+
+        static readonly Vector2[] Cross4 = { Vector2.up, Vector2.down, Vector2.right, Vector2.left };
+
+        /// <summary>This shot BURSTS where it ends - its reach run out (the spot it was thrown at), a wall,
+        /// the player, an enemy once reflected - into <paramref name="burst"/>'s arms. A cut or a dead owner
+        /// ends it without them. <paramref name="tell"/> (may be null) goes when it does.</summary>
+        public EnemyProjectile Bursts(CrossBurst burst, Enemies.BlastTell tell)
+        {
+            _burst = burst;
+            _lifeTotal = _life;
+            _volley = burst.Volley;
+            _tell = tell;
+            return this;
+        }
+
+        void DropTell() { if (_tell != null) Destroy(_tell.gameObject); _tell = null; }
+
+        void OnDestroy() => DropTell();
+
+        /// <summary>Throws the arms from here - turned back on the enemies if this shot was parried.</summary>
+        void BurstArms(CrossBurst b, Vector2[] arms, float damage, float speed, float reach, bool small)
+        {
+            Vector2 at = transform.position;
+            Combat.TexelFx.Shock(at, Combat.TexelFx.Fire, Combat.TexelFx.Fire, small ? 0.2f : 0.36f, 0.25f);
+            Audio.Sfx.Play(Audio.Sound.Pop, at);
+            foreach (var d in arms)
+            {
+                var arm = Launch(_owner, _target, _targetHealth, at, d, damage, _knockback * 0.5f, speed, reach / Mathf.Max(0.01f, speed));
+                arm.Dress(_frames, b.ArmRadius, _element);
+                arm.transform.localScale = Vector3.one * b.ArmScale * (small ? 0.75f : 1f);
+                arm._volley = b.Volley;
+                arm._unparryable = true;
+                arm._reflected = _reflected;
+                if (!small && b.Rebounds) arm._rebound = b;
+            }
+        }
+
+        void BurstHere()
+        {
+            if (_burst == null) return;
+            var b = _burst;
+            _burst = null;
+            DropTell();
+            BurstArms(b, b.Arms, b.ArmDamage, b.ArmSpeed, b.ArmSpeed * b.ArmLife, false);
+        }
+
+        /// <summary>An arm stopped by a wall (band 4): a small cross, backed off the surface a touch.</summary>
+        void ReboundHere()
+        {
+            if (_rebound == null) return;
+            var b = _rebound;
+            _rebound = null;
+            transform.position = (Vector2)transform.position - _dir * 0.25f;
+            BurstArms(b, Cross4, b.ReboundDamage, b.ReboundSpeed, b.ReboundReach, true);
+        }
+
         /// <summary>The missile's burst (the user's pick, group 4 - "violet ring"): a small SOLID violet
         /// ring - solid, as every enemy blast is - round an orange core, and a pop. A picture and a
         /// sound; whatever damage it deals is dealt by the caller.</summary>
@@ -127,10 +207,13 @@ namespace Convergence.Combat
             Audio.Sfx.Play(Audio.Sound.Pop, at);
         }
 
-        /// <summary>Gone without hurting anything - a missile bursts, a bolt just stops.</summary>
-        void Expire()
+        /// <summary>Gone without hurting anything - a missile bursts, a bolt just stops, a cross shot
+        /// throws its arms; an arm a WALL stopped (<paramref name="wall"/>) may burst once more.</summary>
+        void Expire(bool wall = false)
         {
             if (_explodes) Burst();
+            BurstHere();
+            if (wall) ReboundHere();
             Destroy(gameObject);
         }
 
@@ -188,13 +271,17 @@ namespace Convergence.Combat
         void Update()
         {
             if (_cut) return;
-            if (!_reflected && _owner == null) { Expire(); return; }
+            if (!_reflected && _owner == null) { _burst = null; _rebound = null; Expire(); return; }
             if (_frames != null && _frames.Length > 0 && _sr != null)
                 _sr.sprite = _frames[Mathf.FloorToInt(Time.time * 18f) % _frames.Length];
 
             float dt = Time.deltaTime;
+            // The last frame flies only what is left of the reach, then ends - after its hit test, so a
+            // shot thrown at a spot reaches it (a slow frame used to end it a step short).
+            bool last = _life <= dt;
+            float fly = last ? Mathf.Max(0f, _life) : dt;
             _life -= dt;
-            if (_life <= 0f) { Expire(); return; }
+            if (_tell != null) _tell.Progress = 1f - Mathf.Clamp01(_life / Mathf.Max(0.01f, _lifeTotal));
 
             if (_homing && !_reflected && _splitAfter > 0f && (_flown += dt) >= _splitAfter) { Split(); return; }
 
@@ -210,13 +297,13 @@ namespace Convergence.Combat
                 }
             }
 
-            var next = (Vector2)transform.position + _dir * (_speed * dt);
+            var next = (Vector2)transform.position + _dir * (_speed * fly);
 
             // Dies at the wall rather than clamping into it - a bolt that stops at the edge and
             // keeps existing there reads as a bug, not a miss. An open edge is no wall: the bolt
             // flies on over the void until it is gone.
             var clamped = Arena.ShotClamp(next, 0.1f);
-            if ((clamped - next).sqrMagnitude > 0.0001f || Arena.ShotGone(next)) { Expire(); return; }
+            if ((clamped - next).sqrMagnitude > 0.0001f || Arena.ShotGone(next)) { Expire(wall: !Arena.ShotGone(next)); return; }
             // Mudslide's bank stops an enemy's shot (Combat.MudWall); a reflected one is the player's.
             if (!_reflected && MudWall.Blocks(transform.position, next)) { TexelFx.Puff(next, ArsenalFx.Mud, 6, 6f, 0.4f, TexelFx.Air); Expire(); return; }
 
@@ -225,40 +312,56 @@ namespace Convergence.Combat
                 // A Blue force field nulls the bolt outright, whichever direction it is flying.
                 case SightResult.Nulled: Expire(); return;
                 // An interior wall - the same as the outer one above: it dies there.
-                case SightResult.Blocked: Expire(); return;
+                case SightResult.Blocked: Expire(wall: true); return;
                 case SightResult.Amplified: _damageMul = 2f; break;
             }
+            var prev = (Vector2)transform.position;
             transform.position = next;
 
-            if (!_reflected) UpdateOutbound();
-            else UpdateReflected();
+            bool gone = !_reflected ? UpdateOutbound(prev) : UpdateReflected();
+            if (!gone && last) Expire();
         }
 
-        void UpdateOutbound()
+        /// <summary>The nearest a step from <paramref name="a"/> to <paramref name="b"/> came to <paramref name="p"/>:
+        /// a fast shot on a slow frame must not step clean past the player.</summary>
+        static float PassDistance(Vector2 a, Vector2 b, Vector2 p)
         {
-            if (_target == null || _targetHealth == null || _targetHealth.IsDead) return;
-            if (Vector2.Distance(transform.position, _target.position) > HitRadius) return;
+            var ab = b - a;
+            float t = ab.sqrMagnitude > 1e-6f ? Mathf.Clamp01(Vector2.Dot(p - a, ab) / ab.sqrMagnitude) : 0f;
+            return Vector2.Distance(a + ab * t, p);
+        }
 
-            if (_targetController != null && _targetController.TryParry(transform.position, _owner))
+        /// <summary>True when this shot is done (destroyed).</summary>
+        bool UpdateOutbound(Vector2 prev)
+        {
+            if (_target == null || _targetHealth == null || _targetHealth.IsDead) return false;
+            if (PassDistance(prev, transform.position, _target.position) > HitRadius) return false;
+            // the throw has already hit: the rest of it flies on through
+            if (_volley != null && _volley.Landed) return false;
+
+            if (!_unparryable && _targetController != null && _targetController.TryParry(transform.position, _owner))
             {
                 // A missile hurts only the player (the user's call): parried, it bursts, harmless.
-                if (_explodes) { Burst(); Destroy(gameObject); return; }
+                if (_explodes) { Burst(); Destroy(gameObject); return true; }
                 _reflected = true;
                 _dir = -_dir;   // the parry draws its own sparks (PlayerController.ParryTell)
-                return;
+                return false;
             }
 
             _targetHealth.Take(new DamageInfo(_damage * _damageMul, _element, _owner)
             {
                 Knockback = _dir * _knockback,
             });
+            if (_volley != null) _volley.Landed = true;
+            BurstHere();
             if (_explodes) Burst();
             // Chips off the player, thrown on along the bolt's line, under the body.
             else TexelFx.Chips(transform.position, TexelFx.Fire, _dir, 2.6f, 8, 26f, 0.3f, ReleaseCanvas.UnderBody(_target));
             Destroy(gameObject);
+            return true;
         }
 
-        void UpdateReflected()
+        bool UpdateReflected()
         {
             foreach (var col in Physics2D.OverlapCircleAll(transform.position, HitRadius))
             {
@@ -272,9 +375,11 @@ namespace Convergence.Combat
                     Displaces = true,
                 });
                 TexelFx.Chips(transform.position, TexelFx.Fire, _dir, 2.6f, 8, 26f, 0.3f);
+                BurstHere();
                 Destroy(gameObject);
-                return;
+                return true;
             }
+            return false;
         }
     }
 }

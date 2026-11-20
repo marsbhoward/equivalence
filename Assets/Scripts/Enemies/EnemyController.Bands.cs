@@ -60,8 +60,9 @@ namespace Convergence.Enemies
 
         /// <summary>The swing STEPS IN when the player stands past its plain reach: the body is
         /// driven the gap over BruteLungeSeconds (FixedUpdate, <see cref="TickLunge"/>), stopping
-        /// short of the player (BruteLungeStopShare) rather than passing through them.</summary>
-        void BeginLunge()
+        /// short of the player (BruteLungeStopShare) rather than passing through them. It goes along
+        /// <paramref name="aim"/>, the swing's cone, not straight at a player who stepped out of it.</summary>
+        void BeginLunge(Vector2 aim)
         {
             if (_target == null) return;
             Vector2 to = (Vector2)_target.position - (Vector2)transform.position;
@@ -69,7 +70,7 @@ namespace Convergence.Enemies
             if (dist <= AttackRange * 0.8f) return;
             float travel = Mathf.Min(ChaserLungeReach, dist - AttackRange * Tuning.EnemyBands.BruteLungeStopShare);
             if (travel <= 0f) return;
-            _lungeVelocity = to / dist * (travel / Tuning.EnemyBands.BruteLungeSeconds);
+            _lungeVelocity = aim.normalized * (travel / Tuning.EnemyBands.BruteLungeSeconds);
             _lungeTimer = Tuning.EnemyBands.BruteLungeSeconds;
         }
 
