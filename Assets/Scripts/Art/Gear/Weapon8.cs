@@ -305,9 +305,12 @@ namespace Convergence.Art.Gear
                 }
                 case Kind.DiscStowed:
                     // out of combat: both on the back, face out behind, overlapping near the spine, the hands free (the approved
-                    // stowed stance, https://claude.ai/artifact/DNXik8ZUaP3z1Kad2Wac32)
+                    // stowed stance, https://claude.ai/artifact/DNXik8ZUaP3z1Kad2Wac32). STAGGERED (the user, 2026-11-19: in the
+                    // hub the pair read as one disc drawn twice, as the run stance's did): one higher and nearer, one lower and
+                    // further back, so the near rim never lies a few texels off the far one.
                     foreach (int s in new[] { 1, -1 })
-                        g.Cards.Add(new Card { Art = art, O = body(new Vector3(s * StowX, StowY, s > 0 ? held.StowZ : held.StowZ - 1.5f)), U = vec(Vector3.left) * k, V = vec(Vector3.down) * k });
+                        g.Cards.Add(new Card { Art = art, O = body(new Vector3(s * StowX, StowY + s * StowStaggerUp,
+                            s > 0 ? held.StowZ : held.StowZ - StowStaggerBack)), U = vec(Vector3.left) * k, V = vec(Vector3.down) * k });
                     break;
                 case Kind.Bow:
                 case Kind.BowReady:
@@ -385,6 +388,9 @@ namespace Convergence.Art.Gear
 
         /// <summary>Stowed discs: each centre this far out, up from the soles, and behind (texels, the mock's frame).</summary>
         public static float StowX = 5f, StowY = 92f;
+        /// <summary>The stowed pair's stagger (texels): the right disc this much higher, the left this much lower, and the left
+        /// this much further back.</summary>
+        const float StowStaggerUp = 6f, StowStaggerBack = 5f;
         /// <summary>Where on the draw clock the discs leave the back and reach the fists (the flat rig's DiscGrabFrom / To).</summary>
         const float DiscGrabFrom = 0.35f, DiscGrabTo = 0.6f;
         /// <summary>The disc run stance's stagger (texels): the left fin this much higher, the right this much further
