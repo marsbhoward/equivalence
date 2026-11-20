@@ -122,7 +122,7 @@ namespace Convergence.Enemies
         static readonly EnemyKind[] Pooled =
         {
             EnemyKind.Chaser, EnemyKind.Bomb, EnemyKind.Ranged, EnemyKind.Dasher, EnemyKind.Turret,
-            EnemyKind.Mortar, EnemyKind.Gargoyle, EnemyKind.Bubbles,
+            EnemyKind.Mortar, EnemyKind.Gargoyle, EnemyKind.Bubbles, EnemyKind.Maelstrom,
         };
 
         /// <summary>
@@ -147,6 +147,7 @@ namespace Convergence.Enemies
         {
             EnemyKind.Chaser, EnemyKind.Bomb, EnemyKind.Ranged, EnemyKind.Dasher,
             EnemyKind.Turret, EnemyKind.Gargoyle, EnemyKind.Bubbles, EnemyKind.Mortar, EnemyKind.Booster,
+            EnemyKind.Maelstrom,
         };
 
         public static int UnlockFloor(EnemyKind kind) => kind switch
@@ -159,6 +160,7 @@ namespace Convergence.Enemies
             EnemyKind.Mortar   => Tuning.Enemy.MortarFromFloor,
             EnemyKind.Gargoyle => Tuning.Waves.GargoyleFromFloor,
             EnemyKind.Bubbles  => Tuning.Enemy.BubblesFromFloor,
+            EnemyKind.Maelstrom => Tuning.Enemy.MaelstromFromFloor,
             _                  => int.MaxValue,
         };
 
@@ -180,6 +182,7 @@ namespace Convergence.Enemies
                 EnemyKind.Turret   => Tuning.Waves.ShortTurretFromFloor,
                 EnemyKind.Gargoyle => Tuning.Waves.ShortGargoyleFromFloor,
                 EnemyKind.Bubbles  => Tuning.Waves.ShortBubblesFromFloor,
+                EnemyKind.Maelstrom => Tuning.Waves.ShortMaelstromFromFloor,
                 _                  => int.MaxValue,
             };
         }
@@ -237,6 +240,7 @@ namespace Convergence.Enemies
                 EnemyKind.Booster  => Tuning.Waves.PressureBooster,
                 EnemyKind.Bubbles  => Tuning.Waves.PressureBubbles,
                 EnemyKind.Mortar   => Tuning.Waves.PressureMortar,
+                EnemyKind.Maelstrom => Tuning.Waves.PressureMaelstrom,
                 _                  => 1f,
             };
             return elite ? p * Tuning.Waves.ElitePressureMul : p;

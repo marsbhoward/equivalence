@@ -13,7 +13,7 @@ namespace Convergence.Enemies
     /// have their own dedicated update logic below, and so does Turret - the stationary one - and
     /// Dasher - the hit-and-run striker.
     /// </summary>
-    public enum EnemyKind { Bomb, Chaser, Ranged, Turret, Dasher, Gargoyle, Booster, Bubbles, Mortar }
+    public enum EnemyKind { Bomb, Chaser, Ranged, Turret, Dasher, Gargoyle, Booster, Bubbles, Mortar, Maelstrom }
 
     [RequireComponent(typeof(Rigidbody2D), typeof(Health))]
     public partial class EnemyController : MonoBehaviour
@@ -349,6 +349,7 @@ namespace Convergence.Enemies
             EnemyRegistry.Unregister(this);
             CancelTelegraph();
             if (Kind == EnemyKind.Mortar) EndMortarAction();
+            if (Kind == EnemyKind.Maelstrom) EndMaelstrom();
             EndBeam();
             EndMireWindup();
         }
@@ -718,6 +719,7 @@ namespace Convergence.Enemies
             EnemyKind.Booster  => Tuning.Enemy.BoosterRecoverSeconds,
             EnemyKind.Bubbles  => BellRecoverSeconds,
             EnemyKind.Mortar   => Tuning.Enemy.MortarRecoverSeconds,
+            EnemyKind.Maelstrom => MaelstromUpSeconds,
             _                  => 0f,   // Dasher has its own Evading phase and does not use this
         };
 
@@ -904,6 +906,13 @@ namespace Convergence.Enemies
             else if (Kind == EnemyKind.Mortar)
             {
                 desired = MortarSteer(to, dist, speed);
+            }
+            else if (Kind == EnemyKind.Maelstrom)
+            {
+                // Under the floor it goes straight at the player, over anything (EnemyController.Maelstrom);
+                // surfaced it stands. It sets its own velocity: nothing about walking applies.
+                MaelstromMove(pos, to, dist);
+                return;
             }
             else if (Kind == EnemyKind.Bomb && BombCritical)
             {
@@ -1325,7 +1334,8 @@ namespace Convergence.Enemies
         void TickPits(Vector2 pos)
         {
             bool exempt = Kind is EnemyKind.Turret or EnemyKind.Booster or EnemyKind.Bubbles
-                                 or EnemyKind.Gargoyle;
+                                 or EnemyKind.Gargoyle
+                          || Submerged;   // the Maelstrom beneath the floor is under the pits too
             var pit = exempt ? null : FloorPits.At(pos);
             if (pit == null) { _pitTick = 0f; _pitTracking = false; return; }
 
@@ -1494,6 +1504,7 @@ namespace Convergence.Enemies
             if (Kind == EnemyKind.Booster) { UpdateBooster(); return; }
             if (Kind == EnemyKind.Bubbles) { UpdateBubbles(); return; }
             if (Kind == EnemyKind.Mortar) { UpdateMortar(); return; }
+            if (Kind == EnemyKind.Maelstrom) { UpdateMaelstrom(); return; }
 
             // Chaser from here down - every other kind splits off into its own path above.
             UpdateChaser();

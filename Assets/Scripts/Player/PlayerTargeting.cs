@@ -125,7 +125,7 @@ namespace Convergence.Player
 
         /// <summary>A body going into a chasm is out of the fight before it is dead: its rim is
         /// not masked with it, and would be left falling outside the hole.</summary>
-        static bool Gone(Health h) => h.TryGetComponent<EnemyController>(out var e) && e.FellIn;
+        static bool Gone(Health h) => h.TryGetComponent<EnemyController>(out var e) && (e.FellIn || e.Submerged);
 
         // Re-hooked lazily: a domain reload empties the event's delegate list.
         [System.NonSerialized] Health _hookedHealth;
@@ -292,7 +292,7 @@ namespace Convergence.Player
 
         static Health Live(EnemyController enemy)
         {
-            if (enemy == null || enemy.FellIn) return null;
+            if (enemy == null || enemy.FellIn || enemy.Submerged) return null;   // a Maelstrom under the floor is not there to lock
             var hp = enemy.GetComponent<Health>();
             return hp == null || hp.IsDead ? null : hp;
         }

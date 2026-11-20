@@ -5301,6 +5301,7 @@ namespace Convergence.Core
             public static readonly UnityEngine.Color IchorLion = new(0.22f, 0.40f, 0.10f, 0.88f);      // green
             public static readonly UnityEngine.Color IchorBell = new(0.12f, 0.26f, 0.30f, 0.88f);      // brine
             public static readonly UnityEngine.Color IchorSalamander = new(0.50f, 0.27f, 0.04f, 0.88f); // amber
+            public static readonly UnityEngine.Color IchorMaelstrom = new(0.10f, 0.30f, 0.32f, 0.70f);  // drowned water, thinner
         }
 
         /// <summary>
@@ -6737,6 +6738,54 @@ namespace Convergence.Core
             /// breaks the whole bubble at once (the user's call). The elite blows two - one on an
             /// ally and one on itself - and nothing stacks.</summary>
             public const int BubblesEliteCharges = 2;
+
+            // ---- Maelstrom (the diver; the user's design 2026-11-20, mock AeFpbH6KKevKh6F9F6bURn) ----
+            //
+            // A figure of water that DIVES into the floor, follows the player beneath it as a ripple
+            // (untouchable down there, never out of sight), marks a ring UNDER them and bursts up in a
+            // whirlpool that hits everything inside it - then stands surfaced, open to hits, before it
+            // drains away again. The whirlpool is drawn, never a pull: enemies never move the player.
+
+            public const float MaelstromHp = 120f;
+            public const float MaelstromSize = 0.9f;
+            /// <summary>The whirlpool's blow, before the floor's scaling.</summary>
+            public const float MaelstromDamage = 11f;
+            /// <summary>The whirlpool's radius (the ring on the floor is this, drawn), and an elite's.</summary>
+            public const float MaelstromRadius = 1.5f;
+            public const float MaelstromEliteRadius = 1.9f;
+            /// <summary>The ring's wind-up from band 1 (band 0 x MaelstromTellBandZeroMul), before the
+            /// floor's scaling - the read is the ring under your feet.</summary>
+            public const float MaelstromTelegraphDuration = 0.9f;
+            public const float MaelstromTellBandZeroMul = 1.22f;
+            /// <summary>Seconds draining into the floor, and pouring back up as it erupts.</summary>
+            public const float MaelstromDiveSeconds = 0.45f;
+            public const float MaelstromRiseSeconds = 0.5f;
+            /// <summary>Surfaced after the whirlpool - the window to hit it (band 4: the short one).</summary>
+            public const float MaelstromUpSeconds = 1.4f;
+            public const float MaelstromUpSecondsBand4 = 1.0f;
+            /// <summary>Its speed beneath the floor (band 4: the fast one), before the floor's speed scaling.</summary>
+            public const float MaelstromTravelSpeed = 3.2f * Player.EnemyPace;
+            public const float MaelstromTravelSpeedBand4 = 4.2f * Player.EnemyPace;
+            /// <summary>Under the floor it marks the ring once this close, or after this long chasing.</summary>
+            public const float MaelstromMarkRange = 0.6f;
+            public const float MaelstromChaseSeconds = 3f;
+            /// <summary>Waiting for an attack turn beneath the floor, it circles at this distance.</summary>
+            public const float MaelstromWaitRange = 2.2f;
+            /// <summary>Seconds surfaced between its first arrival (or a whirlpool) and its next dive.</summary>
+            public const float MaelstromAttackInterval = 1.6f;
+            /// <summary>The ring the whirlpool's knockback pushes out with.</summary>
+            public const float MaelstromKnockback = 2.5f;
+            /// <summary>The SECOND eruption (band 3 and elites): this long after the first, under where
+            /// the player stands then, this big, at this share of the blow.</summary>
+            public const float MaelstromSecondDelay = 0.6f;
+            public const float MaelstromSecondRadius = 1.0f;
+            public const float MaelstromSecondDamageFraction = 0.6f;
+            /// <summary>Band 2: the whirlpool leaves wading water (Hazards.WaterPit - it soaks) this big for this long.</summary>
+            public const float MaelstromPoolSize = 2.2f;
+            public const float MaelstromPoolSeconds = 3f;
+            /// <summary>Band 1: the ring follows the player until this long before it erupts, then locks.</summary>
+            public const float MaelstromRingLockSeconds = 0.35f;
+            public const int MaelstromFromFloor = 6;
         }
 
         /// <summary>
@@ -6891,6 +6940,15 @@ namespace Convergence.Core
             public const float HeartCrossReboundDamage = 0.15f;
             public const float HeartCrossReboundSpeed = 4.5f;
             public const float HeartCrossReboundReach = 1.2f;
+
+            /// <summary>The Maelstrom by band (Tuning.Enemy.Maelstrom*, the user's ladder 2026-11-20): from 1
+            /// the ring FOLLOWS the player until MaelstromRingLockSeconds before it erupts; from 2 the
+            /// whirlpool leaves wading water; from 3 (veterans: the elite's move) a second, smaller eruption
+            /// under where they stepped; from 4 it travels faster and stands surfaced for less.</summary>
+            public const int MaelstromFollowFromBand = 1;
+            public const int MaelstromPoolFromBand = 2;
+            public const int MaelstromSecondFromBand = 3;
+            public const int MaelstromFastFromBand = 4;
             /// <summary>The Watcher COMMITS: in the last <see cref="WatcherCommitSeconds"/> of its
             /// tell (its eyes fully lit), breaking its sight no longer saves you - the root lands. Its
             /// reach is its sight (40 units), so a wider root meant nothing (measured 2026-10-25).</summary>
@@ -9181,6 +9239,8 @@ namespace Convergence.Core
             public const float PressureBooster = 0.8f;
             public const float PressureBubbles = 0.6f;
             public const float PressureMortar = 1.5f;
+            /// <summary>The Maelstrom: one blow a cycle, but under your feet and from out of reach.</summary>
+            public const float PressureMaelstrom = 1.3f;
 
             // ---- when each kind first appears ----
             //
@@ -9201,6 +9261,8 @@ namespace Convergence.Core
             public const int ShortTurretFromFloor = 12;    // the Tempest Eye
             public const int ShortGargoyleFromFloor = 14;  // the Watcher
             public const int ShortBubblesFromFloor = 17;   // the Drowned Bell
+            /// <summary>The Maelstrom (2026-11-20): the first of band 1, so the ring under your feet is learnt before the Eye.</summary>
+            public const int ShortMaelstromFromFloor = 11;
             /// <summary>The Green Lion (still gated on the account's best floor, Tuning.Enemy) rolls
             /// only on these Short floors - after the second band's kinds, up to the avatar.</summary>
             public const int ShortBoosterFromFloor = 18;

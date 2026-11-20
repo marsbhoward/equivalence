@@ -125,6 +125,10 @@ namespace Convergence.Enemies
     {
         static EnemyDef[] _byKind;
 
+        /// <summary>An empty slot - a kind drawn only by its TexelVisual (the Maelstrom) sizes its fallback circle off this.</summary>
+        static Art.ActorArt NoArt => _noArt ??= new Art.ActorArt();
+        static Art.ActorArt _noArt;
+
         public static EnemyDef Of(EnemyKind kind)
         {
             _byKind ??= Build();
@@ -390,6 +394,29 @@ namespace Convergence.Enemies
                     TelegraphDuration = Tuning.Enemy.MortarTelegraphDuration,
                     // Every lob, not on a cadence - see ElitePattern.Barrage.
                     Elite = ElitePattern.Barrage,
+                    EliteEvery = 1,
+                },
+
+                new EnemyDef
+                {
+                    Kind = EnemyKind.Maelstrom,
+                    Name = "Maelstrom",
+                    Size = Tuning.Enemy.MaelstromSize,
+                    // Deep water - the drawn art (MaelstromArt) bakes its own; this tints only a fallback.
+                    Tint = new Color(0.25f, 0.45f, 0.5f),
+                    // No authored slot: MaelstromVisual draws it, as every bestiary kind is drawn.
+                    Art = () => NoArt,
+                    BaseHp = Tuning.Enemy.MaelstromHp,
+                    // It does not walk: beneath the floor it travels at its own speed
+                    // (Tuning.Enemy.MaelstromTravelSpeed), surfaced it stands.
+                    MoveSpeed = 0f,
+                    Damage = Tuning.Enemy.MaelstromDamage,
+                    // The whirlpool's radius (an elite's is MaelstromEliteRadius).
+                    AttackRange = Tuning.Enemy.MaelstromRadius,
+                    TelegraphDuration = Tuning.Enemy.MaelstromTelegraphDuration,
+                    // ELITE = None does not mean elite-less: its elite has the wider whirlpool and the
+                    // second eruption every cycle, read straight off the Elite bool (as Bubbles' is).
+                    Elite = ElitePattern.None,
                     EliteEvery = 1,
                 },
             };

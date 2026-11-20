@@ -343,6 +343,7 @@ namespace Convergence.Combat
             EnemyKind.Booster => Tuning.FightMarks.IchorLion,
             EnemyKind.Bubbles => Tuning.FightMarks.IchorBell,
             EnemyKind.Mortar => Tuning.FightMarks.IchorSalamander,
+            EnemyKind.Maelstrom => Tuning.FightMarks.IchorMaelstrom,
             _ => Tuning.FightMarks.IchorBrute,
         };
 

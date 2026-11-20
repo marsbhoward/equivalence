@@ -114,6 +114,7 @@ namespace Convergence.Enemies
             // Mortar lobs on its own, slower clock - the only kind whose cadence differs from the
             // shared one AND runs through AttackInterval, so it still speeds up with depth.
             if (kind == EnemyKind.Mortar) ec.AttackInterval = Tuning.Enemy.MortarAttackInterval;
+            if (kind == EnemyKind.Maelstrom) ec.AttackInterval = Tuning.Enemy.MaelstromAttackInterval;
             ec.AttackInterval *= FloorDifficulty.AttackInterval(wave);
 
             // The tier's extra move, declared on the type rather than branched on here - an elite
@@ -149,6 +150,8 @@ namespace Convergence.Enemies
                 BubblesVisual.Attach(visual, ec, EnemyLooks.Of(kind), elite);
             else if (kind == EnemyKind.Mortar)
                 MortarVisual.Attach(visual, ec, EnemyLooks.Of(kind), elite);
+            else if (kind == EnemyKind.Maelstrom)
+                MaelstromVisual.Attach(visual, ec, EnemyLooks.Of(kind), elite);
 
             // ---- armor: a shield-style absorb pool in front of HP ----
             //

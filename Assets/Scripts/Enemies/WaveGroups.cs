@@ -80,11 +80,12 @@ namespace Convergence.Enemies
         }
 
         /// <summary>Whether an affix suits a kind: a Bell bubbles itself already, an Eye never walks
-        /// to shed embers.</summary>
+        /// to shed embers, and a Maelstrom is water travelling beneath the floor (no embers, and a ward
+        /// would have nothing to stand on while it is under).</summary>
         public static bool Suits(EliteAffix affix, EnemyKind kind) => affix switch
         {
-            EliteAffix.Warded   => kind != EnemyKind.Bubbles,
-            EliteAffix.Cindered => kind != EnemyKind.Turret,
+            EliteAffix.Warded   => kind != EnemyKind.Bubbles && kind != EnemyKind.Maelstrom,
+            EliteAffix.Cindered => kind != EnemyKind.Turret && kind != EnemyKind.Maelstrom,
             EliteAffix.Mired    => true,
             _                   => false,
         };

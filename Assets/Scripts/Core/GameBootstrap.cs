@@ -4116,6 +4116,7 @@ namespace Convergence.Core
             Enemies.EnemyLooks.Roll(Enemies.EnemyKind.Booster);
             Enemies.EnemyLooks.Roll(Enemies.EnemyKind.Bubbles);
             Enemies.EnemyLooks.Roll(Enemies.EnemyKind.Mortar);
+            Enemies.EnemyLooks.Roll(Enemies.EnemyKind.Maelstrom);
 
 
             int token = _runToken;
