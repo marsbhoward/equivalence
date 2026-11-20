@@ -5315,6 +5315,7 @@ namespace Convergence.Art.Gear
             sr.enabled = shown;
             if (_split && _offhand != null)
                 _offhand.enabled = !_weaponHiddenPref && (_weaponHides == 0 || (_weaponHides == 1 && !_offHiddenFirst));
+            Keep8WeaponHidden(sr);
         }
 
         // ---------------------------------------------------------------- off-hand (dual wield)

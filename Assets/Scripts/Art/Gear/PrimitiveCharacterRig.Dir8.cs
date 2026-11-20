@@ -757,6 +757,24 @@ namespace Convergence.Art.Gear
         }
 
         /// <summary>LateUpdate, last: every sprite of the rig but the head and the drawn body stays hidden.</summary>
+        /// <summary>
+        /// The figure is drawn (eight directions) and no swing has today's weapon out: the rig's own weapon sprites stay
+        /// hidden, whoever asked for them (ApplyWeaponVisibility). The user's report, 2026-11-20: running up or down the
+        /// hub, DepthSorted's LateUpdate - after Hide8 - re-sorted the rig (SetSortingBase -> ApplyLayerOrder ->
+        /// SetWeaponSplit) and switched the rig's own discs back on for the frame, beside the drawn stowed pair.
+        /// </summary>
+        void Keep8WeaponHidden(SpriteRenderer weapon)
+        {
+            if (!Body8On || _legs8 == null || !_legs8.enabled || (Swinging8 && !_swing8Drawn)) return;
+            _hidden8 ??= new System.Collections.Generic.HashSet<SpriteRenderer>();
+            foreach (var sr in new[] { weapon, _offhand })
+            {
+                if (sr == null || !sr.enabled) continue;
+                sr.enabled = false;
+                _hidden8.Add(sr);   // Unhide8 gives it back when the figure stops being drawn
+            }
+        }
+
         void Hide8()
         {
             if (!Body8On || _legs8 == null || !_legs8.enabled) return;
