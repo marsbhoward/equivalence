@@ -504,7 +504,20 @@ namespace Convergence.Rifts
             // relic table" - true while a relic was cosmetic and rolled nothing, and false since
             // a relic's roll became its FINISHER. Excluding them would mean the one slot whose
             // whole content is randomised was the one slot loot never handed you.
-            var slot = GearSlots.Selectable[Random.Range(0, GearSlots.Selectable.Length)];
+            // Only slots the tier makes (no Bronze-Gold accessory), and NOTHING WITHOUT A PICTURE: a roll that comes out
+            // bare (DemoGear.HasArt) is rolled again, from the same stream - so a replayed floor still drops the same piece.
+            var slots = System.Array.FindAll(GearSlots.Selectable, s => DemoGear.TierMakes(s, tier));
+            for (int attempt = 0; ; attempt++)
+            {
+                var rolled = RollGearIn(slots[Random.Range(0, slots.Length)], tier, floor);
+                if (DemoGear.HasArt(rolled)) return rolled;
+                Debug.LogWarning($"[Loot] {rolled.Slot} {rolled.Tier} ({rolled.Class}) has no picture - rolled again");
+                if (attempt >= 8) slots = new[] { GearSlot.Torso };   // never loops: a Torso always has its tier's look
+            }
+        }
+
+        MintedGearRecord RollGearIn(GearSlot slot, LootTier tier, int floor)
+        {
 
             // From UnityEngine.Random, not Guid.NewGuid: an enemy's drop is rolled inside a seeded
             // scope (RunRolls), and a floor replayed after a resume must drop the very same piece -

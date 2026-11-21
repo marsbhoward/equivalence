@@ -1106,6 +1106,13 @@ namespace Convergence.Core
         async System.Threading.Tasks.Task MintForgeBoxItem(
             Art.Gear.GearSlot slot, Art.Gear.LootTier tier, Art.Gear.WeaponClass weaponClass)
         {
+            // Never a piece without a picture (DemoGear.TierMakes / HasArt): a slot the tier doesn't make is swapped for a
+            // random one it does; a bare roll is caught below.
+            if (!Art.Gear.DemoGear.TierMakes(slot, tier))
+            {
+                var ok = System.Array.FindAll(UI.ForgeScreen.RedeemableSlots, s => Art.Gear.DemoGear.TierMakes(s, tier));
+                slot = ok[UnityEngine.Random.Range(0, ok.Length)];
+            }
             string instanceId = $"BOX-{slot}-{Guid.NewGuid():N}";
             var (_, grants, primary, subs, ability, finisher) =
                 Art.Gear.GearRoller.RollItem(slot, tier, instanceId.GetHashCode(), weaponClass);
@@ -1124,6 +1131,13 @@ namespace Convergence.Core
                 Class = weaponClass,
                 StatsVersion = Art.Gear.GearRoller.TablesVersion,
             };
+            if (!Art.Gear.DemoGear.HasArt(record) && slot != Art.Gear.GearSlot.Torso)
+            {
+                // the boxes are already spent: a bare roll becomes a chest piece, never a blank item
+                Debug.LogWarning($"[Forge] {slot} {tier} ({weaponClass}) has no picture - redeemed as a chest piece");
+                await MintForgeBoxItem(Art.Gear.GearSlot.Torso, tier, weaponClass);
+                return;
+            }
 
             _profile.MintedGear.Add(record);
             Art.Gear.GearCatalog.Register(record.ToGearItem());

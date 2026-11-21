@@ -58,6 +58,24 @@ namespace Convergence.Art.Gear
 
         public static bool IsTierLook(string id) => !string.IsNullOrEmpty(id) && id.StartsWith("tier_");
 
+        /// <summary>
+        /// Whether a statted piece of <paramref name="tier"/> may be MADE for <paramref name="slot"/> at all - dropped,
+        /// redeemed or given. The ACCESSORY (Ring) has no Bronze-Gold variants (the user's call, 2026-11-21: a Bronze
+        /// accessory dropped in the showcase with no picture); accessories are Quartz and Diamond designs. The Trinket
+        /// slot merged into Relic and is never made.
+        /// </summary>
+        public static bool TierMakes(GearSlot slot, LootTier tier)
+            => !(tier is LootTier.Bronze or LootTier.Silver or LootTier.Gold) || (slot != GearSlot.Ring && slot != GearSlot.Trinket);
+
+        /// <summary>Whether a rolled record has a picture to wear (its design, or its tier's look). NOTHING WITHOUT ONE
+        /// IS EVER HANDED OUT (the user's rule, 2026-11-21): a roll that comes out bare is rolled again.</summary>
+        public static bool HasArt(Chain.MintedGearRecord record)
+        {
+            if (record == null) return false;
+            string look = record.Look;
+            return !string.IsNullOrEmpty(look) && GearCatalog.Get(look) != null;
+        }
+
         static void AddTierLooks(List<GearItem> items)
         {
             AddTierBronze(items);

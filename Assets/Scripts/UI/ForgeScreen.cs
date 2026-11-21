@@ -39,7 +39,7 @@ namespace Convergence.UI
         static readonly GearSlot[] Slots =
         {
             GearSlot.Head, GearSlot.Shoulders, GearSlot.Torso, GearSlot.Back,
-            GearSlot.Neck, GearSlot.Ring, GearSlot.Legs,
+            GearSlot.Neck, GearSlot.Legs,   // no Ring: accessories have no Bronze-Gold variants (DemoGear.TierMakes)
             GearSlot.Boots, GearSlot.Belt, GearSlot.Gloves, GearSlot.Weapon,
         };
 
