@@ -4325,6 +4325,10 @@ namespace Convergence.Core
             public const float ArcMovingDegPerSec = 400f;
             /// <summary>Share of a basic's window the arc waits for a reversal (the wind-up turning into the cut) before drawing anyway.</summary>
             public const float ArcWindUpShare = 0.45f;
+            /// <summary>THE HELD FINISH: a weapon art's swing holds its last frame this long (drawing only;
+            /// Dimraeth holds ~8 frames, the user's pick 2026-11-21) - let go the moment the figure moves
+            /// more than HeldFinishSlack world units or another swing starts.</summary>
+            public const float HeldFinishSeconds = 0.27f, HeldFinishSlack = 0.06f;
             /// <summary>The arc's tones and their opacity, from the blade's edge back: white to a pale blue-white.</summary>
             public static readonly UnityEngine.Color32[] ArcTones =
             {

@@ -5671,6 +5671,8 @@ namespace Convergence.Art.Gear
             _alt = alt;
             _attackLength = AttackMotions.SwingSeconds(duration);
             _attackTimer = _attackLength;
+            _finishLeft = _artSwing ? Core.Tuning.Smear.HeldFinishSeconds : 0f;   // a weapon art holds its last frame
+            _finishHeld = false;
             if (MakesSound)
                 Convergence.Audio.Sfx.Play(_attackLength >= Convergence.Core.Tuning.Audio.HeavySwingSeconds
                     ? Convergence.Audio.Sound.SwingHeavy : Convergence.Audio.Sound.Swing, transform.position);
@@ -5757,6 +5759,29 @@ namespace Convergence.Art.Gear
         }
 
         const float HoldOvershoot = 0.1f;
+
+        /// <summary>
+        /// THE HELD FINISH (the user's pick, 2026-11-21, after studying Dimraeth): a weapon art's swing
+        /// holds its last frame for <c>Tuning.Smear.HeldFinishSeconds</c> while its effects fade round
+        /// it, then recovers as always. Drawing only - the hit, its timing and the player's control are
+        /// unchanged: the next swing (PlayAttack) takes over at once, and moving lets the pose go.
+        /// Armed by <see cref="SetArtElement"/> (an art's swing), so basics and enemy rigs never hold.
+        /// </summary>
+        bool HoldingFinish(float dt)
+        {
+            if (_finishLeft <= 0f) return false;
+            if (!_finishHeld) { _finishHeld = true; _finishAt = transform.position; }
+            if (((Vector2)(transform.position - _finishAt)).sqrMagnitude > Core.Tuning.Smear.HeldFinishSlack * Core.Tuning.Smear.HeldFinishSlack)
+            { _finishLeft = 0f; _finishHeld = false; return false; }   // walked or dashed off: let it go
+            _finishLeft -= dt;
+            if (_finishLeft > 0f) return true;
+            _finishHeld = false;
+            return false;
+        }
+
+        [System.NonSerialized] float _finishLeft;
+        [System.NonSerialized] bool _finishHeld, _artSwing;
+        Vector3 _finishAt;
 
         /// <summary>Seconds the current swing is still frozen on its first frame, and how long it
         /// has been frozen (which the entry blend counts as swing time). See HoldSwingStart.</summary>
@@ -5946,6 +5971,7 @@ namespace Convergence.Art.Gear
                     _holdElapsed = EntryBlendSeconds;
                 }
                 else if (_attackHold > 0f) { _attackHold -= dt; _holdElapsed += dt; }
+                else if (_attackTimer - dt <= 0f && HoldingFinish(dt)) _attackTimer = 1e-4f;
                 else _attackTimer -= dt;
                 float k = 1f - Mathf.Clamp01(_attackTimer / _attackLength);
                 // The Lunge art's pull-back is ANIMATED over the hold (k -1 to 0), not frozen on

@@ -171,6 +171,7 @@ namespace Convergence.Art.Gear
         {
             _style = element.HasValue ? StyleFor(element.Value, weapon) : null;
             _styleSinceStrike = -1f;
+            _artSwing = element.HasValue;   // its swings hold their last frame (the held finish)
         }
 
         /// <summary>Seconds past a settled swing a style is let go (the cape's springs come home).</summary>
