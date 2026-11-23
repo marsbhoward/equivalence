@@ -12,23 +12,25 @@ namespace Convergence.Combat
     /// picks per class off the mock sheet, 2026-11-03):
     ///
     ///                Greatsword        Discs                       Bow
-    ///     Fire       Forge sparks      Molten edge + Forge sparks  Molten edge + Forge sparks
+    ///     Fire       Forge flame       Molten edge + Forge sparks  Molten edge + Forge sparks
     ///     Water      Ribbon            Water film + Ribbon         Ribbon
     ///     Earth      Orbiting grit     Orbiting grit               Stone crust + Orbiting grit
     ///     Air        Gathering streaks Gathering streaks           Gathering streaks
     ///
     /// One per art, made at the press (PlayerController) and gone a few seconds after the strike.
     /// It rides whatever carries the art: the held weapon, the arrow on the string, and a disc or
-    /// arrow once thrown (ThrownDisc / ThrownArrow <see cref="Adopt"/> it). Three texel canvases:
-    /// one in front of the weapon and one behind it at weapon density (sparks, drops, the ribbon,
-    /// pebbles, streaks), and the floor's at 37.5 (embers, wet marks, pebbles that landed). The
-    /// heat, film and crust are the weapon's OWN texels recoloured on an overlay laid exactly over
-    /// it, so nothing is drawn over the player. Every scatter is hashed from the art's serial,
-    /// never UnityEngine.Random. Strength follows the element meter at the press.
+    /// arrow once thrown (ThrownDisc / ThrownArrow <see cref="Adopt"/> it). Three canvases: one in
+    /// front of the weapon and one behind it (flame, sparks, drops, the ribbon, stones, streaks), and
+    /// the floor's (embers, wet marks, dust, stones that landed). Since 2026-11-22 (the user's picks
+    /// off the real-footage mock) they are painted OFF the texel grid at 2x the old size, in soft
+    /// anti-aliased marks on bilinear canvases (ElementArtFx.Soft.cs), and the greatsword's fire is
+    /// flame standing up off the blade and the cut rather than sparks - apart from Ignite, whose
+    /// flame smears BEHIND the swing. The heat, film and crust are the weapon's OWN texels recoloured
+    /// on an overlay laid exactly over it. Every scatter is hashed from the art's serial, never
+    /// UnityEngine.Random. Strength follows the element meter at the press.
     /// </summary>
-    public class ElementArtFx : MonoBehaviour
+    public partial class ElementArtFx : MonoBehaviour
     {
-        const float WeaponPpu = 75f, GroundPpu = 37.5f;
 
         /// <summary>The live arts' pictures (one per figure), for a disc or arrow released inside one.
         /// Lazily made: a domain reload empties statics.</summary>
@@ -42,6 +44,10 @@ namespace Convergence.Combat
             public SpriteRenderer Sr;
             public Shape Shape;
             public bool Thrown;
+            /// <summary>The bow itself, standing in until the arrow is on the string (it nocks only a beat
+            /// before the loose): it carries the ribbon, stones, streaks and sparks, never the arrow's own
+            /// molten edge or crust.</summary>
+            public bool Bow;
             public float AdoptedAt;
             public Vector2 LastTip, Velocity;
             public bool HasLast;
@@ -63,7 +69,7 @@ namespace Convergence.Combat
             public float[] Lum;
         }
 
-        enum Kind : byte { Spark, Ember, Drift, Drop, Wet, Pebble, Dust, Chunk }
+        enum Kind : byte { Spark, Ember, Drift, Drop, Wet, Pebble, Dust, Chunk, Flame }
 
         struct Bit
         {
@@ -85,14 +91,18 @@ namespace Convergence.Combat
         WeaponClass _class;
         float _t0, _strikeAt, _k, _scale = 1f;
         int _serial;
-        bool _sparks, _molten, _ribbon, _film, _grit, _crust, _streaks;
+        bool _sparks, _flame, _molten, _ribbon, _film, _grit, _crust, _streaks;
         readonly List<Source> _sources = new();
         readonly List<Bit> _bits = new();
-        readonly List<(Vector2 pos, float time)> _trail = new();
+
+        /// <summary>Where a source was on a strike frame: a held blade by its root and the vector to its
+        /// tip (so the path between frames can be swept by angle), anything else by one point.</summary>
+        struct Cut { public Vector2 Pivot, Vec; public float Time; public int Src; }
+        readonly List<Cut> _cuts = new();
         bool _windEmitted, _strikeEmitted;
         bool _even; int _evenCount; Vector2 _lineFrom, _lineDir;   // a Perfect: the film's drops land in a row
-        int _sparkCount, _streakCount, _gritCount, _crustCount, _burstCount;
-        readonly float[] _owed = new float[8];   // each emitter's part-made bits, carried frame to frame
+        int _sparkCount, _streakCount, _gritCount, _crustCount, _burstCount, _flameCount;
+        readonly float[] _owed = new float[10];   // each emitter's part-made bits, carried frame to frame
 
         /// <summary>How many to make this frame of an emitter owed <paramref name="want"/> more.</summary>
         int Take(int emitter, float want)
@@ -145,14 +155,14 @@ namespace Convergence.Combat
             bool disc = weapon == WeaponClass.Disc, bow = weapon == WeaponClass.Bow;
             switch (element)
             {
-                case ElementType.Fire: fx._sparks = true; fx._molten = disc || bow; break;
+                case ElementType.Fire: fx._molten = disc || bow; fx._sparks = fx._molten; fx._flame = !fx._molten; break;
                 case ElementType.Water: fx._ribbon = true; fx._film = disc; break;
                 case ElementType.Earth: fx._grit = true; fx._crust = bow; break;
                 default: fx._streaks = true; break;
             }
-            fx._front = fx.MakeCanvas("front", WeaponPpu / fx._scale, T.WeaponCanvas);
-            fx._back = fx.MakeCanvas("back", WeaponPpu / fx._scale, T.WeaponCanvas);
-            fx._ground = fx.MakeCanvas("ground", GroundPpu, T.GroundCanvas);
+            fx._front = fx.MakeCanvas("front", T.CanvasPpu, T.WeaponCanvas);
+            fx._back = fx.MakeCanvas("back", T.CanvasPpu, T.WeaponCanvas);
+            fx._ground = fx.MakeCanvas("ground", T.GroundPpu, T.GroundCanvas);
             Live.Add(fx);
             return fx;
         }
@@ -164,7 +174,8 @@ namespace Convergence.Combat
             ElementArtFx fx = null;
             foreach (var f in Live) if (f != null && f._owner != null && f._owner.gameObject == owner) fx = f;
             if (fx == null) return;
-            if (Clock > fx._strikeAt + T.StrikeAfter + 0.3f) return;
+            if (Clock > fx._strikeAt + T.CutWait + T.StrikeAfter + 0.3f) return;
+            if (fx._cutAt < 0f) fx._cutAt = Clock;   // it strikes as it leaves the hand
             fx._sources.Add(new Source { Sr = thrown, Shape = disc ? Shape.Round : Shape.Shaft, Thrown = true, AdoptedAt = Clock });
         }
 
@@ -210,7 +221,7 @@ namespace Convergence.Combat
             go.transform.SetParent(transform, false);
             var c = new Sheet { Sr = go.AddComponent<SpriteRenderer>(), Size = size, Ppu = ppu };
             c.Tex = new Texture2D(size, size, TextureFormat.RGBA32, false)
-            { filterMode = FilterMode.Point, wrapMode = TextureWrapMode.Clamp, hideFlags = HideFlags.HideAndDontSave };
+            { filterMode = FilterMode.Bilinear, wrapMode = TextureWrapMode.Clamp, hideFlags = HideFlags.HideAndDontSave };   // off the grid
             c.Px = new Color32[size * size];
             c.Sr.sprite = Sprite.Create(c.Tex, new Rect(0, 0, size, size), new Vector2(0.5f, 0.5f), ppu, 0, SpriteMeshType.FullRect);
             c.Sr.enabled = false;
@@ -239,17 +250,28 @@ namespace Convergence.Combat
         float Bar => _strikeAt <= _t0 ? 1f : Mathf.Clamp01((Now - _t0) / (_strikeAt - _t0));
         float Since => Now - _strikeAt;
 
+        /// <summary>When the art actually strikes. The bar ends a beat BEFORE the blow (filmed 2026-11-22: a
+        /// greatsword comes down ~0.2 s later, and a disc or arrow leaves the hand later still), so the strike
+        /// is the moment a held greatsword starts turning faster than the smear's <c>ArcMovingDegPerSec</c>
+        /// after the bar's end (<see cref="Watch"/>), or a disc or arrow is released (<see cref="Adopt"/>) -
+        /// or, if neither has come by <see cref="T.CutWait"/> past the bar's end, then. Until it, the wind-up
+        /// pictures hold.</summary>
+        float CutTime => _cutAt >= 0f ? _cutAt : float.PositiveInfinity;
+        float _cutAt = -1f;
+        Cut _held; bool _hasHeld;   // the held blade last frame, for the cut's detection and its first stretch of path
+
         void LateUpdate()
         {
             if (_owner == null || Since > T.Lifetime) { Finish(); return; }
             float dt = DevDt >= 0f ? DevDt : Time.deltaTime;
             RefreshHeld();
             foreach (var s in _sources) Track(s, dt);
+            if (_cutAt < 0f && Now >= _strikeAt + T.CutWait) _cutAt = Now;   // no blow seen: strike now
 
             var main = MainSource();
             if (main != null)
             {
-                if (Now < _strikeAt) WindUp(main, dt);
+                if (Now < CutTime) WindUp(main, dt);
                 Strike(dt);
             }
             Simulate(dt);
@@ -262,10 +284,14 @@ namespace Convergence.Combat
         {
             SpriteRenderer held = null;
             Shape shape = Shape.Blade;
+            bool bow = false;
             if (_class == WeaponClass.Bow)
             {
                 if (_rig is PrimitiveCharacterRig prim) held = prim.NockedArrow;
                 shape = Shape.Shaft;
+                // no arrow on the string yet: the bow carries the charge (filmed 2026-11-22 - the arrow
+                // nocks ~0.1 s before the loose, so for most of the bar there was nothing to draw on)
+                if (held == null && Now < CutTime) { held = _rig.WeaponRenderer; shape = Shape.Blade; bow = true; }
             }
             else
             {
@@ -274,11 +300,12 @@ namespace Convergence.Combat
             }
             if (held == null) return;
             foreach (var s in _sources) if (s.Sr == held) return;
-            _sources.Add(new Source { Sr = held, Shape = shape, Rig8 = _rig as PrimitiveCharacterRig });
+            _sources.Add(new Source { Sr = held, Shape = shape, Bow = bow, Rig8 = _rig as PrimitiveCharacterRig });
         }
 
         static bool Visible(Source s) =>
-            s.Sr != null && s.Sr.sprite != null && (s.Sr.enabled && !s.Sr.forceRenderingOff || s.Rig8 != null && s.Rig8.Redrawn8(s.Sr))
+            s.Sr != null && s.Sr.sprite != null && (s.Sr.enabled && !s.Sr.forceRenderingOff
+                || s.Rig8 != null && (s.Rig8.Redrawn8(s.Sr) || PrimitiveCharacterRig.Shows(s.Sr)))   // a cut's frames from the pose cache aren't redrawn: the rig's own weapon stands in
             && s.Sr.gameObject.activeInHierarchy;
 
         Source MainSource()
@@ -360,7 +387,7 @@ namespace Convergence.Combat
                 for (int n = Take(1, want); n > 0; n--, _streakCount++)
                 {
                     var b = new Bit { Kind = Kind.Dust, Born = Now, Life = T.StreakSeconds, Seed = _streakCount, Src = si,
-                                      U = 0.3f + H(_streakCount, 12) * 0.7f, S = -1.1f + H(_streakCount, 13) * 2.2f };
+                                      U = 0.3f + H(_streakCount, 12) * 0.7f, S = H(_streakCount, 13) * Mathf.PI * 2f };
                     b.Flung = true;   // a streak: drawn in toward its point (Paint)
                     _bits.Add(b);
                 }
@@ -377,7 +404,7 @@ namespace Convergence.Combat
                     _gritCount++;
                 }
             }
-            if (_crust)
+            if (_crust && !src.Bow)
             {
                 // Stones rise off the floor to the arrow as the crust spreads along it.
                 int want = Mathf.RoundToInt(T.CrustStones * _k);
@@ -398,10 +425,14 @@ namespace Convergence.Combat
         {
             foreach (var src in _sources)
             {
-                if (!Visible(src)) continue;
+                if (!Visible(src) || src.Bow) continue;   // the bow only carries the charge
                 float from, to;
                 if (src.Thrown) { from = src.AdoptedAt; to = from + (src.Shape == Shape.Round ? T.ThrownDiscWindow : T.ThrownArrowWindow); }
-                else { from = _strikeAt - T.StrikeBefore; to = _strikeAt + T.StrikeAfter; }
+                else
+                {
+                    if (src.Shape == Shape.Blade && !Watch(src, dt)) continue;
+                    from = CutTime - T.StrikeBefore; to = CutTime + T.StrikeAfter;
+                }
                 if (Now < from || Now > to) continue;
                 float share = dt / Mathf.Max(0.02f, to - from);
                 var dir = Travel(src);
@@ -422,31 +453,42 @@ namespace Convergence.Combat
                     if (_even) AimAtLine(ref b);
                     _bits[_bits.Count - 1] = b;
                 }, 0.3f);
-                if (_ribbon)
+                // Where it is this frame - the flame's and the streaks' path is swept between these.
+                var cut = src.Shape == Shape.Blade && !src.Thrown
+                    ? new Cut { Pivot = Point(src, 0f, 0f), Time = Now, Src = si }
+                    : new Cut { Pivot = Point(src, src.Shape == Shape.Round ? 0f : 0.5f, 0f), Time = Now, Src = si };
+                if (src.Shape == Shape.Blade && !src.Thrown) cut.Vec = Point(src, 1f, 0f) - cut.Pivot;
+                int last = _cuts.FindLastIndex(x => x.Src == si);
+                if (_flame && cut.Vec.sqrMagnitude > 0f)
                 {
-                    // The ribbon peels off along the tip's path: each sample hangs, then drops.
-                    float want = T.RibbonSamples * (src.Thrown ? 1.5f : 1f) * (0.5f + 0.5f * _k) * share;
-                    for (int n = Take(5, want); n > 0; n--)
-                    {
-                        int i = ++_burstCount;
-                        var p = Point(src, src.Shape == Shape.Round ? 1f : 0.97f, src.Shape == Shape.Round ? H(i, 62) * 2f - 1f : 0f);
-                        _bits.Add(new Bit { Kind = Kind.Drop, Pos = new Vector2(p.x, GroundUnder(src)), Z = p.y - GroundUnder(src),
-                                            Born = Now, Life = 3f, Seed = i, Gravity = 0f,
-                                            LandedAt = Now + Mathf.Lerp(T.RibbonHangMin, T.RibbonHangMax, H(i, 63)), Flung = false });
-                    }
+                    if (last >= 0) Kindle(_cuts[last], cut, dt);
+                    else if (_hasHeld && _held.Time < Now) Kindle(_held, cut, dt);   // the first frame's stretch: from where it was
                 }
-                if (_streaks) _trail.Add((Point(src, src.Shape == Shape.Blade ? 0.95f : 0.5f, 0f), Now));
+                if (_flame && !src.Thrown) Burst(src, 7, T.FlameEmbers * _k * share, 101, (i, p) =>
+                    _bits.Add(new Bit { Kind = Kind.Drift, Pos = p, V = Vector2.up * Px(Mathf.Lerp(T.FlameEmberRiseMin, T.FlameEmberRiseMax, H(i, 102))),
+                                        Born = Now, Life = Mathf.Lerp(T.FlameEmberMin, T.FlameEmberMax, H(i, 103)), Seed = i }), 0.45f);
+                _cuts.Add(cut);
+
+                // The ribbon peels off along the tip's path (on a disc or an arrow it rides the flight
+                // instead, shedding drops): samples laid along the swept cut, each hangs, then drops.
+                if (_ribbon && _class == WeaponClass.Greatsword && cut.Vec.sqrMagnitude > 0f)
+                {
+                    if (last >= 0) Peel(_cuts[last], cut, dt, GroundUnder(src));
+                    else if (_hasHeld && _held.Time < Now) Peel(_held, cut, dt, GroundUnder(src));
+                }
+                if (_ribbon && src.Thrown) Burst(src, 8, T.RibbonFlightDrops * _k * share, 111, (i, p) =>
+                    Spawn(Kind.Drop, p, GroundUnder(src), new Vector2((H(i, 112) - 0.5f) * 0.4f, 0f), 0.3f + H(i, 113) * 0.5f, T.Gravity * 0.8f, 3f, i), 0f);
             }
 
             // Pebbles leave with the strike - from whichever source they hang by, the way it is going.
-            if (_grit && Now >= _strikeAt - T.StrikeBefore)
+            if (_grit && Now >= CutTime - T.StrikeBefore)
                 for (int i = 0; i < _bits.Count; i++)
                 {
                     var b = _bits[i];
                     if (b.Kind != Kind.Pebble || b.Flung) continue;
                     var main = MainSource();
                     if (main == null) continue;
-                    float at = _strikeAt + (b.Seed % 6) * 0.015f;
+                    float at = CutTime + (_class == WeaponClass.Greatsword ? T.GritRide : 0f) + (b.Seed % 6) * 0.012f;   // they ride the cut, then leave it
                     if (main.Thrown) at = main.AdoptedAt + (b.Seed % 6) * 0.03f;
                     if (Now < at) continue;
                     var from = PebbleAt(b);
@@ -469,6 +511,56 @@ namespace Convergence.Combat
         }
 
         static Vector2 Perp(Vector2 d) => new(-d.y, d.x);
+
+        /// <summary>Watch a held blade from the bar's end for its cut (<see cref="CutTime"/>); false while
+        /// there is nothing to watch yet.</summary>
+        bool Watch(Source src, float dt)
+        {
+            if (Now < _strikeAt - T.StrikeBefore) return false;
+            var root = Point(src, 0f, 0f);
+            var now = new Cut { Pivot = root, Vec = Point(src, 1f, 0f) - root, Time = Now, Src = IndexOf(src) };
+            if (_cutAt < 0f && _class == WeaponClass.Greatsword && _hasHeld && dt > 0f && Now >= _strikeAt
+                && Mathf.Abs(Vector2.SignedAngle(_held.Vec, now.Vec)) / dt > Tuning.Smear.ArcMovingDegPerSec)
+                _cutAt = _held.Time;
+            if (Now >= CutTime - T.StrikeBefore) return true;   // in the window: Strike records it (_held stays last frame's)
+            _held = now; _hasHeld = true;
+            return false;
+        }
+
+        void Peel(Cut a, Cut b, float dt, float ground)
+        {
+            float turn = Mathf.Abs(Vector2.SignedAngle(a.Vec, b.Vec));
+            if (dt <= 0f || turn / dt < Tuning.Smear.ArcMovingDegPerSec) return;
+            float path = turn * Mathf.Deg2Rad * b.Vec.magnitude * 0.97f + (b.Pivot - a.Pivot).magnitude;
+            int n = Mathf.Clamp(Mathf.CeilToInt(path / Px(T.PeelSpacing)), 1, 40);
+            for (int k = 1; k <= n; k++)
+            {
+                int i = ++_burstCount;
+                var p = Swept(a, b, (float)k / n, 0.97f);
+                _bits.Add(new Bit { Kind = Kind.Drop, Pos = new Vector2(p.x, ground), Z = p.y - ground,
+                                    Born = Now, Life = 3f, Seed = i, Gravity = 0f,
+                                    LandedAt = Now + Mathf.Lerp(T.RibbonHangMin, T.RibbonHangMax, H(i, 63)), Flung = false });
+            }
+        }
+
+        /// <summary>The cut catches: flame tongues stand up along the tip's path between two frames of a
+        /// moving blade, one every <see cref="T.FlameSpacing"/> of path, on two lanes near the tip.</summary>
+        void Kindle(Cut a, Cut b, float dt)
+        {
+            float turn = Mathf.Abs(Vector2.SignedAngle(a.Vec, b.Vec));
+            if (dt <= 0f || turn / dt < Tuning.Smear.ArcMovingDegPerSec) return;   // the follow-through's drift lights nothing
+            foreach (float u in T.FlameLanes)
+            {
+                float path = turn * Mathf.Deg2Rad * b.Vec.magnitude * u + (b.Pivot - a.Pivot).magnitude;
+                int n = Mathf.Clamp(Mathf.CeilToInt(path / Px(T.FlameSpacing)), 1, 24);
+                for (int k = 1; k <= n; k++, _flameCount++)
+                {
+                    float f = (float)k / n;
+                    _bits.Add(new Bit { Kind = Kind.Flame, Pos = Swept(a, b, f, u), Born = Now - (1f - f) * dt, Seed = _flameCount,
+                                        U = H(_flameCount, 121), Life = Mathf.Lerp(T.FlameMin, T.FlameMax, H(_flameCount, 122)) });
+                }
+            }
+        }
 
         void Burst(Source src, int emitter, float want, int salt, System.Action<int, Vector2> make, float uFrom)
         {
@@ -532,13 +624,13 @@ namespace Convergence.Combat
                     case Kind.Pebble:
                         // Hanging: remember where, so a weapon that leaves the hand flings it from there.
                         if (b.Src >= 0 && b.Src < _sources.Count && Visible(_sources[b.Src])) b.Hang = PebbleAt(b);
-                        else if (Now > _strikeAt + 1f) b.Life = 0f;
+                        else if (Now > CutTime + 1f) b.Life = 0f;
                         break;
                 }
                 if (Now - b.Born > b.Life) { _bits.RemoveAt(i); continue; }
                 _bits[i] = b;
             }
-            _trail.RemoveAll(x => Now - x.time > T.TrailSeconds);
+            _cuts.RemoveAll(x => Now - x.Time > T.TrailSeconds);
         }
 
         Vector2 PebbleAt(Bit b)
@@ -547,10 +639,23 @@ namespace Convergence.Combat
             if (src == null || !Visible(src)) return b.Hang != Vector2.zero ? b.Hang : b.Pos;
             float lift = Mathf.Clamp01((Now - b.Born) / T.GritLiftSeconds);
             float e = lift * lift * (3f - 2f * lift);
-            var to = Point(src, b.U, Mathf.Clamp(b.S, -1f, 1f));
-            // beside the weapon, past its edge, bobbing
-            to += (Vector2)(src.Sr.transform.right * (b.S - Mathf.Clamp(b.S, -1f, 1f)) * src.Sr.sprite.bounds.extents.x * 0.45f * Mathf.Abs(src.Sr.transform.lossyScale.x));
-            to.y += Mathf.Sin(Now * 8f + b.Seed * 2f) * 0.027f * _scale;
+            Vector2 to;
+            if (src.Shape == Shape.Round)
+            {
+                // in a ring round the disc, turning
+                var c = Point(src, 0f, 0f);
+                float rr = (Point(src, 1f, 0f) - c).magnitude + Px(10f), th = b.Seed * 2.4f + Now * 6f;
+                to = c + new Vector2(Mathf.Cos(th) * rr, Mathf.Sin(th) * rr * 0.7f);
+            }
+            else
+            {
+                // beside the weapon, clear of its edge
+                var on = Point(src, b.U, 0f);
+                var across = Point(src, b.U, 1f) - on;
+                across = across.sqrMagnitude > 1e-8f ? across.normalized : Vector2.up;
+                to = on + across * Mathf.Sign(b.S) * Px(10f + H(b.Seed, 26) * 7f);
+            }
+            to.y += Mathf.Sin(Now * 11f + b.Seed * 1.3f) * Px(1.6f);   // bobbing
             return Vector2.Lerp(b.Pos, to, e);
         }
 
@@ -564,11 +669,20 @@ namespace Convergence.Combat
             Vector2 centre = _owner.position + Vector3.up * 0.45f;
             if (main != null && main.Thrown) centre = Vector2.Lerp(centre, main.Sr.transform.position, 0.5f);
             Begin(_front, centre); Begin(_back, centre); Begin(_ground, new Vector2(centre.x, _owner.position.y));
+            float fr = Now * 50f;   // flicker, sway and spin were tuned in the mock's 50 fps frames
 
-            var fire = Tuning.FireFx.Ramp; var water = Tuning.ReleaseFx.Water; var stone = Tuning.ReleaseFx.Stone; var air = Tuning.ReleaseFx.Air;
-            var wet = Tuning.ReleaseFx.Wet;
-
-            if (_ribbon && main != null && Now < _strikeAt) PaintRibbon(main, water);
+            foreach (var s in _sources)
+            {
+                if (!Visible(s)) continue;
+                // The ribbon round the weapon while the bar fills, and round a disc or arrow in flight.
+                if (_ribbon && !s.Thrown && Now < CutTime && s == main) PaintRibbon(s, Bar, 0.45f + 0.55f * Bar, fr);
+                if (_ribbon && s.Thrown) PaintRibbon(s, 1f, 1f - Mathf.Clamp01((Now - s.AdoptedAt) / T.RibbonFlightSeconds), fr);
+                if (_molten && !s.Bow) PaintGlow(s);
+                if (_film) PaintSheen(s);
+            }
+            if (_flame && main != null && !main.Thrown) PaintBlaze(main, fr);
+            if (_streaks && main != null && Now < CutTime) PaintCurls(main, fr);
+            if (_ribbon) PaintPeel();
 
             foreach (var b in _bits)
             {
@@ -577,31 +691,65 @@ namespace Convergence.Combat
                 switch (b.Kind)
                 {
                     case Kind.Spark:
-                        Dot(_front, screen, fire[age < 0.12f ? 0 : 1], 1f, 1);
+                    {
+                        // a short streak back along its flight, cooling white to red; a flash as it leaves
+                        var v = b.V + Vector2.up * b.Vz;
+                        var tail = -v * T.SparkStreakSeconds;
+                        if (tail.magnitude > Px(10f)) tail = tail.normalized * Px(10f);
+                        Line(_front, screen, screen + tail, Px(1.8f), Heat(age / 0.36f), 1f - Mathf.Min(1f, age / 0.6f) * 0.4f, 1f, true);
+                        if (age < 0.06f) Blob(_front, screen, Px(8f), T.SparkFlash, 0.35f * (1f - age / 0.06f), 0f, true);
                         break;
+                    }
                     case Kind.Ember:
-                        Dot(_ground, b.Pos, Ramp(fire, 0.35f + f * 0.65f), f < 0.7f ? 1f : (1f - f) / 0.3f, 1);
+                        Blob(_ground, b.Pos, Px(4.8f), Heat(0.35f + f * 0.6f), 0.95f * (1f - f) * (0.75f + 0.25f * Mathf.Sin(fr * 0.9f + b.Seed * 2.1f)), 0f, true);
                         break;
                     case Kind.Drift:
-                        Dot(_front, b.Pos + Vector2.right * Mathf.Sin(age * 9f + b.Seed) * 0.04f * _scale, Ramp(fire, 0.2f + f * 0.7f), 1f - f * f, 1);
+                        Blob(_front, b.Pos + Vector2.right * Mathf.Sin(age * 12.5f + b.Seed) * Px(5f), Px(1.3f), Heat(0.2f + f * 0.7f), 1f - f * f, 1f, true);
                         break;
+                    case Kind.Flame:
+                    {
+                        // standing where the cut passed: it grows, rises off the path and burns out where it is
+                        float a = age * 50f, life = b.Life * 50f;
+                        float env = a < 3f ? a / 3f : 1f - (a - 3f) / (life - 3f);
+                        if (env <= 0f) break;
+                        var at = b.Pos + Vector2.up * Px(0.7f) * a;
+                        float h = Px(14f + 40f * b.U * b.U) * (0.35f + 0.65f * env) * (1f + 0.15f * Mathf.Sin(fr * 0.9f + b.Seed));
+                        float w = Px(10f + 6f * b.U) * (0.5f + 0.5f * env);
+                        if (b.Seed % 2 == 0) Blob(_front, at, w * 2f, T.FlameGlow, 0.22f * env, 0f, true);
+                        Tongue(_front, at, w, h, Mathf.Sin(fr * 0.5f + b.Seed * 1.3f) * w * 0.3f, env * 0.8f);
+                        break;
+                    }
                     case Kind.Drop:
-                        Dot(_front, screen, water[b.Seed % 2 == 0 ? 1 : 2], 1f, b.Gravity == 0f ? 2 : 1);
+                        if (b.Gravity == 0f) break;   // a ribbon sample still hanging: the peel draws it
+                        Blob(_front, screen, Px(2.2f), T.DropColour, 0.85f, 1f, false, 1.36f);
+                        Blob(_front, screen + new Vector2(-Px(0.6f), Px(0.8f)), Px(0.8f), T.DropGlint, 0.8f);
                         break;
                     case Kind.Wet:
-                        if (age < 0.08f) { Dot(_ground, b.Pos + Vector2.left * 0.1f, water[0], 1f, 1); Dot(_ground, b.Pos + Vector2.right * 0.1f, water[1], 1f, 1); }
-                        Dot(_ground, b.Pos, wet, 0.4f * (1f - Mathf.Clamp01((f - 0.4f) / 0.6f)), 1);
+                    {
+                        float r = Px((2f + 2.5f * H(b.Seed, 65)) * 2f) * Mathf.Min(1f, age / 0.08f + 0.4f);
+                        Blob(_ground, b.Pos, r * 1.4f, Tuning.ReleaseFx.Wet, 0.42f * (1f - f), 1f, false, 0.43f);
+                        if (age < 0.16f) Ring(_ground, b.Pos, r * 1.8f, 0.44f, Px(1.4f), T.SplashColour, 0.7f * (1f - age / 0.16f));
                         break;
+                    }
                     case Kind.Pebble:
                     {
-                        var col = stone[1 + b.Seed % 3];
-                        if (!b.Flung) { Dot(_front, PebbleAt(b), col, 1f, 2); break; }
-                        if (!b.Landed) { Dot(_front, screen, col, 1f, 2); break; }
-                        if (age < 0.2f) { Dot(_ground, b.Pos + Vector2.left * 0.1f, stone[1], 0.5f * (1f - age / 0.2f), 1); Dot(_ground, b.Pos + Vector2.right * 0.1f, stone[1], 0.5f * (1f - age / 0.2f), 1); }
-                        Dot(_ground, b.Pos, col, f < 0.7f ? 1f : (1f - f) / 0.3f, 1);
+                        float r = Px(3.6f + 2.6f * H(b.Seed, 93)) * 2f;   // the mock's stones read blade-wide beside a real blade: half again
+                        if (!b.Flung)
+                        {
+                            var at = PebbleAt(b);
+                            Dust(_ground, b.Pos, age, 0.32f, Px(14f));
+                            Blob(_ground, new Vector2(at.x, _owner.position.y), r * 0.9f, T.Shadow, 0.18f, 1f, false, 0.39f);
+                            Stone(_front, at, r, b.Seed, 1f, Now * 2.5f * (b.Seed % 2 == 0 ? 1f : -1f));
+                            break;
+                        }
+                        if (!b.Landed) { Stone(_front, screen, r, b.Seed, 1f, age * 20f); break; }
+                        Dust(_ground, b.Pos, age, 0.44f, Px(16f));
+                        Stone(_ground, b.Pos + Vector2.up * r * 0.3f, r, b.Seed, 1f - f, 0f);
                         break;
                     }
                     case Kind.Chunk:
+                    {
+                        float r = Px(4.5f);
                         if (b.Life <= 1f)
                         {
                             // a stone rising off the floor to its place on the arrow
@@ -610,68 +758,212 @@ namespace Convergence.Combat
                             var to = Point(src, b.U, 0f);
                             float e = f * f;
                             var at = Vector2.Lerp(b.Pos, to, e) + Vector2.up * Mathf.Sin(f * Mathf.PI) * 0.13f * _scale;
-                            Dot(_front, at, stone[2], 1f, 2);
+                            Stone(_front, at, r, b.Seed + 40, 1f, 0f);
                             break;
                         }
-                        if (!b.Landed) { Dot(_front, screen, stone[2], 1f, 2); break; }
-                        Dot(_ground, b.Pos, stone[3], f < 0.7f ? 1f : (1f - f) / 0.3f, 1);
+                        if (!b.Landed) { Stone(_front, screen, r, b.Seed + 40, 1f, age * 20f); break; }
+                        Stone(_ground, b.Pos, r, b.Seed + 40, f < 0.7f ? 1f : (1f - f) / 0.3f, 0f);
                         break;
+                    }
                     case Kind.Dust when b.Flung:
                     {
-                        // a gathering streak, drawn in toward its point on the weapon
+                        // a gathering streak, curving in toward its point on the weapon
                         var src = b.Src >= 0 && b.Src < _sources.Count ? _sources[b.Src] : null;
                         if (src == null || !Visible(src)) break;
                         var tgt = Point(src, b.U, 0f);
-                        float d0 = T.StreakReach * _scale * (0.6f + 0.4f * H(b.Seed, 14)), d = d0 * (1f - f * f) + 0.04f * _scale;
-                        var dir = new Vector2(Mathf.Cos(b.S), Mathf.Sin(b.S));
-                        if (_facing != null && _facing().x < 0f) dir.x = -dir.x;
-                        int len = 4 + (int)(H(b.Seed, 15) * 3f);
-                        for (int k = 0; k < len; k++)
-                            Dot(_front, tgt + dir * (d + k * 1.5f * _scale / WeaponPpu), air[k == 0 ? 1 : 2], (1f - f) * 0.85f * (1f - (float)k / len), 1);
+                        float r0 = Px(36f + 30f * H(b.Seed, 14)), rr = r0 * (1f - f * 0.85f), swirl = 0.9f * f;
+                        Vector2 At(float ang, float rad) => tgt + new Vector2(Mathf.Cos(ang) * rad, Mathf.Sin(ang) * rad * 0.75f);
+                        Vector2 head = At(b.S + swirl, rr), mid = At(b.S + swirl - 0.15f, rr + Px(7f)), tail = At(b.S + swirl - 0.35f, rr + Px(14f));
+                        Open(_front);
+                        var prev = tail;
+                        for (int k = 1; k <= 6; k++)
+                        {
+                            float q = k / 6f;
+                            var p = (1 - q) * (1 - q) * tail + 2 * (1 - q) * q * mid + q * q * head;
+                            CoverLine(_front, prev, p, Px(3f)); prev = p;
+                        }
+                        Flush(_front, T.StreakColour, 0.85f * Mathf.Sin(f * Mathf.PI) * (0.5f + 0.5f * Bar));
                         break;
                     }
                 }
             }
 
-            // The strike's path, in broken pale streaks that thin out.
-            for (int i = 0; i < _trail.Count; i++)
-            {
-                if (i % 3 == 2) continue;
-                float age = (Now - _trail[i].time) / T.TrailSeconds;
-                Dot(_front, _trail[i].pos, air[age < 0.3f ? 0 : 1], (1f - age) * 0.9f, 1);
-                if (i > 0) Dot(_front, Vector2.Lerp(_trail[i - 1].pos, _trail[i].pos, 0.5f), air[1], (1f - age) * 0.7f, 1);
-            }
+            if (_streaks) PaintTrail();
 
             int order = main != null ? main.Sr.sortingOrder : SortingOrders.Fx;
             int layer = main != null ? main.Sr.sortingLayerID : 0;
             End(_front, order + 1, layer); End(_back, order - 1, layer); End(_ground, SortingOrders.GroundFx, 0);
         }
 
-        /// <summary>The helix while the bar fills: in front of the weapon where it passes in front.</summary>
-        void PaintRibbon(Source src, Color32[] water)
+        /// <summary>A helix round the weapon (a ring round a disc): thicker and brighter where it passes in
+        /// front, thinner and darker behind; <paramref name="fill"/> how far along it has wound.</summary>
+        void PaintRibbon(Source src, float fill, float alpha, float fr)
         {
-            float top = 0.05f + 0.95f * Bar * (0.6f + 0.4f * _k);
-            if (src.Shape == Shape.Round)
+            if (alpha <= 0.01f) return;
+            const int N = 48;
+            var pts = new Vector2[N + 1]; var depth = new float[N + 1];
+            float amp = src.Thrown ? Px(7f) : Px((4f + 6f * fill) * 1.5f);
+            bool round = src.Shape == Shape.Round;
+            float top = src.Thrown ? 1f : 0.05f + 0.95f * fill * (0.6f + 0.4f * _k);
+            var c0 = Point(src, 0f, 0f);
+            float rim = round ? (Point(src, 1f, 0f) - c0).magnitude : 0f;
+            for (int n = 0; n <= N; n++)
             {
-                // round a disc: a ring past its rim, turning
-                for (float a = 0f; a < 1f; a += 0.02f)
+                float u = (float)n / N * top, w = Mathf.PI * 2f * T.RibbonTurns * u + fr * 0.32f;
+                if (round)
                 {
-                    if (a > top) break;
-                    float ph = a * Mathf.PI * 2f + Now * T.RibbonSpin * 0.5f, cz = Mathf.Sin(ph * 2f);
-                    var p = (Vector2)src.Sr.bounds.center + new Vector2(Mathf.Cos(ph), Mathf.Sin(ph) * 0.55f) * src.Sr.bounds.extents.x * 1.25f;
-                    Dot(cz > 0f ? _front : _back, p, water[cz > 0.6f ? 1 : 2], 1f, 1);
+                    float th = u * Mathf.PI * 2f + fr * 0.12f, rr = rim + amp * 0.6f + Mathf.Sin(w * 3f) * amp * 0.35f;
+                    pts[n] = c0 + new Vector2(Mathf.Cos(th) * rr, Mathf.Sin(th) * rr * 0.62f);
+                    depth[n] = -Mathf.Sin(th);   // the near half is the lower half
+                    continue;
                 }
-                return;
-            }
-            for (float u = 0.05f; u < top; u += 0.012f)
-            {
-                float ph = u * T.RibbonTurns * 2f - Now * T.RibbonSpin, cz = Mathf.Cos(ph);
                 var p = Point(src, u, 0f);
-                var across = (Vector2)(src.Shape == Shape.Shaft ? src.Sr.transform.up : src.Sr.transform.right);
-                float width = (src.Shape == Shape.Shaft ? src.Sr.sprite.bounds.extents.y * 2.2f : src.Sr.sprite.bounds.extents.x * 0.7f)
-                              * Mathf.Abs(src.Sr.transform.lossyScale.x);
-                Dot(cz > 0f ? _front : _back, p + across.normalized * Mathf.Sin(ph) * width, water[cz > 0.6f ? 1 : 2], 1f, 1);
+                var across = Point(src, u, 1f) - p;
+                across = across.sqrMagnitude > 1e-8f ? across.normalized : Vector2.up;
+                pts[n] = p + across * Mathf.Sin(w) * amp * (0.35f + 0.65f * Mathf.Sin(Mathf.PI * Mathf.Min(1f, u / Mathf.Max(0.05f, top) * 1.1f)));
+                depth[n] = Mathf.Cos(w);
             }
+            for (int side = 0; side < 2; side++)
+            {
+                bool front = side == 0;
+                var c = front ? _front : _back;
+                Open(c);
+                for (int n = 0; n < N; n++)
+                    if (depth[n] > 0f == front)
+                        CoverLine(c, pts[n], pts[n + 1], Px(front ? 6.8f : 4f) * (0.6f + 0.4f * Mathf.Abs(depth[n])));
+                Flush(c, front ? T.RibbonFront : T.RibbonBack, (front ? 0.8f : 0.38f) * alpha);
+            }
+            for (int n = 3; n < N; n += 7) if (depth[n] > 0f) Blob(_front, pts[n], Px(1.6f), T.DropGlint, 0.85f * alpha);
+        }
+
+        /// <summary>The ribbon peeled off along the cut: its hanging samples, joined in the order they were
+        /// laid, a wide translucent band with a bright core.</summary>
+        void PaintPeel()
+        {
+            int count = 0;
+            foreach (var b in _bits) if (b.Kind == Kind.Drop && b.Gravity == 0f) count++;
+            if (count < 2) return;
+            for (int pass = 0; pass < 2; pass++)
+            {
+                Open(_front);
+                int n = 0; Vector2 prev = default; bool has = false;
+                foreach (var b in _bits)
+                {
+                    if (b.Kind != Kind.Drop || b.Gravity != 0f) continue;
+                    var p = b.Pos + Vector2.up * b.Z;
+                    if (has && (p - prev).magnitude < Px(40f))
+                        CoverLine(_front, prev, p, pass == 0 ? Px(12f) * (0.6f + 0.4f * n / count) : Px(3f));
+                    prev = p; has = true; n++;
+                }
+                Flush(_front, pass == 0 ? T.PeelColour : T.DropGlint, pass == 0 ? 0.7f : 0.75f);
+            }
+        }
+
+        /// <summary>Forge flame (greatsword): tongues climb the blade with the bar, rising screen-up
+        /// whichever way it points, and die down after the strike.</summary>
+        void PaintBlaze(Source src, float fr)
+        {
+            float heat = Now < CutTime ? Bar : 1f - Mathf.Clamp01((Now - CutTime) / T.BlazeOutSeconds);
+            if (heat <= 0f) return;
+            heat *= 0.55f + 0.45f * _k;
+            float reach = Now < CutTime ? Mathf.Max(0.2f, Bar) : 1f;
+            float blade = (Point(src, 1f, 0f) - Point(src, 0f, 0f)).magnitude * 0.85f * reach;
+            int N = Mathf.RoundToInt(9f + 9f * heat);
+            float drift = Mathf.Clamp(src.Velocity.x / 50f / Px(1f), -12f, 12f);   // the blade's own sway, in the mock's px a frame
+            for (int q = 0; q < N; q++)
+            {
+                float u = 0.15f + (q + 0.3f + H(q, 7) * 0.4f) / N * 0.85f * reach;
+                var p = Point(src, u, 0f);
+                float fl = 0.7f + 0.3f * Mathf.Sin(fr * 0.85f + q * 1.9f) + 0.15f * (H(Mathf.FloorToInt(fr / 2f) * 31 + q, 8) - 0.5f);
+                float h = Px(12f + 26f * heat) * fl * (0.6f + 0.4f * u), w = Mathf.Max(Px(6f + 4f * heat), blade / N * 2.2f);
+                float lean = Mathf.Sin(fr * 0.55f + q * 2.3f) * w * 0.5f - drift * 0.35f * Px(1f);
+                Blob(_front, p + Vector2.up * h * 0.25f, w * 1.8f, T.FlameGlow, 0.16f * heat, 0f, true);
+                Tongue(_front, p, w, h, lean, 0.6f + 0.35f * heat);
+            }
+        }
+
+        /// <summary>Molten edge: a glow laid along the heated edge, as far as it has heated.</summary>
+        void PaintGlow(Source s)
+        {
+            float heat = Now < _strikeAt ? Bar : 1f - Mathf.Clamp01((Since - T.MoltenCoolDelay) / T.MoltenCoolSeconds);
+            if (heat <= 0f) return;
+            float reach = Now < _strikeAt ? Bar : 1f;
+            bool round = s.Shape == Shape.Round;
+            const int N = 24;
+            foreach (var (width, a) in new[] { (11f, 0.18f), (5.2f, 0.45f) })
+            {
+                Open(_front);
+                var prev = round ? Point(s, 1f, -1f) : Point(s, 0f, 0f);
+                for (int n = 1; n <= N; n++)
+                {
+                    var p = round ? Point(s, 1f, -1f + 2f * n / N * reach) : Point(s, (float)n / N * reach, 0f);
+                    CoverLine(_front, prev, p, Px(width)); prev = p;
+                }
+                Flush(_front, Heat(1f - heat * 0.9f), a * heat, true);
+            }
+        }
+
+        /// <summary>Water film: a sheen over the disc that climbs with the bar and is thrown off with it.</summary>
+        void PaintSheen(Source s)
+        {
+            if (s.Shape != Shape.Round) return;
+            float amt = Now < _strikeAt ? Bar : 1f - Mathf.Clamp01((Now - (s.Thrown ? s.AdoptedAt : _strikeAt)) / 0.25f);
+            if (amt <= 0f) return;
+            var c = Point(s, 0f, 0f);
+            float r = (Point(s, 1f, 0f) - c).magnitude * 1.15f;
+            Blob(_front, c, r, T.SheenDeep, 0.32f * amt, 0f, false, 0.83f);
+            Blob(_front, c + new Vector2(-r, r) * 0.26f, r * 0.55f, T.SheenLight, 0.55f * amt, 0f);
+        }
+
+        /// <summary>Gathering streaks: curls turning at the weapon as the bar fills.</summary>
+        void PaintCurls(Source s, float fr)
+        {
+            float bar = Bar;
+            for (int q = 0; q < 2; q++)
+            {
+                var p = s.Shape == Shape.Round ? Point(s, 0f, 0f) : Point(s, 0.4f + q * 0.4f, 0f);
+                float r = Px(3f + 3f * bar + 2f), a0 = fr * 0.4f + q * 3f;
+                Ring(_front, p, r, 1f, Px(1.8f), T.StreakColour, 0.55f * bar, a0, a0 + 4.2f);
+            }
+        }
+
+        /// <summary>The strike's path in three broken pale streaks that thin out fast.</summary>
+        void PaintTrail()
+        {
+            for (int i = 1; i < _cuts.Count; i++)
+            {
+                Cut a = default; bool found = false;
+                for (int j = i - 1; j >= 0; j--) if (_cuts[j].Src == _cuts[i].Src) { a = _cuts[j]; found = true; break; }
+                if (!found) continue;
+                var b = _cuts[i];
+                const int Sub = 6;
+                for (int n = 0; n < Sub; n++)
+                {
+                    float t0 = Mathf.Lerp(a.Time, b.Time, (float)n / Sub), e = 1f - (Now - t0) / T.TrailSeconds;
+                    if (e <= 0f) continue;
+                    Vector2 p = Swept(a, b, (float)n / Sub, 0.85f), q = Swept(a, b, (n + 1f) / Sub, 0.85f);
+                    var d = q - p; if (d.sqrMagnitude < 1e-10f) continue;
+                    var nm = Perp(d.normalized);
+                    for (int line = 0; line < 3; line++)
+                    {
+                        if (H(i * 7 + n / 2, line + 130) < 0.3f) continue;   // broken
+                        var off = nm * (line - 1) * Px(4f);
+                        Line(_front, p + off, q + off, Mathf.Max(Px(0.5f), Px(4.5f) * e * (line == 1 ? 1f : 0.6f)), T.StreakColour, 0.9f * e);
+                    }
+                }
+            }
+        }
+
+        /// <summary>An ellipse's outline, or an arc of it (radians).</summary>
+        void Ring(Sheet c, Vector2 at, float r, float squash, float width, Color32 col, float alpha, float from = 0f, float to = Mathf.PI * 2f)
+        {
+            if (alpha <= 0.01f) return;
+            Open(c);
+            const int N = 20;
+            Vector2 P(float a) => at + new Vector2(Mathf.Cos(a) * r, Mathf.Sin(a) * r * squash);
+            var prev = P(from);
+            for (int n = 1; n <= N; n++) { var p = P(Mathf.Lerp(from, to, (float)n / N)); CoverLine(c, prev, p, width); prev = p; }
+            Flush(c, col, alpha);
         }
 
         static Color32 Ramp(Color32[] r, float f)
@@ -686,22 +978,6 @@ namespace Convergence.Combat
             c.Cx = Mathf.RoundToInt(centre.x * c.Ppu); c.Cy = Mathf.RoundToInt(centre.y * c.Ppu);
             if (c.WasDrawn) System.Array.Clear(c.Px, 0, c.Px.Length);
             c.Drawn = false;
-        }
-
-        /// <summary>One texel (or a square of <paramref name="size"/>) at a world point.</summary>
-        static void Dot(Sheet c, Vector2 world, Color32 col, float alpha, int size)
-        {
-            if (alpha <= 0.01f) return;
-            int x = Mathf.FloorToInt(world.x * c.Ppu) - c.Cx + c.Size / 2, y = Mathf.FloorToInt(world.y * c.Ppu) - c.Cy + c.Size / 2;
-            col.a = (byte)(Mathf.Clamp01(alpha) * 255f);
-            for (int dy = 0; dy < size; dy++)
-                for (int dx = 0; dx < size; dx++)
-                {
-                    int xx = x + dx, yy = y + dy;
-                    if (xx < 0 || yy < 0 || xx >= c.Size || yy >= c.Size) continue;
-                    c.Px[yy * c.Size + xx] = col;
-                    c.Drawn = true;
-                }
         }
 
         void End(Sheet c, int order, int layer)
@@ -720,7 +996,7 @@ namespace Convergence.Combat
 
         void PaintOverlay(Source s)
         {
-            bool wants = (_molten || _film || _crust) && Visible(s);
+            bool wants = (_molten || _film || _crust) && !s.Bow && Visible(s);
             if (!wants) { if (s.Overlay?.Sr != null) s.Overlay.Sr.enabled = false; return; }
             var o = EnsureOverlay(s);
             if (o == null) return;

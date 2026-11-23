@@ -763,6 +763,29 @@ namespace Convergence.Art.Gear
         /// hub, DepthSorted's LateUpdate - after Hide8 - re-sorted the rig (SetSortingBase -> ApplyLayerOrder ->
         /// SetWeaponSplit) and switched the rig's own discs back on for the frame, beside the drawn stowed pair.
         /// </summary>
+        /// <summary>
+        /// Whether <paramref name="sr"/> (a weapon renderer) is OUT - drawn, or hidden only because the eight-way
+        /// figure draws it - rather than thrown or put away. An effect that follows the blade (Combat.SwingSmear,
+        /// Combat.FlameTrail) asks this instead of <c>enabled</c>: with the figure on, the renderer is always off,
+        /// and asking <c>enabled</c> drew no smear at all (found filming the swing mocks, 2026-11-21).
+        /// </summary>
+        public static bool Shows(SpriteRenderer sr)
+        {
+            if (sr == null || sr.sprite == null) return false;
+            if (sr.enabled) return true;
+            var rig = sr.GetComponentInParent<PrimitiveCharacterRig>();
+            return rig != null && rig.HeldInFigure(sr);
+        }
+
+        bool HeldInFigure(SpriteRenderer sr)
+        {
+            if (!Body8On || _legs8 == null || !_legs8.enabled || _weaponHiddenPref) return false;
+            if (_layers.TryGetValue(RigLayer.Weapon, out var w) && sr == w)
+                return _weaponHides == 0 || (_weaponHides == 1 && _offHiddenFirst && _split);
+            if (sr == _offhand) return _split && (_weaponHides == 0 || (_weaponHides == 1 && !_offHiddenFirst));
+            return false;
+        }
+
         void Keep8WeaponHidden(SpriteRenderer weapon)
         {
             if (!Body8On || _legs8 == null || !_legs8.enabled || (Swinging8 && !_swing8Drawn)) return;

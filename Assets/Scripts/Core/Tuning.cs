@@ -4310,6 +4310,26 @@ namespace Convergence.Core
             public static readonly UnityEngine.Color BasicTail = new(0.80f, 0.86f, 0.96f, 0.45f);
             public static readonly UnityEngine.Color FinisherLead = new(1f, 0.98f, 0.90f, 0.95f);
             public static readonly UnityEngine.Color FinisherTail = new(1f, 0.82f, 0.42f, 0.60f);
+
+            // ---- THE ARC: a basic's swing as a crescent (the user's picks 2026-11-21, real-footage mock
+            // https://claude.ai/artifact/2BfQHHC3z6CHNrjANMinSy): from where the swing began to the blade, on the texel
+            // grid, translucent WHITE (not the warm ramp), brightest at the blade and fading back; it fades out
+            // ArcFadeSeconds after the swing. A weapon art draws no smear: its element's picture (ElementArtFx) is its own.
+
+            /// <summary>The arc's outer radius from the grip, as a share of the blade (2x reach in the mock), and its inner.</summary>
+            public const float ArcOuter = 1.24f, ArcInner = 0.68f;
+            /// <summary>How far back round the swing the arc reaches at most, degrees.</summary>
+            public const float ArcSpanDegrees = 160f;
+            public const float ArcFadeSeconds = 0.22f;
+            /// <summary>The blade counts as swinging above this turn rate; slower (a wind-up's drift, a follow-through) the arc fades.</summary>
+            public const float ArcMovingDegPerSec = 400f;
+            /// <summary>Share of a basic's window the arc waits for a reversal (the wind-up turning into the cut) before drawing anyway.</summary>
+            public const float ArcWindUpShare = 0.45f;
+            /// <summary>The arc's tones and their opacity, from the blade's edge back: white to a pale blue-white.</summary>
+            public static readonly UnityEngine.Color32[] ArcTones =
+            {
+                new(255, 255, 255, 230), new(244, 248, 255, 179), new(230, 238, 250, 128), new(214, 226, 242, 87), new(198, 212, 234, 51),
+            };
         }
 
         /// <summary>
@@ -4394,13 +4414,42 @@ namespace Convergence.Core
             public const float Lifetime = 3f;
             /// <summary>The strike's window on a held weapon, either side of the bar's end.</summary>
             public const float StrikeBefore = 0.06f, StrikeAfter = 0.12f;
+            /// <summary>How long after the bar's end the strike is waited for - a greatsword's cut, a disc or
+            /// arrow leaving the hand (they come a beat after the bar ends) - before it is taken as now.</summary>
+            public const float CutWait = 0.6f;
+            /// <summary>The peeled ribbon's samples along the cut, one every this many mock px of the tip's path.</summary>
+            public const float PeelSpacing = 8f;
             /// <summary>The strike's window on a thrown disc / a loosed arrow, from the release.</summary>
             public const float ThrownDiscWindow = 0.6f, ThrownArrowWindow = 0.3f;
-            /// <summary>Canvas sizes in texels: the weapon's two (weapon density) and the floor's.</summary>
-            public const int WeaponCanvas = 320, GroundCanvas = 192;
+            /// <summary>The canvases, off the texel grid (2026-11-22): the weapon's two at the finest density
+            /// (about a screen pixel a texel at 1080), the floor's at half that; sizes in texels.</summary>
+            public const float CanvasPpu = 150f, GroundPpu = 75f;
+            public const int WeaponCanvas = 512, GroundCanvas = 384;
+            /// <summary>The mock's marks were sized in screen pixels at 1080 on the arena camera: this many to a world unit.</summary>
+            public const float MockPxPerUnit = 112f;   // measured: a greatsword's grip-to-tip, 130 px at 1080
             public const float Gravity = 5.6f;
 
-            // FORGE SPARKS: off the edge while the bar fills, a spray on the strike, embers on the floor.
+            // FORGE FLAME (greatsword): tongues climb the blade with the bar; the cut catches - tongues stand
+            // where the tip passed, every FlameSpacing (mock px) on two lanes, and burn out in FlameMin..Max s;
+            // embers lift off the cut. The blade's tongues die down over BlazeOutSeconds after the strike.
+            public static readonly float[] FlameLanes = { 0.72f, 1f };
+            public const float FlameSpacing = 14f, FlameMin = 0.32f, FlameMax = 0.44f, BlazeOutSeconds = 0.24f;
+            public const float FlameEmbers = 14f, FlameEmberMin = 0.44f, FlameEmberMax = 0.72f;
+            /// <summary>The embers' rise, in mock px a second.</summary>
+            public const float FlameEmberRiseMin = 45f, FlameEmberRiseMax = 95f;
+            static UnityEngine.Color32 C(byte r, byte g, byte b) => new(r, g, b, 255);
+            public static readonly UnityEngine.Color32 FlameBody = C(255, 120, 30), FlameHeart = C(255, 205, 95), FlameRoot = C(255, 250, 225),
+                FlameGlow = C(255, 150, 50), SparkFlash = C(255, 220, 140);
+            /// <summary>A spark cooling: white, gold, orange, red.</summary>
+            public static readonly UnityEngine.Color32[] SparkRamp = { C(255, 250, 225), C(255, 205, 110), C(255, 130, 40), C(200, 50, 20) };
+            /// <summary>How much of its flight a spark's streak shows behind it.</summary>
+            public const float SparkStreakSeconds = 0.032f;
+            public static readonly UnityEngine.Color32 RibbonFront = C(175, 225, 255), RibbonBack = C(70, 130, 200), PeelColour = C(150, 208, 255),
+                DropColour = C(185, 228, 255), DropGlint = C(240, 250, 255), SplashColour = C(200, 235, 255),
+                SheenLight = C(220, 245, 255), SheenDeep = C(110, 180, 240),
+                DustColour = C(170, 150, 120), Shadow = C(0, 0, 0), StreakColour = C(230, 240, 250);
+
+            // FORGE SPARKS (discs, bow): off the edge while the bar fills, a spray on the strike, embers on the floor.
             public const float SparkRate = 16f, SparkBurst = 16f;
             public const float SparkSpeedMin = 0.33f, SparkSpeedMax = 0.8f;
             public const float SprayMin = 1.05f, SprayMax = 2.4f;
@@ -4409,7 +4458,9 @@ namespace Convergence.Core
             public const float MoltenCoolDelay = 0.3f, MoltenCoolSeconds = 0.8f;
             public const float DriftEmbers = 14f, DriftSeconds = 0.8f, DriftRise = 0.25f;
             // RIBBON: a helix round the weapon; peeled off along the strike into drops.
-            public const float RibbonTurns = 11f, RibbonSpin = 9f, RibbonSamples = 26f;
+            public const float RibbonTurns = 2.2f, RibbonSamples = 26f;
+            /// <summary>Round a disc or arrow in flight it fades over this; drops it sheds a second at full strength.</summary>
+            public const float RibbonFlightSeconds = 0.8f, RibbonFlightDrops = 17f;
             public const float RibbonHangMin = 0.14f, RibbonHangMax = 0.26f;
             // WATER FILM: a sheen with the bar; thrown off as drops.
             public const float FilmDrops = 14f, DropSpeedMin = 0.95f, DropSpeedMax = 2f;
@@ -4419,10 +4470,12 @@ namespace Convergence.Core
             // ORBITING GRIT: pebbles lift off the floor, hang by the weapon, follow the strike, drop.
             public const float GritPebbles = 8f, GritLiftSeconds = 0.3f, GritSpeedMin = 1f, GritSpeedMax = 1.8f;
             public const float PebbleSeconds = 1.3f;
+            /// <summary>A greatsword's stones ride the cut this long before they fly on (leaving at its start threw them up the backswing).</summary>
+            public const float GritRide = 0.08f;
             // STONE CRUST: set on the arrow with the draw; crumbles off after the loose.
             public const float CrustStones = 9f, CrustCrumbleDelay = 0.25f, CrustCrumbleSeconds = 0.6f;
             // GATHERING STREAKS: drawn in while the bar fills; left along the strike's path.
-            public const float StreakRate = 22f, StreakSeconds = 0.32f, StreakReach = 0.55f;
+            public const float StreakRate = 50f, StreakSeconds = 0.32f;
             public const float TrailSeconds = 0.28f;
         }
 

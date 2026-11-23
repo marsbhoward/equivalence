@@ -88,7 +88,7 @@ namespace Convergence.Combat
             if (!gone && _radius <= 0f && _source != null)
                 _radius = Mathf.Max(1f, Mathf.Min(_source.bounds.extents.x, _source.bounds.extents.y) * Ppu * T.TrailDiscWidth);
 
-            bool visible = !gone && (_source == null || (_source.enabled && !_source.forceRenderingOff && _source.gameObject.activeInHierarchy));
+            bool visible = !gone && (_source == null || ((_source.enabled || Art.Gear.PrimitiveCharacterRig.Shows(_source)) && !_source.forceRenderingOff && _source.gameObject.activeInHierarchy));   // the eight-way figure hides the renderer it still holds
             if (visible && now <= _recordUntil) Record(now);
 
             // Drop what has burned out, keeping the pair that spans the window's edge.

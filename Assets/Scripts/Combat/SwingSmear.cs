@@ -40,7 +40,7 @@ namespace Convergence.Combat
             public float Time;
         }
 
-        const int Capacity = 32;
+        const int Capacity = 64;
 
         /// <summary>Half the canvas in world units: shoulder offset + a full greatsword at the
         /// arena's visual scale + a lunge, with room to spare.</summary>
@@ -58,10 +58,26 @@ namespace Convergence.Combat
         float _recordUntil;
         bool _finisher;
         bool _flame;
+        /// <summary>When the blade last moved (the arc fades from then).</summary>
+        float _movedAt;
+        /// <summary>The sample this arc starts from: the last time the blade turned the other way (the backswing ends).</summary>
+        int _arcFrom;
+        /// <summary>Which way the blade last turned fast (+1/-1, 0 = not yet); a fast turn the other way is the cut.</summary>
+        float _turnDir;
+        bool _reversed;
+        float _startedAt;
 
         public static void Play(ICharacterRig rig, Transform player, float seconds, bool finisher, bool flame = false)
         {
             if (rig == null || player == null || seconds <= 0f) return;
+            // A weapon art draws no smear - its element's picture is its own (ElementArtFx); Ignite's flame still smears.
+            // It ENDS the last basic's, which would otherwise follow the blade up into the art's wind-up.
+            if (finisher && !flame)
+            {
+                var last = player.GetComponentInChildren<SwingSmear>(true);
+                if (last != null) last._recordUntil = Mathf.Min(last._recordUntil, Time.time);
+                return;
+            }
             var weapon = rig.WeaponRenderer;
             if (weapon == null) return;
 
@@ -80,6 +96,11 @@ namespace Convergence.Combat
             // the last swing's end to this one's start would smear a fan across the body.
             s._count = 0;
             s._recordUntil = Time.time + seconds;
+            s._movedAt = Time.time;
+            s._arcFrom = 0;
+            s._turnDir = 0f;
+            s._reversed = false;
+            s._startedAt = Time.time;
             s.enabled = true;
         }
 
@@ -115,8 +136,30 @@ namespace Convergence.Combat
             float window = _finisher ? Tuning.Smear.FinisherWindow : Tuning.Smear.BasicWindow;
             if (_flame) window = Mathf.Max(window, Tuning.FireFx.SmearWindow);
 
-            if (now <= _recordUntil && _weapon != null && _weapon.enabled && _weapon.sprite != null)
+            // Out, not merely enabled: the eight-way figure draws the blade and switches its renderer off.
+            if (now <= _recordUntil && PrimitiveCharacterRig.Shows(_weapon))
                 Record(now);
+
+            // A basic's ARC keeps the whole swing and fades after it (Tuning.Smear.Arc*).
+            if (!_flame)
+            {
+                // fades from when the blade stopped (or recording ended), gone ArcFadeSeconds later
+                float still = Mathf.Min(_movedAt, Mathf.Max(_recordUntil, _count > 0 ? _samples[_count - 1].Time : now));
+                float fade = 1f - Mathf.Clamp01((now - still) / Tuning.Smear.ArcFadeSeconds);
+                // the wind-up draws nothing: the arc waits for the cut (a reversal), or for a swing with no backswing
+                bool cutting = _reversed || now - _startedAt > (_recordUntil - _startedAt) * Tuning.Smear.ArcWindUpShare;
+                if (_count < 2 || fade <= 0f || !cutting)
+                {
+                    if (_sr != null) _sr.enabled = false;
+                    if (now > _recordUntil) { _count = 0; enabled = false; }
+                    return;
+                }
+                Clear();
+                DrawArc(fade);
+                Upload();
+                Show();
+                return;
+            }
 
             // Drop samples older than the window, but always keep the pair that spans its edge,
             // so a slow frame rate still has two samples to draw between.
@@ -140,7 +183,11 @@ namespace Convergence.Combat
             Clear();
             Draw(now, window);
             Upload();
+            Show();
+        }
 
+        void Show()
+        {
             _sr.enabled = true;
             if (_weapon != null)
             {
@@ -149,6 +196,43 @@ namespace Convergence.Combat
                 // Behind the blade, so the weapon is never drawn through its own smear.
                 _sr.sortingOrder = _weapon.sortingOrder - 1;
             }
+        }
+
+        /// <summary>
+        /// The ARC: a crescent round the grip from where this swing began to the blade (at most ArcSpanDegrees back),
+        /// ArcInner..ArcOuter of the blade out, its band swelling toward the blade - stepped in ArcTones by how far
+        /// back round the swing a texel lies. Every texel on the smear's grid.
+        /// </summary>
+        void DrawArc(float fade)
+        {
+            var last = _samples[_count - 1];
+            float a1 = last.Angle, a0 = _samples[Mathf.Clamp(_arcFrom, 0, _count - 1)].Angle;
+            float dir = a1 >= a0 ? 1f : -1f;
+            if (Mathf.Abs(a1 - a0) > Tuning.Smear.ArcSpanDegrees) a0 = a1 - dir * Tuning.Smear.ArcSpanDegrees;
+            float span = Mathf.Max(1f, Mathf.Abs(a1 - a0));
+            float ppu = Tuning.Smear.Ppu, half = _size * 0.5f;
+            var c = last.Grip * ppu + new Vector2(half, half);
+            float r1 = last.Length * Tuning.Smear.ArcOuter * ppu, r0 = last.Length * Tuning.Smear.ArcInner * ppu;
+            int x0 = Mathf.Max(0, Mathf.FloorToInt(c.x - r1)), x1 = Mathf.Min(_size - 1, Mathf.CeilToInt(c.x + r1));
+            int y0 = Mathf.Max(0, Mathf.FloorToInt(c.y - r1)), y1 = Mathf.Min(_size - 1, Mathf.CeilToInt(c.y + r1));
+            var tones = Tuning.Smear.ArcTones;
+            for (int y = y0; y <= y1; y++)
+                for (int x = x0; x <= x1; x++)
+                {
+                    float dx = x + 0.5f - c.x, dy = y + 0.5f - c.y, d = Mathf.Sqrt(dx * dx + dy * dy);
+                    if (d < r0 || d > r1) continue;
+                    float ang = Mathf.Atan2(dy, dx) * Mathf.Rad2Deg;
+                    // how far back round the swing from the blade: 0 at the blade, 1 at the arc's start
+                    float back = Mathf.Repeat((a1 - ang) * dir, 360f);
+                    if (back > span) continue;
+                    float fl = back / span, thick = (d - r0) / (r1 - r0);
+                    if (Mathf.Sin(Mathf.PI * thick) * (1f - fl * 0.85f) < 0.25f + fl * 0.3f) continue;
+                    int tone = fl < 0.06f ? 0 : fl < 0.18f ? 1 : fl < 0.36f ? 2 : fl < 0.6f ? 3 : 4;
+                    var col = tones[tone];
+                    col.a = (byte)(col.a * fade);
+                    if (col.a == 0) continue;
+                    _px[y * _size + x] = col;
+                }
         }
 
         void Record(float now)
@@ -163,11 +247,26 @@ namespace Convergence.Combat
             float angle = Mathf.Atan2(along.y, along.x) * Mathf.Rad2Deg;
             if (_count > 0)
                 angle = _samples[_count - 1].Angle + Mathf.DeltaAngle(_samples[_count - 1].Angle, angle);
+            if (_count > 0)
+            {
+                var prev = _samples[_count - 1];
+                float dt = Mathf.Max(1e-4f, now - prev.Time), turn = angle - prev.Angle;
+                // moving = turning faster than ArcMovingDegPerSec; a reversal (the backswing turning into the cut)
+                // starts the arc afresh
+                if (Mathf.Abs(turn) / dt > Tuning.Smear.ArcMovingDegPerSec)
+                {
+                    _movedAt = now;
+                    float sign = Mathf.Sign(turn);
+                    if (_turnDir != 0f && sign != _turnDir) { _arcFrom = _count - 1; _reversed = true; }
+                    _turnDir = sign;
+                }
+            }
 
             if (_count == Capacity)
             {
                 System.Array.Copy(_samples, 1, _samples, 0, Capacity - 1);
                 _count--;
+                _arcFrom = Mathf.Max(0, _arcFrom - 1);
             }
             _samples[_count++] = new Sample
             {
